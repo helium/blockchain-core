@@ -3540,7 +3540,6 @@ deserialize_state_channel(<<2, _/binary>> = SC) ->
 %%%-------------------------------------------------------------------
 %%% SOM Database functions
 %%%-------------------------------------------------------------------
-%% TODO: Don't touch ledger directly. No clue how to use the cache interface on this one....
 -spec witness_for(binary(), Ledger :: ledger()) -> term().
 witness_for(Hotspot, Ledger) ->
     DatapointsCF = datapoints_cf(Ledger),

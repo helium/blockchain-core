@@ -88,9 +88,15 @@ calculate_class(Element, Ledger) ->
     Dst = blockchain_poc_path_element_v1:challengee(Element),
 
     DataPoints = blockchain_ledger_som_v1:retrieve_datapoints(Dst, Ledger),
-
+    ok = blockchain_ledger_som_v1:update_bmus(Dst, DataPoints, Ledger),
+    Data = blockchain_ledger_som_v1:calculate_bmus(Dst, Ledger),
     %% lager:info("Dst: ~p, DataPoints: ~p", [?TO_ANIMAL_NAME(Dst), DataPoints]),
-    Data = blockchain_ledger_som_v1:calculate_som(DataPoints, Dst, Ledger),
+    case Data of
+        {{0,0.0},{0,0.0},{0,0.0}} ->
+            undefined;
+        _ ->
+            lager:info("~p Datapoints: ~p", [Dst, Data])
+    end,
 
     %% lager:info("~p", [Data]),
     {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,

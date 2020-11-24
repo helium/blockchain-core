@@ -44,7 +44,7 @@
          reset_window/2,
          windows/1,
          update_trustees/2,
-         calculate_som/3,
+         calculate_bmus/2,
          clear_som/1,
          clear_bmus/2,
          retrieve_som/1,
@@ -74,16 +74,22 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
     Key2 = <<Dst/binary, Src/binary>>,
     case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key1, []) of
         {ok, Bin} ->
+            lager:info("Datapoints update: ~p", [Key1]),
             N = binary_to_term(Bin),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample | N]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert);
+            %%update_bmus(Key1, ToInsert, Ledger),
+            %%update_bmus(Key2, ToInsert, Ledger);
         not_found ->
+            lager:info("Datapoints not found: ~p", [Key1]),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert)
+            %%update_bmus(Key1, ToInsert, Ledger),
+            %%update_bmus(Key2, ToInsert, Ledger)
     end.
 
 -spec retrieve_datapoints(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -153,43 +159,19 @@ init_som(Ledger) ->
             SOM
     end.
 
--spec update_bmus(bmu_list(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
-update_bmus(BmuList, A, Ledger) ->
+-spec calculate_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
+calculate_bmus(Key, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
-         {ok, _Bin} ->
-             %% TODO: Really should just be appending to this list and rolling it when we reach max window size
-             %%Bmus = binary_to_term(Bin),
-             %%lager:info("Update BMUs for: ~p", [?TO_ANIMAL_NAME(A)]),
-             blockchain_ledger_v1:cache_put(Ledger, BmuCF, <<A/binary>>, term_to_binary(BmuList));
-             %%blockchain_ledger_v1:cache_put(Ledger, BmuCF, <<A/binary>>, term_to_binary(lists:sublist(BmuList ++ Bmus, ?WINDOW_CAP)));
-         not_found ->
-             blockchain_ledger_v1:cache_put(Ledger, BmuCF, <<A/binary>>, term_to_binary(BmuList))
-     end,
-     {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Usum, UDsum}}) -> case Class of
-                                                                              <<"1">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Usum, UDsum}};
-                                                                              <<"0">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Usum, UDsum}};
-                                                                              <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Usum + 1, UDsum + Dist}}
-                                                                          end
-                                end, {{0,0},{0,0},{0,0}}, BmuList),
-     {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}}.
-
-%% write update BMU samples to CF
--spec calculate_som([term()], binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
-calculate_som([], _A, _Ledger) -> {{0,0}, {0,0}, {0,0}};
-calculate_som(DatList, A, Ledger) ->
-    SomCF = blockchain_ledger_v1:som_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
+    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, Bin} ->
-            {ok, Som} = som:from_json(Bin),
-            % Update SOM object here with new sample vec, then put it back in rocks
-            Bmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
-                                     som:winner_vals(Som,
-                                                     [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]) end,
-                             DatList),
-
-            {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}} = update_bmus(Bmus, A, Ledger),
-            %% Return count and average distance weight of all BMU's per class
+            Bmus = binary_to_term(Bin),
+            lager:info("Calculate BMUs for: ~p", [Key]),
+            {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Usum, UDsum}}) -> case Class of
+                                                                             <<"1">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Usum, UDsum}};
+                                                                             <<"0">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Usum, UDsum}};
+                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Usum + 1, UDsum + Dist}}
+                                                                         end
+                               end, {{0,0},{0,0},{0,0}}, Bmus),
             case {Reals, Fakes, Undefs} of
                 {R, F, U} when R == 0, F == 0, U == 0 ->
                     {{Reals, 0}, {Fakes, 0}, {0, 0}};
@@ -203,25 +185,53 @@ calculate_som(DatList, A, Ledger) ->
                     {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
             end;
         not_found ->
-            Som = init_som(Ledger),
+            lager:info("No BMUs to calculate for: ~p", [Key]),
+            {{0,0.0},{0,0.0},{0,0.0}}
+    end.
 
-            Bmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
+-spec update_bmus(binary(), [term()], Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+update_bmus(Key, Values, Ledger) ->
+    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    SomCF = blockchain_ledger_v1:som_cf(Ledger),
+    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
+        {ok, BmusBin} ->
+            Bmus = binary_to_term(BmusBin),
+            case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
+                {ok, SomBin} ->
+                    {ok, Som} = som:from_json(SomBin),
+                    %% Calculate new BMUs with stored SOM
+                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
                                      som:winner_vals(Som,
                                                      [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]) end,
-                             DatList),
-            {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}} = update_bmus(Bmus, A, Ledger),
-            %% Return count and average distance weight of all BMU's per class
-            case {Reals, Fakes, Undefs} of
-                {R, F, U} when R == 0, F == 0, U == 0 ->
-                    {{Reals, 0}, {Fakes, 0}, {0, 0}};
-                {R, F, 0} when R > 0, F == 0 ->
-                    {{R, RDist / R}, {0, 0}, {0, 0}};
-                {R, F, 0} when F > 0, R == 0 ->
-                    {{0, 0}, {F, FDist / F}, {0, 0}};
-                {R, F, 0} when R > 0, F > 0 ->
-                    {{Reals, RDist / Reals}, {Fakes, FDist / Fakes}, {0, 0}};
-                {R, F, U} when R > 0, F > 0, U > 0 ->
-                    {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
+                                        Values),
+                    %% Append BMUs list
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmus ++ Bmus, ?WINDOW_CAP)));
+                not_found ->
+                    Som = init_som(Ledger),
+                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
+                                             som:winner_vals(Som,
+                                                             [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]) end,
+                                        Values),
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmus ++ Bmus, ?WINDOW_CAP)))
+            end;
+        not_found ->
+            case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
+                {ok, SomBin} ->
+                    {ok, Som} = som:from_json(SomBin),
+                    %% Calculate new BMUs with stored SOM
+                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
+                                     som:winner_vals(Som,
+                                                     [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]) end,
+                             Values),
+                    %% Append BMUs list
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmus));
+                not_found ->
+                    Som = init_som(Ledger),
+                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
+                                             som:winner_vals(Som,
+                                                             [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]) end,
+                                     Values),
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmus))
             end
     end.
 
