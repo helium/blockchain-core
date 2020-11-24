@@ -70,19 +70,20 @@
 update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
     DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
     BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
-    Key = <<Src/binary, Dst/binary>>,
-    case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key, []) of
+    Key1 = <<Src/binary, Dst/binary>>,
+    Key2 = <<Dst/binary, Src/binary>>,
+    case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key1, []) of
         {ok, Bin} ->
             N = binary_to_term(Bin),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample | N]),
-            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key, ToInsert),
-            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, ToInsert);
+            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
+            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert);
         not_found ->
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample]),
-            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key, ToInsert),
-            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, ToInsert)
+            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
+            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert)
     end.
 
 -spec retrieve_datapoints(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -158,9 +159,10 @@ update_bmus(BmuList, A, Ledger) ->
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
          {ok, _Bin} ->
              %% TODO: Really should just be appending to this list and rolling it when we reach max window size
-             %% Bmus = binary_to_term(Bin),
+             %%Bmus = binary_to_term(Bin),
              %%lager:info("Update BMUs for: ~p", [?TO_ANIMAL_NAME(A)]),
              blockchain_ledger_v1:cache_put(Ledger, BmuCF, <<A/binary>>, term_to_binary(BmuList));
+             %%blockchain_ledger_v1:cache_put(Ledger, BmuCF, <<A/binary>>, term_to_binary(lists:sublist(BmuList ++ Bmus, ?WINDOW_CAP)));
          not_found ->
              blockchain_ledger_v1:cache_put(Ledger, BmuCF, <<A/binary>>, term_to_binary(BmuList))
      end,
