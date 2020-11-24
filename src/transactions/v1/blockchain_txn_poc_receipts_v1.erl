@@ -1117,17 +1117,12 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-            Challengee = blockchain_poc_path_element_v1:challengee(PreviousElement),
-            DstHotspot = blockchain_poc_path_element_v1:challengee(Element),
             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
                 true ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
                     MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
-                    Filtered = false,
-                    Reason = undefined,
-                    ok = blockchain_ledger_som_v1:update_datapoints(Challengee, DstHotspot, RSSI, SNR, MinRcvSig, Filtered, Reason, Ledger),
                     case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
@@ -1185,7 +1180,6 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
 valid_witnesses(Element, Channel, Ledger) ->
     {ok, Source} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(Element), Ledger),
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-    Challengee = blockchain_poc_path_element_v1:challengee(Element),
 
     lists:filter(fun(Witness) ->
                          {ok, Destination} = blockchain_gateway_cache:get(blockchain_poc_witness_v1:gateway(Witness), Ledger),
@@ -1195,16 +1189,12 @@ valid_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         DstHotspot = blockchain_poc_witness_v1:gateway(Witness),
                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
                              true ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
                                  MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
-                                 Filtered = false,
-                                 Reason = undefined,
-                                 ok = blockchain_ledger_som_v1:update_datapoints(Challengee, DstHotspot, RSSI, SNR, MinRcvSig, Filtered, Reason, Ledger),
                                  case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness
