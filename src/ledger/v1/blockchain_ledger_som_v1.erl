@@ -110,8 +110,8 @@ init_som(Ledger) ->
             {ok, Som} = som:from_json(Serialized),
             Som;
         not_found ->
-            PrivDir = code:priv_dir(miner_pro),
-            File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples.csv"),
+            PrivDir = code:priv_dir(blockchain_core),
+            File = application:get_env(blockchain_core, aggregate_samples_file, "aggregate_samples.csv"),
             TrainingSetFile = PrivDir ++ "/" ++ File,
             {ok, IoDevice} = file:open(TrainingSetFile, [read]),
             Processor = fun({newline, ["pos"|_]}, Acc) ->
