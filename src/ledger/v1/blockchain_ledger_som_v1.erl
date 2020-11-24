@@ -409,14 +409,14 @@ update_windows( _, _, _, _) ->
 
 -spec is_promoted(Window :: window()) -> boolean().
 is_promoted(Window) ->
-    {LatestClass, _} = window_score(Window),
+    {LatestClass, _Data} = window_score(Window),
     LatestClass == ?SCORE_THRESHOLD.
 
 -spec window_score(Window :: window()) -> classification().
 window_score(Window) ->
     case Window of
         [] ->
-            undefined;
+            {undefined, undefined};
         [Head | _Tail] ->
             %%lager:info("Window Head ~p", [Head]),
             {_, _, C} = Head,
