@@ -98,7 +98,7 @@ calculate_class(Element, PreviousElement, Ledger) ->
     Data = blockchain_ledger_som_v1:calculate_bmus(Dst, Ledger),
     {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
     Sum = T+F+U,
-    Result = case Sum of
+    case Sum of
         S when S == 0 ->
             {undefined, Data};
         S when S =< ?MAX_WINDOW_SAMPLES ->
@@ -107,17 +107,15 @@ calculate_class(Element, PreviousElement, Ledger) ->
             Tper = T/S,
             %%_Fper = F/Total,
             %%_Uper = U/Total,
-            R = case Tper of
+            case Tper of
                 X when X > 0.75 ->
                     {real, Data};
                 X when X =< 0.75 andalso X >= 0.5 ->
                     {undefined, Data};
                 X when X < 0.5 ->
                     {fake, Data}
-            end,
-            R
-    end,
-    Result.
+            end
+    end.
 
 process_receipt(undefined, _Element, _Ledger) ->
     undefined;
