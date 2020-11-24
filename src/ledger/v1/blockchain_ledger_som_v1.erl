@@ -161,7 +161,7 @@ calculate_bmus(Key, Ledger) ->
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, Bin} ->
             Bmus = binary_to_term(Bin),
-            lager:info("Calculate BMUs for: ~p", [Key]),
+            %% lager:info("Calculate BMUs for: ~p", [Key]),
             {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Usum, UDsum}}) -> case Class of
                                                                              <<"1">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Usum, UDsum}};
                                                                              <<"0">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Usum, UDsum}};

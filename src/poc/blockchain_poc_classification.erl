@@ -27,7 +27,6 @@ process_assert_loc_txn(Txn, Ledger) ->
                       Ledger :: blockchain_ledger_v1:ledger(),
                       POCHash :: binary()) -> ok.
 process_poc_txn(BlockHeight, Txn, Ledger, POCHash) ->
-    lager:info("Process PoC Txn Classification"),
     case do_process_poc_txn(Txn, Ledger) of
         ok ->
             ok;
@@ -47,11 +46,10 @@ do_process_poc_txn(Txn, Ledger) ->
         L when L > 1 ->
             case assign_scores(Path, L, Ledger) of
                 [_ | _]=TaggedScores ->
-                    lager:info("New scores: ~p", [TaggedScores]),
+                    %% lager:info("New scores: ~p", [TaggedScores]),
                     {ok, TaggedScores};
                 [] ->
                     %% There were no new scores, do nothing
-                    lager:info("No new scores..."),
                     ok
             end;
         _ ->
@@ -90,14 +88,7 @@ calculate_class(Element, Ledger) ->
     ok = blockchain_ledger_som_v1:update_bmus(Dst, DataPoints, Ledger),
     Data = blockchain_ledger_som_v1:calculate_bmus(Dst, Ledger),
     %% lager:info("Dst: ~p, DataPoints: ~p", [?TO_ANIMAL_NAME(Dst), DataPoints]),
-    case Data of
-        {{0,0.0},{0,0.0},{0,0.0}} ->
-            undefined;
-        _ ->
-            lager:info("~p Datapoints: ~p", [Dst, Data])
-    end,
-
-    %% lager:info("~p", [Data]),
+    %%lager:info("~p Datapoints: ~p", [Dst, Data])
     {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
     Sum = T+F+U,
     Result = case Sum of
