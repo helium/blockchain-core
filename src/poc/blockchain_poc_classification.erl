@@ -34,7 +34,7 @@ process_poc_txn(BlockHeight, Txn, Ledger, POCHash) ->
             ok;
         {ok, HotspotWindowUpdates} ->
             %POCHash = blockchain_txn_poc_receipts_v1:hash(POC),
-            ok = blockchain_ledger_som_v1:update_windows(Ledger, BlockHeight, POCHash, HotspotWindowUpdates)
+            blockchain_ledger_som_v1:update_windows(Ledger, BlockHeight, POCHash, HotspotWindowUpdates)
     end.
 
 -spec do_process_poc_txn(Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),
