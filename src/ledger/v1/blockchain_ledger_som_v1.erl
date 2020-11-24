@@ -124,14 +124,14 @@ init_som(Ledger) ->
 
             Samples = shuffle(ProcessedRows),
 
-            {ok, SOM} = som:new(10, 10, 3, false, #{classes => #{<<"1">> => 0.0, <<"0">> => 0.0}, custom_weighting => false}),
+            {ok, SOM} = som:new(15, 15, 3, false, #{classes => #{<<"1">> => 0.0, <<"0">> => 0.0}, custom_weighting => false}),
 
             %% divide training and testing data
             {Supervised, Unsupervised} = lists:partition(fun(_) -> rand:uniform(100) < 90 end, shuffle(Samples)),
             {SupervisedSamples, SupervisedClasses} = lists:unzip(Supervised),
 
             %% Train the network through supervised learning
-            som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 2000),
+            som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 3000),
 
             %% Estimate trained map accuracy
             Matched = lists:foldl(fun({Sample, Class}, Acc) ->
