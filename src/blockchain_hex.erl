@@ -9,6 +9,7 @@
 -type var_map() :: #{non_neg_integer() => map()}.
 -type hex_resolutions() :: [non_neg_integer()].
 -type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(),...]}.
+-type h3_indices() :: [h3:h3_index()].
 
 %%--------------------------------------------------------------------
 %% Public functions
@@ -115,7 +116,7 @@ densities(VarMap, Locations) ->
 
     {UDensities, Densities}.
 
--spec build_densities(var_map(), locations(), densities(), [non_neg_integer()]) -> densities().
+-spec build_densities(var_map(), h3_indices(), densities(), [non_neg_integer()]) -> densities().
 build_densities(_VarMap, _ParentHexes, {UAcc, Acc}, []) ->
     {UAcc, Acc};
 build_densities(VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) ->

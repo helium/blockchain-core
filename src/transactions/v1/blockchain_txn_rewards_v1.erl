@@ -522,8 +522,12 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     %% check if there were any legitimate witnesses
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-    {ok, ChallengeeGw} = blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
-    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+    ChallengeeLoc = case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
+                        {ok, ChallengeeGw} ->
+                            blockchain_ledger_gateway_v2:location(ChallengeeGw);
+                        _ ->
+                            undefined
+                    end,
     I = maps:get(Challengee, Acc0, 0),
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
@@ -751,6 +755,7 @@ poc_witnesses_rewards(Transactions,
                                                           lists:foldl(
                                                             fun(WitnessRecord, Map) ->
                                                                     Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                    %% A witness must be on the ledger AND have a location, so this should be safe
                                                                     {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(Witness, Ledger),
                                                                     WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                                                     RxScale = blockchain_hex:scale(WitnessLoc,
@@ -1016,6 +1021,16 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
             blockchain_txn_poc_receipts_v1:good_quality_witnesses(Elem, Ledger);
         _ ->
             blockchain_poc_path_element_v1:witnesses(Elem)
+    end.
+
+maybe_calc_tx_scale(DensityTgtRes,
+                    ChallengeeLoc,
+                    UnclippedDensities,
+                    ClippedDensities) ->
+    case {DensityTgtRes, ChallengeeLoc} of
+        {undefined, _} -> 1.0;
+        {_, undefined} -> 1.0;
+        {D, Loc} -> blockchain_hex:scale(Loc, D, UnclippedDensities, ClippedDensities)
     end.
 
 %%--------------------------------------------------------------------
@@ -1792,15 +1807,3 @@ common_poc_vars() ->
     }.
 
 -endif.
-
-maybe_calc_tx_scale(DensityTgtRes,
-                    ChallengeeLoc,
-                    UnclippedDensities,
-                    ClippedDensities) ->
-    case DensityTgtRes of
-        undefined -> 1.0;
-        D -> blockchain_hex:scale(ChallengeeLoc,
-                                  D,
-                                  UnclippedDensities,
-                                  ClippedDensities)
-    end.
