@@ -27,6 +27,7 @@ process_assert_loc_txn(Txn, Ledger) ->
                       Ledger :: blockchain_ledger_v1:ledger(),
                       POCHash :: binary()) -> ok.
 process_poc_txn(BlockHeight, Txn, Ledger, POCHash) ->
+    lager:info("Process PoC Txn Classification"),
     case do_process_poc_txn(Txn, Ledger) of
         ok ->
             ok;
@@ -46,9 +47,11 @@ do_process_poc_txn(Txn, Ledger) ->
         L when L > 1 ->
             case assign_scores(Path, L, Ledger) of
                 [_ | _]=TaggedScores ->
+                    lager:info("New scores: ~p", [TaggedScores]),
                     {ok, TaggedScores};
                 [] ->
                     %% There were no new scores, do nothing
+                    lager:info("No new scores..."),
                     ok
             end;
         _ ->
@@ -92,7 +95,7 @@ calculate_class(Element, Ledger) ->
     %% lager:info("~p", [Data]),
     {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
     Sum = T+F+U,
-    case Sum of
+    Result = case Sum of
         S when S == 0 ->
             {undefined, Data};
         S when S =< ?MAX_WINDOW_SAMPLES ->
@@ -101,7 +104,7 @@ calculate_class(Element, Ledger) ->
             Tper = T/S,
             %%_Fper = F/Total,
             %%_Uper = U/Total,
-            Result = case Tper of
+            R = case Tper of
                 X when X > 0.65 ->
                     {real, Data};
                 X when X =< 0.65 andalso X >= 0.5 ->
@@ -109,9 +112,11 @@ calculate_class(Element, Ledger) ->
                 X when X < 0.5 ->
                     {fake, Data}
             end,
-            lager:info("~p | classification results: ~p", [?TO_ANIMAL_NAME(Dst), Result]),
-            Result
-    end.
+            lager:info("~p | classification results: ~p", [?TO_ANIMAL_NAME(Dst), R]),
+            R
+    end,
+    lager:info("Calculate Class Result: ~p", [Result]),
+    Result.
 
 -spec load_promoted_trustees(Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:trustees().
 load_promoted_trustees(Ledger) ->
