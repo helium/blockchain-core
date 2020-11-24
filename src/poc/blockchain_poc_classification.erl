@@ -149,7 +149,7 @@ process_witness(Element, Ledger) ->
     SrcHotspot = blockchain_poc_path_element_v1:challengee(Element),
     {ok, Source} = blockchain_gateway_cache:get(SrcHotspot, Ledger),
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-    lists:filter(fun(Witness) ->
+    lists:foreach(fun(Witness) ->
                          DstHotspot = blockchain_poc_witness_v1:gateway(Witness),
                          {ok, Destination} = blockchain_gateway_cache:get(DstHotspot, Ledger),
                          SourceLoc = blockchain_ledger_gateway_v2:location(Source),
