@@ -80,16 +80,12 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
             ToInsert = term_to_binary([Sample | N]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert);
-            %%update_bmus(Key1, ToInsert, Ledger),
-            %%update_bmus(Key2, ToInsert, Ledger);
         not_found ->
             lager:info("Datapoints not found: ~p", [Key1]),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert)
-            %%update_bmus(Key1, ToInsert, Ledger),
-            %%update_bmus(Key2, ToInsert, Ledger)
     end.
 
 -spec retrieve_datapoints(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -108,7 +104,7 @@ shuffle(List) ->
 
 init_som(Ledger) ->
     SomCF = blockchain_ledger_v1:som_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, SomCF, global, []) of
+    case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
         {ok, Bin} ->
             Serialized = binary_to_list(Bin),
             {ok, Som} = som:from_json(Serialized),

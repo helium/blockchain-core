@@ -86,7 +86,6 @@ acc_scores(Index, Path, Ledger, Acc) ->
                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:classification().
 calculate_class(Element, Ledger) ->
     Dst = blockchain_poc_path_element_v1:challengee(Element),
-
     DataPoints = blockchain_ledger_som_v1:retrieve_datapoints(Dst, Ledger),
     ok = blockchain_ledger_som_v1:update_bmus(Dst, DataPoints, Ledger),
     Data = blockchain_ledger_som_v1:calculate_bmus(Dst, Ledger),
