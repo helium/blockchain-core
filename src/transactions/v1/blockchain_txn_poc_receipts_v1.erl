@@ -725,8 +725,8 @@ absorb(Txn, Chain) ->
                                                                   FR ->
                                                                       ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
                                                               end
-                                                      end, ok, Txn, Ledger, Chain),
-                        ok = blockchain_poc_classification:process_poc_txn(Height, Txn, Ledger, ?MODULE:hash(Txn));
+                                                      end, ok, Txn, Ledger, Chain);
+                        %%ok = blockchain_poc_classification:process_poc_txn(Height, Txn, Ledger, ?MODULE:hash(Txn));
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
@@ -739,7 +739,7 @@ absorb(Txn, Chain) ->
                                 ok = insert_witnesses(Path, Lower, Upper, Ledger)
                         end
                 end,
-                %%ok = blockchain_poc_classification:process_poc_txn(Height, Txn, Ledger, ?MODULE:hash(Txn)),
+                ok = blockchain_poc_classification:process_poc_txn(Height, Txn, Ledger, ?MODULE:hash(Txn)),
                 %%NewTrustees = blockchain_poc_classification:load_promoted_trustees(Ledger),
                 %%ok = blockchain_ledger_som_v1:update_trustees(NewTrustees, Ledger),
                 case blockchain:config(?poc_version, Ledger) of
