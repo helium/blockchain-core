@@ -1210,7 +1210,7 @@ poc_challengees_rewards_1_test() ->
         {gateway, poc_challengees, <<"a">>} => 117,
         {gateway, poc_challengees, <<"b">>} => 233
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengees_rewards_2_test() ->
@@ -1269,7 +1269,7 @@ poc_challengees_rewards_2_test() ->
         {gateway, poc_challengees, <<"a">>} => 117,
         {gateway, poc_challengees, <<"b">>} => 233
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengees_rewards_3_test() ->
@@ -1337,7 +1337,7 @@ poc_challengees_rewards_3_test() ->
         %% c gets 2 shares
         {gateway, poc_challengees, <<"c">>} => 44
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_witnesses_rewards_test() ->
@@ -1393,7 +1393,7 @@ poc_witnesses_rewards_test() ->
     Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
                 {gateway,poc_witnesses,<<"b">>} => 25},
 
-    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}), EpochVars)),
+    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}, #{}, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengers_rewards_test() ->
@@ -1449,7 +1449,7 @@ old_poc_challengees_rewards_version_1_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengees_rewards_version_2_test() ->
@@ -1495,7 +1495,7 @@ old_poc_challengees_rewards_version_2_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_witnesses_rewards_test() ->
@@ -1529,7 +1529,7 @@ old_poc_witnesses_rewards_test() ->
         {gateway, poc_witnesses, <<"1">>} => 25,
         {gateway, poc_witnesses, <<"2">>} => 25
     },
-    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}), EpochVars)),
+    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}, #{}, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 dc_rewards_test() ->
@@ -1726,8 +1726,8 @@ dc_rewards_v3_spillover_test() ->
 
     %% compute the original rewards with no spillover
     ChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), Vars),
-    ChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}), Vars),
-    WitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}), Vars),
+    ChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars),
+    WitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars),
 
     ChallengersAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengers_percent, Vars)),
     ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward}, ChallengerRewards), %% entire 15% allocation
@@ -1743,8 +1743,8 @@ dc_rewards_v3_spillover_test() ->
 
     %% apply the DC remainder, if any to the other PoC categories pro rata
     SpilloverChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), NewVars),
-    SpilloverChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}), NewVars),
-    SpilloverWitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}), NewVars),
+    SpilloverChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), NewVars),
+    SpilloverWitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), NewVars),
 
     ChallengerSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengers_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
                                                                                                        maps:get(poc_witnesses_percent, Vars) +
