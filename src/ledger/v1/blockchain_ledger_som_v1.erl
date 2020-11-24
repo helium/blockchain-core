@@ -108,8 +108,8 @@ init_som(Ledger) ->
             {ok, Som} = som:from_json(Serialized),
             Som;
         not_found ->
-            PrivDir = code:priv_dir(miner_pro),
-            File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples.csv"),
+            PrivDir = code:priv_dir(blockchain),
+            File = application:get_env(blockchain, aggregate_samples_file, "aggregate_samples.csv"),
             TrainingSetFile = PrivDir ++ "/" ++ File,
             {ok, IoDevice} = file:open(TrainingSetFile, [read]),
             Processor = fun({newline, ["pos"|_]}, Acc) ->
@@ -179,7 +179,6 @@ calculate_bmus(Key, Ledger) ->
                     {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
             end;
         not_found ->
-            lager:info("No BMUs to calculate for: ~p", [Key]),
             {{0,0.0},{0,0.0},{0,0.0}}
     end.
 

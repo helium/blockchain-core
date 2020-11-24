@@ -96,8 +96,6 @@ calculate_class(Element, PreviousElement, Ledger) ->
     DataPoints = blockchain_ledger_som_v1:retrieve_datapoints(Dst, Ledger),
     ok = blockchain_ledger_som_v1:update_bmus(Dst, DataPoints, Ledger),
     Data = blockchain_ledger_som_v1:calculate_bmus(Dst, Ledger),
-    %% lager:info("Dst: ~p, DataPoints: ~p", [?TO_ANIMAL_NAME(Dst), DataPoints]),
-    %%lager:info("~p Datapoints: ~p", [Dst, Data])
     {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
     Sum = T+F+U,
     Result = case Sum of
@@ -117,7 +115,6 @@ calculate_class(Element, PreviousElement, Ledger) ->
                 X when X < 0.5 ->
                     {fake, Data}
             end,
-            lager:info("~p | classification results: ~p", [?TO_ANIMAL_NAME(Dst), R]),
             R
     end,
     Result.
