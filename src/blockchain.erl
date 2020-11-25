@@ -788,11 +788,12 @@ can_add_block(Block, Blockchain) ->
                                                     %% far as we know; there was a bug with a few
                                                     %% txns not being in the sorting order and they
                                                     %% got in there wrong in that one block
-                                                    F = fun(T) ->
+                                                    Filter =
+                                                        fun(T) ->
                                                                 blockchain_txn:type(T) /= blockchain_txn_state_channel_close_v1
                                                         end,
-                                                    Txns2 = lists:filter(F, Txns),
-                                                    Sorted2 = lists:filter(F, SortedTxns),
+                                                    Txns2 = lists:filter(Filter, Txns),
+                                                    Sorted2 = lists:filter(Filter, SortedTxns),
                                                     SortedTxns2 = lists:sort(fun blockchain_txn:sort/2, Sorted2),
                                                     case Txns2 == SortedTxns2 of
                                                         false ->
