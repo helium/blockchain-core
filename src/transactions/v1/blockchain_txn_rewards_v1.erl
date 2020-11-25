@@ -250,12 +250,22 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                 true ->
                     {error, already_existing_rewards};
                 false ->
-                    {UnclippedDensities, ClippedDensities} = blockchain_hex:densities(Ledger),
-                    get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
-                                          poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
-                                          poc_challengees_rewards(Transactions, Vars, Chain, Ledger, ChallengeeRewards, UnclippedDensities, ClippedDensities),
-                                          poc_witnesses_rewards(Transactions, Vars, Chain, Ledger, WitnessRewards, UnclippedDensities, ClippedDensities),
-                                          dc_rewards(Transactions, End, Vars, Ledger, DCRewards))
+                    case blockchain_hex:densities(Ledger) of
+                        {error, {hip17_vars_not_set, _}} ->
+                            %% do the old thing
+                            get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
+                                                  poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
+                                                  poc_challengees_rewards(Transactions, Vars, Chain, Ledger, ChallengeeRewards, #{}, #{}),
+                                                  poc_witnesses_rewards(Transactions, Vars, Chain, Ledger, WitnessRewards, #{}, #{}),
+                                                  dc_rewards(Transactions, End, Vars, Ledger, DCRewards));
+                        {ok, {UnclippedDensities, ClippedDensities}} ->
+                            %% do the new thing
+                            get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
+                                                  poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
+                                                  poc_challengees_rewards(Transactions, Vars, Chain, Ledger, ChallengeeRewards, UnclippedDensities, ClippedDensities),
+                                                  poc_witnesses_rewards(Transactions, Vars, Chain, Ledger, WitnessRewards, UnclippedDensities, ClippedDensities),
+                                                  dc_rewards(Transactions, End, Vars, Ledger, DCRewards))
+                    end
             end
     end.
 
