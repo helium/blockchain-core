@@ -231,7 +231,7 @@ block_time() ->
 check_path_h3_indices(Path, ActiveGateways) ->
     %% check every path member has a unique h3 index
     PathIndices = lists:foldl(fun(PubkeyBin, Acc) ->
-                                      [blockchain_ledger_gateway_v2:location(maps:get(PubkeyBin, ActiveGateways)) | Acc]
+                                      [blockchain_ledger_gateway_v3:location(maps:get(PubkeyBin, ActiveGateways)) | Acc]
                               end,
                               [],
                               Path),
@@ -241,7 +241,7 @@ check_next_hop([_H], _ActiveGateways) ->
     true;
 check_next_hop([H | T], ActiveGateways) ->
     HGw = maps:get(H, ActiveGateways),
-    case maps:is_key(hd(T), blockchain_ledger_gateway_v2:witnesses(HGw)) of
+    case maps:is_key(hd(T), blockchain_ledger_gateway_v3:witnesses(HGw)) of
         true ->
             check_next_hop(T, ActiveGateways);
         false ->

@@ -19,7 +19,7 @@ prop_target_check() ->
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 Hash = crypto:strong_rand_bytes(32),
                 Vars = maps:merge(default_vars(), targeting_vars()),
-                Check = case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
+                Check = case blockchain_ledger_gateway_v3:location(maps:get(Challenger, ActiveGateways)) of
                             undefined ->
                                 true;
                             _ChallengerLoc ->
@@ -36,7 +36,7 @@ prop_target_check() ->
                                 %% {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
                                 %% {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),
                                 %% {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
-                                %% TargetLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+                                %% TargetLoc = blockchain_ledger_gateway_v3:location(maps:get(TargetPubkeyBin, ActiveGateways)),
                                 %% {ok, Dist} = vincenty:distance(h3:to_geo(TargetLoc), h3:to_geo(ChallengerLoc)),
                                 %% ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
                                 %% synthesize this from the location

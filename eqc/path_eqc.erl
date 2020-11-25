@@ -234,7 +234,7 @@ indexed_target(Hash, Index, ScoredIndices, ActiveGateways, Ledger) ->
     {TargetIndex, {_A, _B}} = lists:nth(Index + 1, ScoredIndices),
 
     {TargetGwBin, _} = hd(lists:filter(fun({_K, V}) ->
-                                               blockchain_ledger_gateway_v2:location(V) == TargetIndex
+                                               blockchain_ledger_gateway_v3:location(V) == TargetIndex
                                        end,
                                        maps:to_list(ActiveGateways))),
 
