@@ -152,7 +152,7 @@ neighbors(Neighbors, Gateway) ->
     Gateway#gateway_v3{neighbors = Neighbors}.
 
 is_trusted(#gateway_v3{trusted_pocs = PoCs}) ->
-    lists:sum(element(2, lists:unzip(PoCs))) > 0.
+    length(PoCs) >= 25 andalso lists:sum(element(2, lists:unzip(PoCs))) > 0.
 
 add_trusted_poc_result(Height, PoCSuceeded, Gateway) ->
     CurrentPoCCount = case lists:keyfind(Height, 1, Gateway#gateway_v3.trusted_pocs) of
