@@ -122,33 +122,14 @@ init_som(Ledger) ->
                                  Acc
                          end,
             {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
-
-            Samples = shuffle(ProcessedRows),
-
-            {ok, SOM} = som:new(15, 15, 3, false, #{classes => #{<<"1">> => 0.0, <<"0">> => 0.0}, custom_weighting => false}),
-
-            %% divide training and testing data
-            {Supervised, Unsupervised} = lists:partition(fun(_) -> rand:uniform(100) < 90 end, shuffle(Samples)),
-            {SupervisedSamples, SupervisedClasses} = lists:unzip(Supervised),
-
+            {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
+            {ok, SOM} = som:new(15, 15, 3, false, #{classes => #{<<"1">> => 0.0, <<"0">> => 0.0},
+                                                    custom_weighting => false,
+                                                    sigma => 0.75,
+                                                    random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
+                                                                    186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
             %% Train the network through supervised learning
             som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 3000),
-
-            %% Estimate trained map accuracy
-            Matched = lists:foldl(fun({Sample, Class}, Acc) ->
-                                          case som:winner_vals(SOM, Sample) of
-                                              {_, Class} ->
-                                                  Acc + 1;
-                                              {_, <<"0">>} ->
-                                                  %% false negative, leave this uncommented to make that not count as a fail
-                                                  Acc + 1;
-                                              _ ->
-                                                  lager:info("mismatch ~p ~p ~p", [Sample, Class, som:winner_vals(SOM, Sample)]),
-                                                  Acc
-                                          end
-                                  end, 0, Unsupervised),
-            lager:info("matched ~p/~p => ~p%", [Matched, length(Unsupervised), Matched / length(Unsupervised) * 100]),
-
             {ok, Serialized} = som:export_json(SOM),
             blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized),
             SOM
