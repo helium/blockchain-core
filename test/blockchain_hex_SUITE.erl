@@ -17,7 +17,8 @@
     non_zero_test/1,
     known_values_test/1,
     known_differences_test/1,
-    scale_test/1
+    scale_test/1,
+    h3dex_test/1
 ]).
 
 %% Values taken from python model
@@ -90,7 +91,8 @@ all() ->
         non_zero_test,
         known_values_test,
         known_differences_test,
-        scale_test
+        scale_test,
+        h3dex_test
     ].
 
 %%--------------------------------------------------------------------
@@ -223,6 +225,27 @@ scale_test(Config) ->
                        end, lists:seq(12, 0, -1)),
 
     %% TODO: Assert checks from the python model
+
+    ok.
+
+h3dex_test(Config) ->
+    Ledger = ?config(ledger, Config),
+
+    %% A known hotspot hex at res=12, there's only one here
+    Hex = 631236347406370303,
+    HexPubkeyBin = <<0,161,86,254,148,82,27,153,2,52,158,118,1,178,133,150,238,
+                     135,228,40,114,253,149,194,89,170,68,170,122,230,130,196,
+                     139>>,
+
+    Gateways = blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger),
+
+    GotPubkeyBin = hd(maps:get(Hex, Gateways)),
+
+    ?assertEqual(1, map_size(Gateways)),
+    ?assertEqual(GotPubkeyBin, HexPubkeyBin),
+
+    ct:pal("Hex: ~p", [Hex]),
+    ct:pal("Gateways: ~p", [Gateways]),
 
     ok.
 
