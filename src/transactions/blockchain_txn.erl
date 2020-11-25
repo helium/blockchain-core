@@ -111,9 +111,13 @@
     {blockchain_txn_state_channel_open_v1, 21},
     {blockchain_txn_update_gateway_oui_v1, 22},
     {blockchain_txn_price_oracle_v1, 23},
-    {blockchain_txn_token_burn_v1, 24},
-    {blockchain_txn_state_channel_close_v1, 25},
-    {blockchain_txn_transfer_hotspot_v1, 26}
+    {blockchain_txn_state_channel_close_v1, 24},
+    {blockchain_txn_token_burn_v1, 25},
+    {blockchain_txn_transfer_hotspot_v1, 26},
+    %% UNUSED just added for completeness
+    {blockchain_txn_bundle_v1, 27},
+    %% UNUSED just added for completeness
+    {blockchain_txn_gen_price_oracle_v1, 28}
 ]).
 
 block_delay() ->
@@ -498,14 +502,20 @@ print(Txn, Verbose) ->
 -spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
-    try Type:is_valid(Txn, Chain) of
-        Res ->
-            Res
-    catch
-        What:Why:Stack ->
-            lager:warning("crash during validation: ~p ~p", [Why, Stack]),
-            {error, {Type, What, {Why, Stack}}}
-end.
+    case lists:keysearch(Type, 1, ?ORDER) of
+        {value, _} ->
+            try Type:is_valid(Txn, Chain) of
+                Res ->
+                    Res
+            catch
+                What:Why:Stack ->
+                    lager:warning("crash during validation: ~p ~p", [Why, Stack]),
+                    {error, {Type, What, {Why, Stack}}}
+            end;
+        false ->
+            lager:warning("txn not in sort order ~p : ~s", [Type, print(Txn)]),
+            {error, missing_sort_order}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
