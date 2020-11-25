@@ -13,7 +13,7 @@
     version/1, version/2,
     add_neighbor/2, remove_neighbor/2,
     neighbors/1, neighbors/2,
-    is_trusted/1, add_trusted_poc_result/3,
+    is_trusted/1, add_trusted_poc_result/3, trust_score/1,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -156,6 +156,9 @@ is_trusted(#gateway_v3{trusted_pocs = []}) ->
 is_trusted(#gateway_v3{trusted_pocs = PoCs}) ->
     lager:info("is trusted? ~p ~p", [length(PoCs), lists:sum(element(2, lists:unzip(PoCs)))]),
     length(PoCs) >= 25 andalso lists:sum(element(2, lists:unzip(PoCs))) > 0.
+
+trust_score(#gateway_v3{trusted_pocs = PoCs}) ->
+    {length(PoCs), lists:sum(element(2, lists:unzip(PoCs)))}.
 
 add_trusted_poc_result(Height, PoCSuceeded, Gateway) ->
     CurrentPoCCount = case lists:keyfind(Height, 1, Gateway#gateway_v3.trusted_pocs) of
