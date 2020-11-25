@@ -502,14 +502,20 @@ print(Txn, Verbose) ->
 -spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
-    try Type:is_valid(Txn, Chain) of
-        Res ->
-            Res
-    catch
-        What:Why:Stack ->
-            lager:warning("crash during validation: ~p ~p", [Why, Stack]),
-            {error, {Type, What, {Why, Stack}}}
-end.
+    case lists:keysearch(Type, 1, ?ORDER) of
+        {value, _} ->
+            try Type:is_valid(Txn, Chain) of
+                Res ->
+                    Res
+            catch
+                What:Why:Stack ->
+                    lager:warning("crash during validation: ~p ~p", [Why, Stack]),
+                    {error, {Type, What, {Why, Stack}}}
+            end;
+        false ->
+            lager:warning("txn not in sort order ~p : ~s", [Type, print(Txn)]),
+            {error, missing_sort_order}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
