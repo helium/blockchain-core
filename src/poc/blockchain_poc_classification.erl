@@ -171,8 +171,8 @@ update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, S
                 {{_, _Dist}, <<"1">>} -> 1;
                 {{_, _Dist}, <<"undefined">>} -> 0
             end,
-    case {lists:member(libp2p_crypto:pubkey_to_b58(SrcHotspot), application:get_env(miner_pro, init_trustees, [])) orelse blockchain_ledger_gateway_v3:is_trusted(Source),
-         lists:member(libp2p_crypto:pubkey_to_b58(DstHotspot), application:get_env(miner_pro, init_trustees, [])) orelse blockchain_ledger_gateway_v3:is_trusted(Destination)} of
+    case {lists:member(libp2p_crypto:bin_to_b58(SrcHotspot), application:get_env(miner_pro, init_trustees, [])) orelse blockchain_ledger_gateway_v3:is_trusted(Source),
+         lists:member(libp2p_crypto:bin_to_b58(DstHotspot), application:get_env(miner_pro, init_trustees, [])) orelse blockchain_ledger_gateway_v3:is_trusted(Destination)} of
         {false, false} ->
             %% neither side is trusted, do nothing
             ok;
@@ -187,7 +187,7 @@ update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, S
             blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source),
             blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination);
         {true, true} ->
-            lager:warning("Trust propogation from ~p to ~p failed", [libp2p_crypto:pubkey_to_b58(SrcHotspot), libp2p_crypto:pubkey_to_b58(DstHotspot), RSSI, SNR, MinRcvSig])
+            lager:warning("Trust propogation from ~p to ~p failed", [libp2p_crypto:bin_to_b58(SrcHotspot), libp2p_crypto:bin_to_b58(DstHotspot), RSSI, SNR, MinRcvSig])
     end.
 
 
