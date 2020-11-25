@@ -5,7 +5,7 @@
 -include("blockchain_vars.hrl").
 
 -type density_map() :: #{h3:h3_index() => pos_integer()}.
--type densities() :: {density_map(), density_map()}.
+-type densities() :: {UnclippedDensities :: density_map(), ClippedDensities :: density_map()}.
 -type var_map() :: #{non_neg_integer() => map()}.
 -type hex_resolutions() :: [non_neg_integer()].
 -type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(),...]}.
