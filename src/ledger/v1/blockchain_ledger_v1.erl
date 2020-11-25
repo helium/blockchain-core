@@ -3156,8 +3156,8 @@ lookup_gateways_from_hex(Hex, Ledger) ->
                fun({Key, GWs}, Acc) ->
                        maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
                end, #{}, [
-                          {start, find_lower_bound_hex(Hex)},
-                          {iterate_upper_bound, h3_to_key(Hex)}
+                          {start, {seek, find_lower_bound_hex(Hex)}},
+                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
                          ]
               ).
 
