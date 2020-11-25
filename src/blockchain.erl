@@ -784,7 +784,17 @@ can_add_block(Block, Blockchain) ->
                                             SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
                                             case Txns == SortedTxns of
                                                 false ->
-                                                    {error, wrong_txn_order};
+                                                    Sorted2 = lists:filter(
+                                                                fun(T) ->
+                                                                        blockchain_txn:type(T) /= blockchain_txn_state_channel_close_v1
+                                                                end, SortedTxns),
+                                                    SortedTxns2 = lists:sort(fun blockchain_txn:sort/2, Sorted2),
+                                                    case Txns == SortedTxns2 of
+                                                        false ->
+                                                            {error, wrong_txn_order};
+                                                        true ->
+                                                            {true, IsRescue}
+                                                    end;
                                                 true ->
                                                     {true, IsRescue}
                                             end
