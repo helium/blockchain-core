@@ -151,6 +151,8 @@ neighbors(Gateway) ->
 neighbors(Neighbors, Gateway) ->
     Gateway#gateway_v3{neighbors = Neighbors}.
 
+is_trusted(#gateway_v3{trusted_pocs = []}) ->
+    false;
 is_trusted(#gateway_v3{trusted_pocs = PoCs}) ->
     lager:info("is trusted? ~p ~p", [length(PoCs), lists:sum(element(2, lists:unzip(PoCs)))]),
     length(PoCs) >= 25 andalso lists:sum(element(2, lists:unzip(PoCs))) > 0.
