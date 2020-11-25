@@ -573,7 +573,7 @@ deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
     convert(V1);
 deserialize(<<2, _/binary>>=Bin) ->
-    V2 = blockchain_ledger_gateway_v2:deserialize(Bin),
+    V2 = blockchain_ledger_gateway_v3:deserialize(Bin),
     convert(V2);
 deserialize(<<3, Bin/binary>>) ->
     Gw1 = erlang:binary_to_term(Bin),

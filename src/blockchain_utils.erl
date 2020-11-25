@@ -59,7 +59,7 @@
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
--type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+-type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v3:gateway(), float()}}.
 
 -export_type([gateway_score_map/0, zone_map/0]).
 
@@ -257,7 +257,7 @@ score_gateways(Ledger) ->
 score_tagged_gateways(Height, Ledger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     maps:map(fun(A, G) ->
-                     {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
+                     {_, _, S} = blockchain_ledger_gateway_v3:score(A, G, Height, Ledger),
                      {G, S}
              end, Gateways).
 

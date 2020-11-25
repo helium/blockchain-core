@@ -566,7 +566,7 @@ poc_request_test(Config) ->
 
     % Check that the Gateway is there
     {ok, GwInfo} = blockchain_gateway_cache:get(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
 
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
@@ -600,8 +600,8 @@ poc_request_test(Config) ->
     ?assertEqual({ok, Block26}, blockchain:get_block(HeadHash3, Chain)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo2} = blockchain_gateway_cache:get(Gateway, Ledger),
-    ?assertEqual(26, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo2)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo2)),
+    ?assertEqual(26, blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo2)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v3:last_poc_onion_key_hash(GwInfo2)),
 
     % Check that the PoC info
     {ok, [PoC]} = blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger),
@@ -647,8 +647,8 @@ poc_request_test(Config) ->
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo3} = blockchain_gateway_cache:get(Gateway, Ledger),
-    ?assertEqual(63, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo3)),
-    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo3)),
+    ?assertEqual(63, blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo3)),
+    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v3:last_poc_onion_key_hash(GwInfo3)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     ?assert(meck:validate(blockchain_ledger_v1)),
@@ -782,7 +782,7 @@ export_test(Config) ->
     ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
     {ok, GwInfo} = blockchain_gateway_cache:get(Gateway, blockchain:ledger(Chain)),
 
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
 
     timer:sleep(500),
 
@@ -1387,7 +1387,7 @@ epoch_reward_test(Config) ->
 
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, find_gateway_info, fun(Address, _Ledger) ->
-        {ok, blockchain_ledger_gateway_v2:new(Address, 12)}
+        {ok, blockchain_ledger_gateway_v3:new(Address, 12)}
     end),
 
     % Add few empty blocks to fake epoch
@@ -1450,7 +1450,7 @@ election_test(Config) ->
          {ok, I} = blockchain_gateway_cache:get(Addr, Ledger1),
          Alpha = (rand:uniform() * 10.0) + 1.0,
          Beta = (rand:uniform() * 10.0) + 1.0,
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I2 = blockchain_ledger_gateway_v3:set_alpha_beta_delta(Alpha, Beta, 1, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
@@ -1475,7 +1475,7 @@ election_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_gateway_cache:get(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, I, 1, Ledger),
              {Score, Addr}
          end
          || Addr <- New],
@@ -1513,7 +1513,7 @@ election_v3_test(Config) ->
          {ok, I} = blockchain_gateway_cache:get(Addr, Ledger1),
          Alpha = 20.0,
          Beta = 1.0,
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I2 = blockchain_ledger_gateway_v3:set_alpha_beta_delta(Alpha, Beta, 1, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
@@ -1581,7 +1581,7 @@ election_v3_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_gateway_cache:get(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, I, 1, Ledger),
              {Score, Addr}
          end
          || Addr <- New],
@@ -1590,8 +1590,8 @@ election_v3_test(Config) ->
         [begin
              {ok, I} = blockchain_gateway_cache:get(Addr, Ledger),
              %% this is at the wrong res but it shouldn't matter?
-             Loc = blockchain_ledger_gateway_v2:location(I),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             Loc = blockchain_ledger_gateway_v3:location(I),
+             {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, I, 1, Ledger),
              {Score, Loc, Addr}
          end
          || Addr <- OldGroup],
@@ -1649,7 +1649,7 @@ election_v4_test(Config) ->
          {ok, I} = blockchain_gateway_cache:get(Addr, Ledger1),
          Alpha = 1.0 + rand:uniform(20),
          Beta = 1.0 + rand:uniform(4),
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I2 = blockchain_ledger_gateway_v3:set_alpha_beta_delta(Alpha, Beta, 1, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
@@ -1716,7 +1716,7 @@ election_v4_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_gateway_cache:get(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, I, 1, Ledger),
              {Score, Addr}
          end
          || Addr <- New],
@@ -1728,8 +1728,8 @@ election_v4_test(Config) ->
         [begin
              {ok, I} = blockchain_gateway_cache:get(Addr, Ledger),
              %% this is at the wrong res but it shouldn't matter?
-             Loc = blockchain_ledger_gateway_v2:location(I),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             Loc = blockchain_ledger_gateway_v3:location(I),
+             {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, I, 1, Ledger),
              {Score, Loc, Addr}
          end
          || Addr <- OldGroup],
@@ -2056,8 +2056,8 @@ payer_test(Config) ->
     ?assertEqual({ok, Routing}, blockchain_ledger_v1:find_routing(1, Ledger)),
 
     {ok, GwInfo} = blockchain_gateway_cache:get(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
-    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v2:location(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
+    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v3:location(GwInfo)),
 
     %% try resyncing the ledger
     {ok, NewChain} = blockchain:reset_ledger(Chain),
@@ -2199,7 +2199,7 @@ poc_sync_interval_test(Config) ->
 
     %% Check last_poc_challenge for added gateway is updated
     {ok, AddedGw2} = blockchain_gateway_cache:get(Gateway, Ledger),
-    LastPOCChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(AddedGw2),
+    LastPOCChallenge = blockchain_ledger_gateway_v3:last_poc_challenge(AddedGw2),
     ?assert(LastPOCChallenge > 44),
 
     %% Added gateway's poc eligibility should become valid
@@ -2352,8 +2352,8 @@ update_gateway_oui_test(Config) ->
 
     %% Step 3: Check initial gateway info
     {ok, GwInfo0} = blockchain_gateway_cache:get(Gateway, Ledger),
-    ?assertEqual(undefined, blockchain_ledger_gateway_v2:oui(GwInfo0)),
-    ?assertEqual(0, blockchain_ledger_gateway_v2:nonce(GwInfo0)),
+    ?assertEqual(undefined, blockchain_ledger_gateway_v3:oui(GwInfo0)),
+    ?assertEqual(0, blockchain_ledger_gateway_v3:nonce(GwInfo0)),
 
     % Step 4: Updating a Gateway's OUI
 
@@ -2364,8 +2364,8 @@ update_gateway_oui_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 24} == blockchain:height(Chain) end),
     {ok, GwInfo} = blockchain_gateway_cache:get(Gateway, Ledger),
 
-    ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
-    ?assertEqual(1, blockchain_ledger_gateway_v2:nonce(GwInfo)),
+    ?assertEqual(OUI1, blockchain_ledger_gateway_v3:oui(GwInfo)),
+    ?assertEqual(1, blockchain_ledger_gateway_v3:nonce(GwInfo)),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
@@ -2594,7 +2594,7 @@ failed_txn_error_handling(Config) ->
 
     % Check that the Gateway is there
     {ok, GwInfo} = blockchain_gateway_cache:get(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
 
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
