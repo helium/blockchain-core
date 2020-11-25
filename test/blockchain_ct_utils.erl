@@ -235,9 +235,6 @@ init_per_testcase(TestCase, Config) ->
                                ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, FirstListenAddr])
                        end, Rest),
 
-    %% XXX: adding this relatively low sleep for gossip groups to get connected
-    timer:sleep(timer:seconds(5)),
-
     %% also do the reverse just to ensure swarms are _properly_ connected
     [Head | Tail] = lists:reverse(Nodes),
     HeadSwarm = ct_rpc:call(Head, blockchain_swarm, swarm, []),
@@ -258,7 +255,7 @@ init_per_testcase(TestCase, Config) ->
                                              ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
                                                                           connected_addrs, [GossipGroup, all]),
                                              TotalNodes == length(ConnectedAddrs)
-                                     end, 250, 20),
+                                     end, 50, 20),
                           ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
                                                        connected_addrs, [GossipGroup, all]),
                           ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup:"
