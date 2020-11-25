@@ -607,7 +607,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                         end,
                         crypto:hash_init(md5))
              || {CF, Mod} <-
-                    [{AGwsCF, blockchain_ledger_gateway_v2},
+                    [{AGwsCF, blockchain_ledger_gateway_v3},
                      {EntriesCF, blockchain_ledger_entry_v1},
                      {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
                      {HTLCsCF, blockchain_ledger_htlc_v1},
