@@ -161,12 +161,7 @@ add_trusted_poc_result(Height, PoCSuceeded, Gateway) ->
                           {Height, X} ->
                               X
                       end,
-    NewPoCCount = case PoCSuceeded of
-                      true ->
-                          CurrentPoCCount + 1;
-                      false ->
-                          CurrentPoCCount - 1
-                  end,
+    NewPoCCount = CurrentPoCCount + PoCSuceeded,
     %% this appends if the height is not already present, so it maintains block order
     maybe_truncate_poc_window(Gateway#gateway_v3{trusted_pocs=lists:keystore(Height, 1, Gateway#gateway_v3.trusted_pocs, {Height, NewPoCCount})}).
 
