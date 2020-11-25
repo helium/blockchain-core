@@ -178,14 +178,14 @@ update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, S
             ok;
         {true, false} ->
             %% destination was not trusted, update it
-            blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination);
+            blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination), DstHotspot, Ledger);
         {false, true} ->
             %% source was not trusted, update it
-            blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source);
+            blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source), SrcHotspot, Ledger);
         {true, true} when Value == 1 ->
             %% both sides were trusted and they did the thing, good job
-            blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source),
-            blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination);
+            blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source), SrcHotspot, Ledger),
+            blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination), DstHotspot, Ledger);
         {true, true} ->
             lager:warning("Trust propogation from ~p to ~p failed", [libp2p_crypto:bin_to_b58(SrcHotspot), libp2p_crypto:bin_to_b58(DstHotspot), RSSI, SNR, MinRcvSig])
     end.
