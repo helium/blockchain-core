@@ -113,11 +113,7 @@
     {blockchain_txn_price_oracle_v1, 23},
     {blockchain_txn_token_burn_v1, 24},
     {blockchain_txn_state_channel_close_v1, 25},
-    {blockchain_txn_transfer_hotspot_v1, 26},
-    %% UNUSED just added for completeness
-    {blockchain_txn_bundle_v1, 27},
-    %% UNUSED just added for completeness
-    {blockchain_txn_gen_price_oracle_v1, 28}
+    {blockchain_txn_transfer_hotspot_v1, 26}
 ]).
 
 block_delay() ->
