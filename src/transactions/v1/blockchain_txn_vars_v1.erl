@@ -551,7 +551,7 @@ check_members(Members, Target, Ledger) ->
     lists:all(fun(M) ->
                       case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
                           {ok, Gw} ->
-                              V = blockchain_ledger_gateway_v2:version(Gw),
+                              V = blockchain_ledger_gateway_v3:version(Gw),
                               V >= Target;
                           _ -> false
                       end

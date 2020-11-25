@@ -207,7 +207,7 @@ absorb(Txn, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, BuyerNonce, Ledger),
             ok = blockchain_ledger_v1:credit_account(Seller, HNTToSeller, Ledger),
-            NewGWInfo = blockchain_ledger_gateway_v2:owner_address(Buyer, GWInfo),
+            NewGWInfo = blockchain_ledger_gateway_v3:owner_address(Buyer, GWInfo),
             ok = blockchain_ledger_v1:update_gateway(NewGWInfo, Gateway, Ledger)
     end.
 
@@ -240,7 +240,7 @@ seller_owns_gateway(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW,
     case blockchain_gateway_cache:get(GW, Ledger) of
         {error, _} -> false;
         {ok, GwInfo} ->
-            GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
+            GwOwner = blockchain_ledger_gateway_v3:owner_address(GwInfo),
             Seller == GwOwner
     end.
 
@@ -251,7 +251,7 @@ gateway_not_stale(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW}, Ledger) ->
         {error, _} -> false;
         {ok, GwInfo} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            LastPOC = case blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo) of
+            LastPOC = case blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo) of
                           undefined -> 0;
                           X when is_integer(X) -> X
                       end,

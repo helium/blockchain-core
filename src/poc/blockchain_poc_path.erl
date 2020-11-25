@@ -38,7 +38,7 @@
 %   Max distance: unknown, presumably larger than 1.54 miles
 
 -type graph() :: #{any() => [{number(), any()}]}.
--type gateways() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+-type gateways() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v3:gateway(), float()}}.
 
 -export_type([graph/0]).
 
@@ -175,7 +175,7 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
     %% find all the neighbors of address 0
     case Gateways of
         #{Address0 := {Gw0, Score0}} ->
-            Neighbors0_0 = blockchain_ledger_gateway_v2:neighbors(Gw0),
+            Neighbors0_0 = blockchain_ledger_gateway_v3:neighbors(Gw0),
             Neighbors0 = filter_neighbors(Address0, Score0, Neighbors0_0, Gateways, Height, Ledger),
             %% fold over the list of neighbors
             Graph1 = lists:foldl(
@@ -188,7 +188,7 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
                                    false ->
                                        %% otherwise, calculate its neighbors
                                        #{Address1 := {Gw1, Score1}} = Gateways,
-                                       Neighbors1_0 = blockchain_ledger_gateway_v2:neighbors(Gw1),
+                                       Neighbors1_0 = blockchain_ledger_gateway_v3:neighbors(Gw1),
                                        Neighbors1 = filter_neighbors(Address1, Score1, Neighbors1_0, Gateways, Height, Ledger),
                                        Graph1 = maps:put(Address1, Neighbors1, Acc),
                                        %% and append all of its neighbor's neighbors?
@@ -258,7 +258,7 @@ neighbors(PubkeyBin, Gateways, Ledger) when is_binary(PubkeyBin) ->
             neighbors(Gw, Gateways, Ledger)
     end;
 neighbors(Gw, Gateways, Ledger) ->
-    GwH3 = blockchain_ledger_gateway_v2:location(Gw),
+    GwH3 = blockchain_ledger_gateway_v3:location(Gw),
     {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
     {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
     {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
@@ -273,7 +273,7 @@ neighbors(Gw, Gateways, Ledger) ->
                   _ ->
                       G0
               end,
-              case blockchain_ledger_gateway_v2:location(G) of
+              case blockchain_ledger_gateway_v3:location(G) of
                   undefined -> Acc;
                   Index ->
                       ScaledIndex = scale(Index, H3NeighborRes),
@@ -319,10 +319,10 @@ scale(Index, Res) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec edge_weight(A1 :: libp2p_crypto:pubkey_bin(),
-                  Gw1 :: blockchain_ledger_gateway_v2:gateway(),
+                  Gw1 :: blockchain_ledger_gateway_v3:gateway(),
                   S1 :: float(),
                   A2 :: libp2p_crypto:pubkey_bin(),
-                  Gw2 :: blockchain_ledger_gateway_v2:gateway(),
+                  Gw2 :: blockchain_ledger_gateway_v3:gateway(),
                   S2 :: float(),
                   Height :: non_neg_integer(),
                   Ledger :: blockchain_ledger_v1:ledger()) -> float().
@@ -397,7 +397,7 @@ active_gateways(Ledger, Challenger) ->
                   %% is good enough
                   CheckSync andalso
                   (PubkeyBin == Challenger orelse
-                   blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
+                   blockchain_ledger_gateway_v3:location(Gateway) == undefined orelse
                    maps:is_key(PubkeyBin, Acc0) orelse
                    Score =< MinScore)
               of
@@ -491,7 +491,7 @@ check_sync(Gateway, Ledger) ->
                     %% poc_challenge_sync_interval is not set, allow
                     true;
                 {ok, I} ->
-                    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+                    case blockchain_ledger_gateway_v3:last_poc_challenge(Gateway) of
                         undefined ->
                             %% Ignore
                             false;

@@ -40,6 +40,7 @@
 
 -export([update_datapoints/8,
          update_bmus/3,
+         classify_sample/4,
          update_windows/4,
          reset_window/2,
          windows/1,
@@ -226,6 +227,18 @@ update_bmus(Key, Values, Ledger) ->
                                      Values),
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmus))
             end
+    end.
+
+classify_sample(Signal, Snr, Fspl, Ledger) ->
+    SomCF = blockchain_ledger_v1:som_cf(Ledger),
+    case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
+        {ok, SomBin} ->
+            {ok, Som} = som:from_json(SomBin),
+            %% Calculate new BMUs with stored SOM
+            som:winner_vals(Som, [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]);
+        not_found ->
+            Som = init_som(Ledger),
+            som:winner_vals(Som, [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))])
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

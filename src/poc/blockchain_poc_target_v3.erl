@@ -85,7 +85,7 @@ filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
                 Vars :: map()) -> boolean().
 is_active(GwPubkeyBin, Ledger, Height, Vars) ->
     {ok, Gateway} = blockchain_gateway_cache:get(GwPubkeyBin, Ledger),
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+    case blockchain_ledger_gateway_v3:last_poc_challenge(Gateway) of
         undefined ->
             %% No POC challenge, don't include
             false;

@@ -639,7 +639,7 @@ is_hotspot_in_router_oui(PubkeyBin, OUI, Chain) ->
         {error, _} ->
             false;
         {ok, Gw} ->
-            case blockchain_ledger_gateway_v2:oui(Gw) of
+            case blockchain_ledger_gateway_v3:oui(Gw) of
                 undefined ->
                     false;
                 OUI ->

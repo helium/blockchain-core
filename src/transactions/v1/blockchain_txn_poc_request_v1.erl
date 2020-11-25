@@ -159,13 +159,13 @@ is_valid(Txn, Chain) ->
                         {error, _Reason}=Error ->
                             Error;
                         {ok, Info} ->
-                            case blockchain_ledger_gateway_v2:location(Info) of
+                            case blockchain_ledger_gateway_v3:location(Info) of
                                 undefined ->
                                     lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
                                     {error, no_gateway_location};
                                 _Location ->
                                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                                    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
+                                    LastChallenge = blockchain_ledger_gateway_v3:last_poc_challenge(Info),
                                     PoCInterval = blockchain_utils:challenge_interval(Ledger),
                                     case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
                                         false ->
@@ -181,7 +181,7 @@ is_valid(Txn, Chain) ->
                                                             {error, replaying_request};
                                                         true ->
                                                             Fee = ?MODULE:fee(Txn),
-                                                            Owner = blockchain_ledger_gateway_v2:owner_address(Info),
+                                                            Owner = blockchain_ledger_gateway_v3:owner_address(Info),
                                                             blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
                                                     end
                                             end
@@ -203,7 +203,7 @@ absorb(Txn, Chain) ->
     Version = version(Txn),
     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
         {ok, Gw} ->
-            Gw1 = blockchain_ledger_gateway_v2:version(Version, Gw),
+            Gw1 = blockchain_ledger_gateway_v3:version(Version, Gw),
             case blockchain_ledger_v1:update_gateway(Gw1, Challenger, Ledger) of
                 ok ->
                     SecretHash = ?MODULE:secret_hash(Txn),

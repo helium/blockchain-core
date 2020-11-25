@@ -679,7 +679,7 @@ v2_to_v3(#blockchain_snapshot_v2{
 
        %% these need to be re-serialized for v3
 
-       gateways = reserialize(fun blockchain_ledger_gateway_v2:serialize/1, Gateways),
+       gateways = reserialize(fun blockchain_ledger_gateway_v3:serialize/1, Gateways),
        pocs = reserialize_pocs(PoCs),
 
        accounts = reserialize(fun blockchain_ledger_entry_v1:serialize/1, Accounts),
@@ -857,7 +857,7 @@ v3_to_v2(#blockchain_snapshot_v3{
 
        %% these need to be deserialized
 
-       gateways = deserialize(fun blockchain_ledger_gateway_v2:deserialize/1, Gateways),
+       gateways = deserialize(fun blockchain_ledger_gateway_v3:deserialize/1, Gateways),
        pocs = deserialize_pocs(PoCs),
 
        accounts = deserialize(fun blockchain_ledger_entry_v1:deserialize/1, Accounts),
@@ -1062,14 +1062,14 @@ gwget(Addr, L) ->
     end.
 
 minimize_gw(A0, B0) ->
-    A = blockchain_ledger_gateway_v2:deserialize(A0),
-    B = blockchain_ledger_gateway_v2:deserialize(B0),
+    A = blockchain_ledger_gateway_v3:deserialize(A0),
+    B = blockchain_ledger_gateway_v3:deserialize(B0),
     %% We can directly compare some fields
     Compare =
         lists:flatmap(
           fun(Fn) ->
-                  AVal = blockchain_ledger_gateway_v2:Fn(A),
-                  BVal = blockchain_ledger_gateway_v2:Fn(B),
+                  AVal = blockchain_ledger_gateway_v3:Fn(A),
+                  BVal = blockchain_ledger_gateway_v3:Fn(B),
                   case AVal == BVal of
                       true ->
                           [];
@@ -1080,8 +1080,8 @@ minimize_gw(A0, B0) ->
           [location, version, last_poc_challenge, last_poc_onion_key_hash,
            nonce, alpha, beta, delta, oui]),
     %% but for witnesses, we want to do additional minimization
-    AWits = blockchain_ledger_gateway_v2:witnesses(A),
-    BWits = blockchain_ledger_gateway_v2:witnesses(B),
+    AWits = blockchain_ledger_gateway_v3:witnesses(A),
+    BWits = blockchain_ledger_gateway_v3:witnesses(B),
     %% we do a more detailed comparison here, which can sometimes
     %% reveal encoding differences :/
     case minimize_witnesses(AWits, BWits) of

@@ -312,11 +312,11 @@ gateways_filter(ClusterRes, Ledger) ->
     blockchain_ledger_v1:cf_fold(
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
-              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+              Gw = blockchain_ledger_gateway_v3:deserialize(BinGw),
+              Last0 = last(blockchain_ledger_gateway_v3:last_poc_challenge(Gw)),
               Last = Height - Last0,
               Loc = location(ClusterRes, Gw),
-              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+              {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, Gw, Height, Ledger),
               maps:put(Addr, {Last, Loc, Score}, Acc)
       end,
       #{},
@@ -361,8 +361,8 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
     blockchain_ledger_v1:cf_fold(
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
-              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+              Gw = blockchain_ledger_gateway_v3:deserialize(BinGw),
+              Last0 = last(blockchain_ledger_gateway_v3:last_poc_challenge(Gw)),
               Last = Height - Last0,
               Loc = location(ClusterRes, Gw),
               %% instead of getting the score, start at 1.0 for all spots
@@ -417,7 +417,7 @@ locations(Group, Gws) ->
 location(none, _Gw) ->
     none;
 location(Res, Gw) ->
-    case blockchain_ledger_gateway_v2:location(Gw) of
+    case blockchain_ledger_gateway_v3:location(Gw) of
         undefined ->
             no_location;
         Loc ->

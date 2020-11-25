@@ -204,11 +204,11 @@ upgrade_gateways_v2_(Ledger) ->
     %% find all neighbors for everyone
     maps:map(
       fun(A, G) ->
-              G1 = case blockchain_ledger_gateway_v2:location(G) of
+              G1 = case blockchain_ledger_gateway_v3:location(G) of
                        undefined -> G;
                        _ ->
                            Neighbors = blockchain_poc_path:neighbors(A, Gateways, Ledger),
-                           blockchain_ledger_gateway_v2:neighbors(Neighbors, G)
+                           blockchain_ledger_gateway_v3:neighbors(Neighbors, G)
                    end,
               blockchain_ledger_v1:update_gateway(G1, A, Ledger)
       end, Gateways),
@@ -228,7 +228,7 @@ bootstrap_hexes_(Ledger) ->
     Hexes =
         maps:fold(
           fun(Addr, Gw, A) ->
-                  case blockchain_ledger_gateway_v2:location(Gw) of
+                  case blockchain_ledger_gateway_v3:location(Gw) of
                       undefined -> A;
                       Loc ->
                           Hex = h3:parent(Loc, Res),
