@@ -185,7 +185,10 @@ update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, S
             blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source), SrcHotspot, Ledger),
             blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination), DstHotspot, Ledger);
         {true, true} ->
-            lager:warning("Trust propogation from ~p to ~p failed", [libp2p_crypto:bin_to_b58(SrcHotspot), libp2p_crypto:bin_to_b58(DstHotspot), RSSI, SNR, MinRcvSig])
+            lager:warning("Trust propogation from ~p to ~p failed RSSI ~p SNR ~p FSPL ~p", [libp2p_crypto:bin_to_b58(SrcHotspot), libp2p_crypto:bin_to_b58(DstHotspot), RSSI, SNR, MinRcvSig]),
+            %% punish even the prodigal sons
+            blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Source), SrcHotspot, Ledger),
+            blockchain_ledger_v1:update_gateway(blockchain_ledger_gateway_v3:add_trusted_poc_result(Height, Value, Destination), DstHotspot, Ledger)
     end.
 
 
