@@ -156,6 +156,8 @@ calculate_bmus(Key, Ledger) ->
                     {{Reals, RDist / Reals}, {Fakes, FDist / Fakes}, {0, 0}};
                 {0, F, U} ->
                     {{0, 0}, {F, FDist /F}, {U, UDist / U}};
+                {R, 0, U} ->
+                    {{Reals, RDist / R}, {0, 0}, {U, UDist / U}};
                 {R, F, U} when R > 0, F > 0, U > 0 ->
                     {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
             end;
