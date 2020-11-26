@@ -149,17 +149,19 @@ calculate_bmus(Key, Ledger) ->
                 {0, 0, 0} ->
                     {{Reals, 0}, {Fakes, 0}, {0, 0}};
                 {R, 0, 0} when R > 0 ->
-                    {{R, RDist / R}, {0, 0}, {0, 0}};
+                    {{Reals, RDist / R}, {0, 0}, {0, 0}};
                 {0, F, 0} when F > 0 ->
                     {{0, 0}, {F, FDist / F}, {0, 0}};
                 {R, F, 0} when R > 0, F > 0 ->
-                    {{Reals, RDist / Reals}, {Fakes, FDist / Fakes}, {0, 0}};
-                {0, F, U} ->
-                    {{0, 0}, {F, FDist /F}, {U, UDist / U}};
-                {R, 0, U} ->
-                    {{Reals, RDist / R}, {0, 0}, {U, UDist / U}};
+                    {{Reals, RDist / R}, {Fakes, FDist / F}, {0, 0}};
+                {0, F, U} when F > 0, U > 0 ->
+                    {{0, 0}, {Fakes, FDist / F}, {Undefs, UDist / U}};
+                {R, 0, U} when R > 0, U> 0 ->
+                    {{Reals, RDist / R}, {0, 0}, {Undefs, UDist / U}};
+                {0, 0, U} when U > 0 ->
+                    {{0, 0}, {0, 0}, {Undefs, UDist / 0}};
                 {R, F, U} when R > 0, F > 0, U > 0 ->
-                    {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
+                    {{R, RDist / R}, {F, FDist / F}, {Undefs, UDist / U}}
             end;
         not_found ->
             {{0,0.0},{0,0.0},{0,0.0}}
