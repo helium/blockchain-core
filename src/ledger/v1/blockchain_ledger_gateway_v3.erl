@@ -129,7 +129,8 @@ location(Gateway) ->
 %%--------------------------------------------------------------------
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
-    Gateway#gateway_v3{location=Location}.
+    %% clear the trusted poc list when changing location
+    Gateway#gateway_v3{location=Location, trusted_pocs=[]}.
 
 version(Gateway) ->
     Gateway#gateway_v3.version.
@@ -169,9 +170,11 @@ add_trusted_poc_result(Height, PoCSuceeded, Gateway) ->
                       end,
     NewPoCCount = CurrentPoCCount + PoCSuceeded,
     %% this appends if the height is not already present, so it maintains block order
-    maybe_truncate_poc_window(Gateway#gateway_v3{trusted_pocs=lists:keystore(Height, 1, Gateway#gateway_v3.trusted_pocs, {Height, NewPoCCount})}).
+    maybe_truncate_poc_window(Height, Gateway#gateway_v3{trusted_pocs=lists:keystore(Height, 1, Gateway#gateway_v3.trusted_pocs, {Height, NewPoCCount})}).
 
-maybe_truncate_poc_window(Gateway) ->
+maybe_truncate_poc_window(Height, Gateway0) ->
+    %% toss any samples from over a week ago
+    Gateway = Gateway0#gateway_v3{trusted_pocs=lists:filter(fun({H, _}) -> Height - H < 10080 end, Gateway0#gateway_v3.trusted_pocs)},
     Limit = case is_trusted(Gateway) of
                 true ->
                     50;
