@@ -120,11 +120,11 @@ init_som(Ledger) ->
                          end,
             {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
             {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
-            {ok, SOM} = som:new(15, 15, 3, false, #{classes => #{<<"1">> => 0.0, <<"0">> => 0.0},
-                                                    custom_weighting => false,
-                                                    sigma => 0.75,
-                                                    random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
-                                                                    186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
+            {ok, SOM} = som:new(15, 15, 3, false, #{classes => #{<<"1">> => 1.7, <<"0">> => 0.6},
+                                            custom_weighting => false,
+                                            sigma => 0.75,
+                                            random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
+                                                             186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
             %% Train the network through supervised learning
             som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 3000),
             {ok, Serialized} = som:export_json(SOM),
@@ -145,19 +145,26 @@ calculate_bmus(Key, Ledger) ->
                                                                              <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Usum + 1, UDsum + Dist}}
                                                                          end
                                end, {{0,0},{0,0},{0,0}}, Bmus),
-            case {Reals, Fakes, Undefs} of
-                {R, F, U} when R == 0, F == 0, U == 0 ->
-                    {{Reals, 0}, {Fakes, 0}, {0, 0}};
-                {R, F, 0} when R > 0, F == 0 ->
-                    {{R, RDist / R}, {0, 0}, {0, 0}};
-                {R, F, 0} when F > 0, R == 0 ->
-                    {{0, 0}, {F, FDist / F}, {0, 0}};
-                {R, F, 0} when R > 0, F > 0 ->
-                    {{Reals, RDist / Reals}, {Fakes, FDist / Fakes}, {0, 0}};
-                {R, F, U} when R > 0, F > 0, U > 0 ->
-                    {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
-            end;
-        not_found ->
+            RAvg = case Reals of
+                       0 ->
+                           0;
+                       _ ->
+                           RDist/Reals
+                   end,
+            FAvg = case Fakes of
+                       0 ->
+                           0;
+                       _ ->
+                           FDist/Fakes
+                   end,
+            UAvg = case Undefs of
+                       0 ->
+                           0;
+                       _ ->
+                           UDist/Undefs
+                   end,
+            {{Reals, RAvg}, {Fakes, FAvg}, {Undefs, UAvg}};
+    not_found ->
             {{0,0.0},{0,0.0},{0,0.0}}
     end.
 
