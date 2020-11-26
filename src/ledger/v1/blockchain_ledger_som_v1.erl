@@ -146,14 +146,16 @@ calculate_bmus(Key, Ledger) ->
                                                                          end
                                end, {{0,0},{0,0},{0,0}}, Bmus),
             case {Reals, Fakes, Undefs} of
-                {R, F, U} when R == 0, F == 0, U == 0 ->
+                {0, 0, 0} ->
                     {{Reals, 0}, {Fakes, 0}, {0, 0}};
-                {R, F, 0} when R > 0, F == 0 ->
+                {R, 0, 0} when R > 0 ->
                     {{R, RDist / R}, {0, 0}, {0, 0}};
-                {R, F, 0} when F > 0, R == 0 ->
+                {0, F, 0} when F > 0 ->
                     {{0, 0}, {F, FDist / F}, {0, 0}};
                 {R, F, 0} when R > 0, F > 0 ->
                     {{Reals, RDist / Reals}, {Fakes, FDist / Fakes}, {0, 0}};
+                {0, F, U} ->
+                    {{0, 0}, {F, FDist /F}, {U, UDist / U}};
                 {R, F, U} when R > 0, F > 0, U > 0 ->
                     {{R, RDist / R}, {F, FDist / F}, {U, UDist / U}}
             end;
