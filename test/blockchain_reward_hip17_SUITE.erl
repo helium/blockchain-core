@@ -72,6 +72,14 @@ init_per_testcase(TestCase, Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
+
+    %% Add hexes to the ledger
+    LedgerC = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain:bootstrap_hexes(LedgerC),
+    ok = blockchain_ledger_v1:bootstrap_h3dex(LedgerC),
+    ok = blockchain_ledger_v1:commit_context(LedgerC),
+    ok = blockchain_ledger_v1:compact(Ledger),
+
     Entries = blockchain_ledger_v1:entries(Ledger),
     _ = lists:foreach(
         fun(Entry) ->
