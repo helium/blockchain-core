@@ -55,12 +55,12 @@ init_per_testcase(TestCase, Config) ->
 
     ExtraVars =
         case TestCase of
-            no_var_test ->
-                #{};
             with_hip15_vars_test ->
                 hip15_vars();
             with_hip17_vars_test ->
-                maps:merge(hip15_vars(), hip17_vars())
+                maps:merge(hip15_vars(), hip17_vars());
+            _ ->
+                #{}
         end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
