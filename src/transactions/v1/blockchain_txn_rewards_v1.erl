@@ -554,7 +554,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% Old behavior
                                    maps:put(Challengee, I+1, Acc0);
                                {ok, ToAdd} ->
-                                   TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                   TxScale = maybe_calc_tx_scale(Challengee,
+                                                                 DensityTgtRes,
                                                                  ChallengeeLoc,
                                                                  UnclippedDensities,
                                                                  ClippedDensities),
@@ -571,7 +572,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% Old behavior
                                    maps:put(Challengee, I+2, Acc0);
                                {ok, ToAdd} ->
-                                   TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                   TxScale = maybe_calc_tx_scale(Challengee,
+                                                                 DensityTgtRes,
                                                                  ChallengeeLoc,
                                                                  UnclippedDensities,
                                                                  ClippedDensities),
@@ -597,7 +599,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+3, Acc0);
                                        {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          UnclippedDensities,
                                                                          ClippedDensities),
@@ -610,7 +613,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
                                        {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          UnclippedDensities,
                                                                          ClippedDensities),
@@ -622,7 +626,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+1, Acc0);
                                        {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          UnclippedDensities,
                                                                          ClippedDensities),
@@ -647,7 +652,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
                                        {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          UnclippedDensities,
                                                                          ClippedDensities),
@@ -659,7 +665,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+1, Acc0);
                                        {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(DensityTgtRes,
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          UnclippedDensities,
                                                                          ClippedDensities),
@@ -691,8 +698,12 @@ poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) ->
             W = length(Witnesses),
             Unit = poc_reward_tx_unit(R, W, N),
             lager:info("poc_challengee_reward_unit: ~p", [Unit]),
-            {ok, Unit}
+            {ok, normalize_reward_unit(Unit)}
     end.
+
+-spec normalize_reward_unit(Unit :: float()) -> float().
+normalize_reward_unit(Unit) when Unit > 1.0 -> 1.0;
+normalize_reward_unit(Unit) -> Unit.
 
 -spec poc_witnesses_rewards(Transactions :: blockchain_txn:txns(),
                             Vars :: map(),
@@ -743,8 +754,8 @@ poc_witnesses_rewards(Transactions,
                                                               {_, undefined} -> 1;
                                                               {N, R} ->
                                                                   W = length(ValidWitnesses),
-                                                                  U = poc_reward_rx_unit(R, W, N),
-                                                                  lager:info("poc_reward_rx_unit: ~p", [U]),
+                                                                  U = poc_witness_reward_unit(R, W, N),
+                                                                  lager:info("poc_witness_reward_unit: ~p", [U]),
                                                                   U
                                                           end,
 
@@ -772,6 +783,8 @@ poc_witnesses_rewards(Transactions,
                                                                                                    D,
                                                                                                    UnclippedDensities,
                                                                                                    ClippedDensities),
+                                                                    lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness),
+                                                                                                              RxScale]),
                                                                     I = maps:get(Witness, Map, 0),
                                                                     maps:put(Witness, I+(ToAdd*RxScale), Map)
                                                             end,
@@ -1003,13 +1016,13 @@ poc_reward_tx_unit(R, W, N) ->
     lager:info("nonorm, R: ~p, W: ~p, N: ~p, poc_reward_tx_unit: ~p", [R, W, N, NoNorm]),
     blockchain_utils:normalize_float(NoNorm).
 
--spec poc_reward_rx_unit(R :: float(),
-                         W :: pos_integer(),
-                         N :: pos_integer()) -> float().
-poc_reward_rx_unit(_R, W, N) when W =< N ->
-    1;
-poc_reward_rx_unit(R, W, N) ->
-    blockchain_utils:normalize_float((N - (1 - math:pow(R, (W - N))))/W).
+-spec poc_witness_reward_unit(R :: float(),
+                              W :: pos_integer(),
+                              N :: pos_integer()) -> float().
+poc_witness_reward_unit(_R, W, N) when W =< N ->
+    1.0;
+poc_witness_reward_unit(R, W, N) ->
+    normalize_reward_unit(blockchain_utils:normalize_float((N - (1 - math:pow(R, (W - N))))/W)).
 
 legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
     case Version of
@@ -1033,14 +1046,19 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
             blockchain_poc_path_element_v1:witnesses(Elem)
     end.
 
-maybe_calc_tx_scale(DensityTgtRes,
+maybe_calc_tx_scale(Challengee,
+                    DensityTgtRes,
                     ChallengeeLoc,
                     UnclippedDensities,
                     ClippedDensities) ->
     case {DensityTgtRes, ChallengeeLoc} of
         {undefined, _} -> 1.0;
         {_, undefined} -> 1.0;
-        {D, Loc} -> blockchain_hex:scale(Loc, D, UnclippedDensities, ClippedDensities)
+        {D, Loc} ->
+            TxScale = blockchain_hex:scale(Loc, D, UnclippedDensities, ClippedDensities),
+            lager:info("Challengee: ~p, RxScale: ~p", [blockchain_utils:addr2name(Challengee),
+                                                       TxScale]),
+            TxScale
     end.
 
 %%--------------------------------------------------------------------

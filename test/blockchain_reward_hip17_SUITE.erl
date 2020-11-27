@@ -156,7 +156,53 @@ with_hip17_vars_test(Config) ->
     run_test(Witnesses, Config).
 
 comparison_test(_Config) ->
-    %% TODO: compare the witness and challengee rewards between no_var, with_hip15_vars_test and with_hip17_vars_test
+    %% Aggregate rewards from no_var_test
+    NoVarChallengeeRewards = blockchain_test_reward_store:fetch(no_var_test_challengee_rewards),
+    NoVarWitnessRewards = blockchain_test_reward_store:fetch(no_var_test_witness_rewards),
+
+    TotalNoVarChallengeeRewards = lists:sum(maps:values(NoVarChallengeeRewards)),
+    TotalNoVarWitnessRewards = lists:sum(maps:values(NoVarWitnessRewards)),
+
+    FractionalNoVarChallengeeRewards = maps:map(fun(_, V) -> V / TotalNoVarChallengeeRewards end, NoVarChallengeeRewards),
+    FractionalNoVarWitnessRewards = maps:map(fun(_, V) -> V / TotalNoVarWitnessRewards end, NoVarWitnessRewards),
+
+    %% Aggregate rewards from hip15 test
+    Hip15ChallengeeRewards = blockchain_test_reward_store:fetch(with_hip15_vars_test_challengee_rewards),
+    Hip15WitnessRewards = blockchain_test_reward_store:fetch(with_hip15_vars_test_witness_rewards),
+
+    TotalHip15ChallengeeRewards = lists:sum(maps:values(Hip15ChallengeeRewards)),
+    TotalHip15WitnessRewards = lists:sum(maps:values(Hip15WitnessRewards)),
+
+    FractionalHip15ChallengeeRewards = maps:map(fun(_, V) -> V / TotalHip15ChallengeeRewards end, Hip15ChallengeeRewards),
+    FractionalHip15WitnessRewards = maps:map(fun(_, V) -> V / TotalHip15WitnessRewards end, Hip15WitnessRewards),
+
+    %% Aggregate rewards from hip17 test
+    Hip17ChallengeeRewards = blockchain_test_reward_store:fetch(with_hip17_vars_test_challengee_rewards),
+    Hip17WitnessRewards = blockchain_test_reward_store:fetch(with_hip17_vars_test_witness_rewards),
+
+    TotalHip17ChallengeeRewards = lists:sum(maps:values(Hip17ChallengeeRewards)),
+    TotalHip17WitnessRewards = lists:sum(maps:values(Hip17WitnessRewards)),
+
+    FractionalHip17ChallengeeRewards = maps:map(fun(_, V) -> V / TotalHip17ChallengeeRewards end, Hip17ChallengeeRewards),
+    FractionalHip17WitnessRewards = maps:map(fun(_, V) -> V / TotalHip17WitnessRewards end, Hip17WitnessRewards),
+
+    ct:pal("NoVarChallengeeRewards: ~p", [NoVarChallengeeRewards]),
+    ct:pal("FractionalNoVarChallengeeRewards: ~p", [FractionalNoVarChallengeeRewards]),
+
+    ct:pal("NoVarWitnessRewards: ~p", [NoVarWitnessRewards]),
+    ct:pal("FractionalNoVarWitnessRewards: ~p", [FractionalNoVarWitnessRewards]),
+
+    ct:pal("Hip15ChallengeeRewards: ~p", [Hip15ChallengeeRewards]),
+    ct:pal("FractionalHip15ChallengeeRewards: ~p", [FractionalHip15ChallengeeRewards]),
+
+    ct:pal("Hip15WitnessRewards: ~p", [Hip15WitnessRewards]),
+    ct:pal("FractionalHip15WitnessRewards: ~p", [FractionalHip15WitnessRewards]),
+
+    ct:pal("Hip17ChallengeeRewards: ~p", [Hip17ChallengeeRewards]),
+    ct:pal("FractionalHip17ChallengeeRewards: ~p", [FractionalHip17ChallengeeRewards]),
+
+    ct:pal("Hip17WitnessRewards: ~p", [Hip17WitnessRewards]),
+    ct:pal("FractionalHip17WitnessRewards: ~p", [FractionalHip17WitnessRewards]),
 
     ok.
 
@@ -191,6 +237,17 @@ run_test(Witnesses, Config) ->
         end,
         #{},
         lists:zip(AllGws, GatewayAddrs)
+    ),
+
+    %% For crosscheck
+    GatewayLocMap = lists:foldl(
+        fun(A, Acc) ->
+            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
+            GwLoc = blockchain_ledger_gateway_v2:location(Gw),
+            maps:put(blockchain_utils:addr2name(A), GwLoc, Acc)
+        end,
+        #{},
+        GatewayAddrs
     ),
 
     %% For crosscheck
@@ -355,7 +412,8 @@ run_test(Witnesses, Config) ->
         ),
 
     %% Theoretically, gateways J, K should have higher witness rewards than B, C, E, F, G, I
-    ct:pal("Gateways: ~p", [GatewayNameMap]),
+    ct:pal("GatewayNameMap: ~p", [GatewayNameMap]),
+    ct:pal("GatewayLocMap: ~p", [GatewayLocMap]),
     ct:pal("ChallengeesRewardsMap: ~p", [ChallengeesRewardsMap]),
     ct:pal("WitnessRewardsMap: ~p", [WitnessRewardsMap]),
 
