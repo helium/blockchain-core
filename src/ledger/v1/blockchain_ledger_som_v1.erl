@@ -85,6 +85,20 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
             ToInsert = term_to_binary([Sample]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert)
+    end,
+    add_bmu(Src, Rssi, Snr, Fspl, Ledger),
+    add_bmu(Dst, Rssi, Snr, Fspl, Ledger),
+    ok.
+
+
+add_bmu(Key, Rssi, Snr, Fspl, Ledger) ->
+    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
+        {ok, BmusBin} ->
+            Bmus = binary_to_term(BmusBin),
+            blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist([classify_sample(Rssi, Snr, Fspl, Ledger) | Bmus] , ?WINDOW_CAP)));
+        not_found ->
+            blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary([classify_sample(Rssi, Snr, Fspl, Ledger)]))
     end.
 
 -spec retrieve_datapoints(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
