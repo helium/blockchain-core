@@ -114,7 +114,7 @@ init_som(Ledger) ->
                                  %% ignore header
                                  Acc;
                            ({newline, [_Pos, Signal, SNR, FSPL, Class]}, Acc) ->
-                                 [{[((to_num(Signal) - (1 * math:pow(-17)))/(0.001 - (1 * math:pow(-17)))),
+                                 [{[((to_num(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
                                     ((to_num(SNR) - (-19))/(17 - (-19))),
                                     ((to_num(FSPL) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))], list_to_binary(Class)} | Acc];
                             (_, Acc) ->
