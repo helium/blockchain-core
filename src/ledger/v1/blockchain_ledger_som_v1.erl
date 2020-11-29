@@ -191,7 +191,7 @@ update_bmus(Key, Values, Ledger) ->
                     Som = init_som(Ledger),
                     NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
                                              som:winner_vals(Som,
-                                                             [((float(Signal) - (1 * math:pow(-17)))/(0.001 - (1 * math:pow(-17)))),
+                                                             [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
                                                               ((float(Snr) - (-19))/(17 - (-19))),
                                                               ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]) end,
                                         Values),
@@ -204,7 +204,7 @@ update_bmus(Key, Values, Ledger) ->
                     %% Calculate new BMUs with stored SOM
                     NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
                                      som:winner_vals(Som,
-                                                     [((float(Signal) - (1 * math:pow(-17)))/(0.001 - (1 * math:pow(-17)))),
+                                                     [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
                                                       ((float(Snr) - (-19))/(17 - (-19))),
                                                       ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]) end,
                              Values),
@@ -214,7 +214,7 @@ update_bmus(Key, Values, Ledger) ->
                     Som = init_som(Ledger),
                     NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
                                              som:winner_vals(Som,
-                                                             [((float(Signal) - (1 * math:pow(-17)))/(0.001 - (1 * math:pow(-17)))),
+                                                             [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
                                                               ((float(Snr) - (-19))/(17 - (-19))),
                                                               ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]) end,
                                      Values),
@@ -229,13 +229,13 @@ classify_sample(Signal, Snr, Fspl, Ledger) ->
             {ok, Som} = som:from_json(SomBin),
             %% Calculate new BMUs with stored SOM
             som:winner_vals(Som,
-                            [((float(Signal) - (1 * math:pow(-17)))/(0.001 - (1 * math:pow(-17)))),
+                            [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
                              ((float(Snr) - (-19))/(17 - (-19))),
                              ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]);
         not_found ->
             Som = init_som(Ledger),
             som:winner_vals(Som,
-                            [((float(Signal) - (1 * math:pow(-17)))/(0.001 - (1 * math:pow(-17)))),
+                            [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
                              ((float(Snr) - (-19))/(17 - (-19))),
                              ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))])
     end.
