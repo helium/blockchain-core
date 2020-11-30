@@ -18,7 +18,8 @@
     known_values_test/1,
     known_differences_test/1,
     scale_test/1,
-    h3dex_test/1
+    h3dex_test/1,
+    export_scale_test/1
 ]).
 
 %% Values taken from python model
@@ -93,6 +94,7 @@ all() ->
         known_differences_test,
         scale_test,
         h3dex_test
+        %% export_scale_test
     ].
 
 %%--------------------------------------------------------------------
@@ -111,13 +113,13 @@ init_per_suite(Config) ->
     {ok, 586724} = blockchain_ledger_v1:current_height(Ledger),
 
     %% Check that the vars are correct, one is enough...
-    VarMap = blockchain_hex:var_map(Ledger),
+    {ok, VarMap} = blockchain_hex:var_map(Ledger),
     Res4 = maps:get(4, VarMap),
     1 = maps:get(n, Res4),
     250 = maps:get(density_tgt, Res4),
     800 = maps:get(density_max, Res4),
 
-    {Time, {UnclippedDensities, ClippedDensities}} = timer:tc(
+    {Time, {ok, {UnclippedDensities, ClippedDensities}}} = timer:tc(
         fun() ->
             blockchain_hex:densities(Ledger)
         end
@@ -175,7 +177,10 @@ known_values_test(Config) ->
     %% assert some known values calculated from the python model (thanks @para1!)
     true = lists:all(
         fun({Hex, Density}) ->
-            ct:pal("~p ~p", [Density, maps:size(blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger))]),
+            ct:pal("~p ~p", [
+                Density,
+                maps:size(blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger))
+            ]),
             Density == maps:get(Hex, ClippedDensities)
         end,
         ?KNOWN
@@ -219,10 +224,13 @@ scale_test(Config) ->
 
     Another = h3:from_string("8c2836152804dff"),
 
-    ok = lists:foreach(fun(I) ->
-                               Scale = blockchain_hex:scale(Another, I, UnclippedDensities, ClippedDensities),
-                               ct:pal("Res: ~p, Scale: ~p", [I, Scale])
-                       end, lists:seq(12, 0, -1)),
+    ok = lists:foreach(
+        fun(I) ->
+            Scale = blockchain_hex:scale(Another, I, UnclippedDensities, ClippedDensities),
+            ct:pal("Res: ~p, Scale: ~p", [I, Scale])
+        end,
+        lists:seq(12, 0, -1)
+    ),
 
     %% TODO: Assert checks from the python model
 
@@ -233,9 +241,9 @@ h3dex_test(Config) ->
 
     %% A known hotspot hex at res=12, there's only one here
     Hex = 631236347406370303,
-    HexPubkeyBin = <<0,161,86,254,148,82,27,153,2,52,158,118,1,178,133,150,238,
-                     135,228,40,114,253,149,194,89,170,68,170,122,230,130,196,
-                     139>>,
+    HexPubkeyBin =
+        <<0, 161, 86, 254, 148, 82, 27, 153, 2, 52, 158, 118, 1, 178, 133, 150, 238, 135, 228, 40,
+            114, 253, 149, 194, 89, 170, 68, 170, 122, 230, 130, 196, 139>>,
 
     Gateways = blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger),
 
@@ -246,6 +254,26 @@ h3dex_test(Config) ->
 
     ct:pal("Hex: ~p", [Hex]),
     ct:pal("Gateways: ~p", [Gateways]),
+
+    ok.
+
+export_scale_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    UnclippedDensities = ?config(unclipped, Config),
+    ClippedDensities = ?config(clipped, Config),
+
+    %% A list of possible density target resolution we'd output the scales at
+    DensityTargetResolutions = lists:seq(3, 10),
+
+    %% Only do this for gateways with known locations
+    GatewaysWithLocs = gateways_with_locs(Ledger),
+
+    ok = export_scale_data(
+        DensityTargetResolutions,
+        GatewaysWithLocs,
+        UnclippedDensities,
+        ClippedDensities
+    ),
 
     ok.
 
@@ -270,3 +298,81 @@ hip17_vars() ->
         hip17_res_12 => <<"2,100000,100000">>,
         density_tgt_res => 8
     }.
+
+%%--------------------------------------------------------------------
+%% INTERNAL FUNCTIONS
+%%--------------------------------------------------------------------
+
+gateways_with_locs(Ledger) ->
+    AG = blockchain_ledger_v1:active_gateways(Ledger),
+
+    maps:fold(
+        fun(Addr, GW, Acc) ->
+            case blockchain_ledger_gateway_v2:location(GW) of
+                undefined -> Acc;
+                Loc -> [{blockchain_utils:addr2name(Addr), Loc} | Acc]
+            end
+        end,
+        [],
+        AG
+    ).
+
+export_scale_data(DensityTargetResolutions, GatewaysWithLocs, UnclippedDensities, ClippedDensities) ->
+    %% Calculate scale at each density target res for eventual comparison
+    lists:foreach(
+        fun(TargetRes) ->
+            %% Export scale data for every single gateway to a gps file
+            Scales = lists:foldl(
+                fun({GwName, Loc}, Acc) ->
+                    Scale = blockchain_hex:scale(
+                        Loc,
+                        TargetRes,
+                        UnclippedDensities,
+                        ClippedDensities
+                    ),
+                    [{GwName, Loc, Scale} | Acc]
+                end,
+                [],
+                GatewaysWithLocs
+            ),
+
+            Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
+            ok = export_gps_file(Fname, Scales)
+        end,
+        DensityTargetResolutions
+    ).
+export_gps_file(Fname, Scales) ->
+    Header = ["name,latitude,longitude,color,desc"],
+
+    Data = lists:foldl(
+        fun({Name, H3, ScaleVal}, Acc) ->
+            {Lat, Long} = h3:to_geo(H3),
+            ToAppend =
+                Name ++
+                    "," ++
+                    io_lib:format("~.20f", [Lat]) ++
+                    "," ++
+                    io_lib:format("~.20f", [Long]) ++
+                    "," ++
+                    color(ScaleVal) ++
+                    "," ++
+                    io_lib:format("scale: ~p", [ScaleVal]),
+            [ToAppend | Acc]
+        end,
+        [],
+        Scales
+    ),
+
+    TotalData = Header ++ Data,
+
+    LineSep = io_lib:nl(),
+    Print = [string:join(TotalData, LineSep), LineSep],
+    file:write_file(Fname, Print),
+    ok.
+
+color(1.0) -> "green";
+color(V) when V =< 0.1 -> "red";
+color(V) when V =< 0.3 -> "orange";
+color(V) when V =< 0.5 -> "yellow";
+color(V) when V =< 0.8 -> "cyan";
+color(_) -> "blue".

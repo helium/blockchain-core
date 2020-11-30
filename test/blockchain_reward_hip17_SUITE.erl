@@ -204,6 +204,8 @@ comparison_test(_Config) ->
     ct:pal("Hip17WitnessRewards: ~p", [Hip17WitnessRewards]),
     ct:pal("FractionalHip17WitnessRewards: ~p", [FractionalHip17WitnessRewards]),
 
+    %% TODO: Actually assert some invariant and compare the three results
+
     ok.
 
 %%--------------------------------------------------------------------
