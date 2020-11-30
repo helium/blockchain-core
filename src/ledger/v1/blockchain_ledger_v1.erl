@@ -99,6 +99,7 @@
     find_routing_via_devaddr/2,
     update_routing/4,
     get_routes/1,
+    routing_cf/1,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
