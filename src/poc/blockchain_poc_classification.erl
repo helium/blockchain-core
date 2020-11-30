@@ -211,6 +211,6 @@ load_promoted_trustees(Ledger) ->
 create_export_import_test() ->
     {ok, Som} = som:new(10, 10, 3, false, #{classes => #{<<"1">> => 0.0, <<"0">> => 0.0}, custom_weighting => false}),
     {ok, Export} = som:export_json(Som),
-    {ok, Import} = som:from_json(Export).
+    {ok, _Import} = som:from_json(Export).
 
 -endif.
