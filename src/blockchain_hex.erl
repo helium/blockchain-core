@@ -178,9 +178,10 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
     M1 = lists:foldl(
         fun(ThisResHex, Acc3) ->
             OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
-            ct:pal("OccupiedCount: ~p", [OccupiedCount]),
-
             Limit = limit(Res, VarMap, OccupiedCount),
+
+            ct:pal("Limit: ~p, OccupiedCount: ~p", [Limit, OccupiedCount]),
+
             maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
         end,
         M0,
