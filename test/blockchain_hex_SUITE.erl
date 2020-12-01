@@ -14,7 +14,6 @@
 ]).
 
 -export([
-    non_zero_test/1,
     known_values_test/1,
     known_differences_test/1,
     scale_test/1,
@@ -89,7 +88,6 @@
 
 all() ->
     [
-        non_zero_test,
         known_values_test,
         known_differences_test,
         scale_test,
@@ -119,21 +117,8 @@ init_per_suite(Config) ->
     250 = maps:get(density_tgt, Res4),
     800 = maps:get(density_max, Res4),
 
-    {Time, {ok, {UnclippedDensities, ClippedDensities}}} = timer:tc(
-        fun() ->
-            blockchain_hex:densities(Ledger)
-        end
-    ),
-    ct:pal("density calculation time: ~pms", [Time / 1000]),
-
-    ct:pal("density took ~p", [Time]),
-    %% Check that the time is less than 1000ms
-    %?assert(1000 =< Time),
-
     [
         {ledger, Ledger},
-        {clipped, ClippedDensities},
-        {unclipped, UnclippedDensities},
         {var_map, VarMap}
         | Config
     ].
@@ -162,26 +147,25 @@ end_per_suite(_Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-non_zero_test(Config) ->
-    ClippedDensities = ?config(clipped, Config),
-
-    %% assert that there are no 0 values for density
-    %% we count a hotspot at res 12 (max resolution) as 1
-    true = lists:all(fun(V) -> V /= 0 end, maps:values(ClippedDensities)),
-    ok.
-
 known_values_test(Config) ->
-    ClippedDensities = ?config(clipped, Config),
     Ledger = ?config(ledger, Config),
 
     %% assert some known values calculated from the python model (thanks @para1!)
     true = lists:all(
         fun({Hex, Density}) ->
-            ct:pal("~p ~p", [
-                Density,
-                maps:size(blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger))
-            ]),
-            Density == maps:get(Hex, ClippedDensities)
+            case h3:get_resolution(Hex) of
+                0 ->
+                    true;
+                _ ->
+                    {ok, {_, ClippedDensities}} = blockchain_hex:densities(Hex, Ledger),
+
+                    ct:pal("~p ~p", [
+                        Density,
+                        maps:get(Hex, ClippedDensities)
+                    ]),
+
+                    Density == maps:get(Hex, ClippedDensities)
+            end
         end,
         ?KNOWN
     ),
@@ -189,29 +173,18 @@ known_values_test(Config) ->
     ok.
 
 known_differences_test(Config) ->
-    UnclippedDensities = ?config(unclipped, Config),
-    ClippedDensities = ?config(clipped, Config),
-
-    Differences = lists:foldl(
-        fun({Hex, ClippedDensity}, Acc) ->
-            UnclippedDensity = maps:get(Hex, UnclippedDensities),
-            case ClippedDensity /= UnclippedDensity of
-                false ->
-                    Acc;
-                true ->
-                    maps:put(Hex, {ClippedDensity, UnclippedDensity}, Acc)
-            end
-        end,
-        #{},
-        maps:to_list(ClippedDensities)
-    ),
-
-    ?assertEqual(?KNOWN_CLIP_VS_UNCLIPPED, map_size(Differences)),
+    Ledger = ?config(ledger, Config),
 
     true = lists:all(
         fun({Hex, {Clipped, Unclipped}}) ->
-            Unclipped == maps:get(Hex, UnclippedDensities) andalso
-                Clipped == maps:get(Hex, ClippedDensities)
+            {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(Hex, Ledger),
+            GotUnclipped = maps:get(Hex, UnclippedDensities),
+            GotClipped = maps:get(Hex, ClippedDensities),
+            ct:pal(
+                "Hex: ~p, Clipped: ~p, GotClipped: ~p, Unclipped: ~p, GotUnclipped: ~p",
+                [Hex, Clipped, GotClipped, Unclipped, GotUnclipped]
+            ),
+            Unclipped == GotUnclipped andalso Clipped == GotClipped
         end,
         maps:to_list(?KNOWN_DIFFERENCES)
     ),
@@ -219,18 +192,12 @@ known_differences_test(Config) ->
     ok.
 
 scale_test(Config) ->
-    UnclippedDensities = ?config(unclipped, Config),
-    ClippedDensities = ?config(clipped, Config),
-
+    Ledger = ?config(ledger, Config),
     Another = h3:from_string("8c2836152804dff"),
 
-    ok = lists:foreach(
-        fun(I) ->
-            Scale = blockchain_hex:scale(Another, I, UnclippedDensities, ClippedDensities),
-            ct:pal("Res: ~p, Scale: ~p", [I, Scale])
-        end,
-        lists:seq(12, 0, -1)
-    ),
+    {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(Another, Ledger),
+    Scale = blockchain_hex:scale(Another, UnclippedDensities, ClippedDensities),
+    ct:pal("Res: ~p, Scale: ~p", [h3:get_resolution(Another), Scale]),
 
     %% TODO: Assert checks from the python model
 
@@ -259,8 +226,6 @@ h3dex_test(Config) ->
 
 export_scale_test(Config) ->
     Ledger = ?config(ledger, Config),
-    UnclippedDensities = ?config(unclipped, Config),
-    ClippedDensities = ?config(clipped, Config),
 
     %% A list of possible density target resolution we'd output the scales at
     DensityTargetResolutions = lists:seq(3, 10),
@@ -269,10 +234,9 @@ export_scale_test(Config) ->
     GatewaysWithLocs = gateways_with_locs(Ledger),
 
     ok = export_scale_data(
+        Ledger,
         DensityTargetResolutions,
-        GatewaysWithLocs,
-        UnclippedDensities,
-        ClippedDensities
+        GatewaysWithLocs
     ),
 
     ok.
@@ -317,16 +281,19 @@ gateways_with_locs(Ledger) ->
         AG
     ).
 
-export_scale_data(DensityTargetResolutions, GatewaysWithLocs, UnclippedDensities, ClippedDensities) ->
+export_scale_data(Ledger, DensityTargetResolutions, GatewaysWithLocs) ->
     %% Calculate scale at each density target res for eventual comparison
     lists:foreach(
         fun(TargetRes) ->
             %% Export scale data for every single gateway to a gps file
             Scales = lists:foldl(
                 fun({GwName, Loc}, Acc) ->
+                    {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(
+                        Loc,
+                        Ledger
+                    ),
                     Scale = blockchain_hex:scale(
                         Loc,
-                        TargetRes,
                         UnclippedDensities,
                         ClippedDensities
                     ),
@@ -341,6 +308,7 @@ export_scale_data(DensityTargetResolutions, GatewaysWithLocs, UnclippedDensities
         end,
         DensityTargetResolutions
     ).
+
 export_gps_file(Fname, Scales) ->
     Header = ["name,latitude,longitude,color,desc"],
 
