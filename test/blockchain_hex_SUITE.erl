@@ -14,6 +14,7 @@
 ]).
 
 -export([
+    full_known_values_test/1,
     known_values_test/1,
     known_differences_test/1,
     scale_test/1,
@@ -147,6 +148,44 @@ end_per_suite(_Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
+%% XXX: Remove this test when done cross-checking with python
+full_known_values_test(Config) ->
+    Ledger = ?config(ledger, Config),
+
+    {ok, [List]} = file:consult("/tmp/tracker.erl"),
+
+    %% assert some known values calculated from the python model (thanks @para1!)
+    true = lists:all(
+        fun({Hex, _Res, UnclippedValue, _Limit, ClippedValue}) ->
+            case h3:get_resolution(Hex) of
+                0 ->
+                    true;
+                _ ->
+                    {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(
+                        Hex,
+                        Ledger
+                    ),
+
+                    ct:pal(
+                        "Hex: ~p, PythonUnclippedDensity: ~p, CalculatedUnclippedDensity: ~p, PythonClippedDensity: ~p, CalculatedClippedDensity: ~p",
+                        [
+                            Hex,
+                            UnclippedValue,
+                            maps:get(Hex, UnclippedDensities),
+                            ClippedValue,
+                            maps:get(Hex, ClippedDensities)
+                        ]
+                    ),
+
+                    UnclippedValue == maps:get(Hex, UnclippedDensities) andalso
+                        ClippedValue == maps:get(Hex, ClippedDensities)
+            end
+        end,
+        List
+    ),
+
+    ok.
+
 known_values_test(Config) ->
     Ledger = ?config(ledger, Config),
 
@@ -195,8 +234,7 @@ scale_test(Config) ->
     Ledger = ?config(ledger, Config),
     Another = h3:from_string("8c2836152804dff"),
 
-    {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(Another, Ledger),
-    Scale = blockchain_hex:scale(Another, UnclippedDensities, ClippedDensities),
+    Scale = blockchain_hex:scale(Another, Ledger),
     ct:pal("Res: ~p, Scale: ~p", [h3:get_resolution(Another), Scale]),
 
     %% TODO: Assert checks from the python model
@@ -288,14 +326,9 @@ export_scale_data(Ledger, DensityTargetResolutions, GatewaysWithLocs) ->
             %% Export scale data for every single gateway to a gps file
             Scales = lists:foldl(
                 fun({GwName, Loc}, Acc) ->
-                    {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(
-                        Loc,
-                        Ledger
-                    ),
                     Scale = blockchain_hex:scale(
                         Loc,
-                        UnclippedDensities,
-                        ClippedDensities
+                        Ledger
                     ),
                     [{GwName, Loc, Scale} | Acc]
                 end,

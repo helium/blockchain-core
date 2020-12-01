@@ -1,6 +1,6 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/3, densities/2]).
+-export([var_map/1, scale/2, densities/2]).
 
 -include("blockchain_vars.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -23,7 +23,9 @@ densities(H3Index, Ledger) ->
             lager:error("error, reason: ~p, e: ~p", [Reason, E]),
             {error, {hip17_vars_not_set, Reason}};
         {ok, VarMap} ->
-            Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:parent(H3Index, h3:get_resolution(H3Index) - 1), Ledger),
+            Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:parent(H3Index,
+                                                                                h3:get_resolution(H3Index) - 1),
+                                                                      Ledger),
             %% Calculate clipped and unclipped densities
             Densities = densities(H3Index, VarMap, Locations, Ledger),
             {ok, Densities}
@@ -31,11 +33,12 @@ densities(H3Index, Ledger) ->
 
 -spec scale(
     Location :: h3:h3_index(),
-    UnclippedDensities :: density_map(),
-    ClippedDensities :: density_map()
+    Ledger :: blockchain_ledger_v1:ledger()
 ) -> float().
-scale(Location, UnclippedDensities, ClippedDensities) ->
+scale(Location, Ledger) ->
+    {ok, {UnclippedDensities, ClippedDensities}} = densities(Location, Ledger),
     maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities).
+
 
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, var_map()}.
 var_map(Ledger) ->
@@ -175,6 +178,7 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
     M1 = lists:foldl(
         fun(ThisResHex, Acc3) ->
             OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
+            ct:pal("OccupiedCount: ~p", [OccupiedCount]),
 
             Limit = limit(Res, VarMap, OccupiedCount),
             maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
