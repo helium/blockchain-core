@@ -3150,7 +3150,11 @@ get_h3dex(Ledger) ->
                                Ledger :: ledger()) -> Results :: h3dex().
 %% @doc Given a hex find candidate gateways in the span to the next adjacent
 %% hex. N.B. May return an empty map.
-lookup_gateways_from_hex(Hex, Ledger) ->
+lookup_gateways_from_hex(Hexes, Ledger) when is_list(Hexes) ->
+    lists:foldl(fun(Hex, Acc) ->
+                        maps:merge(Acc, lookup_gateways_from_hex(Hex, Ledger))
+                end, #{}, Hexes);
+lookup_gateways_from_hex(Hex, Ledger) when is_integer(Hex) ->
     H3CF = h3dex_cf(Ledger),
     cache_fold(Ledger, H3CF,
                fun({Key, GWs}, Acc) ->

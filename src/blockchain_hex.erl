@@ -23,8 +23,7 @@ densities(H3Index, Ledger) ->
             lager:error("error, reason: ~p, e: ~p", [Reason, E]),
             {error, {hip17_vars_not_set, Reason}};
         {ok, VarMap} ->
-            Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:parent(H3Index,
-                                                                                h3:get_resolution(H3Index) - 1),
+            Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 1),
                                                                       Ledger),
             %% Calculate clipped and unclipped densities
             Densities = densities(H3Index, VarMap, Locations, Ledger),
