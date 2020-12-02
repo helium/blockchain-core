@@ -3146,7 +3146,7 @@ get_h3dex(Ledger) ->
                      end, #{}, []),
     Res.
 
--spec lookup_gateways_from_hex(Hex :: non_neg_integer(),
+-spec lookup_gateways_from_hex(Hex :: [non_neg_integer()] | non_neg_integer(),
                                Ledger :: ledger()) -> Results :: h3dex().
 %% @doc Given a hex find candidate gateways in the span to the next adjacent
 %% hex. N.B. May return an empty map.

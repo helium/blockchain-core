@@ -113,10 +113,8 @@ init_per_suite(Config) ->
 
     %% Check that the vars are correct, one is enough...
     {ok, VarMap} = blockchain_hex:var_map(Ledger),
-    Res4 = maps:get(4, VarMap),
-    1 = maps:get(n, Res4),
-    250 = maps:get(density_tgt, Res4),
-    800 = maps:get(density_max, Res4),
+    ct:pal("var_map: ~p", [VarMap]),
+    #{ n := 1, tgt := 250, max := 800} = maps:get(4, VarMap),
 
     [
         {ledger, Ledger},
@@ -161,8 +159,10 @@ full_known_values_test(Config) ->
                 0 ->
                     true;
                 _ ->
+                    {ok, VarMap} = blockchain_hex:var_map(Ledger),
                     {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(
                         Hex,
+                        VarMap,
                         Ledger
                     ),
 
@@ -203,7 +203,8 @@ known_values_test(Config) ->
                 0 ->
                     true;
                 _ ->
-                    {ok, {_, ClippedDensities}} = blockchain_hex:densities(Hex, Ledger),
+                    {ok, VarMap} = blockchain_hex:var_map(Ledger),
+                    {ok, {_, ClippedDensities}} = blockchain_hex:densities(Hex, VarMap, Ledger),
 
                     ct:pal("~p ~p", [
                         Density,
@@ -223,7 +224,8 @@ known_differences_test(Config) ->
 
     true = lists:all(
         fun({Hex, {Clipped, Unclipped}}) ->
-            {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(Hex, Ledger),
+            {ok, VarMap} = blockchain_hex:var_map(Ledger),
+            {ok, {UnclippedDensities, ClippedDensities}} = blockchain_hex:densities(Hex, VarMap, Ledger),
             GotUnclipped = maps:get(Hex, UnclippedDensities),
             GotClipped = maps:get(Hex, ClippedDensities),
             ct:pal(
