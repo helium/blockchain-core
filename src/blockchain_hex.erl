@@ -102,7 +102,6 @@ densities(H3Root, VarMap, Locations, Ledger) ->
         _ ->
             UpperBoundRes = lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
             LowerBoundRes = h3:get_resolution(H3Root),
-            ct:pal("UpperBoundRes: ~p, LowerBoundRes: ~p", [UpperBoundRes, LowerBoundRes]),
 
             [Head | Tail] = lists:seq(UpperBoundRes, LowerBoundRes, -1),
 
@@ -155,9 +154,6 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
         fun(ThisResHex, Acc3) ->
             OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
             Limit = limit(Res, VarMap, OccupiedCount),
-
-            ct:pal("Limit: ~p, OccupiedCount: ~p", [Limit, OccupiedCount]),
-
             maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
         end,
         M0,

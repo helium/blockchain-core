@@ -114,7 +114,7 @@ init_per_suite(Config) ->
     %% Check that the vars are correct, one is enough...
     {ok, VarMap} = blockchain_hex:var_map(Ledger),
     ct:pal("var_map: ~p", [VarMap]),
-    #{ n := 1, tgt := 250, max := 800} = maps:get(4, VarMap),
+    #{n := 1, tgt := 250, max := 800} = maps:get(4, VarMap),
 
     [
         {ledger, Ledger},
@@ -185,7 +185,8 @@ full_known_values_test(Config) ->
                         ]
                     ),
 
-                    UnclippedValue == maps:get(Hex, UnclippedDensities) andalso ClippedValue == maps:get(Hex, ClippedDensities)
+                    UnclippedValue == maps:get(Hex, UnclippedDensities) andalso
+                        ClippedValue == maps:get(Hex, ClippedDensities)
             end
         end,
         List
