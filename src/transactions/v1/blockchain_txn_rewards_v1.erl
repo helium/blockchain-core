@@ -194,6 +194,10 @@ calculate_rewards(Start, End, Chain) ->
                        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
                         POCChallengeesRewards, POCWitnessesRewards, DCRewards]
                       ),
+            %% we are only keeping hex density calculations memoized for a single
+            %% rewards transaction calculation, then we discard that work and avoid
+            %% cache invalidation issues.
+            true = blockchain_hex:destroy_memoization(),
             {ok, Result}
     end.
 
@@ -781,7 +785,7 @@ poc_witnesses_rewards(Transactions,
                                                             Acc1,
                                                             ValidWitnesses
                                                            );
-                                                      _D ->
+                                                      D ->
                                                           %% new (HIP17)
                                                           lists:foldl(
                                                             fun(WitnessRecord, Map) ->
@@ -791,6 +795,7 @@ poc_witnesses_rewards(Transactions,
                                                                     WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                                                     RxScale = blockchain_hex:scale(WitnessLoc,
                                                                                                    VarMap,
+                                                                                                   D,
                                                                                                    Ledger),
                                                                     lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness),
                                                                                                               RxScale]),
@@ -1063,8 +1068,8 @@ maybe_calc_tx_scale(Challengee,
     case {DensityTgtRes, ChallengeeLoc} of
         {undefined, _} -> 1.0;
         {_, undefined} -> 1.0;
-        {_D, Loc} ->
-            TxScale = blockchain_hex:scale(Loc, VarMap, Ledger),
+        {D, Loc} ->
+            TxScale = blockchain_hex:scale(Loc, VarMap, D, Ledger),
             lager:info("Challengee: ~p, RxScale: ~p", [blockchain_utils:addr2name(Challengee),
                                                        TxScale]),
             TxScale
