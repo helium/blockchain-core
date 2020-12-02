@@ -85,7 +85,7 @@ var_map(Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> densities().
 densities(H3Index, VarMap, Ledger) ->
-    Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 1), Ledger),
+    Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
     %% Calculate clipped and unclipped densities
     densities(H3Index, VarMap, Locations, Ledger).
 
