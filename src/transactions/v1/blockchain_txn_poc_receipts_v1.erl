@@ -718,12 +718,11 @@ absorb(Txn, Chain) ->
         %% get these to make sure we're not replaying.
         {ok, PoCs} = blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger),
         {ok, _PoC} = blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret),
-        {ok, GwInfo} = blockchain_gateway_cache:get(Challenger, Ledger, false),
-        LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+        {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of
             false ->
-                lager:info("challenge too old ~p ~p", [Challenger, GwInfo]),
+                lager:info("challenge too old ~p ~p", [Challenger, LastChallenge]),
                 {error, challenge_too_old};
             true ->
                 case blockchain:config(?poc_version, Ledger) of
@@ -808,13 +807,12 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                 {error, _}=Error1 ->
                     Error1;
                 {ok, _PoC} ->
-                    case blockchain_gateway_cache:get(Challenger, Ledger) of
+                    case blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger) of
                         {error, Reason}=Error2 ->
                             lager:warning("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
                                         [Challenger, Reason]),
                             Error2;
-                        {ok, GwInfo} ->
-                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+                        {ok, LastChallenge} ->
                             case blockchain:get_block(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
                                     lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p",

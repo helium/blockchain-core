@@ -267,7 +267,7 @@
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
     #ledger_v1{
@@ -989,7 +989,6 @@ find_gateway_location(Address, Ledger) ->
                 {ok, BinGw} ->
                     Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                     Location = blockchain_ledger_gateway_v2:location(Gw),
-                    cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
                     {ok, Location};
                 not_found ->
                     {error, not_found};
@@ -1009,8 +1008,6 @@ find_gateway_last_challenge(Address, Ledger) ->
                 {ok, BinGw} ->
                     Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-                    cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
-                              term_to_binary(LastChallenge)),
                     {ok, LastChallenge};
                 not_found ->
                     {error, not_found};
@@ -3023,7 +3020,8 @@ open_db(Dir) ->
     CFOpts = GlobalOpts,
 
     DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
-                  "pocs", "securities", "routing", "subnets", "state_channels", "h3dex",
+                  "pocs", "securities", "routing", "subnets", "state_channels",
+                  "h3dex", "gw_denorm",
                   "delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
