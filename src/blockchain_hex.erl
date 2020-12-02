@@ -1,14 +1,16 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/3]).
+-export([var_map/1, scale/3, destroy_memoization/0]).
 
 -ifdef(TEST).
 -export([densities/3]).
 -endif.
 
 -include("blockchain_vars.hrl").
-
 -include_lib("common_test/include/ct.hrl").
+
+-define(MEMO_TBL, '__blockchain_hex_memoization_tbl').
+-define(ETS_OPTS, [named_table, public]).
 
 -type density_map() :: #{h3:h3_index() => pos_integer()}.
 -type densities() :: {UnclippedDensities :: density_map(), ClippedDensities :: density_map()}.
@@ -16,22 +18,37 @@
 -type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(), ...]}.
 -type h3_indices() :: [h3:h3_index()].
 
+-export_type([var_map/0]).
+
 %%--------------------------------------------------------------------
 %% Public functions
 %%--------------------------------------------------------------------
+-spec destroy_memoization() -> true.
+%% @doc This call will destroy the memoization context used during a rewards
+%% calculation.
+destroy_memoization() -> ets:delete(?MEMO_TBL).
+
 -spec scale(
     Location :: h3:h3_index(),
     VarMap :: var_map(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> float().
+%% @doc Given a hex location, return the rewards scaling factor. This call is
+%% memoized.
 scale(Location, VarMap, Ledger) ->
-    {UnclippedDensities, ClippedDensities} = densities(Location, VarMap, Ledger),
-    maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities).
+    case lookup(Location) of
+        {ok, Scale} -> Scale;
+        not_found ->
+            memoize(Location, do_scale(Location, VarMap, Ledger))
+    end.
+
 
 %% TODO: This ought to be stored in the ledger because it won't change much? ever?
 %% after it's been computed. Seems dumb to calculate it every single time we pay
 %% out rewards.
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, var_map()}.
+%% @doc This function returns a map of hex resolutions mapped to hotspot density targets and
+%% maximums. These numbers are used during PoC witness and challenge rewards calculations.
 var_map(Ledger) ->
     ResolutionVars = [
         ?hip17_res_0,
@@ -79,6 +96,33 @@ var_map(Ledger) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+-spec lookup(Key :: term()) -> {ok, Result :: term()} | not_found.
+lookup(Key) ->
+    try
+        case ets:lookup(?MEMO_TBL, Key) of
+            [{_Key, Res}] -> {ok, Res};
+            [] -> not_found
+        end
+    catch
+        %% if the table doesn't exist yet, create it and return `not_found'
+        _:badarg ->
+            _Name = ets:new(?MEMO_TBL, ?ETS_OPTS),
+            not_found
+    end.
+
+-spec memoize(Key :: term(), Result :: term()) -> Result :: term().
+memoize(Key, Result) ->
+    true = ets:insert(?MEMO_TBL, {Key, Result}),
+    Result.
+
+-spec do_scale(
+    Location :: h3:h3_index(),
+    VarMap :: var_map(),
+    Ledger :: blockchain_ledger_v1:ledger() ) -> float().
+do_scale(Location, VarMap, Ledger) ->
+    {UnclippedDensities, ClippedDensities} = densities(Location, VarMap, Ledger),
+    maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities).
+
 -spec densities(
     H3Index :: h3:h3_index(),
     VarMap :: var_map(),

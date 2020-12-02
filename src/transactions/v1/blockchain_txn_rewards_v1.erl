@@ -194,6 +194,10 @@ calculate_rewards(Start, End, Chain) ->
                        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
                         POCChallengeesRewards, POCWitnessesRewards, DCRewards]
                       ),
+            %% we are only keeping hex density calculations memoized for a single
+            %% rewards transaction calculation, then we discard that work and avoid
+            %% cache invalidation issues.
+            true = blockchain_hex:destroy_memoization(),
             {ok, Result}
     end.
 

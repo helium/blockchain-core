@@ -243,7 +243,8 @@ scale_test(Config) ->
     Ledger = ?config(ledger, Config),
     Another = h3:from_string("8c2836152804dff"),
 
-    Scale = blockchain_hex:scale(Another, Ledger),
+    {ok, VarMap} = blockchain_hex:var_map(Ledger),
+    Scale = blockchain_hex:scale(Another, VarMap, Ledger),
     ct:pal("Res: ~p, Scale: ~p", [h3:get_resolution(Another), Scale]),
 
     %% TODO: Assert checks from the python model
