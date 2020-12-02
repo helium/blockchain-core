@@ -202,164 +202,156 @@ check_is_valid_poc(Txn, Chain) ->
                 {error, _} ->
                     {error, poc_not_found};
                 {ok, PoC} ->
-                    case blockchain_gateway_cache:get(Challenger, Ledger) of
+                    {ok, LastChallenge} = blockchain_ledger_gateway_v2:find_gatewaylast_challenge(Challenger),
+                    %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
+                    case blockchain:get_block(LastChallenge, Chain) of
                         {error, Reason}=Error ->
                             lager:error([{poc_id, POCID}],
-                                        "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
-                                        [Challenger, Reason]),
+                                        "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                        [LastChallenge, Reason]),
                             Error;
-                        {ok, GwInfo} ->
-                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
-                            %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
-                            case blockchain:get_block(LastChallenge, Chain) of
-                                {error, Reason}=Error ->
-                                    lager:error([{poc_id, POCID}],
-                                                "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                                [LastChallenge, Reason]),
-                                    Error;
-                                {ok, Block1} ->
-                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                                    case LastChallenge + PoCInterval >= Height of
+                        {ok, Block1} ->
+                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                            case LastChallenge + PoCInterval >= Height of
+                                false ->
+                                    lager:info("challenge too old ~p ~p", [Challenger, LastChallenge]),
+                                    {error, challenge_too_old};
+                                true ->
+                                    Condition = case blockchain:config(?poc_version, Ledger) of
+                                                    {ok, POCVersion} when POCVersion > 1 ->
+                                                        fun(T) ->
+                                                                blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
+                                                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
+                                                                    blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
+                                                        end;
+                                                    _ ->
+                                                        fun(T) ->
+                                                                blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
+                                                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash
+                                                        end
+                                                end,
+                                    case lists:any(Condition, blockchain_block:transactions(Block1)) of
                                         false ->
-                                            lager:info("challenge too old ~p ~p", [Challenger, GwInfo]),
-                                            {error, challenge_too_old};
+                                            {error, onion_key_hash_mismatch};
                                         true ->
-                                            Condition = case blockchain:config(?poc_version, Ledger) of
-                                                            {ok, POCVersion} when POCVersion > 1 ->
-                                                                fun(T) ->
-                                                                        blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
-                                                                        blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
-                                                                        blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
-                                                                end;
-                                                            _ ->
-                                                                fun(T) ->
-                                                                        blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
-                                                                        blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash
-                                                                end
-                                                        end,
-                                            case lists:any(Condition, blockchain_block:transactions(Block1)) of
-                                                false ->
-                                                    {error, onion_key_hash_mismatch};
-                                                true ->
-                                                    %% Note there are 2 block hashes here; one is the block hash encoded into the original
-                                                    %% PoC request used to establish a lower bound on when that PoC request was made,
-                                                    %% and one is the block hash at which the PoC was absorbed onto the chain.
-                                                    %%
-                                                    %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
-                                                    %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
-                                                    %% with the chain.
-                                                    %%
-                                                    %% The second of these is combined with the PoC secret to produce the combined entropy
-                                                    %% from both the chain and from the PoC requester.
-                                                    %%
-                                                    %% Keeping these distinct and using them for their intended purpose is important.
-                                                    PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
-                                                    PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
-                                                    Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
-                                                    maybe_log_duration(prelude, StartPre),
-                                                    StartLA = erlang:monotonic_time(millisecond),
-                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
-                                                    maybe_log_duration(ledger_at, StartLA),
-                                                    Vars = vars(OldLedger),
-                                                    Path = case blockchain:config(?poc_version, OldLedger) of
-                                                               {ok, V} when V >= 8 ->
-                                                                   %% Targeting phase
-                                                                   StartFT = erlang:monotonic_time(millisecond),
-                                                                   %% Find the original target
-                                                                   {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
-                                                                   maybe_log_duration(target, StartFT),
-                                                                   %% Path building phase
-                                                                   StartB = erlang:monotonic_time(millisecond),
-                                                                   Time = blockchain_block:time(Block1),
-                                                                   RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, Time, Vars),
-                                                                   maybe_log_duration(build, StartB),
-                                                                   RetB;
+                                            %% Note there are 2 block hashes here; one is the block hash encoded into the original
+                                            %% PoC request used to establish a lower bound on when that PoC request was made,
+                                            %% and one is the block hash at which the PoC was absorbed onto the chain.
+                                            %%
+                                            %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
+                                            %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
+                                            %% with the chain.
+                                            %%
+                                            %% The second of these is combined with the PoC secret to produce the combined entropy
+                                            %% from both the chain and from the PoC requester.
+                                            %%
+                                            %% Keeping these distinct and using them for their intended purpose is important.
+                                            PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
+                                            PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                                            Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
+                                            maybe_log_duration(prelude, StartPre),
+                                            StartLA = erlang:monotonic_time(millisecond),
+                                            {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
+                                            maybe_log_duration(ledger_at, StartLA),
+                                            Vars = vars(OldLedger),
+                                            Path = case blockchain:config(?poc_version, OldLedger) of
+                                                       {ok, V} when V >= 8 ->
+                                                           %% Targeting phase
+                                                           StartFT = erlang:monotonic_time(millisecond),
+                                                           %% Find the original target
+                                                           {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
+                                                           maybe_log_duration(target, StartFT),
+                                                           %% Path building phase
+                                                           StartB = erlang:monotonic_time(millisecond),
+                                                           Time = blockchain_block:time(Block1),
+                                                           RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, Time, Vars),
+                                                           maybe_log_duration(build, StartB),
+                                                           RetB;
 
-                                                               {ok, V} when V >= 7 ->
-                                                                   StartFT = erlang:monotonic_time(millisecond),
-                                                                   %% If we make it to this point, we are bound to have a target.
-                                                                   {ok, Target} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
-                                                                   maybe_log_duration(target, StartFT),
-                                                                   StartB = erlang:monotonic_time(millisecond),
-                                                                   Time = blockchain_block:time(Block1),
-                                                                   RetB = blockchain_poc_path_v3:build(Target, OldLedger, Time, Entropy, Vars),
-                                                                   maybe_log_duration(build, StartB),
-                                                                   RetB;
+                                                       {ok, V} when V >= 7 ->
+                                                           StartFT = erlang:monotonic_time(millisecond),
+                                                           %% If we make it to this point, we are bound to have a target.
+                                                           {ok, Target} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
+                                                           maybe_log_duration(target, StartFT),
+                                                           StartB = erlang:monotonic_time(millisecond),
+                                                           Time = blockchain_block:time(Block1),
+                                                           RetB = blockchain_poc_path_v3:build(Target, OldLedger, Time, Entropy, Vars),
+                                                           maybe_log_duration(build, StartB),
+                                                           RetB;
 
-                                                               {ok, V} when V >= 4 ->
-                                                                   StartS = erlang:monotonic_time(millisecond),
-                                                                   GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
-                                                                   maybe_log_duration(scored, StartS),
+                                                       {ok, V} when V >= 4 ->
+                                                           StartS = erlang:monotonic_time(millisecond),
+                                                           GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
+                                                           maybe_log_duration(scored, StartS),
 
-                                                                   Time = blockchain_block:time(Block1),
-                                                                   {ChallengerGw, _} = maps:get(Challenger, GatewayScoreMap),
-                                                                   ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
-                                                                   {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
-                                                                   StartFT = erlang:monotonic_time(millisecond),
-                                                                   GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
-                                                                   %% If we make it to this point, we are bound to have a target.
-                                                                   {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
-                                                                   maybe_log_duration(filter_target, StartFT),
-                                                                   StartB = erlang:monotonic_time(millisecond),
+                                                           Time = blockchain_block:time(Block1),
+                                                           {ChallengerGw, _} = maps:get(Challenger, GatewayScoreMap),
+                                                           ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
+                                                           {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
+                                                           StartFT = erlang:monotonic_time(millisecond),
+                                                           GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
+                                                           %% If we make it to this point, we are bound to have a target.
+                                                           {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
+                                                           maybe_log_duration(filter_target, StartFT),
+                                                           StartB = erlang:monotonic_time(millisecond),
 
-                                                                   RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
-                                                                              {ok, true} ->
-                                                                                  blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars);
-                                                                              _ ->
-                                                                                  blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars)
-                                                                          end,
-                                                                   maybe_log_duration(build, StartB),
-                                                                   RetB;
-                                                               _ ->
-                                                                   {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
-                                                                   {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
-                                                                   P
-                                                           end,
-                                                    N = erlang:length(Path),
-                                                    [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                                    {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
-                                                                           {ok, true} ->
-                                                                               blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
-                                                                           _ ->
-                                                                               blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger)
-                                                                       end,
-                                                    %% no witness will exist with the first layer hash
-                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                                    StartV = erlang:monotonic_time(millisecond),
+                                                           RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                                                      {ok, true} ->
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars);
+                                                                      _ ->
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars)
+                                                                  end,
+                                                           maybe_log_duration(build, StartB),
+                                                           RetB;
+                                                       _ ->
+                                                           {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
+                                                           {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
+                                                           P
+                                                   end,
+                                            N = erlang:length(Path),
+                                            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+                                            {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                                                   {ok, true} ->
+                                                                       blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
+                                                                   _ ->
+                                                                       blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger)
+                                                               end,
+                                            %% no witness will exist with the first layer hash
+                                            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                                            StartV = erlang:monotonic_time(millisecond),
 
-                                                    case blockchain:config(?poc_version, OldLedger) of
-                                                        {ok, POCVer} when POCVer >= 9 ->
-                                                            Channels = lists:map(fun(Layer) ->
-                                                                                      <<IntData:16/integer-unsigned-little>> = Layer,
-                                                                                      IntData rem 8
-                                                                              end, LayerData),
-                                                            %% We are on poc v9
-                                                            %% %% run validations
-                                                            Ret = case POCVer >= 10 of
-                                                                        true ->
-                                                                            %% check the block hash in the receipt txn is correct
-                                                                            case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
-                                                                                true ->
-                                                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger);
-                                                                                false ->
-                                                                                    {error, bad_poc_request_block_hash}
-                                                                            end;
-                                                                        false ->
-                                                                            validate(Txn, Path, LayerData, LayerHashes, OldLedger)
-                                                                    end,
-                                                            maybe_log_duration(receipt_validation, StartV),
-                                                            case Ret of
-                                                                ok ->
-                                                                    {ok, Channels};
-                                                                {error, _}=E -> E
-                                                            end;
-                                                        _ ->
-                                                            %% We are not on poc v9, just do old behavior
-                                                            Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
-                                                            maybe_log_duration(receipt_validation, StartV),
-                                                            Ret
-                                                    end
+                                            case blockchain:config(?poc_version, OldLedger) of
+                                                {ok, POCVer} when POCVer >= 9 ->
+                                                    Channels = lists:map(fun(Layer) ->
+                                                                                 <<IntData:16/integer-unsigned-little>> = Layer,
+                                                                                 IntData rem 8
+                                                                         end, LayerData),
+                                                    %% We are on poc v9
+                                                    %% %% run validations
+                                                    Ret = case POCVer >= 10 of
+                                                              true ->
+                                                                  %% check the block hash in the receipt txn is correct
+                                                                  case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
+                                                                      true ->
+                                                                          validate(Txn, Path, LayerData, LayerHashes, OldLedger);
+                                                                      false ->
+                                                                          {error, bad_poc_request_block_hash}
+                                                                  end;
+                                                              false ->
+                                                                  validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                          end,
+                                                    maybe_log_duration(receipt_validation, StartV),
+                                                    case Ret of
+                                                        ok ->
+                                                            {ok, Channels};
+                                                        {error, _}=E -> E
+                                                    end;
+                                                _ ->
+                                                    %% We are not on poc v9, just do old behavior
+                                                    Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
+                                                    maybe_log_duration(receipt_validation, StartV),
+                                                    Ret
                                             end
                                     end
                             end
@@ -633,8 +625,7 @@ good_quality_witnesses(Element, Ledger) ->
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
     {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
 
-    {ok, ChallengeeGw} = blockchain_gateway_cache:get(Challengee, Ledger),
-    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+    {ok, ChallengeeLoc} = blockchain_ledger_v1:find_gateway_location(Challengee, Ledger),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
     case blockchain:config(?poc_version, Ledger) of
@@ -645,8 +636,7 @@ good_quality_witnesses(Element, Ledger) ->
             %% Good quality witnesses
             lists:filter(fun(Witness) ->
                                  WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
-                                 {ok, WitnessGw} = blockchain_gateway_cache:get(WitnessPubkeyBin, Ledger),
-                                 WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                 {ok, WitnessGwLoc} = blockchain_ledger_v1:find_gateway_location(WitnessPubkeyBin, Ledger),
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
                                  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
@@ -820,14 +810,14 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                 {ok, _PoC} ->
                     case blockchain_gateway_cache:get(Challenger, Ledger) of
                         {error, Reason}=Error2 ->
-                            lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                            lager:warning("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
                                         [Challenger, Reason]),
                             Error2;
                         {ok, GwInfo} ->
                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                             case blockchain:get_block(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
-                                    lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                    lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p",
                                                 [LastChallenge, Reason]),
                                     Error3;
                                 {ok, Block1} ->
@@ -1092,13 +1082,13 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
                   %% the witnesses should have an asserted location
                   %% at the point when the request was mined!
                   WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
-                  case blockchain_gateway_cache:get(WitnessGateway, OldLedger) of
+                  case blockchain_ledger_v1:find_gateway_location(WitnessGateway, OldLedger) of
                       {error, _} ->
                           false;
                       {ok, _} when Gateway == WitnessGateway ->
                           false;
-                      {ok, GWInfo} ->
-                          blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
+                      {ok, GWLoc} ->
+                          GWLoc /= undefined andalso
                           blockchain_poc_witness_v1:is_valid(Witness) andalso
                           blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
                   end
@@ -1131,10 +1121,10 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             %% nothing to validate
             undefined;
         Receipt ->
-            {ok, Source} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(PreviousElement), Ledger),
-            {ok, Destination} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(Element), Ledger),
-            SourceLoc = blockchain_ledger_gateway_v2:location(Source),
-            DestinationLoc = blockchain_ledger_gateway_v2:location(Destination),
+            {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(
+                                blockchain_poc_path_element_v1:challengee(PreviousElement), Ledger),
+            {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(
+                                     blockchain_poc_path_element_v1:challengee(Element), Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
@@ -1200,14 +1190,14 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                       Channel :: non_neg_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
 valid_witnesses(Element, Channel, Ledger) ->
-    {ok, Source} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(Element), Ledger),
+    {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(
+                        blockchain_poc_path_element_v1:challengee(Element), Ledger),
 
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
 
     lists:filter(fun(Witness) ->
-                         {ok, Destination} = blockchain_gateway_cache:get(blockchain_poc_witness_v1:gateway(Witness), Ledger),
-                         SourceLoc = blockchain_ledger_gateway_v2:location(Source),
-                         DestinationLoc = blockchain_ledger_gateway_v2:location(Destination),
+                         {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(
+                                                  blockchain_poc_witness_v1:gateway(Witness), Ledger),
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),

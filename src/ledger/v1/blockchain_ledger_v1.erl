@@ -38,7 +38,13 @@
     vars_nonce/1, vars_nonce/2,
     save_threshold_txn/2,
 
+    bootstrap_gw_denorm/1,
+
     find_gateway_info/2,
+    find_gateway_location/2,
+    find_gateway_last_challenge/2,
+    %% todo add more here
+
     gateway_cache_get/2,
     add_gateway/3, add_gateway/5,
     update_gateway/3,
@@ -207,6 +213,7 @@
 -record(sub_ledger_v1, {
     default :: rocksdb:cf_handle(),
     active_gateways :: rocksdb:cf_handle(),
+    gw_denorm :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
     dc_entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
@@ -262,7 +269,7 @@ new(Dir) ->
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
-     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF] = CFs,
+     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -271,6 +278,7 @@ new(Dir) ->
         active= #sub_ledger_v1{
             default=DefaultCF,
             active_gateways=AGwsCF,
+            gw_denorm=GwDenormCF,
             entries=EntriesCF,
             dc_entries=DCEntriesCF,
             htlcs=HTLCsCF,
@@ -284,6 +292,7 @@ new(Dir) ->
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
             active_gateways=DelayedAGwsCF,
+            gw_denorm=DelayedGwDenormCF,
             entries=DelayedEntriesCF,
             dc_entries=DelayedDCEntriesCF,
             htlcs=DelayedHTLCsCF,
@@ -967,6 +976,47 @@ find_gateway_info(Address, Ledger) ->
             {error, not_found};
         Error ->
             Error
+    end.
+
+find_gateway_location(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
+        {ok, BinLoc} ->
+            {ok, binary_to_term(BinLoc)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Location = blockchain_ledger_gateway_v2:location(Gw),
+                    cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
+                    {ok, Location};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
+find_gateway_last_challenge(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>, []) of
+        {ok, BinChallenge} ->
+            {ok, binary_to_term(BinChallenge)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+                    cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
+                              term_to_binary(LastChallenge)),
+                    {ok, LastChallenge};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
     end.
 
 -spec gateway_cache_get(libp2p_crypto:pubkey_bin(), ledger()) ->
@@ -2759,6 +2809,12 @@ active_gateways_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{active_gateways
 active_gateways_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{active_gateways=AGCF}}) ->
     AGCF.
 
+-spec gw_denorm_cf(ledger()) -> rocksdb:cf_handle().
+gw_denorm_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
+    GwDenormCF;
+gw_denorm_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
+    GwDenormCF.
+
 -spec entries_cf(ledger()) -> rocksdb:cf_handle().
 entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF;
@@ -2971,7 +3027,7 @@ open_db(Dir) ->
                   "delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
-                  "delayed_state_channels", "delayed_h3dex"],
+                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3239,6 +3295,23 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
             end;
         Error -> Error
     end.
+
+-spec bootstrap_gw_denorm(ledger()) -> ok.
+bootstrap_gw_denorm(Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    cache_fold(
+      Ledger,
+      AGwsCF,
+      fun({GwAddr, Binary}, _) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
+              Location = blockchain_ledger_gateway_v2:location(Gw),
+              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
+                        term_to_binary(LastChallenge))
+      end,
+      ignore).
 
 batch_from_cache(ETS) ->
     {ok, Batch} = rocksdb:batch(),
