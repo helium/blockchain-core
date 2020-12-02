@@ -242,10 +242,17 @@ known_differences_test(Config) ->
 
 scale_test(Config) ->
     Ledger = ?config(ledger, Config),
-    Another = h3:from_string("8c2836152804dff"),
+    VarMap = ?config(var_map, Config),
+    TargetResolutions = lists:seq(3, 10),
+    KnownHex = h3:from_string("8c2836152804dff"),
 
-    Scale = blockchain_hex:scale(Another, Ledger),
-    ct:pal("Res: ~p, Scale: ~p", [h3:get_resolution(Another), Scale]),
+    ok = lists:foreach(
+        fun(LowerBoundRes) ->
+            Scale = blockchain_hex:scale(KnownHex, VarMap, LowerBoundRes, Ledger),
+            ct:pal("LowerBoundRes: ~p, Scale: ~p", [LowerBoundRes, Scale])
+        end,
+        TargetResolutions
+    ),
 
     %% TODO: Assert checks from the python model
 
@@ -334,13 +341,14 @@ gateways_with_locs(Ledger) ->
 export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
     %% Calculate scale at each density target res for eventual comparison
     lists:foreach(
-        fun(TargetRes) ->
+        fun(LowerBoundRes) ->
             %% Export scale data for every single gateway to a gps file
             Scales = lists:foldl(
                 fun({GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
                         VarMap,
+                        LowerBoundRes,
                         Ledger
                     ),
                     [{GwName, Loc, Scale} | Acc]
@@ -349,7 +357,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
                 GatewaysWithLocs
             ),
 
-            Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
+            Fname = "/tmp/scale_" ++ integer_to_list(LowerBoundRes),
             ok = export_gps_file(Fname, Scales)
         end,
         DensityTargetResolutions

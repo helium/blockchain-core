@@ -1,6 +1,6 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/3]).
+-export([var_map/1, scale/4]).
 
 -ifdef(TEST).
 -export([densities/3]).
@@ -22,11 +22,20 @@
 -spec scale(
     Location :: h3:h3_index(),
     VarMap :: var_map(),
+    LowerBoundRes :: non_neg_integer(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> float().
-scale(Location, VarMap, Ledger) ->
-    {UnclippedDensities, ClippedDensities} = densities(Location, VarMap, Ledger),
-    maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities).
+scale(Location, VarMap, LowerBoundRes, Ledger) ->
+    %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
+    %% however, we specify the lower bound instead of going all the way down to 0
+
+    R = h3:get_resolution(Location),
+    lists:foldl(fun(Res, Acc) ->
+                        Parent = h3:parent(Location, Res),
+                        {UnclippedDensities, ClippedDensities} = densities(Parent, VarMap, Ledger),
+                        Acc * maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities)
+                end, 1.0, lists:seq(R, LowerBoundRes, -1)).
+
 
 %% TODO: This ought to be stored in the ledger because it won't change much? ever?
 %% after it's been computed. Seems dumb to calculate it every single time we pay
