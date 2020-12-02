@@ -273,6 +273,7 @@ h3dex_test(Config) ->
 
 export_scale_test(Config) ->
     Ledger = ?config(ledger, Config),
+    VarMap = ?config(var_map, Config),
 
     %% A list of possible density target resolution we'd output the scales at
     DensityTargetResolutions = lists:seq(3, 10),
@@ -282,6 +283,7 @@ export_scale_test(Config) ->
 
     ok = export_scale_data(
         Ledger,
+        VarMap,
         DensityTargetResolutions,
         GatewaysWithLocs
     ),
@@ -328,7 +330,7 @@ gateways_with_locs(Ledger) ->
         AG
     ).
 
-export_scale_data(Ledger, DensityTargetResolutions, GatewaysWithLocs) ->
+export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
     %% Calculate scale at each density target res for eventual comparison
     lists:foreach(
         fun(TargetRes) ->
@@ -337,6 +339,7 @@ export_scale_data(Ledger, DensityTargetResolutions, GatewaysWithLocs) ->
                 fun({GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
+                        VarMap,
                         Ledger
                     ),
                     [{GwName, Loc, Scale} | Acc]
