@@ -44,9 +44,6 @@
 -type txn_rewards() :: #blockchain_txn_rewards_v1_pb{}.
 -export_type([txn_rewards/0]).
 
-%% used for HIP17 POC reward scaling
--define(LOWER_RESOLUTION_BOUND, 8).
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -788,7 +785,7 @@ poc_witnesses_rewards(Transactions,
                                                             Acc1,
                                                             ValidWitnesses
                                                            );
-                                                      _D ->
+                                                      D ->
                                                           %% new (HIP17)
                                                           lists:foldl(
                                                             fun(WitnessRecord, Map) ->
@@ -798,7 +795,7 @@ poc_witnesses_rewards(Transactions,
                                                                     WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                                                     RxScale = blockchain_hex:scale(WitnessLoc,
                                                                                                    VarMap,
-                                                                                                   ?LOWER_RESOLUTION_BOUND,
+                                                                                                   D,
                                                                                                    Ledger),
                                                                     lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness),
                                                                                                               RxScale]),
@@ -1071,8 +1068,8 @@ maybe_calc_tx_scale(Challengee,
     case {DensityTgtRes, ChallengeeLoc} of
         {undefined, _} -> 1.0;
         {_, undefined} -> 1.0;
-        {_D, Loc} ->
-            TxScale = blockchain_hex:scale(Loc, VarMap, ?LOWER_RESOLUTION_BOUND, Ledger),
+        {D, Loc} ->
+            TxScale = blockchain_hex:scale(Loc, VarMap, D, Ledger),
             lager:info("Challengee: ~p, RxScale: ~p", [blockchain_utils:addr2name(Challengee),
                                                        TxScale]),
             TxScale
