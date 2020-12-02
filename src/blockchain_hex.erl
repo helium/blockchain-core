@@ -177,11 +177,12 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
     OccupiedCount :: non_neg_integer()
 ) -> non_neg_integer().
 limit(Res, VarMap, OccupiedCount) ->
-    min(
-        maps:get(max, maps:get(Res, VarMap)),
-        maps:get(tgt, maps:get(Res, VarMap)) *
-            max((OccupiedCount - maps:get(n, maps:get(Res, VarMap))), 1)
-    ).
+    VarAtRes = maps:get(Res, VarMap),
+    DensityMax = maps:get(max, VarAtRes),
+    DensityTgt = maps:get(tgt, VarAtRes),
+    N = maps:get(n, VarAtRes),
+    Max = max((OccupiedCount - N), 1),
+    min(DensityMax, DensityTgt * Max).
 
 -spec occupied_count(
     DensityTarget :: 0..12,
