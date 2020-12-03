@@ -97,8 +97,8 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
             BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
-            Sample = {Height, Rssi, Snr, Fspl, Distance},
-            ToInsert = term_to_binary({false, [Sample]}),
+            Sample = [{Height, Rssi, Snr, Fspl, Distance}],
+            ToInsert = term_to_binary(Sample),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             LastWindow = term_to_binary(Height + ?WINDOW_PERIOD*3),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
@@ -113,30 +113,25 @@ retrieve_datapoints(Src, Dst, Ledger) ->
         {ok, Bin} ->
             N = binary_to_term(Bin),
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            case length(N) > 1 of
-                true ->
-                    [H|_] = lists:reverse(N),
-                    {BlockHeight, _, _, _, _} = H,
-                    case BlockHeight of
-                        X when X < Height-?MAX_WINDOW_LENGTH ->
-                            case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
-                                {ok, Res} ->
-                                    LastWindow = binary_to_term(Res),
-                                    case LastWindow < Height - ?WINDOW_PERIOD of
-                                        true ->
-                                            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height)),
-                                            {ok, N};
-                                        false ->
-                                            {ok, active_window}
-                                    end;
-                                not_found ->
-                                    lager:info("Shit we should never get to here by this point..."),
-                                    {error, ohfuck}
-                               end;
-                        _ ->
-                            {ok, active_window}
-                    end;
-                false ->
+            [H|_] = lists:reverse(N),
+            {BlockHeight, _, _, _, _} = H,
+            case BlockHeight of
+                X when X < Height-?MAX_WINDOW_LENGTH ->
+                    case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
+                        {ok, Res} ->
+                            LastWindow = binary_to_term(Res),
+                            case LastWindow < Height - ?WINDOW_PERIOD of
+                                true ->
+                                    ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height)),
+                                    {ok, N};
+                                false ->
+                                    {ok, active_window}
+                            end;
+                        not_found ->
+                            lager:info("Shit we should never get to here by this point..."),
+                            {error, ohfuck}
+                       end;
+                _ ->
                     {ok, active_window}
             end;
         not_found ->
