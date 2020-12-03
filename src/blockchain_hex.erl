@@ -123,15 +123,32 @@ do_scale(Location, VarMap, Ledger) ->
     {UnclippedDensities, ClippedDensities} = densities(Location, VarMap, Ledger),
     maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities).
 
+
 -spec densities(
     H3Index :: h3:h3_index(),
     VarMap :: var_map(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> densities().
 densities(H3Index, VarMap, Ledger) ->
+    InteractiveBlocks = case blockchain_ledger_v1:config(?hip17_interactivity_blocks, Ledger) of
+                            {ok, V} -> V;
+                            {error, not_found} -> 0 % XXX what should this value be?
+                        end,
     Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
+
+    Interactive = case application:get_env(blockchain, hip17_test_mode, false) of
+                      true ->
+                          %% HIP17 test mode, no interactive filtering
+                          Locations;
+                      false ->
+                          maps:map(
+                            fun(_K, V) ->
+                                    filter_interactive_gws(V, InteractiveBlocks, Ledger)
+                            end, Locations)
+                  end,
+
     %% Calculate clipped and unclipped densities
-    densities(H3Index, VarMap, Locations, Ledger).
+    densities(H3Index, VarMap, Interactive, Ledger).
 
 -spec densities(
     H3Root :: h3:h3_index(),
@@ -181,7 +198,7 @@ densities(H3Root, VarMap, Locations, Ledger) ->
     var_map(),
     h3_indices(),
     densities(),
-    [non_neg_integer()]
+    [0..15]
 ) -> densities().
 build_densities(_H3Root, _Ledger, _VarMap, _ParentHexes, {UAcc, Acc}, []) ->
     {UAcc, Acc};
@@ -205,6 +222,27 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
     ),
 
     build_densities(H3Root, Ledger, VarMap, OccupiedHexesThisRes, {UM0, M1}, Tail).
+
+-spec filter_interactive_gws( GWs :: [libp2p_crypto:pubkey_bin(), ...],
+                              InteractiveBlocks :: pos_integer(),
+                              Ledger :: blockchain_ledger_v1:ledger()) ->
+    [libp2p_crypto:pubkey_bin(), ...].
+%% @doc This function filters a list of gateway addresses which are considered
+%% "interactive" for the purposes of HIP17 based on the last block when it
+%% responded to a POC challenge compared to the current chain height.
+filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
+    {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
+    lists:filter(fun(GWAddr) ->
+                         case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
+                             {ok, GWInfo} ->
+                                 case blockchain_ledger_gateway_v2:last_poc_challenge(GWInfo) of
+                                     undefined -> false;
+                                     LastChallenge ->
+                                         (CurrentHeight - LastChallenge) =< InteractiveBlocks
+                                 end;
+                             {error, not_found} -> false
+                         end
+                 end, GWs).
 
 -spec limit(
     Res :: 0..12,

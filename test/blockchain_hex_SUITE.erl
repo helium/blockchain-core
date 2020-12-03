@@ -103,6 +103,8 @@ init_per_suite(Config) ->
     LedgerURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-586724.tar.gz",
     Ledger = blockchain_ct_utils:ledger(hip17_vars(), LedgerURL),
 
+    ok = application:set_env(blockchain, hip17_test_mode, true),
+
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     blockchain:bootstrap_h3dex(Ledger1),
     blockchain_ledger_v1:commit_context(Ledger1),
@@ -322,7 +324,8 @@ hip17_vars() ->
         hip17_res_10 => <<"2,1,1">>,
         hip17_res_11 => <<"2,100000,100000">>,
         hip17_res_12 => <<"2,100000,100000">>,
-        density_tgt_res => 8
+        density_tgt_res => 8,
+        hip17_interactivity_blocks => 1200 * 3
     }.
 
 %%--------------------------------------------------------------------

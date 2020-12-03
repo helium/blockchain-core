@@ -1100,6 +1100,8 @@ validate_var(?hip17_res_12, Value) ->
     validate_hip17_vars(Value, "hip17_res_12");
 validate_var(?density_tgt_res, Value) ->
     validate_int(Value, "density_tgt_res", 1, 15, false);
+validate_var(?hip17_interactivity_blocks, Value) ->
+    validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
@@ -1108,7 +1110,7 @@ validate_var(Var, Value) ->
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
         {error, _}=E0 ->
-            lager:error("unable to get densit var, reason: ~p", [E0]),
+            lager:error("unable to get density var, reason: ~p", [E0]),
             throw({error, {invalid_density_var, Var, Value}});
         {ok, Res} ->
             case length(Res) == 3 of
