@@ -151,44 +151,49 @@ process_witness(_Height, Element, Ledger) ->
 
 process_links(PreviousElement, Element, Ledger) ->
     %% First get the receipt info if there is one
-    ReceiptResults = case blockchain_poc_path_element_v1:receipt(Element) of
-        undefined ->
-            [];
-        _Receipt ->
-            Src = blockchain_poc_path_element_v1:challengee(PreviousElement),
-            Dst = blockchain_poc_path_element_v1:challengee(Element),
-            case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
-                {ok, active_window} ->
-                    lager:info("Window still active"),
-                    [];
-                {ok, DataPoints} ->
-                    lager:info("Window period reached"),
-                    {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
-                    ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
-                    Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-                    {{T, _Td}, {F, _Fd}, {_M, _Md}, {U, _Ud}} = Data,
-                    Sum = T+F+U,
-                    case Sum of
-                        S when S == 0 ->
-                           [{undefined, Data}];
-                        S when S =< ?MAX_WINDOW_SAMPLES ->
-                            [{undefined, Data}];
-                        S when S > ?MAX_WINDOW_SAMPLES ->
-                            Tper = T/S,
-                            case Tper of
-                                X when X > 0.75 ->
-                                    [{real, Data}];
-                                X when X =< 0.75 andalso X >= 0.5 ->
-                                    [{undefined, Data}];
-                                X when X < 0.5 ->
-                                    [{fake, Data}]
-                            end
-                    end;
-                {error, _Res} ->
-                    lager:info("No datapoints found when calculating class"),
-                    []
-            end
-    end,
+    ReceiptResults = case PreviousElement of
+                         undefined ->
+                             [];
+                         _Something ->
+                             case blockchain_poc_path_element_v1:receipt(Element) of
+                                 undefined ->
+                                     [];
+                                 _Receipt ->
+                                     Src = blockchain_poc_path_element_v1:challengee(PreviousElement),
+                                     Dst = blockchain_poc_path_element_v1:challengee(Element),
+                                     case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
+                                         {ok, active_window} ->
+                                             lager:info("Window still active"),
+                                             [];
+                                         {ok, DataPoints} ->
+                                             lager:info("Window period reached"),
+                                             {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
+                                             ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
+                                             Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
+                                             {{T, _Td}, {F, _Fd}, {_M, _Md}, {U, _Ud}} = Data,
+                                             Sum = T+F+U,
+                                             case Sum of
+                                                 S when S == 0 ->
+                                                    [{undefined, Data}];
+                                                 S when S =< ?MAX_WINDOW_SAMPLES ->
+                                                     [{undefined, Data}];
+                                                 S when S > ?MAX_WINDOW_SAMPLES ->
+                                                     Tper = T/S,
+                                                     case Tper of
+                                                         X when X > 0.75 ->
+                                                             [{real, Data}];
+                                                         X when X =< 0.75 andalso X >= 0.5 ->
+                                                             [{undefined, Data}];
+                                                         X when X < 0.5 ->
+                                                             [{fake, Data}]
+                                                     end
+                                             end;
+                                         {error, _Res} ->
+                                             lager:info("No datapoints found when calculating class"),
+                                             []
+                                     end
+                             end
+                     end,
 
     %% Now do all the witnesses
     SrcHotspot = blockchain_poc_path_element_v1:challengee(Element),
