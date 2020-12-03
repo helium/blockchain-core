@@ -42,6 +42,7 @@
     cluster_connectivity/1,
     build_clusters/1,
     gateway_connectivity_score/2,
+    gateway_cluster_size/2,
     footprint/7,
     gateway_connectivity/2,
     gateway_disjoint/2,
@@ -1092,14 +1093,28 @@ gateway_connectivity_score(Address, Ledger) ->
             find_cluster(Address, Map)
     end.
 
+gateway_cluster_size(Address, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, Bin} = cache_get(Ledger, DefaultCF, <<"cluster_map">>, []),
+    {AHeight, Map} = binary_to_term(Bin),
+    case Height rem 100 == 0 andalso AHeight /= Height of
+        true ->
+            %% need to rebuild
+            build_clusters(Ledger),
+            gateway_connectivity_score(Address, Ledger);
+        false ->
+            element(2, find_cluster(Address, Map))
+    end.
+
 find_cluster(_, []) ->
     %% assume it's connected for now
-    1.0;
+    {1.0, 1};
 find_cluster(Address, [{Score, Filter, Members}|T]) ->
     case xor16:contain({Filter, fun xxhash:hash64/1}, Address) andalso
          sets:is_element(Address, Members) of
         true ->
-            Score;
+            {Score, sets:size(Members)};
         false ->
             find_cluster(Address, T)
     end.
