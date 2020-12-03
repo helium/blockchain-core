@@ -12,6 +12,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(WINDOW_PERIOD, 1000).
+-define(MAX_WINDOW_LENGTH, 4000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 500).
 -define(SCORE_THRESHOLD, real).
@@ -38,19 +40,20 @@
 -type classification() :: {atom(), bmu_results()}.
 -type evaluations() :: {trustees(), trustees()}.
 
--export([update_datapoints/8,
-         update_bmus/3,
+-export([update_datapoints/7,
+         update_bmus/4,
          classify_sample/4,
          update_windows/4,
          reset_window/2,
          windows/1,
          update_trustees/2,
-         calculate_bmus/2,
+         calculate_bmus/3,
+         calculate_data_windows/2,
          clear_som/1,
-         clear_bmus/2,
+         clear_bmus/3,
          retrieve_som/1,
          retrieve_bmus/2,
-         retrieve_datapoints/2,
+         retrieve_datapoints/3,
          retrieve_trustees/1,
          init_trustees/1,
          promoted_trustees/1,
@@ -67,29 +70,120 @@
 %%% SOM Database functions
 %%%-------------------------------------------------------------------
 
--spec update_datapoints(binary(), binary(), any(), any(), any(), atom(), atom(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
+-spec update_datapoints(binary(), binary(), any(), any(), any(), any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
     DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
-    BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
+    %BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
     Key1 = <<Src/binary, Dst/binary>>,
-    Key2 = <<Dst/binary, Src/binary>>,
+    %Key2 = <<Dst/binary, Src/binary>>,
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key1, []) of
         {ok, Bin} ->
             N = binary_to_term(Bin),
-            Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
-            ToInsert = term_to_binary([Sample | N]),
-            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
-            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert);
+            Sample = {Height, Rssi, Snr, Fspl, Distance},
+            Combined = [Sample | N],
+            Clipped = lists:foldl(fun({H, R, S, F, D}, DAcc) ->
+                                      case (Height - ?MAX_WINDOW_LENGTH) >= H of
+                                          true ->
+                                              DAcc;
+                                          false ->
+                                              [{H, R, S, F, D} | DAcc]
+                                      end
+                                   end, [], Combined),
+            ToInsert = term_to_binary(Clipped),
+            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
-            Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
-            ToInsert = term_to_binary([Sample]),
+            BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
+            Sample = {Height, {Rssi, Snr, Fspl}},
+            ToInsert = term_to_binary({false, [Sample]}),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
-            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert)
+            LastWindow = term_to_binary(Height + ?WINDOW_PERIOD*3),
+            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
     end.
 
--spec retrieve_datapoints(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
-retrieve_datapoints(Hotspot, Ledger) ->
-    lists:flatten([blockchain_ledger_v1:witness_of(Hotspot, Ledger), blockchain_ledger_v1:witness_for(Hotspot, Ledger)]).
+-spec retrieve_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {ok, active_window} | {error, atom()}.
+retrieve_datapoints(Src, Dst, Ledger) ->
+    DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
+    BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
+    Key = <<Src/binary, Dst/binary>>,
+    case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key, []) of
+        {ok, Bin} ->
+            N = binary_to_term(Bin),
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            [H|_] = lists:reverse(N),
+            {BlockHeight, _, _, _, _} = H,
+            case BlockHeight of
+                X when X < Height-?MAX_WINDOW_LENGTH ->
+                    case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
+                        {ok, Res} ->
+                            LastWindow = binary_to_term(Res),
+                            case LastWindow < Height - ?WINDOW_PERIOD of
+                                true ->
+                                    ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height)),
+                                    {ok, N};
+                                false ->
+                                    {ok, active_window}
+                            end;
+                        not_found ->
+                            lager:info("Shit we should never get to here by this point..."),
+                            {error, ohfuck}
+                       end;
+                _ ->
+                    {ok, active_window}
+            end;
+        not_found ->
+            {error, no_datapoints}
+    end.
+
+meanvar({RSum, SSum, Fspl, Distance, Count, SetPoints}) ->
+    {RMean, SMean} = {RSum/Count, SSum/Count},
+    {Rssq, Sssq} = lists:foldl(fun({Rssi, Snr}, {RAcc, SAcc}) -> {(RAcc + math:pow((Rssi - RMean), 2)), (SAcc + math:pow((Snr - SMean), 2))} end, {0,0}, SetPoints),
+    {Rvar, Svar} = {Rssq/Count, Sssq/Count},
+    {RMean, Rvar, SMean, Svar, Fspl, Distance}.
+
+-spec calculate_data_windows(Datapoints :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, term()}.
+calculate_data_windows(Datapoints, Ledger) ->
+    {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
+    WindowPoints4 = lists:foldl(fun({_Height, Rssi, Snr, Fspl, Distance},
+                                 {Rssi4Acc, Snr4Acc, Count4Acc, Set4Acc}) ->
+                                     {Rssi4Acc + Rssi, Snr4Acc + Snr, Fspl, Distance, Count4Acc + 1, [{Rssi, Snr} | Set4Acc]}
+                              end, {0,0,0, []}, Datapoints),
+    WindowPoints3 = lists:foldl(fun({Height, Rssi, Snr, Fspl, Distance},
+                                 {Rssi3Acc, Snr3Acc, Count3Acc, Set3Acc}) ->
+                                      case Height > (CurrentHeight - ?WINDOW_PERIOD*3) of
+                                          true ->
+                                              {Rssi3Acc + Rssi, Snr3Acc + Snr, Fspl, Count3Acc + 1, [{Rssi, Snr} | Set3Acc]};
+                                          false ->
+                                              {Rssi3Acc, Snr3Acc, Fspl, Distance, Count3Acc, Set3Acc}
+                                      end
+                              end, {0,0,0, []}, Datapoints),
+    WindowPoints2 = lists:foldl(fun({Height, Rssi, Snr, Fspl, Distance},
+                                 {Rssi2Acc, Snr2Acc, Count2Acc, Set2Acc}) ->
+                                      case Height > (CurrentHeight - ?WINDOW_PERIOD*2) of
+                                          true ->
+                                              {Rssi2Acc + Rssi, Snr2Acc + Snr, Fspl, Distance, Count2Acc + 1, [{Rssi, Snr} | Set2Acc]};
+                                          false ->
+                                              {Rssi2Acc, Snr2Acc, Fspl, Distance, Count2Acc, Set2Acc}
+                                      end
+                              end, {0,0,0, []}, Datapoints),
+    WindowPoints1 = lists:foldl(fun({Height, Rssi, Snr, Fspl, Distance},
+                                 {Rssi1Acc, Snr1Acc, Count1Acc, Set1Acc}) ->
+                                      case Height > (CurrentHeight - ?WINDOW_PERIOD*1) of
+                                          true ->
+                                              {Rssi1Acc + Rssi, Snr1Acc + Snr, Fspl, Distance, Count1Acc + 1, [{Rssi, Snr} | Set1Acc]};
+                                          false ->
+                                              {Rssi1Acc, Snr1Acc, Fspl, Distance, Count1Acc, Set1Acc}
+                                      end
+                              end, {0,0,0, []}, Datapoints),
+    {RMean4, RVar4, SMean4, SVar4, Fspl4, Distance4} = meanvar(WindowPoints4),
+    {RMean3, RVar3, SMean3, SVar3, _Fspl3, _Distance3} = meanvar(WindowPoints3),
+    {RMean2, RVar2, SMean2, SVar2, _Fspl2, _Distance2} = meanvar(WindowPoints2),
+    {RMean1, RVar1, SMean1, SVar1, _Fspl1, _Distance1} = meanvar(WindowPoints1),
+    {ok, {RMean1, RVar1, SMean1, SVar1,
+     RMean2, RVar2, SMean2, SVar2,
+     RMean3, RVar3, SMean3, SVar3,
+     RMean4, RVar4, SMean4, SVar4,
+     Fspl4, Distance4}}.
 
 to_num(String) ->
     try list_to_float(String) of
@@ -106,37 +200,47 @@ init_som(Ledger) ->
             {ok, Som} = som:from_json(Serialized),
             Som;
         not_found ->
-            PrivDir = code:priv_dir(blockchain),
-            File = application:get_env(blockchain, aggregate_samples_file, "aggregate_samples_2.csv"),
+            %PrivDir = code:priv_dir(blockchain),
+            %File = application:get_env(blockchain, aggregate_samples_file, "aggregate_samples_2.csv"),
+            PrivDir = code:priv_dir(miner_pro),
+            File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples_3.csv"),
             TrainingSetFile = PrivDir ++ "/" ++ File,
             {ok, IoDevice} = file:open(TrainingSetFile, [read]),
             Processor = fun({newline, ["pos"|_]}, Acc) ->
                                  %% ignore header
                                  Acc;
-                           ({newline, [_Pos, Signal, SNR, FSPL, Class]}, Acc) ->
-                                 [{[((to_num(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
-                                    ((to_num(SNR) - (-19))/(17 - (-19))),
-                                    ((to_num(FSPL) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))], list_to_binary(Class)} | Acc];
+                           ({newline, [_Pos,
+                                       Signal1, Sigvar1, Snr1, Snrvar1,
+                                       _Signal2, Sigvar2, _Snr2, Snrvar2,
+                                       _Signal3, Sigvar3, _Snr3, Snrvar3,
+                                       Signal4, Sigvar4, Snr4, Snrvar4,
+                                       FSPL, Dist, Class]}, Acc) ->
+                                 [{[to_num(Signal1), to_num(Sigvar1), to_num(Snr1), to_num(Snrvar1),
+                                    to_num(Sigvar2), to_num(Snrvar2),
+                                    to_num(Sigvar3), to_num(Snrvar3),
+                                    to_num(Signal4), to_num(Sigvar4), to_num(Snr4), to_num(Snrvar4),
+                                    to_num(FSPL), to_num(Dist)], list_to_binary(Class)} | Acc];
                             (_, Acc) ->
                                  Acc
                          end,
             {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
             {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
-            {ok, SOM} = som:new(15, 15, 3, false, #{classes => #{<<"1">> => 1.7, <<"0">> => 0.6},
+            {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"1">> => 1.7, <<"0">> => 0.6},
                                             custom_weighting => false,
-                                            sigma => 0.75,
+                                            sigma => 0.5,
                                             random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
                                                              186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
             %% Train the network through supervised learning
-            som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 3000),
+            som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 10000),
             {ok, Serialized} = som:export_json(SOM),
             blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized),
             SOM
     end.
 
--spec calculate_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
-calculate_bmus(Key, Ledger) ->
+-spec calculate_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
+calculate_bmus(Src, Dst, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    Key = <<Src/binary, Dst/binary>>,
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, Bin} ->
             Bmus = binary_to_term(Bin),
@@ -170,10 +274,11 @@ calculate_bmus(Key, Ledger) ->
             {{0,0.0},{0,0.0},{0,0.0}}
     end.
 
--spec update_bmus(binary(), [term()], Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-update_bmus(Key, Values, Ledger) ->
+-spec update_bmus(binary(), binary(), term(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+update_bmus(Src, Dst, Values, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     SomCF = blockchain_ledger_v1:som_cf(Ledger),
+    Key = <<Src/binary, Dst/binary>>,
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, BmusBin} ->
             Bmus = binary_to_term(BmusBin),
@@ -181,44 +286,68 @@ update_bmus(Key, Values, Ledger) ->
                 {ok, SomBin} ->
                     {ok, Som} = som:from_json(SomBin),
                     %% Calculate new BMUs with stored SOM
-                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
-                                     som:winner_vals(Som,
-                                                     [float(((Signal - (-134))/(134))), float(((Snr - (-19))/(17 - (-19)))), float(((Fspl - (-164))/(164)))]) end,
-                                        Values),
+                    {Signal1, Sigvar1, Snr1, Snrvar1,
+                     _Signal2, Sigvar2, _Snr2, Snrvar2,
+                     _Signal3, Sigvar3, _Snr3, Snrvar3,
+                     Signal4, Sigvar4, Snr4, Snrvar4,
+                     Fspl, Dist} = Values,
+                    NewBmu = som:winner_vals(Som,
+                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
+                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
+                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
                     %% Append BMUs list
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmus ++ Bmus, ?WINDOW_CAP)));
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmu ++ Bmus, ?WINDOW_CAP)));
                 not_found ->
                     Som = init_som(Ledger),
-                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
-                                             som:winner_vals(Som,
-                                                             [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
-                                                              ((float(Snr) - (-19))/(17 - (-19))),
-                                                              ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]) end,
-                                        Values),
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmus ++ Bmus, ?WINDOW_CAP)))
+                    {Signal1, Sigvar1, Snr1, Snrvar1,
+                     _Signal2, Sigvar2, _Snr2, Snrvar2,
+                     _Signal3, Sigvar3, _Snr3, Snrvar3,
+                     Signal4, Sigvar4, Snr4, Snrvar4,
+                     Fspl, Dist} = Values,
+                    NewBmu = som:winner_vals(Som,
+                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
+                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
+                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
+                    %% Append BMUs list
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmu ++ Bmus, ?WINDOW_CAP)))
             end;
         not_found ->
             case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
                 {ok, SomBin} ->
                     {ok, Som} = som:from_json(SomBin),
                     %% Calculate new BMUs with stored SOM
-                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
-                                     som:winner_vals(Som,
-                                                     [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
-                                                      ((float(Snr) - (-19))/(17 - (-19))),
-                                                      ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]) end,
-                             Values),
+                    {Signal1, Sigvar1, Snr1, Snrvar1,
+                     _Signal2, Sigvar2, _Snr2, Snrvar2,
+                     _Signal3, Sigvar3, _Snr3, Snrvar3,
+                     Signal4, Sigvar4, Snr4, Snrvar4,
+                     Fspl, Dist} = Values,
+                    NewBmu = som:winner_vals(Som,
+                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
+                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
+                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
                     %% Append BMUs list
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmus));
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmu));
                 not_found ->
                     Som = init_som(Ledger),
-                    NewBmus = lists:map(fun({{Signal, Snr, Fspl}, _}) ->
-                                             som:winner_vals(Som,
-                                                             [((float(Signal) - (1 * math:pow(10, -17)))/(0.001 - (1 * math:pow(10, -17)))),
-                                                              ((float(Snr) - (-19))/(17 - (-19))),
-                                                              ((float(Fspl) -  (3.981072 * math:pow(10, -20)))/(0.001 - (3.981072 * math:pow(10, -20))))]) end,
-                                     Values),
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmus))
+                    {Signal1, Sigvar1, Snr1, Snrvar1,
+                     _Signal2, Sigvar2, _Snr2, Snrvar2,
+                     _Signal3, Sigvar3, _Snr3, Snrvar3,
+                     Signal4, Sigvar4, Snr4, Snrvar4,
+                     Fspl, Dist} = Values,
+                    NewBmu = som:winner_vals(Som,
+                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
+                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
+                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
+                    %% Append BMUs list
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmu))
             end
     end.
 
@@ -256,13 +385,14 @@ retrieve_bmus(A, Ledger) ->
             {error, not_found}
     end.
 
--spec clear_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, not_found}.
-clear_bmus(A, Ledger) ->
+-spec clear_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, not_found}.
+clear_bmus(Src, Dst, Ledger) ->
+    Key = <<Src/binary, Dst/binary>>,
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
+    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, _Bin} ->
             %%lager:info("Clear BMUs for: ~p", [?TO_ANIMAL_NAME(A)]),
-            blockchain_ledger_v1:cache_delete(Ledger, BmuCF, <<A/binary>>),
+            blockchain_ledger_v1:cache_delete(Ledger, BmuCF, Key),
             ok;
         not_found ->
             lager:debug("Clear BMUs FAIL"),

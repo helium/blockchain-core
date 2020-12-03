@@ -97,29 +97,38 @@ acc_scores(Height, Index, Path, Ledger, Acc) ->
 calculate_class(Height, Element, PreviousElement, Ledger) ->
     process_receipt(Height, PreviousElement, Element, Ledger),
     process_witness(Height, Element, Ledger),
+    Src = blockchain_poc_path_element_v1:challengee(PreviousElement),
     Dst = blockchain_poc_path_element_v1:challengee(Element),
-    DataPoints = blockchain_ledger_som_v1:retrieve_datapoints(Dst, Ledger),
-    ok = blockchain_ledger_som_v1:update_bmus(Dst, DataPoints, Ledger),
-    Data = blockchain_ledger_som_v1:calculate_bmus(Dst, Ledger),
-    {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
-    Sum = T+F+U,
-    case Sum of
-        S when S == 0 ->
-            {undefined, Data};
-        S when S =< ?MAX_WINDOW_SAMPLES ->
-            {undefined, Data};
-        S when S > ?MAX_WINDOW_SAMPLES ->
-            Tper = T/S,
-            %%_Fper = F/Total,
-            %%_Uper = U/Total,
-            case Tper of
-                X when X > 0.75 ->
-                    {real, Data};
-                X when X =< 0.75 andalso X >= 0.5 ->
+    case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
+        {ok, active_window} ->
+            lager:info("Window still active"),
+            {ok, active_window};
+        {ok, DataPoints} ->
+            lager:info("Window period reached"),
+            {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
+            ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
+            Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
+            {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
+            Sum = T+F+U,
+            case Sum of
+                S when S == 0 ->
+                   {undefined, Data};
+                S when S =< ?MAX_WINDOW_SAMPLES ->
                     {undefined, Data};
-                X when X < 0.5 ->
-                    {fake, Data}
-            end
+                S when S > ?MAX_WINDOW_SAMPLES ->
+                    Tper = T/S,
+                    case Tper of
+                        X when X > 0.75 ->
+                            {real, Data};
+                        X when X =< 0.75 andalso X >= 0.5 ->
+                            {undefined, Data};
+                        X when X < 0.5 ->
+                            {fake, Data}
+                    end
+            end;
+        {error, Res} ->
+            lager:info("No datapoints found when calculating class"),
+            {error, Res}
     end.
 
 process_receipt(_Height, undefined, _Element, _Ledger) ->
@@ -139,10 +148,9 @@ process_receipt(Height, PreviousElement, Element, Ledger) ->
             SNR = blockchain_poc_receipt_v1:snr(Receipt),
             Freq = blockchain_poc_receipt_v1:frequency(Receipt),
             MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
-            Filtered = false,
-            Reason = undefined,
-            update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Filtered, Reason, Ledger),
-            ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Filtered, Reason, Ledger)
+            Distance = blockchain_utils:distance(SourceLoc, DestinationLoc),
+            update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
+            ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Distance, Ledger)
     end.
 
 process_witness(Height, Element, Ledger) ->
@@ -157,13 +165,12 @@ process_witness(Height, Element, Ledger) ->
                          MinRcvSig = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc),
                          RSSI = blockchain_poc_witness_v1:signal(Witness),
                          SNR = blockchain_poc_witness_v1:snr(Witness),
-                         Filtered = false,
-                         Reason = undefined,
-                         update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Filtered, Reason, Ledger),
-                         ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Filtered, Reason, Ledger)
+                         Distance = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                         update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
+                         ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Distance, Ledger)
                  end, Witnesses).
 
-update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, _Filtered, _Reason, Ledger) ->
+update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger) ->
     Value = case blockchain_ledger_som_v1:classify_sample(RSSI, SNR, MinRcvSig, Ledger) of
                 {{_, _Dist}, <<"0">>} -> -1;
                 {{_, _Dist}, <<"1">>} -> 1;
