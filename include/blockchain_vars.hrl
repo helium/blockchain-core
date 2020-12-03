@@ -398,3 +398,4 @@
 -define(hip17_res_11, hip17_res_11).
 -define(hip17_res_12, hip17_res_12).
 -define(density_tgt_res, density_tgt_res).
+-define(hip17_interactivity_blocks, hip17_interactivity_blocks).
