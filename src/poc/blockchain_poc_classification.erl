@@ -163,7 +163,6 @@ process_links(PreviousElement, Element, Ledger) ->
                                      Dst = blockchain_poc_path_element_v1:challengee(Element),
                                      case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
                                          {ok, active_window} ->
-                                             lager:info("Window still active"),
                                              [];
                                          {ok, DataPoints} ->
                                              lager:info("Window period reached"),
@@ -202,7 +201,6 @@ process_links(PreviousElement, Element, Ledger) ->
                          DstHotspot = blockchain_poc_witness_v1:gateway(Witness),
                          case blockchain_ledger_som_v1:retrieve_datapoints(SrcHotspot, DstHotspot, Ledger) of
                              {ok, active_window} ->
-                                 lager:info("Window still active"),
                                  ResAcc;
                              {ok, WitDataPoints} ->
                                  lager:info("Window period reached"),
