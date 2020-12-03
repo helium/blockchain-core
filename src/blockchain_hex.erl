@@ -1,189 +1,210 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/4, densities/1]).
+-export([var_map/1, scale/4, destroy_memoization/0]).
+
+-ifdef(TEST).
+-export([densities/3]).
+-endif.
 
 -include("blockchain_vars.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-define(MEMO_TBL, '__blockchain_hex_memoization_tbl').
+-define(ETS_OPTS, [named_table, public]).
 
 -type density_map() :: #{h3:h3_index() => pos_integer()}.
 -type densities() :: {UnclippedDensities :: density_map(), ClippedDensities :: density_map()}.
--type var_map() :: #{non_neg_integer() => map()}.
--type hex_resolutions() :: [non_neg_integer()].
+-type var_map() :: #{0..12 => map()}.
 -type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(), ...]}.
 -type h3_indices() :: [h3:h3_index()].
+
+-export_type([var_map/0]).
 
 %%--------------------------------------------------------------------
 %% Public functions
 %%--------------------------------------------------------------------
--spec densities(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, densities()} | {error, any()}.
-densities(Ledger) ->
-    %% build a map of required chain variables, example:
-    %% #{0 => #{n => N, density_tgt => T, density_max =M}, ....}
-    case var_map(Ledger) of
-        {error, Reason}=E ->
-            lager:error("error, reason: ~p, e: ~p", [Reason, E]),
-            {error, {hip17_vars_not_set, Reason}};
-        {ok, VarMap} ->
-            %% Filter out gateways with no location
-            Locations = filtered_locations(Ledger),
-            %% Calculate clipped and unclipped densities
-            Densities = densities(VarMap, Locations),
-            {ok, Densities}
-    end.
+-spec destroy_memoization() -> true.
+%% @doc This call will destroy the memoization context used during a rewards
+%% calculation.
+destroy_memoization() -> ets:delete(?MEMO_TBL).
 
 -spec scale(
     Location :: h3:h3_index(),
-    TargetRes :: non_neg_integer(),
-    UnclippedDensities :: density_map(),
-    ClippedDensities :: density_map()
+    VarMap :: var_map(),
+    LowerBoundRes :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger()
 ) -> float().
-scale(Location, TargetRes, UnclippedDensities, ClippedDensities) ->
-    case TargetRes >= h3:get_resolution(Location) of
-        true ->
-            maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities);
-        false ->
-            lists:foldl(
-                fun(R, Acc) ->
-                    Parent = h3:parent(Location, R),
-                    Acc *
-                        (maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities))
-                end,
-                1.0,
-                lists:seq(TargetRes, 0, -1)
-            )
+%% @doc Given a hex location, return the rewards scaling factor. This call is
+%% memoized.
+scale(Location, VarMap, LowerBoundRes, Ledger) ->
+    case lookup(Location) of
+        {ok, Scale} -> Scale;
+        not_found ->
+            memoize(Location, calculate_scale(Location, VarMap, LowerBoundRes, Ledger))
     end.
 
+%% TODO: This ought to be stored in the ledger because it won't change much? ever?
+%% after it's been computed. Seems dumb to calculate it every single time we pay
+%% out rewards.
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, var_map()}.
+%% @doc This function returns a map of hex resolutions mapped to hotspot density targets and
+%% maximums. These numbers are used during PoC witness and challenge rewards calculations.
 var_map(Ledger) ->
+    ResolutionVars = [
+        ?hip17_res_0,
+        ?hip17_res_1,
+        ?hip17_res_2,
+        ?hip17_res_3,
+        ?hip17_res_4,
+        ?hip17_res_5,
+        ?hip17_res_6,
+        ?hip17_res_7,
+        ?hip17_res_8,
+        ?hip17_res_9,
+        ?hip17_res_10,
+        ?hip17_res_11,
+        ?hip17_res_12
+    ],
 
-    case get_density_var(?hip17_res_0, Ledger) of
-        {error, _}=E1 -> E1;
-        {ok, [N0, Tgt0, Max0]} ->
-            case get_density_var(?hip17_res_1, Ledger) of
-                {error, _}=E2 -> E2;
-                {ok, [N1, Tgt1, Max1]} ->
-                    case get_density_var(?hip17_res_2, Ledger) of
-                        {error, _}=E3 -> E3;
-                        {ok, [N2, Tgt2, Max2]} ->
-                            case get_density_var(?hip17_res_3, Ledger) of
-                                {error, _}=E4 -> E4;
-                                {ok, [N3, Tgt3, Max3]} ->
-                                    case get_density_var(?hip17_res_4, Ledger) of
-                                        {error, _}=E5 -> E5;
-                                        {ok, [N4, Tgt4, Max4]} ->
-                                            case get_density_var(?hip17_res_5, Ledger) of
-                                                {error, _}=E6 -> E6;
-                                                {ok, [N5, Tgt5, Max5]} ->
-                                                    case get_density_var(?hip17_res_6, Ledger) of
-                                                        {error, _}=E7 -> E7;
-                                                        {ok, [N6, Tgt6, Max6]} ->
-                                                            case get_density_var(?hip17_res_7, Ledger) of
-                                                                {error, _}=E8 -> E8;
-                                                                {ok, [N7, Tgt7, Max7]} ->
-                                                                    case get_density_var(?hip17_res_8, Ledger) of
-                                                                        {error, _}=E9 -> E9;
-                                                                        {ok, [N8, Tgt8, Max8]} ->
-                                                                            case get_density_var(?hip17_res_9, Ledger) of
-                                                                                {error, _}=E10 -> E10;
-                                                                                {ok, [N9, Tgt9, Max9]} ->
-                                                                                    case get_density_var(?hip17_res_10, Ledger) of
-                                                                                        {error, _}=E11 -> E11;
-                                                                                        {ok, [N10, Tgt10, Max10]} ->
-                                                                                            case get_density_var(?hip17_res_11, Ledger) of
-                                                                                                {error, _}=E12 -> E12;
-                                                                                                {ok, [N11, Tgt11, Max11]} ->
-                                                                                                    case get_density_var(?hip17_res_12, Ledger) of
-                                                                                                        {error, _}=E13 -> E13;
-                                                                                                        {ok, [N12, Tgt12, Max12]} ->
-                                                                                                            VarMap = #{
-                                                                                                              0 => #{n => N0, density_tgt => Tgt0, density_max => Max0},
-                                                                                                              1 => #{n => N1, density_tgt => Tgt1, density_max => Max1},
-                                                                                                              2 => #{n => N2, density_tgt => Tgt2, density_max => Max2},
-                                                                                                              3 => #{n => N3, density_tgt => Tgt3, density_max => Max3},
-                                                                                                              4 => #{n => N4, density_tgt => Tgt4, density_max => Max4},
-                                                                                                              5 => #{n => N5, density_tgt => Tgt5, density_max => Max5},
-                                                                                                              6 => #{n => N6, density_tgt => Tgt6, density_max => Max6},
-                                                                                                              7 => #{n => N7, density_tgt => Tgt7, density_max => Max7},
-                                                                                                              8 => #{n => N8, density_tgt => Tgt8, density_max => Max8},
-                                                                                                              9 => #{n => N9, density_tgt => Tgt9, density_max => Max9},
-                                                                                                              10 => #{n => N10, density_tgt => Tgt10, density_max => Max10},
-                                                                                                              11 => #{n => N11, density_tgt => Tgt11, density_max => Max11},
-                                                                                                              12 => #{n => N12, density_tgt => Tgt12, density_max => Max12}
-                                                                                                             },
-                                                                                                            {ok, VarMap}
-                                                                                                    end
-                                                                                            end
-                                                                                    end
-                                                                            end
-                                                                    end
-                                                            end
-                                                    end
-                                            end
-                                    end
-                            end
-                    end
+    {_I, Errors, M} = lists:foldl(
+        fun(A, {I, Errors, Acc}) ->
+            case get_density_var(A, Ledger) of
+                {error, _} = E ->
+                    {I + 1, [{A, E} | Errors], Acc};
+                {ok, [N, Tgt, Max]} ->
+                    {I + 1, Errors,
+                        maps:put(
+                            I,
+                            #{
+                                n => N,
+                                tgt => Tgt,
+                                max => Max
+                            },
+                            Acc
+                        )}
             end
-    end.
+        end,
+        {0, [], #{}},
+        ResolutionVars
+    ),
 
+    case Errors of
+        [] -> {ok, M};
+        Errors -> {error, Errors}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+-spec lookup(Key :: term()) -> {ok, Result :: term()} | not_found.
+lookup(Key) ->
+    try
+        case ets:lookup(?MEMO_TBL, Key) of
+            [{_Key, Res}] -> {ok, Res};
+            [] -> not_found
+        end
+    catch
+        %% if the table doesn't exist yet, create it and return `not_found'
+        _:badarg ->
+            _Name = ets:new(?MEMO_TBL, ?ETS_OPTS),
+            not_found
+    end.
 
+-spec memoize(Key :: term(), Result :: term()) -> Result :: term().
+memoize(Key, Result) ->
+    true = ets:insert(?MEMO_TBL, {Key, Result}),
+    Result.
 
--spec filtered_locations(Ledger :: blockchain_ledger_v1:ledger()) -> locations().
-filtered_locations(Ledger) ->
-    blockchain_ledger_v1:get_h3dex(Ledger).
+-spec calculate_scale(
+    Location :: h3:h3_index(),
+    VarMap :: var_map(),
+    LowerBoundRes :: 0..12,
+    Ledger :: blockchain_ledger_v1:ledger() ) -> float().
+calculate_scale(Location, VarMap, LowerBoundRes, Ledger) ->
+    %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
+    %% however, we specify the lower bound instead of going all the way down to 0
 
--spec hex_resolutions(VarMap :: var_map()) -> hex_resolutions().
-hex_resolutions(VarMap) ->
-    %% [12, 11, ... 0]
-    lists:reverse(lists:sort(maps:keys(VarMap))).
+    R = h3:get_resolution(Location),
+    lists:foldl(fun(Res, Acc) ->
+                        Parent = h3:parent(Location, Res),
+                        {UnclippedDensities, ClippedDensities} = densities(Parent, VarMap, Ledger),
+                        Acc * maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities)
+                end, 1.0, lists:seq(R, LowerBoundRes, -1)).
 
--spec densities(VarMap :: var_map(), Locations :: locations()) -> densities().
-densities(VarMap, Locations) ->
-    %% Head = 12, Tail = [11, 10, ... 0]
-    [Head | Tail] = hex_resolutions(VarMap),
+-spec densities(
+    H3Index :: h3:h3_index(),
+    VarMap :: var_map(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> densities().
+densities(H3Index, VarMap, Ledger) ->
+    Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
+    %% Calculate clipped and unclipped densities
+    densities(H3Index, VarMap, Locations, Ledger).
 
-    %% find parent hexs to all hotspots at highest resolution in chain variables
-    {ParentHexes, InitialDensities} = maps:fold(
-        fun(Hex, GWs, {HAcc, MAcc}) ->
-            ParentHex = h3:parent(Hex, Head),
-            case maps:find(ParentHex, MAcc) of
-                error ->
-                    {[ParentHex | HAcc], maps:put(ParentHex, length(GWs), MAcc)};
-                {ok, OldCount} ->
-                    {HAcc, maps:put(ParentHex, OldCount + length(GWs), MAcc)}
-            end
-        end,
-        {[], #{}},
-        Locations
-    ),
+-spec densities(
+    H3Root :: h3:h3_index(),
+    VarMap :: var_map(),
+    Locations :: locations(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> densities().
+densities(H3Root, VarMap, Locations, Ledger) ->
+    case maps:size(Locations) of
+        0 ->
+            {#{}, #{}};
+        _ ->
+            UpperBoundRes = lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
+            LowerBoundRes = h3:get_resolution(H3Root),
 
-    {UDensities, Densities} = build_densities(
-        VarMap,
-        ParentHexes,
-        {InitialDensities, InitialDensities},
-        Tail
-    ),
+            [Head | Tail] = lists:seq(UpperBoundRes, LowerBoundRes, -1),
 
-    {UDensities, Densities}.
+            %% find parent hexs to all hotspots at highest resolution in chain variables
+            {ParentHexes, InitialDensities} =
+                maps:fold(
+                    fun(Hex, GWs, {HAcc, MAcc}) ->
+                        ParentHex = h3:parent(Hex, Head),
+                        case maps:find(ParentHex, MAcc) of
+                            error ->
+                                {[ParentHex | HAcc], maps:put(ParentHex, length(GWs), MAcc)};
+                            {ok, OldCount} ->
+                                {HAcc, maps:put(ParentHex, OldCount + length(GWs), MAcc)}
+                        end
+                    end,
+                    {[], #{}},
+                    Locations
+                ),
 
--spec build_densities(var_map(), h3_indices(), densities(), [non_neg_integer()]) -> densities().
-build_densities(_VarMap, _ParentHexes, {UAcc, Acc}, []) ->
+            build_densities(
+                H3Root,
+                Ledger,
+                VarMap,
+                ParentHexes,
+                {InitialDensities, InitialDensities},
+                Tail
+            )
+    end.
+
+-spec build_densities(
+    h3:h3_index(),
+    blockchain_ledger_v1:ledger(),
+    var_map(),
+    h3_indices(),
+    densities(),
+    [non_neg_integer()]
+) -> densities().
+build_densities(_H3Root, _Ledger, _VarMap, _ParentHexes, {UAcc, Acc}, []) ->
     {UAcc, Acc};
-build_densities(VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) ->
+build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) ->
     UD = unclipped_densities(ChildHexes, Res, Acc),
     UM0 = maps:merge(UAcc, UD),
     M0 = maps:merge(Acc, UD),
 
     OccupiedHexesThisRes = maps:keys(UD),
 
-    DensityTarget = maps:get(density_tgt, maps:get(Res, VarMap)),
+    DensityTarget = maps:get(tgt, maps:get(Res, VarMap)),
 
     M1 = lists:foldl(
         fun(ThisResHex, Acc3) ->
             OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
-
             Limit = limit(Res, VarMap, OccupiedCount),
             maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
         end,
@@ -191,41 +212,41 @@ build_densities(VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) ->
         OccupiedHexesThisRes
     ),
 
-    build_densities(VarMap, OccupiedHexesThisRes, {UM0, M1}, Tail).
+    build_densities(H3Root, Ledger, VarMap, OccupiedHexesThisRes, {UM0, M1}, Tail).
 
 -spec limit(
-    Res :: non_neg_integer(),
+    Res :: 0..12,
     VarMap :: var_map(),
     OccupiedCount :: non_neg_integer()
 ) -> non_neg_integer().
 limit(Res, VarMap, OccupiedCount) ->
-    min(
-        maps:get(density_max, maps:get(Res, VarMap)),
-        maps:get(density_tgt, maps:get(Res, VarMap)) *
-            max((OccupiedCount - maps:get(n, maps:get(Res, VarMap))), 1)
-    ).
+    VarAtRes = maps:get(Res, VarMap),
+    DensityMax = maps:get(max, VarAtRes),
+    DensityTgt = maps:get(tgt, VarAtRes),
+    N = maps:get(n, VarAtRes),
+    Max = max((OccupiedCount - N), 1),
+    min(DensityMax, DensityTgt * Max).
 
 -spec occupied_count(
-    DensityTarget :: non_neg_integer(),
+    DensityTarget :: 0..12,
     ThisResHex :: h3:h3_index(),
     DensityMap :: density_map()
 ) -> non_neg_integer().
 occupied_count(DensityTarget, ThisResHex, DensityMap) ->
     H3Neighbors = h3:k_ring(ThisResHex, 1),
+
     lists:foldl(
         fun(Neighbor, Acc) ->
-            ToAdd =
-                case maps:get(Neighbor, DensityMap, 0) >= DensityTarget of
-                    false -> 0;
-                    true -> 1
-                end,
-            Acc + ToAdd
+            case maps:get(Neighbor, DensityMap, 0) >= DensityTarget of
+                false -> Acc;
+                true -> Acc + 1
+            end
         end,
         0,
         H3Neighbors
     ).
 
-%-spec unclipped_densities(locations(), densities()) -> densities().
+-spec unclipped_densities(h3_indices(), 0..12, density_map()) -> density_map().
 unclipped_densities(ChildToParents, Res, Acc) ->
     lists:foldl(
         fun(ChildHex, Acc2) ->
