@@ -143,10 +143,18 @@ densities(H3Index, VarMap, Ledger) ->
                             {error, not_found} -> 0 % XXX what should this value be?
                         end,
     Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
-    Interactive = maps:map(
-                    fun(_K, V) ->
-                            filter_interactive_gws(V, InteractiveBlocks, Ledger)
-                    end, Locations),
+
+    Interactive = case application:get_env(blockchain, hip17_test_mode, false) of
+                      true ->
+                          %% HIP17 test mode, no interactive filtering
+                          Locations;
+                      false ->
+                          maps:map(
+                            fun(_K, V) ->
+                                    filter_interactive_gws(V, InteractiveBlocks, Ledger)
+                            end, Locations)
+                  end,
+
     %% Calculate clipped and unclipped densities
     densities(H3Index, VarMap, Interactive, Ledger).
 
