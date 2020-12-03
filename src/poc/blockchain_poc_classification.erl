@@ -149,7 +149,7 @@ process_receipt(Height, PreviousElement, Element, Ledger) ->
             Freq = blockchain_poc_receipt_v1:frequency(Receipt),
             MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
             Distance = blockchain_utils:distance(SourceLoc, DestinationLoc),
-            update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
+            %update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
             ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Distance, Ledger)
     end.
 
@@ -166,7 +166,7 @@ process_witness(Height, Element, Ledger) ->
                          RSSI = blockchain_poc_witness_v1:signal(Witness),
                          SNR = blockchain_poc_witness_v1:snr(Witness),
                          Distance = blockchain_utils:distance(SourceLoc, DestinationLoc),
-                         update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
+                         %update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
                          ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Distance, Ledger)
                  end, Witnesses).
 

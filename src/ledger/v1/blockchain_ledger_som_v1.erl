@@ -292,11 +292,11 @@ update_bmus(Src, Dst, Values, Ledger) ->
                      Signal4, Sigvar4, Snr4, Snrvar4,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmu ++ Bmus, ?WINDOW_CAP)));
                 not_found ->
@@ -307,11 +307,11 @@ update_bmus(Src, Dst, Values, Ledger) ->
                      Signal4, Sigvar4, Snr4, Snrvar4,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmu ++ Bmus, ?WINDOW_CAP)))
             end;
@@ -326,11 +326,11 @@ update_bmus(Src, Dst, Values, Ledger) ->
                      Signal4, Sigvar4, Snr4, Snrvar4,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmu));
                 not_found ->
@@ -341,11 +341,11 @@ update_bmus(Src, Dst, Values, Ledger) ->
                      Signal4, Sigvar4, Snr4, Snrvar4,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
+                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmu))
             end
