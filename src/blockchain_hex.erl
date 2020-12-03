@@ -138,7 +138,6 @@ calculate_scale(Location, VarMap, LowerBoundRes, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> densities().
 densities(H3Index, VarMap, Ledger) ->
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     InteractiveBlocks = case blockchain_ledger_v1:config(?hip17_interactivity_blocks, Ledger) of
                             {ok, V} -> V;
                             {error, not_found} -> 0 % XXX what should this value be?
@@ -146,7 +145,7 @@ densities(H3Index, VarMap, Ledger) ->
     Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
     Interactive = maps:map(
                     fun(_K, V) ->
-                            filter_interactive_gws(V, InteractiveBlocks, Height)
+                            filter_interactive_gws(V, InteractiveBlocks, Ledger)
                     end, Locations),
     %% Calculate clipped and unclipped densities
     densities(H3Index, VarMap, Interactive, Ledger).
@@ -226,14 +225,15 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
 
 -spec filter_interactive_gws( GWs :: [libp2p_crypto:pubkey_bin(), ...],
                               InteractiveBlocks :: pos_integer(),
-                              CurrentHeight :: pos_integer()) ->
+                              Ledger :: blockchain_ledger_v1:ledger()) ->
     [libp2p_crypto:pubkey_bin(), ...].
 %% @doc This function filters a list of gateway addresses which are considered
 %% "interactive" for the purposes of HIP17 based on the last block when it
 %% responded to a POC challenge compared to the current chain height.
-filter_interactive_gws(GWs, InteractiveBlocks, CurrentHeight) ->
+filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
+    {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
     lists:filter(fun(GWAddr) ->
-                         case blockchain_ledger_v1:find_gateway_info(GWAddr) of
+                         case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
                              {ok, GWInfo} ->
                                  LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GWInfo),
                                  (CurrentHeight - LastChallenge) =< InteractiveBlocks;
