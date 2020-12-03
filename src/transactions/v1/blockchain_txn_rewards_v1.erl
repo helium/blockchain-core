@@ -789,18 +789,26 @@ poc_witnesses_rewards(Transactions,
                                                           %% new (HIP17)
                                                           lists:foldl(
                                                             fun(WitnessRecord, Map) ->
-                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                                    %% A witness must be on the ledger AND have a location, so this should be safe
-                                                                    {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(Witness, Ledger),
-                                                                    WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                                                                    RxScale = blockchain_hex:scale(WitnessLoc,
-                                                                                                   VarMap,
-                                                                                                   D,
-                                                                                                   Ledger),
-                                                                    lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness),
-                                                                                                              RxScale]),
-                                                                    I = maps:get(Witness, Map, 0),
-                                                                    maps:put(Witness, I+(ToAdd*RxScale), Map)
+                                                                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+                                                                    case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
+                                                                        {ok, ChallengeeGw} ->
+                                                                            case blockchain_ledger_gateway_v2:location(ChallengeeGw) of
+                                                                                undefined ->
+                                                                                    Map;
+                                                                                ChallengeeLoc ->
+                                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                                    %% The witnesses get scaled by the value of their transmitters
+                                                                                    RxScale = blockchain_hex:scale(ChallengeeLoc,
+                                                                                                                   VarMap,
+                                                                                                                   D,
+                                                                                                                   Ledger),
+                                                                                    lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness), RxScale]),
+                                                                                    I = maps:get(Witness, Map, 0),
+                                                                                    maps:put(Witness, I+(ToAdd*RxScale), Map)
+                                                                            end;
+                                                                        _ ->
+                                                                            Map
+                                                                    end
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
