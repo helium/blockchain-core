@@ -91,6 +91,7 @@ init_per_testcase(TestCase, Config) ->
 
     meck:new(blockchain_txn_rewards_v1, [passthrough]),
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
+    meck:new(blockchain_hex, [passthrough]),
 
     [
         {balance, Balance},
@@ -115,6 +116,7 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     meck:unload(blockchain_txn_rewards_v1),
     meck:unload(blockchain_txn_poc_receipts_v1),
+    meck:unload(blockchain_hex),
     meck:unload(),
     Sup = ?config(sup, Config),
     % Make sure blockchain saved on file = in memory
@@ -331,6 +333,9 @@ run_test(Witnesses, Config) ->
     end),
     meck:expect(blockchain_txn_poc_receipts_v1, get_channels, fun(_, _) ->
         {ok, lists:seq(1, 11)}
+    end),
+    meck:expect(blockchain_hex, destroy_memoization, fun() ->
+        true
     end),
 
     P1 = blockchain_poc_path_element_v1:new(GwA, Rx1, []),
