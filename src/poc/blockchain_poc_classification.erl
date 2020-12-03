@@ -14,6 +14,7 @@
          acc_scores/5,
          assign_scores/4,
          calculate_class/4,
+         update_trust_scores/9,
          load_promoted_trustees/1]).
 
 -spec process_assert_loc_txn(Txn :: blockchain_txn_assert_location_v1:txn_assert_location(),
@@ -133,7 +134,7 @@ calculate_class(Height, Element, PreviousElement, Ledger) ->
 
 process_receipt(_Height, undefined, _Element, _Ledger) ->
     undefined;
-process_receipt(Height, PreviousElement, Element, Ledger) ->
+process_receipt(_Height, PreviousElement, Element, Ledger) ->
     case blockchain_poc_path_element_v1:receipt(Element) of
         undefined ->
             undefined;
@@ -153,7 +154,7 @@ process_receipt(Height, PreviousElement, Element, Ledger) ->
             ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Distance, Ledger)
     end.
 
-process_witness(Height, Element, Ledger) ->
+process_witness(_Height, Element, Ledger) ->
     SrcHotspot = blockchain_poc_path_element_v1:challengee(Element),
     {ok, Source} = blockchain_gateway_cache:get(SrcHotspot, Ledger),
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
