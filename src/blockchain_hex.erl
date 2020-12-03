@@ -53,8 +53,7 @@ scale(Location, VarMap, LowerBoundRes, Ledger) ->
     LowerBoundRes :: non_neg_integer(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> float().
-%% @doc Given a hex location, return the rewards scaling factor. This call is
-%% memoized.
+%% @doc Given a hex location, return the rewards scaling factor using under_density_scale
 under_density_scale(Location, VarMap, LowerBoundRes, Ledger) ->
     case lookup(Location) of
         {ok, Scale} -> Scale;
@@ -160,8 +159,7 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
     LowerBoundRes :: non_neg_integer(),
     Ledger :: blockchain_ledger_v1:ledger() ) -> float().
 calculate_under_density_scale(Location, VarMap, LowerBoundRes, Ledger) ->
-    %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
-    %% however, we specify the lower bound instead of going all the way down to 0
+    %% XXX: This is experimental for now to compare scale vs under_density_scale values
 
     RMax = h3:get_resolution(Location),
     0.5 * lists:foldl(fun(Res, Acc) ->
