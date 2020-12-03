@@ -243,8 +243,11 @@ filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
     lists:filter(fun(GWAddr) ->
                          case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
                              {ok, GWInfo} ->
-                                 LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GWInfo),
-                                 (CurrentHeight - LastChallenge) =< InteractiveBlocks;
+                                 case blockchain_ledger_gateway_v2:last_poc_challenge(GWInfo) of
+                                     undefined -> false;
+                                     LastChallenge ->
+                                         (CurrentHeight - LastChallenge) =< InteractiveBlocks
+                                 end;
                              {error, not_found} -> false
                          end
                  end, GWs).
