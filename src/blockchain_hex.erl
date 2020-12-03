@@ -1,6 +1,9 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/4, destroy_memoization/0]).
+-export([var_map/1,
+         scale/4,
+         under_density_scale/4,
+         destroy_memoization/0]).
 
 -ifdef(TEST).
 -export([densities/3]).
@@ -42,6 +45,21 @@ scale(Location, VarMap, LowerBoundRes, Ledger) ->
         {ok, Scale} -> Scale;
         not_found ->
             memoize(Location, calculate_scale(Location, VarMap, LowerBoundRes, Ledger))
+    end.
+
+-spec under_density_scale(
+    Location :: h3:h3_index(),
+    VarMap :: var_map(),
+    LowerBoundRes :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> float().
+%% @doc Given a hex location, return the rewards scaling factor. This call is
+%% memoized.
+under_density_scale(Location, VarMap, LowerBoundRes, Ledger) ->
+    case lookup(Location) of
+        {ok, Scale} -> Scale;
+        not_found ->
+            memoize(Location, calculate_under_density_scale(Location, VarMap, LowerBoundRes, Ledger))
     end.
 
 %% TODO: This ought to be stored in the ledger because it won't change much? ever?
@@ -136,6 +154,26 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
                         Acc * (maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities))
                 end, 1.0, lists:seq(R, TargetRes, -1)).
 
+-spec calculate_under_density_scale(
+    Location :: h3:h3_index(),
+    VarMap :: var_map(),
+    LowerBoundRes :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger() ) -> float().
+calculate_under_density_scale(Location, VarMap, LowerBoundRes, Ledger) ->
+    %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
+    %% however, we specify the lower bound instead of going all the way down to 0
+
+    RMax = h3:get_resolution(Location),
+    0.5 * lists:foldl(fun(Res, Acc) ->
+                              Parent = h3:parent(Location, Res),
+                              {UnclippedDensities, ClippedDensities} = densities(Parent, VarMap, Ledger),
+
+                              DensityTarget = maps:get(tgt, maps:get(Res, VarMap)),
+                              OccupiedCount = occupied_count(DensityTarget, Parent, UnclippedDensities),
+                              Limit = limit(Res, VarMap, OccupiedCount),
+                              Acc + (maps:get(Parent, ClippedDensities) / (Limit * math:pow(2, RMax - Res)))
+
+                      end, 0.0, lists:seq(RMax, LowerBoundRes, -1)).
 
 -spec densities(
     H3Index :: h3:h3_index(),
