@@ -246,15 +246,20 @@ scale_test(Config) ->
     TargetResolutions = lists:seq(3, 10),
     KnownHex = h3:from_string("8c2836152804dff"),
 
-    ok = lists:foreach(
-        fun(LowerBoundRes) ->
-            Scale = blockchain_hex:scale(KnownHex, VarMap, LowerBoundRes, Ledger),
-            ct:pal("LowerBoundRes: ~p, Scale: ~p", [LowerBoundRes, Scale])
-        end,
-        TargetResolutions
-    ),
+    Result = lists:foldl(
+               fun(LowerBoundRes, Acc) ->
+                       Scale = blockchain_hex:scale(KnownHex, VarMap, LowerBoundRes, Ledger),
+                       ct:pal("LowerBoundRes: ~p, Scale: ~p", [LowerBoundRes, Scale]),
+                       blockchain_hex:destroy_memoization(),
+                       maps:put(LowerBoundRes, Scale, Acc)
+               end,
+               #{},
+               TargetResolutions
+              ),
 
-    %% TODO: Assert checks from the python model
+    ct:pal("Result: ~p", [Result]),
+
+    "0.18" = io_lib:format("~.2f", [maps:get(8, Result)]),
 
     ok.
 
