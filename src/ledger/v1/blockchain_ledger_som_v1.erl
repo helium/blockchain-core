@@ -23,7 +23,10 @@
 %% {hotspot, score_update}
 -type tagged_score() :: {libp2p_crypto:pubkey_bin(), classification()}.
 %% BMU calculation return type
--type bmu_results() :: {{non_neg_integer(), float()}, {non_neg_integer(), float()}, {non_neg_integer(), float()}}.
+-type bmu_results() :: {{non_neg_integer(), float()},
+                        {non_neg_integer(), float()},
+                        {non_neg_integer(), float()},
+                        {non_neg_integer(), float()}}.
 %% A type holding BMU data from one sample
 -type bmu_data() :: {{{integer(), integer()}, float()}, atom()}.
 %% List of BMU data
@@ -245,12 +248,17 @@ calculate_bmus(Src, Dst, Ledger) ->
         {ok, Bin} ->
             Bmus = binary_to_term(Bin),
             %% lager:info("Calculate BMUs for: ~p", [Key]),
-            {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Usum, UDsum}}) -> case Class of
-                                                                             <<"1">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Usum, UDsum}};
-                                                                             <<"0">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Usum, UDsum}};
-                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Usum + 1, UDsum + Dist}}
+            {{Reals, RDist},
+             {Fakes, FDist},
+             {Mids, MDist},
+             {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class},
+                                                {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) -> case Class of
+                                                                             <<"positive">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                             <<"negative">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                             <<"middleman">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum + 1, MDsum + Dist}, {Usum, UDsum}};
+                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum + 1, UDsum + Dist}}
                                                                          end
-                               end, {{0,0},{0,0},{0,0}}, Bmus),
+                               end, {{0,0},{0,0},{0,0},{0,0}}, Bmus),
             RAvg = case Reals of
                        0 ->
                            0;
@@ -263,15 +271,21 @@ calculate_bmus(Src, Dst, Ledger) ->
                        _ ->
                            FDist/Fakes
                    end,
+            Mavg = case Mids of
+                       0 ->
+                           0;
+                       _ ->
+                           MDist/Mids
+                   end,
             UAvg = case Undefs of
                        0 ->
                            0;
                        _ ->
                            UDist/Undefs
                    end,
-            {{Reals, RAvg}, {Fakes, FAvg}, {Undefs, UAvg}};
+            {{Reals, RAvg}, {Fakes, FAvg}, {Mids, Mavg}, {Undefs, UAvg}};
     not_found ->
-            {{0,0.0},{0,0.0},{0,0.0}}
+            {{0,0.0},{0,0.0},{0,0.0},{0,0.0}}
     end.
 
 -spec update_bmus(binary(), binary(), term(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.

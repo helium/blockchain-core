@@ -85,52 +85,30 @@ acc_scores(Height, Index, Path, Ledger, Acc) ->
     end,
     LookupElement = lists:nth(Index, Path),
     CheckHotspot = blockchain_poc_path_element_v1:challengee(LookupElement),
-    Score = calculate_class(Height,
+    Scores = calculate_class(Height,
                             LookupElement,
                             PreviousElement,
                             Ledger),
-    [{CheckHotspot, Score} | Acc].
+    NewScores = lists:foldl(fun(Classification, ScoreAcc) ->
+                        case Classification of
+                            {ok, active_window} ->
+                                ScoreAcc;
+                            {error, _} ->
+                                ScoreAcc;
+                            _ ->
+                                [{CheckHotspot, Classification} | ScoreAcc]
+                        end
+                         end, [], Scores),
+    NewScores ++ Acc.
 
 -spec calculate_class(Height :: pos_integer(),
                       Element :: blockchain_poc_path_element_v1:poc_element(),
                       PreviousElement :: blockchain_poc_path_element_v1:poc_element(),
-                      Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:classification().
+                      Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_ledger_som_v1:classification()].
 calculate_class(Height, Element, PreviousElement, Ledger) ->
     process_receipt(Height, PreviousElement, Element, Ledger),
     process_witness(Height, Element, Ledger),
-    Src = blockchain_poc_path_element_v1:challengee(PreviousElement),
-    Dst = blockchain_poc_path_element_v1:challengee(Element),
-    case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
-        {ok, active_window} ->
-            lager:info("Window still active"),
-            {ok, active_window};
-        {ok, DataPoints} ->
-            lager:info("Window period reached"),
-            {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
-            ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
-            Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-            {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,
-            Sum = T+F+U,
-            case Sum of
-                S when S == 0 ->
-                   {undefined, Data};
-                S when S =< ?MAX_WINDOW_SAMPLES ->
-                    {undefined, Data};
-                S when S > ?MAX_WINDOW_SAMPLES ->
-                    Tper = T/S,
-                    case Tper of
-                        X when X > 0.75 ->
-                            {real, Data};
-                        X when X =< 0.75 andalso X >= 0.5 ->
-                            {undefined, Data};
-                        X when X < 0.5 ->
-                            {fake, Data}
-                    end
-            end;
-        {error, Res} ->
-            lager:info("No datapoints found when calculating class"),
-            {error, Res}
-    end.
+    process_links(PreviousElement, Element, Ledger).
 
 process_receipt(_Height, undefined, _Element, _Ledger) ->
     undefined;
@@ -170,6 +148,87 @@ process_witness(_Height, Element, Ledger) ->
                          %update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger),
                          ok = blockchain_ledger_som_v1:update_datapoints(SrcHotspot, DstHotspot, RSSI, SNR, MinRcvSig, Distance, Ledger)
                  end, Witnesses).
+
+process_links(PreviousElement, Element, Ledger) ->
+    %% First get the receipt info if there is one
+    ReceiptResults = case blockchain_poc_path_element_v1:receipt(Element) of
+        undefined ->
+            [];
+        _Receipt ->
+            Src = blockchain_poc_path_element_v1:challengee(PreviousElement),
+            Dst = blockchain_poc_path_element_v1:challengee(Element),
+            case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
+                {ok, active_window} ->
+                    lager:info("Window still active"),
+                    [];
+                {ok, DataPoints} ->
+                    lager:info("Window period reached"),
+                    {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
+                    ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
+                    Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
+                    {{T, _Td}, {F, _Fd}, {_M, _Md}, {U, _Ud}} = Data,
+                    Sum = T+F+U,
+                    case Sum of
+                        S when S == 0 ->
+                           [{undefined, Data}];
+                        S when S =< ?MAX_WINDOW_SAMPLES ->
+                            [{undefined, Data}];
+                        S when S > ?MAX_WINDOW_SAMPLES ->
+                            Tper = T/S,
+                            case Tper of
+                                X when X > 0.75 ->
+                                    [{real, Data}];
+                                X when X =< 0.75 andalso X >= 0.5 ->
+                                    [{undefined, Data}];
+                                X when X < 0.5 ->
+                                    [{fake, Data}]
+                            end
+                    end;
+                {error, _Res} ->
+                    lager:info("No datapoints found when calculating class"),
+                    []
+            end
+    end,
+
+    %% Now do all the witnesses
+    SrcHotspot = blockchain_poc_path_element_v1:challengee(Element),
+    Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+    WitResults = lists:foldl(fun(Witness, ResAcc) ->
+                         DstHotspot = blockchain_poc_witness_v1:gateway(Witness),
+                         case blockchain_ledger_som_v1:retrieve_datapoints(SrcHotspot, DstHotspot, Ledger) of
+                             {ok, active_window} ->
+                                 lager:info("Window still active"),
+                                 {ok, active_window};
+                             {ok, WitDataPoints} ->
+                                 lager:info("Window period reached"),
+                                 {ok, WitWindowedData} = blockchain_ledger_som_v1:calculate_data_windows(WitDataPoints, Ledger),
+                                 ok = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
+                                 WitData = blockchain_ledger_som_v1:calculate_bmus(SrcHotspot, DstHotspot, Ledger),
+                                 {{WT, _WTd}, {WF, _WFd}, {_WM, _WMd}, {WU, _WUd}} = WitData,
+                                 WSum = WT+WF+WU,
+                                 case WSum of
+                                     WS when WS == 0 ->
+                                        [{undefined, WitData} | ResAcc];
+                                     WS when WS =< ?MAX_WINDOW_SAMPLES ->
+                                         [{undefined, WitData} | ResAcc];
+                                     WS when WS > ?MAX_WINDOW_SAMPLES ->
+                                         WTper = WT/WS,
+                                         case WTper of
+                                             WX when WX > 0.75 ->
+                                                 [{real, WitData} | ResAcc];
+                                             WX when WX =< 0.75 andalso WX >= 0.5 ->
+                                                 [{undefined, WitData} | ResAcc];
+                                             WX when WX < 0.5 ->
+                                                 [{fake, WitData} | ResAcc]
+                                         end
+                                 end;
+                             {error, _} ->
+                                 lager:info("No datapoints found when calculating class"),
+                                 ResAcc
+                         end
+                 end, [], Witnesses),
+    ReceiptResults ++ WitResults.
+
 
 update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger) ->
     Value = case blockchain_ledger_som_v1:classify_sample(RSSI, SNR, MinRcvSig, Ledger) of
