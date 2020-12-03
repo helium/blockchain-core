@@ -759,8 +759,6 @@ poc_witnesses_rewards(Transactions,
                                                                   U
                                                           end,
 
-                                                  %% We will set this as part of hip17, if it is undefined, just do the old behavior
-                                                  %% regardless of hip15 or not. Since we only change ToAdd when hip15 vars are set, this should be safe
                                                   case DensityTgtRes of
                                                       undefined ->
                                                           %% old (HIP15)
@@ -774,30 +772,21 @@ poc_witnesses_rewards(Transactions,
                                                             ValidWitnesses
                                                            );
                                                       D ->
-                                                          %% NOTE: Assumption is that ALL hip17 required vars are set, otherwise bad things will happen when
-                                                          %% calculating scale/density
+                                                          %% new (HIP17)
                                                           lists:foldl(
                                                             fun(WitnessRecord, Map) ->
-                                                                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-                                                                    case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
-                                                                        {ok, ChallengeeGw} ->
-                                                                            case blockchain_ledger_gateway_v2:location(ChallengeeGw) of
-                                                                                undefined ->
-                                                                                    Map;
-                                                                                ChallengeeLoc ->
-                                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                                                    %% The witnesses get scaled by the value of their transmitters
-                                                                                    RxScale = blockchain_hex:scale(ChallengeeLoc,
-                                                                                                                   D,
-                                                                                                                   UnclippedDensities,
-                                                                                                                   ClippedDensities),
-                                                                                    lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness), RxScale]),
-                                                                                    I = maps:get(Witness, Map, 0),
-                                                                                    maps:put(Witness, I+(ToAdd*RxScale), Map)
-                                                                            end;
-                                                                        _ ->
-                                                                            Map
-                                                                    end
+                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                    %% A witness must be on the ledger AND have a location, so this should be safe
+                                                                    {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(Witness, Ledger),
+                                                                    WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                                                    RxScale = blockchain_hex:scale(WitnessLoc,
+                                                                                                   D,
+                                                                                                   UnclippedDensities,
+                                                                                                   ClippedDensities),
+                                                                    lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness),
+                                                                                                              RxScale]),
+                                                                    I = maps:get(Witness, Map, 0),
+                                                                    maps:put(Witness, I+(ToAdd*RxScale), Map)
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
