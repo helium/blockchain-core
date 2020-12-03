@@ -203,7 +203,7 @@ process_links(PreviousElement, Element, Ledger) ->
                          case blockchain_ledger_som_v1:retrieve_datapoints(SrcHotspot, DstHotspot, Ledger) of
                              {ok, active_window} ->
                                  lager:info("Window still active"),
-                                 {ok, active_window};
+                                 ResAcc;
                              {ok, WitDataPoints} ->
                                  lager:info("Window period reached"),
                                  {ok, WitWindowedData} = blockchain_ledger_som_v1:calculate_data_windows(WitDataPoints, Ledger),
