@@ -19,7 +19,8 @@
     known_differences_test/1,
     scale_test/1,
     h3dex_test/1,
-    export_scale_test/1
+    export_scale_test/1,
+    export_under_density_scale_test/1
 ]).
 
 %% Values taken from python model
@@ -94,6 +95,7 @@ all() ->
         scale_test,
         h3dex_test
         %% export_scale_test
+        %% export_under_density_scale_test
     ].
 
 %%--------------------------------------------------------------------
@@ -305,6 +307,25 @@ export_scale_test(Config) ->
 
     ok.
 
+export_under_density_scale_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    VarMap = ?config(var_map, Config),
+
+    %% A list of possible density target resolution we'd output the scales at
+    DensityTargetResolutions = lists:seq(3, 10),
+
+    %% Only do this for gateways with known locations
+    GatewaysWithLocs = gateways_with_locs(Ledger),
+
+    ok = export_under_density_scale_data(
+        Ledger,
+        VarMap,
+        DensityTargetResolutions,
+        GatewaysWithLocs
+    ),
+
+    ok.
+
 %%--------------------------------------------------------------------
 %% CHAIN VARIABLES
 %%--------------------------------------------------------------------
@@ -365,7 +386,32 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
                 GatewaysWithLocs
             ),
 
-            Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
+            Fname = "/tmp/scale_" ++ integer_to_list(TargetRes) ++ ".csv",
+            ok = export_gps_file(Fname, Scales)
+        end,
+        DensityTargetResolutions
+    ).
+
+export_under_density_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
+    %% Calculate scale at each density target res for eventual comparison
+    lists:foreach(
+        fun(LowerBoundRes) ->
+            %% Export scale data for every single gateway to a gps file
+            Scales = lists:foldl(
+                fun({GwName, Loc}, Acc) ->
+                    Scale = blockchain_hex:under_density_scale(
+                        Loc,
+                        VarMap,
+                        LowerBoundRes,
+                        Ledger
+                    ),
+                    [{GwName, Loc, Scale} | Acc]
+                end,
+                [],
+                GatewaysWithLocs
+            ),
+
+            Fname = "/tmp/under_scale_" ++ integer_to_list(LowerBoundRes) ++ ".csv",
             ok = export_gps_file(Fname, Scales)
         end,
         DensityTargetResolutions
