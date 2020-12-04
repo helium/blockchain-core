@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 1000).
--define(MAX_WINDOW_LENGTH, 4000).
+-define(WINDOW_PERIOD, 250).
+-define(MAX_WINDOW_LENGTH, 1000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 500).
 -define(SCORE_THRESHOLD, positive).
@@ -94,8 +94,8 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
                                       end
                                    end, [], Combined),
 
-            lager:info("DATAPOINTS FOR ~p => ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
-                                                   ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
+            %lager:info("DATAPOINTS FOR ~p => ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
+            %                                       ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
             ToInsert = term_to_binary(Clipped),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
@@ -104,7 +104,7 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             ToInsert = term_to_binary(Sample),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             LastWindow = term_to_binary(Height + ?WINDOW_PERIOD*3),
-            lager:info("NEW DATAPOINTS. Window set at ~p", [LastWindow]),
+            %lager:info("NEW DATAPOINTS. Window set at ~p", [Height+?WINDOW_PERIOD]),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
     end.
 
@@ -119,17 +119,20 @@ retrieve_datapoints(Src, Dst, Ledger) ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             [H|_] = lists:reverse(N),
             {BlockHeight, _, _, _, _} = H,
+            lager:info("LAST BLOCKHEIGHT: ~p | CURRENT BLOCKHEIGHT ~p", [BlockHeight, Height]),
             case BlockHeight of
                 X when X < Height-?MAX_WINDOW_LENGTH ->
                     case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
                         {ok, Res} ->
                             LastWindow = binary_to_term(Res),
+                            lager:info("LAST WINDOW: ~p | WINDOW EXPIRES ~p", [LastWindow, (Height - ?WINDOW_PERIOD)]),
                             case LastWindow < Height - ?WINDOW_PERIOD of
                                 true ->
                                     ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height)),
                                     lager:info("AWWW YIS WE GOT DATA FOR ~p => ~p",
                                                [?TO_ANIMAL_NAME(<<Src/binary>>),
                                                 ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
+
                                     {ok, N};
                                 false ->
                                     {ok, active_window}
