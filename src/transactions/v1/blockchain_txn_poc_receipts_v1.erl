@@ -1269,7 +1269,6 @@ get_channels(Txn, Chain) ->
     PathLength = length(Path),
 
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    {ok, Head} = blockchain:head_block(Chain),
 
     BlockHash = case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
         {ok, POCVer} when POCVer >= 10 ->
@@ -1282,6 +1281,7 @@ get_channels(Txn, Chain) ->
                                     blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
                             end,
 
+            {ok, Head} = blockchain:head_block(Chain),
             blockchain:fold_chain(fun(Block, undefined) ->
                                                       case blockchain_utils:find_txn(Block, RequestFilter) of
                                                           [_T] ->

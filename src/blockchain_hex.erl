@@ -26,7 +26,8 @@
 -spec destroy_memoization() -> true.
 %% @doc This call will destroy the memoization context used during a rewards
 %% calculation.
-destroy_memoization() -> ets:delete(?MEMO_TBL).
+destroy_memoization() ->
+    try ets:delete(?MEMO_TBL) catch _:_ -> true end.
 
 -spec scale(
     Location :: h3:h3_index(),
