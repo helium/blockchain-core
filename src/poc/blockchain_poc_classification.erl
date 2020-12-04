@@ -169,24 +169,16 @@ process_links(PreviousElement, Element, Ledger) ->
                                              {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
                                              ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
                                              Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-                                             {{T, _Td}, {F, _Fd}, {_M, _Md}, {U, _Ud}} = Data,
-                                             Sum = T+F+U,
-                                             case Sum of
-                                                 S when S == 0 ->
-                                                    [{undefined, Data}];
-                                                 S when S =< ?MAX_WINDOW_SAMPLES ->
-                                                     [{undefined, Data}];
-                                                 S when S > ?MAX_WINDOW_SAMPLES ->
-                                                     Tper = T/S,
-                                                     case Tper of
-                                                         X when X > 0.75 ->
-                                                             [{real, Data}];
-                                                         X when X =< 0.75 andalso X >= 0.5 ->
-                                                             [{undefined, Data}];
-                                                         X when X < 0.5 ->
-                                                             [{fake, Data}]
-                                                     end
-                                             end;
+                                             {{T, _Td}, {F, _Fd}, {M, _Md}, {U, _Ud}} = Data,
+                                             Sum = T+F+M+U,
+
+                                             TPer = {T/Sum, positive},
+                                             FPer = {F/Sum, negative},
+                                             MPer = {M/Sum, middleman},
+                                             UPer = {U/Sum, undefined},
+                                             Sorted = lists:sort(fun({N, _},{N2, _}) -> N < N2 end, [TPer, FPer, MPer, UPer]),
+                                             {_Num, Class} = lists:last(Sorted),
+                                             [{Class, Data}];
                                          {error, _Res} ->
                                              lager:info("No datapoints found when calculating class"),
                                              []
@@ -206,26 +198,19 @@ process_links(PreviousElement, Element, Ledger) ->
                                  lager:info("Window period reached"),
                                  {ok, WitWindowedData} = blockchain_ledger_som_v1:calculate_data_windows(WitDataPoints, Ledger),
                                  ok = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
+
                                  WitData = blockchain_ledger_som_v1:calculate_bmus(SrcHotspot, DstHotspot, Ledger),
-                                 {{WT, _WTd}, {WF, _WFd}, {_WM, _WMd}, {WU, _WUd}} = WitData,
-                                 WSum = WT+WF+WU,
-                                 case WSum of
-                                     WS when WS == 0 ->
-                                        [{undefined, WitData} | ResAcc];
-                                     WS when WS =< ?MAX_WINDOW_SAMPLES ->
-                                         [{undefined, WitData} | ResAcc];
-                                     WS when WS > ?MAX_WINDOW_SAMPLES ->
-                                         WTper = WT/WS,
-                                         case WTper of
-                                             WX when WX > 0.75 ->
-                                                 [{real, WitData} | ResAcc];
-                                             WX when WX =< 0.75 andalso WX >= 0.5 ->
-                                                 [{undefined, WitData} | ResAcc];
-                                             WX when WX < 0.5 ->
-                                                 [{fake, WitData} | ResAcc]
-                                         end
-                                 end;
-                             {error, _} ->
+                                 {{WT, _WTd}, {WF, _WFd}, {WM, _WMd}, {WU, _WUd}} = WitData,
+                                 WSum = WT+WF+WM+WU,
+
+                                 WTPer = {WT/WSum*100, positive},
+                                 WFPer = {WF/WSum*100, negative},
+                                 WMPer = {WM/WSum*100, middleman},
+                                 WUPer = {WU/WSum*100, undefined},
+                                 WSorted = lists:sort(fun({N, _},{N2, _}) -> N < N2 end, [WTPer, WFPer, WMPer, WUPer]),
+                                 {_WNum, WClass} = lists:last(WSorted),
+                                 [{WClass, WitData} | ResAcc];
+                              {error, _} ->
                                  lager:info("No datapoints found when calculating class"),
                                  ResAcc
                          end
@@ -235,8 +220,9 @@ process_links(PreviousElement, Element, Ledger) ->
 
 update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger) ->
     Value = case blockchain_ledger_som_v1:classify_sample(RSSI, SNR, MinRcvSig, Ledger) of
-                {{_, _Dist}, <<"0">>} -> -1;
-                {{_, _Dist}, <<"1">>} -> 1;
+                {{_, _Dist}, <<"negative">>} -> -1;
+                {{_, _Dist}, <<"positive">>} -> 1;
+                {{_, _Dist}, <<"middleman">>} -> -1;
                 {{_, _Dist}, <<"undefined">>} -> 0
             end,
     case {lists:member(libp2p_crypto:bin_to_b58(SrcHotspot), application:get_env(miner_pro, init_trustees, [])) orelse blockchain_ledger_gateway_v3:is_trusted(Source),
