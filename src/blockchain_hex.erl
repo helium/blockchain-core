@@ -118,18 +118,22 @@ memoize(Key, Result) ->
 -spec calculate_scale(
     Location :: h3:h3_index(),
     VarMap :: var_map(),
-    LowerBoundRes :: 0..12,
+    TargetRes :: 0..12,
     Ledger :: blockchain_ledger_v1:ledger() ) -> float().
-calculate_scale(Location, VarMap, LowerBoundRes, Ledger) ->
+calculate_scale(Location, VarMap, TargetRes, Ledger) ->
     %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
     %% however, we specify the lower bound instead of going all the way down to 0
 
     R = h3:get_resolution(Location),
+
+    %% Calculate densities at the outermost hex
+    OuterMostParent = h3:parent(Location, TargetRes),
+    {UnclippedDensities, ClippedDensities} = densities(OuterMostParent, VarMap, Ledger),
+
     lists:foldl(fun(Res, Acc) ->
                         Parent = h3:parent(Location, Res),
-                        {UnclippedDensities, ClippedDensities} = densities(Parent, VarMap, Ledger),
                         Acc * maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities)
-                end, 1.0, lists:seq(R, LowerBoundRes, -1)).
+                end, 1.0, lists:seq(R, TargetRes, -1)).
 
 
 -spec densities(
