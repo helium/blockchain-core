@@ -7,6 +7,7 @@
 -module(blockchain_ledger_som_v1).
 
 -include("blockchain.hrl").
+-include("blockchain_utils.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -72,7 +73,6 @@
 %%%-------------------------------------------------------------------
 %%% SOM Database functions
 %%%-------------------------------------------------------------------
-
 -spec update_datapoints(binary(), binary(), any(), any(), any(), any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
     DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
@@ -93,6 +93,9 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
                                               [{H, R, S, F, D} | DAcc]
                                       end
                                    end, [], Combined),
+
+            lager:info("DATAPOINTS FOR ~p => ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
+                                                   ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
             ToInsert = term_to_binary(Clipped),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
@@ -101,6 +104,7 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             ToInsert = term_to_binary(Sample),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             LastWindow = term_to_binary(Height + ?WINDOW_PERIOD*3),
+            lager:info("NEW DATAPOINTS. Window set at ~p", [LastWindow]),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
     end.
 
@@ -123,6 +127,9 @@ retrieve_datapoints(Src, Dst, Ledger) ->
                             case LastWindow < Height - ?WINDOW_PERIOD of
                                 true ->
                                     ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height)),
+                                    lager:info("AWWW YIS WE GOT DATA FOR ~p => ~p",
+                                               [?TO_ANIMAL_NAME(<<Src/binary>>),
+                                                ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
                                     {ok, N};
                                 false ->
                                     {ok, active_window}
@@ -473,7 +480,6 @@ retrieve_trustees(Ledger) ->
             {error, not_found}
     end.
 
-
 %%%-------------------------------------------------------------------
 %%% Window manipulation
 %%%-------------------------------------------------------------------
@@ -531,27 +537,8 @@ update_windows(Ledger,
 
     ok = lists:foreach(fun({Hotspot, ScoreUpdate}) ->
                                case hotspot_window(Ledger, Hotspot) of
-                                   [_ | _]=Window when length(Window) >= ?WINDOW_SIZE ->
-                                       %% If this hotspot's score in the window is greater than
-                                       %% score threshold, we consider it to be pretty reliable
-                                       %% and give it a bigger window_size. Essentially implying that
-                                       %% they get more breathing room now that they've crossed the threshold
-                                       case window_score(Window) of
-                                           %% Check if we hit the score threshold for this hotspot
-                                           {C, _Data} when C == ?SCORE_THRESHOLD ->
-                                               %% Check if we hit the window cap for this hotspot
-                                               case length(Window) >= ?WINDOW_CAP of
-                                                   true ->
-                                                       %% slide because we hit the window cap
-                                                       slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
-                                                   false ->
-                                                       %% add as we hit the score cap but not the window cap
-                                                       add_to_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger)
-                                               end;
-                                           _ ->
-                                               %% just slide
-                                               slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger)
-                                       end;
+                                   [_ | _]=Window when length(Window) >= ?WINDOW_CAP ->
+                                       slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [_ | _]=Window ->
                                        add_to_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [] ->
