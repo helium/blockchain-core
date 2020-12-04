@@ -3125,7 +3125,7 @@ add_commit_hook(CF, HookFun, Pred, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
 %% do not call this either except via the blockchain_worker wrapper
 remove_commit_hook(Ref, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_reference(Ref) ->
     Hooks1 = lists:keydelete(Ref, #hook.ref, Hooks),
-    {Ref, Ledger#ledger_v1{commit_hooks = Hooks1}};
+    Ledger#ledger_v1{commit_hooks = Hooks1};
 remove_commit_hook(Atom, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_atom(Atom) ->
     Hooks1 = lists:keydelete(Atom, #hook.cf, Hooks),
     Ledger#ledger_v1{commit_hooks = Hooks1}.
@@ -3186,6 +3186,9 @@ apply_filters(CF, Filters, Key, Value) ->
             lists:any(fun(P) -> P(Key, Value) end, Preds)
     end.
 
+invoke_commit_hooks([] = _Changes, _Filters) ->
+    %% if no changes then do nothing
+    ok;
 invoke_commit_hooks(Changes, Filters) ->
     %% best effort async delivery
     FiltersMap = maps:fold(fun(CF, HookList, Acc) ->
