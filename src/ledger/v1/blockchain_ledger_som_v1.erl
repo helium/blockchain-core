@@ -117,7 +117,7 @@ retrieve_datapoints(Src, Dst, Ledger) ->
         {ok, Bin} ->
             N = binary_to_term(Bin),
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            [H|_] = lists:reverse(N),
+            [H|_] = N, %lists:reverse(N),
             {BlockHeight, _, _, _, _} = H,
             lager:info("LAST BLOCKHEIGHT: ~p | CURRENT BLOCKHEIGHT ~p", [BlockHeight, Height]),
             case BlockHeight of
