@@ -13,12 +13,12 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 250).
--define(MAX_WINDOW_LENGTH, 1000).
+-define(WINDOW_PERIOD, 25).
+-define(MAX_WINDOW_LENGTH, 100).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 500).
 -define(SCORE_THRESHOLD, positive).
--define(STALE_THRESHOLD, 60).
+-define(STALE_THRESHOLD, 2000).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
@@ -119,8 +119,8 @@ retrieve_datapoints(Src, Dst, Ledger) ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             [H|_] = N,
             {BlockHeight, _, _, _, _} = H,
-            case BlockHeight of
-                X when X < Height-?MAX_WINDOW_LENGTH ->
+            case BlockHeight < Height-?MAX_WINDOW_LENGTH of
+                true ->
                     case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
                         {ok, Res} ->
                             LastWindow = binary_to_term(Res),
@@ -140,7 +140,7 @@ retrieve_datapoints(Src, Dst, Ledger) ->
                             lager:info("Shit we should never get to here by this point..."),
                             {error, ohfuck}
                        end;
-                _ ->
+                false ->
                     {ok, active_window}
             end;
         not_found ->
