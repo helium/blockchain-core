@@ -52,6 +52,7 @@ init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
+    ok = application:set_env(blockchain, hip17_test_mode, true),
 
     ExtraVars =
         case TestCase of

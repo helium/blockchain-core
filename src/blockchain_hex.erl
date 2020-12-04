@@ -9,7 +9,8 @@
 -include("blockchain_vars.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(MEMO_TBL, '__blockchain_hex_memoization_tbl').
+-define(SCALE_MEMO_TBL, '__blockchain_hex_scale_memoization_tbl').
+-define(DENSITY_MEMO_TBL, '__blockchain_hex_density_memoization_tbl').
 -define(ETS_OPTS, [named_table, public]).
 
 -type density_map() :: #{h3:h3_index() => pos_integer()}.
@@ -27,7 +28,8 @@
 %% @doc This call will destroy the memoization context used during a rewards
 %% calculation.
 destroy_memoization() ->
-    try ets:delete(?MEMO_TBL) catch _:_ -> true end.
+    try ets:delete(?SCALE_MEMO_TBL) catch _:_ -> true end,
+    try ets:delete(?DENSITY_MEMO_TBL) catch _:_ -> true end.
 
 -spec scale(
     Location :: h3:h3_index(),
@@ -38,10 +40,11 @@ destroy_memoization() ->
 %% @doc Given a hex location, return the rewards scaling factor. This call is
 %% memoized.
 scale(Location, VarMap, TargetRes, Ledger) ->
-    case lookup(Location) of
+    case lookup(Location, ?SCALE_MEMO_TBL) of
         {ok, Scale} -> Scale;
         not_found ->
-            memoize(Location, calculate_scale(Location, VarMap, TargetRes, Ledger))
+            memoize(?SCALE_MEMO_TBL, Location,
+                    calculate_scale(Location, VarMap, TargetRes, Ledger))
     end.
 
 
@@ -98,23 +101,34 @@ var_map(Ledger) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
--spec lookup(Key :: term()) -> {ok, Result :: term()} | not_found.
-lookup(Key) ->
+-spec lookup(Key :: term(),
+             TblName :: ?SCALE_MEMO_TBL|?DENSITY_MEMO_TBL) ->
+    {ok, Result :: term()} | not_found.
+lookup(Key, TblName) ->
     try
-        case ets:lookup(?MEMO_TBL, Key) of
+        case ets:lookup(TblName, Key) of
             [{_Key, Res}] -> {ok, Res};
             [] -> not_found
         end
     catch
         %% if the table doesn't exist yet, create it and return `not_found'
         _:badarg ->
-            _Name = ets:new(?MEMO_TBL, ?ETS_OPTS),
+            _ = maybe_start(TblName),
             not_found
     end.
 
--spec memoize(Key :: term(), Result :: term()) -> Result :: term().
-memoize(Key, Result) ->
-    true = ets:insert(?MEMO_TBL, {Key, Result}),
+maybe_start(TblName) ->
+    try
+        _Name = ets:new(TblName, ?ETS_OPTS)
+    catch
+        _:_ -> TblName
+    end.
+
+-spec memoize(TblName :: ?SCALE_MEMO_TBL|?DENSITY_MEMO_TBL,
+              Key :: term(),
+              Result :: term()) -> Result :: term().
+memoize(TblName, Key, Result) ->
+    true = ets:insert(TblName, {Key, Result}),
     Result.
 
 -spec calculate_scale(
@@ -144,6 +158,18 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> densities().
 densities(H3Index, VarMap, Ledger) ->
+    case lookup(H3Index, ?DENSITY_MEMO_TBL) of
+        {ok, Densities} -> Densities;
+        not_found -> memoize(?DENSITY_MEMO_TBL, H3Index,
+                            calculate_densities(H3Index, VarMap, Ledger))
+    end.
+
+-spec calculate_densities(
+    H3Index :: h3:h3_index(),
+    VarMap :: var_map(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> densities().
+calculate_densities(H3Index, VarMap, Ledger) ->
     InteractiveBlocks = case blockchain_ledger_v1:config(?hip17_interactivity_blocks, Ledger) of
                             {ok, V} -> V;
                             {error, not_found} -> 0 % XXX what should this value be?
