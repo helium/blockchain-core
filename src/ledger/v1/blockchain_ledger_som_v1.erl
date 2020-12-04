@@ -86,7 +86,7 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             Sample = {Height, Rssi, Snr, Fspl, Distance},
             Combined = [Sample | N],
             Clipped = lists:foldl(fun({H, R, S, F, D}, DAcc) ->
-                                      case (Height - ?MAX_WINDOW_LENGTH) >= H of
+                                      case H < (Height - ?MAX_WINDOW_LENGTH) of
                                           true ->
                                               DAcc;
                                           false ->
@@ -94,8 +94,8 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
                                       end
                                    end, [], Combined),
 
-            %lager:info("DATAPOINTS FOR ~p => ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
-            %                                       ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
+            lager:info("DATAPOINTS FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
+                                                   ?TO_ANIMAL_NAME(<<Dst/binary>>), Clipped]),
             ToInsert = term_to_binary(Clipped),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
@@ -119,7 +119,7 @@ retrieve_datapoints(Src, Dst, Ledger) ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             [H|_] = N,
             {BlockHeight, _, _, _, _} = H,
-            case BlockHeight < Height-?MAX_WINDOW_LENGTH of
+            case BlockHeight =< Height-?MAX_WINDOW_LENGTH of
                 true ->
                     case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
                         {ok, Res} ->
