@@ -146,55 +146,61 @@ retrieve_datapoints(Src, Dst, Ledger) ->
             {error, no_datapoints}
     end.
 
-meanvar({RSum, SSum, Fspl, Distance, Count, SetPoints}) ->
+meanvar({RSum, SSum, Count, SetPoints}) ->
     {RMean, SMean} = {RSum/Count, SSum/Count},
     {Rssq, Sssq} = lists:foldl(fun({Rssi, Snr}, {RAcc, SAcc}) -> {(RAcc + math:pow((Rssi - RMean), 2)), (SAcc + math:pow((Snr - SMean), 2))} end, {0,0}, SetPoints),
     {Rvar, Svar} = {Rssq/Count, Sssq/Count},
-    {RMean, Rvar, SMean, Svar, Fspl, Distance}.
+    {RMean, Rvar, SMean, Svar}.
 
 -spec calculate_data_windows(Datapoints :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, term()}.
 calculate_data_windows(Datapoints, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
-    WindowPoints4 = lists:foldl(fun({_Height, Rssi, Snr, Fspl, Distance},
+
+    WindowPoints4 = lists:foldl(fun({_Height, Rssi, Snr, _Fspl, _Distance},
                                  {Rssi4Acc, Snr4Acc, Count4Acc, Set4Acc}) ->
-                                     {Rssi4Acc + Rssi, Snr4Acc + Snr, Fspl, Distance, Count4Acc + 1, [{Rssi, Snr} | Set4Acc]}
+                                     {Rssi4Acc + Rssi, Snr4Acc + Snr, Count4Acc + 1, [{Rssi, Snr} | Set4Acc]}
                               end, {0,0,0, []}, Datapoints),
-    WindowPoints3 = lists:foldl(fun({Height, Rssi, Snr, Fspl, Distance},
+
+    WindowPoints3 = lists:foldl(fun({Height, Rssi, Snr, _Fspl, _Distance},
                                  {Rssi3Acc, Snr3Acc, Count3Acc, Set3Acc}) ->
                                       case Height > (CurrentHeight - ?WINDOW_PERIOD*3) of
                                           true ->
-                                              {Rssi3Acc + Rssi, Snr3Acc + Snr, Fspl, Count3Acc + 1, [{Rssi, Snr} | Set3Acc]};
+                                              {Rssi3Acc + Rssi, Snr3Acc + Snr, Count3Acc + 1, [{Rssi, Snr} | Set3Acc]};
                                           false ->
-                                              {Rssi3Acc, Snr3Acc, Fspl, Distance, Count3Acc, Set3Acc}
+                                              {Rssi3Acc, Snr3Acc, Count3Acc, Set3Acc}
                                       end
                               end, {0,0,0, []}, Datapoints),
-    WindowPoints2 = lists:foldl(fun({Height, Rssi, Snr, Fspl, Distance},
+
+    WindowPoints2 = lists:foldl(fun({Height, Rssi, Snr, _Fspl, _Distance},
                                  {Rssi2Acc, Snr2Acc, Count2Acc, Set2Acc}) ->
                                       case Height > (CurrentHeight - ?WINDOW_PERIOD*2) of
                                           true ->
-                                              {Rssi2Acc + Rssi, Snr2Acc + Snr, Fspl, Distance, Count2Acc + 1, [{Rssi, Snr} | Set2Acc]};
+                                              {Rssi2Acc + Rssi, Snr2Acc + Snr, Count2Acc + 1, [{Rssi, Snr} | Set2Acc]};
                                           false ->
-                                              {Rssi2Acc, Snr2Acc, Fspl, Distance, Count2Acc, Set2Acc}
+                                              {Rssi2Acc, Snr2Acc, Count2Acc, Set2Acc}
                                       end
                               end, {0,0,0, []}, Datapoints),
-    WindowPoints1 = lists:foldl(fun({Height, Rssi, Snr, Fspl, Distance},
+
+    WindowPoints1 = lists:foldl(fun({Height, Rssi, Snr, _Fspl, _Distance},
                                  {Rssi1Acc, Snr1Acc, Count1Acc, Set1Acc}) ->
                                       case Height > (CurrentHeight - ?WINDOW_PERIOD*1) of
                                           true ->
-                                              {Rssi1Acc + Rssi, Snr1Acc + Snr, Fspl, Distance, Count1Acc + 1, [{Rssi, Snr} | Set1Acc]};
+                                              {Rssi1Acc + Rssi, Snr1Acc + Snr, Count1Acc + 1, [{Rssi, Snr} | Set1Acc]};
                                           false ->
-                                              {Rssi1Acc, Snr1Acc, Fspl, Distance, Count1Acc, Set1Acc}
+                                              {Rssi1Acc, Snr1Acc, Count1Acc, Set1Acc}
                                       end
                               end, {0,0,0, []}, Datapoints),
-    {RMean4, RVar4, SMean4, SVar4, Fspl4, Distance4} = meanvar(WindowPoints4),
-    {RMean3, RVar3, SMean3, SVar3, _Fspl3, _Distance3} = meanvar(WindowPoints3),
-    {RMean2, RVar2, SMean2, SVar2, _Fspl2, _Distance2} = meanvar(WindowPoints2),
-    {RMean1, RVar1, SMean1, SVar1, _Fspl1, _Distance1} = meanvar(WindowPoints1),
+    [H|_T] = Datapoints,
+    {_, _Rssi, _Snr, Fspl, Distance} = H,
+    {RMean4, RVar4, SMean4, SVar4} = meanvar(WindowPoints4),
+    {RMean3, RVar3, SMean3, SVar3} = meanvar(WindowPoints3),
+    {RMean2, RVar2, SMean2, SVar2} = meanvar(WindowPoints2),
+    {RMean1, RVar1, SMean1, SVar1} = meanvar(WindowPoints1),
     {ok, {RMean1, RVar1, SMean1, SVar1,
      RMean2, RVar2, SMean2, SVar2,
      RMean3, RVar3, SMean3, SVar3,
      RMean4, RVar4, SMean4, SVar4,
-     Fspl4, Distance4}}.
+     Fspl, Distance}}.
 
 to_num(String) ->
     try list_to_float(String) of
