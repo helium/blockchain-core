@@ -13,10 +13,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 25).
--define(MAX_WINDOW_LENGTH, 100).
+-define(WINDOW_PERIOD, 250).
+-define(MAX_WINDOW_LENGTH, 1000).
 -define(WINDOW_SIZE, 25).
--define(WINDOW_CAP, 500).
+-define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
 -define(STALE_THRESHOLD, 2000).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
@@ -93,9 +93,8 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
                                               [{H, R, S, F, D} | DAcc]
                                       end
                                    end, [], Combined),
-
-            lager:info("DATAPOINTS FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
-                                                   ?TO_ANIMAL_NAME(<<Dst/binary>>), Clipped]),
+            %lager:info("DATAPOINTS FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
+            %                                       ?TO_ANIMAL_NAME(<<Dst/binary>>), Clipped]),
             ToInsert = term_to_binary(Clipped),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
