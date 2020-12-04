@@ -1,6 +1,6 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/3, destroy_memoization/0]).
+-export([var_map/1, scale/4, destroy_memoization/0]).
 
 -ifdef(TEST).
 -export([densities/3]).
@@ -26,20 +26,22 @@
 -spec destroy_memoization() -> true.
 %% @doc This call will destroy the memoization context used during a rewards
 %% calculation.
-destroy_memoization() -> ets:delete(?MEMO_TBL).
+destroy_memoization() ->
+    try ets:delete(?MEMO_TBL) catch _:_ -> true end.
 
 -spec scale(
     Location :: h3:h3_index(),
     VarMap :: var_map(),
+    TargetRes :: 0..12,
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> float().
 %% @doc Given a hex location, return the rewards scaling factor. This call is
 %% memoized.
-scale(Location, VarMap, Ledger) ->
+scale(Location, VarMap, TargetRes, Ledger) ->
     case lookup(Location) of
         {ok, Scale} -> Scale;
         not_found ->
-            memoize(Location, do_scale(Location, VarMap, Ledger))
+            memoize(Location, calculate_scale(Location, VarMap, TargetRes, Ledger))
     end.
 
 
@@ -115,13 +117,25 @@ memoize(Key, Result) ->
     true = ets:insert(?MEMO_TBL, {Key, Result}),
     Result.
 
--spec do_scale(
+-spec calculate_scale(
     Location :: h3:h3_index(),
     VarMap :: var_map(),
+    TargetRes :: 0..12,
     Ledger :: blockchain_ledger_v1:ledger() ) -> float().
-do_scale(Location, VarMap, Ledger) ->
-    {UnclippedDensities, ClippedDensities} = densities(Location, VarMap, Ledger),
-    maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities).
+calculate_scale(Location, VarMap, TargetRes, Ledger) ->
+    %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
+    %% however, we specify the lower bound instead of going all the way down to 0
+
+    R = h3:get_resolution(Location),
+
+    %% Calculate densities at the outermost hex
+    OuterMostParent = h3:parent(Location, TargetRes),
+    {UnclippedDensities, ClippedDensities} = densities(OuterMostParent, VarMap, Ledger),
+
+    lists:foldl(fun(Res, Acc) ->
+                        Parent = h3:parent(Location, Res),
+                        Acc * (maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities))
+                end, 1.0, lists:seq(R, TargetRes, -1)).
 
 
 -spec densities(

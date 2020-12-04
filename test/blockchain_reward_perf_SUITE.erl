@@ -21,7 +21,11 @@
          end_per_testcase/2
         ]).
 
--export([reward_perf_test/1]).
+-export([
+         reward_perf_test/1,
+         hip15_vars/0,
+         hip17_vars/0
+        ]).
 
 %%--------------------------------------------------------------------
 %% @spec suite() -> Info
@@ -29,7 +33,7 @@
 %% @end
 %%--------------------------------------------------------------------
 suite() ->
-    [{timetrap,{seconds,90}}].
+    [{timetrap,{seconds,200}}].
 
 %%--------------------------------------------------------------------
 %% @spec init_per_suite(Config0) ->
@@ -66,6 +70,7 @@ init_per_testcase(_TestCase, Config) ->
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
+    {ok, _GWCache} = blockchain_gateway_cache:start_link(),
     {ok, _Pid} = blockchain_score_cache:start_link(),
 
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
@@ -95,37 +100,38 @@ reward_perf_test(Config) ->
     {Time, _} =
         timer:tc(
           fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 30, Height, Chain)
+                  {ok, _} = blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
           end),
     ct:pal("basic calc took: ~p ms", [Time div 1000]),
 
-    {Time2, _} =
-        timer:tc(
-          fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 30, Height, Chain)
-          end),
-    ct:pal("basic calc 2 took: ~p ms", [Time2 div 1000]),
+    %% {Time2, _} =
+    %%     timer:tc(
+    %%       fun() ->
+    %%               blockchain_txn_rewards_v1:calculate_rewards(Height - 20, Height, Chain)
+    %%       end),
+    %% ct:pal("basic calc 2 took: ~p ms", [Time2 div 1000]),
 
-    Vars = maps:merge(hip15_vars(), hip17_vars()),
+    Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     ok = blockchain_ledger_v1:vars(Vars, [], Ledger1),
+    blockchain:bootstrap_h3dex(Ledger1),
     blockchain_ledger_v1:commit_context(Ledger1),
 
     {Time3, _} =
         timer:tc(
           fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 30, Height, Chain)
+                  blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
           end),
     ct:pal("hip 17 calc took: ~p ms", [Time3 div 1000]),
 
-
+    error(print),
     ok.
 
 
 hip15_vars() ->
     #{
         %% configured on chain
-        ?poc_version => 9,
+        ?poc_version => 10,
         ?reward_version => 5,
         %% new hip15 vars for testing
         ?poc_reward_decay_rate => 0.8,

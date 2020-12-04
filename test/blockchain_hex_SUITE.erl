@@ -249,11 +249,11 @@ scale_test(Config) ->
     KnownHex = h3:from_string("8c2836152804dff"),
 
     Result = lists:foldl(
-               fun(LowerBoundRes, Acc) ->
-                       Scale = blockchain_hex:scale(KnownHex, VarMap, LowerBoundRes, Ledger),
-                       ct:pal("LowerBoundRes: ~p, Scale: ~p", [LowerBoundRes, Scale]),
+               fun(TargetRes, Acc) ->
+                       Scale = blockchain_hex:scale(KnownHex, VarMap, TargetRes, Ledger),
+                       ct:pal("TargetRes: ~p, Scale: ~p", [TargetRes, Scale]),
                        blockchain_hex:destroy_memoization(),
-                       maps:put(LowerBoundRes, Scale, Acc)
+                       maps:put(TargetRes, Scale, Acc)
                end,
                #{},
                TargetResolutions
@@ -349,14 +349,14 @@ gateways_with_locs(Ledger) ->
 export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
     %% Calculate scale at each density target res for eventual comparison
     lists:foreach(
-        fun(LowerBoundRes) ->
+        fun(TargetRes) ->
             %% Export scale data for every single gateway to a gps file
             Scales = lists:foldl(
                 fun({GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
                         VarMap,
-                        LowerBoundRes,
+                        TargetRes,
                         Ledger
                     ),
                     [{GwName, Loc, Scale} | Acc]
@@ -365,7 +365,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
                 GatewaysWithLocs
             ),
 
-            Fname = "/tmp/scale_" ++ integer_to_list(LowerBoundRes),
+            Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
             ok = export_gps_file(Fname, Scales)
         end,
         DensityTargetResolutions
