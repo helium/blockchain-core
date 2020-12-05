@@ -9,6 +9,15 @@
 
 -include("blockchain_vars.hrl").
 
+-if(?OTP_RELEASE > 22).
+%% Ericsson why do you hate us so?
+-define(ENCRYPT(Key, IV, AAD, PlainText, TagLength), crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, PlainText, AAD, TagLength, true)).
+-define(DECRYPT(Key, IV, AAD, CipherText, Tag), crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, CipherText, AAD, Tag, false)).
+-else.
+-define(ENCRYPT(Key, IV, AAD, PlainText, TagLength), crypto:block_encrypt(aes_gcm, Key, IV, {AAD, PlainText, TagLength})).
+-define(DECRYPT(Key, IV, AAD, CipherText, Tag), crypto:block_decrypt(aes_gcm, Key, IV, {AAD, CipherText, Tag})).
+-endif.
+
 %% @doc A module for constructing a v2 onion packet.
 %%
 %% Onion packets are nested encrypted packets that have 4 important properties:
@@ -50,8 +59,8 @@ decrypt(<<IV0:16/integer-unsigned-little, OnionCompactKey:33/binary, Tag:4/binar
             SecretKey = ECDHFun(PubKey),
             IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
             BlockKey = block_key(SecretKey, BlockHash, Ledger),
-            case crypto:block_decrypt(aes_gcm, BlockKey, IV, {<<IV/binary, OnionCompactKey/binary>>,
-                                                               CipherText, Tag}) of
+            case ?DECRYPT(BlockKey, IV, <<IV/binary, OnionCompactKey/binary>>,
+                          CipherText, Tag) of
                 <<DataSize:8/integer, Data:DataSize/binary, Rest/binary>> ->
                     PaddingSize = DataSize +5,
                     <<Padding:PaddingSize/binary, Xor:16/integer-unsigned-little, _/binary>> = crypto:hash(sha512, Data),
@@ -171,10 +180,9 @@ encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, 
     Offset = lists:sum([byte_size(X) || X <- Bins]) - byte_size(lists:last(Bins)),
     IV0 = lists:nth(Row, IVs),
     IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
-    {CipherText, _Tag} = crypto:block_encrypt(aes_gcm,
-                                              block_key(SecretKey, BlockHash, Ledger),
-                                              IV, {<<IV/binary, OnionCompactKey/binary>>,
-                                                   list_to_binary(Bins), 4}),
+    {CipherText, _Tag} = ?ENCRYPT(block_key(SecretKey, BlockHash, Ledger),
+                                  IV, <<IV/binary, OnionCompactKey/binary>>,
+                                  list_to_binary(Bins), 4),
     << _:Offset/binary, Cell/binary>> = CipherText,
     Cell.
 
@@ -183,10 +191,9 @@ encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger) -
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, N),
     IV0 = lists:nth(Row, IVs),
     IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
-    {CipherText, Tag} = crypto:block_encrypt(aes_gcm,
-                                             block_key(SecretKey, BlockHash, Ledger),
-                                             IV, {<<IV/binary, OnionCompactKey/binary>>,
-                                                  list_to_binary(Bins), 4}),
+    {CipherText, Tag} = ?ENCRYPT(block_key(SecretKey, BlockHash, Ledger),
+                                 IV, <<IV/binary, OnionCompactKey/binary>>,
+                                 list_to_binary(Bins), 4),
     <<Tag/binary, CipherText/binary>>.
 
 compute_ivs(InitialIV, KeysAndData) ->
