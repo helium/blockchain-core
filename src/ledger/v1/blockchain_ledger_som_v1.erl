@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 250).
--define(MAX_WINDOW_LENGTH, 1000).
+-define(WINDOW_PERIOD, 2).
+-define(MAX_WINDOW_LENGTH, 10).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
@@ -265,7 +265,7 @@ calculate_bmus(Src, Dst, Ledger) ->
             {{Reals, RDist},
              {Fakes, FDist},
              {Mids, MDist},
-             {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class},
+             {Undefs, UDist}} = lists:foldl(fun({{{_X, _Y}, Dist}, Class},
                                                 {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) -> case Class of
                                                                              <<"positive">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
                                                                              <<"negative">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
@@ -326,7 +326,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmu ++ Bmus, ?WINDOW_CAP)));
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist([NewBmu | Bmus], ?WINDOW_CAP)));
                 not_found ->
                     Som = init_som(Ledger),
                     {Signal1, Sigvar1, Snr1, Snrvar1,
@@ -341,7 +341,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist(NewBmu ++ Bmus, ?WINDOW_CAP)))
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist([NewBmu | Bmus], ?WINDOW_CAP)))
             end;
         not_found ->
             case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
@@ -360,7 +360,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmu));
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary([NewBmu]));
                 not_found ->
                     Som = init_som(Ledger),
                     {Signal1, Sigvar1, Snr1, Snrvar1,
@@ -375,7 +375,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
                     %% Append BMUs list
-                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(NewBmu))
+                    blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary([NewBmu]))
             end
     end.
 
