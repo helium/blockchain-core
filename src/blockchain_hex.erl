@@ -1,6 +1,8 @@
 -module(blockchain_hex).
 
--export([var_map/1, scale/4, destroy_memoization/0]).
+-export([var_map/1,
+         scale/2, scale/4,
+         destroy_memoization/0]).
 
 -ifdef(TEST).
 -export([densities/3]).
@@ -30,6 +32,21 @@
 destroy_memoization() ->
     try ets:delete(?SCALE_MEMO_TBL) catch _:_ -> true end,
     try ets:delete(?DENSITY_MEMO_TBL) catch _:_ -> true end.
+
+%% @doc This call is for blockchain_etl to use directly
+-spec scale(Location :: h3:h3_index(),
+            Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, float()}.
+scale(Location, Ledger) ->
+    case var_map(Ledger) of
+        {error, _}=E -> E;
+        {ok, VarMap} ->
+            case get_target_res(Ledger) of
+                {error, _}=E -> E;
+                {ok, TargetRes} ->
+                    S = scale(Location, VarMap, TargetRes, Ledger),
+                    {ok, S}
+            end
+    end.
 
 -spec scale(
     Location :: h3:h3_index(),
@@ -347,3 +364,11 @@ get_density_var(Var, Ledger) ->
             ],
             {ok, [N, Tgt, Max]}
     end.
+
+-spec get_target_res(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, non_neg_integer()}.
+get_target_res(Ledger) ->
+    case blockchain:config(?density_tgt_res, Ledger) of
+        {error, _}=E -> E;
+        {ok, V} -> V
+    end.
+

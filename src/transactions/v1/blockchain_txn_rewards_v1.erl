@@ -269,19 +269,27 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                                                   dc_rewards(Transactions, End, Vars,
                                                              Ledger, DCRewards));
                         {ok, VarMap} ->
+                            WR = poc_witnesses_rewards(Transactions, Vars,
+                                                       Chain, Ledger,
+                                                       WitnessRewards, VarMap),
+
+                            C0R = poc_challengers_rewards(Transactions, Vars,
+                                                          ChallengerRewards),
+
+                            DCR = dc_rewards(Transactions, End, Vars,
+                                             Ledger, DCRewards),
+
+                            CR = poc_challengees_rewards(Transactions, Vars,
+                                                         Chain, Ledger,
+                                                         ChallengeeRewards,
+                                                         VarMap),
+
                             %% do the new thing
                             get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
-                                                  poc_challengers_rewards(Transactions, Vars,
-                                                                          ChallengerRewards),
-                                                  poc_challengees_rewards(Transactions, Vars,
-                                                                          Chain, Ledger,
-                                                                          ChallengeeRewards,
-                                                                          VarMap),
-                                                  poc_witnesses_rewards(Transactions, Vars,
-                                                                        Chain, Ledger,
-                                                                        WitnessRewards, VarMap),
-                                                  dc_rewards(Transactions, End, Vars,
-                                                             Ledger, DCRewards))
+                                                  C0R,
+                                                  CR,
+                                                  WR,
+                                                  DCR)
                     end
             end
     end.
@@ -619,7 +627,9 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           X = maps:put(Challengee, I+(ToAdd * TxScale), Acc0),
+                                           lager:info("MARKER1 +++++++~p", [print_intermediate_reward_map(X)]),
+                                           X
                                    end;
                                false when is_integer(Version), Version > 4 ->
                                    %% this challengee rx'd and sent a receipt
@@ -633,7 +643,9 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           X = maps:put(Challengee, I+(ToAdd * TxScale), Acc0),
+                                           lager:info("MARKER2 +++++++~p", [print_intermediate_reward_map(X)]),
+                                           X
                                    end;
                                _ ->
                                    case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
@@ -646,7 +658,9 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           X = maps:put(Challengee, I+(ToAdd * TxScale), Acc0),
+                                           lager:info("MARKER3 +++++++~p", [print_intermediate_reward_map(X)]),
+                                           X
                                    end
                            end,
                     poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1);
@@ -672,7 +686,9 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           X = maps:put(Challengee, I+(ToAdd * TxScale), Acc0),
+                                           lager:info("MARKER4 +++++++~p", [print_intermediate_reward_map(X)]),
+                                           X
                                    end;
                                true ->
                                    case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
@@ -685,7 +701,9 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           X = maps:put(Challengee, I+(ToAdd * TxScale), Acc0),
+                                           lager:info("MARKER5 +++++++~p", [print_intermediate_reward_map(X)]),
+                                           X
                                    end
                            end,
                     poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1)
@@ -750,7 +768,7 @@ poc_witnesses_rewards(Transactions,
                                 Path = blockchain_txn_poc_receipts_v1:path(Txn),
 
                                 %% Do the new thing for witness filtering
-                                lists:foldl(
+                                Res = lists:foldl(
                                   fun(Elem, Acc1) ->
                                           ElemPos = blockchain_utils:index_of(Elem, Path),
                                           WitnessChannel = lists:nth(ElemPos, Channels),
@@ -777,10 +795,10 @@ poc_witnesses_rewards(Transactions,
                                                       undefined ->
                                                           %% old (HIP15)
                                                           lists:foldl(
-                                                            fun(WitnessRecord, Map) ->
+                                                            fun(WitnessRecord, Acc2) ->
                                                                     Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                                    I = maps:get(Witness, Map, 0),
-                                                                    maps:put(Witness, I+ToAdd, Map)
+                                                                    I = maps:get(Witness, Acc2, 0),
+                                                                    maps:put(Witness, I+ToAdd, Acc2)
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
@@ -788,13 +806,13 @@ poc_witnesses_rewards(Transactions,
                                                       D ->
                                                           %% new (HIP17)
                                                           lists:foldl(
-                                                            fun(WitnessRecord, Map) ->
+                                                            fun(WitnessRecord, Acc2) ->
                                                                     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
                                                                     case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
                                                                         {ok, ChallengeeGw} ->
                                                                             case blockchain_ledger_gateway_v2:location(ChallengeeGw) of
                                                                                 undefined ->
-                                                                                    Map;
+                                                                                    Acc2;
                                                                                 ChallengeeLoc ->
                                                                                     Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                                                     %% The witnesses get scaled by the value of their transmitters
@@ -802,12 +820,13 @@ poc_witnesses_rewards(Transactions,
                                                                                                                    VarMap,
                                                                                                                    D,
                                                                                                                    Ledger),
-                                                                                    lager:info("WitnessGw: ~p, RxScale: ~p", [blockchain_utils:addr2name(Witness), RxScale]),
-                                                                                    I = maps:get(Witness, Map, 0),
-                                                                                    maps:put(Witness, I+(ToAdd*RxScale), Map)
+                                                                                    lager:info("WitnessGw: ~p, RxScale: ~p",
+                                                                                               [blockchain_utils:addr2name(Witness), RxScale]),
+                                                                                    I = maps:get(Witness, Acc2, 0),
+                                                                                    maps:put(Witness, I+(ToAdd*RxScale), Acc2)
                                                                             end;
                                                                         _ ->
-                                                                            Map
+                                                                            Acc2
                                                                     end
                                                             end,
                                                             Acc1,
@@ -818,7 +837,9 @@ poc_witnesses_rewards(Transactions,
                                   end,
                                   Acc0,
                                   Path
-                                 )
+                                 ),
+                                lager:info("Reward Result: ~p", [print_intermediate_reward_map(Res)]),
+                                Res
                             catch What:Why:ST ->
                                   lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p:~p", [What, Why, ST]),
                                   Acc0
@@ -1103,6 +1124,9 @@ share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
     0;
 share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
     erlang:round(DCRemainder * ((maps:get(Key, Vars) / (maps:get(poc_challengers_percent, Vars) + maps:get(poc_challengees_percent, Vars) + maps:get(poc_witnesses_percent, Vars))))).
+
+print_intermediate_reward_map(Map) ->
+    maps:fold(fun(K, Val, Acc) -> maps:put(blockchain_utils:addr2name(K), Val, Acc) end, #{}, Map).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
