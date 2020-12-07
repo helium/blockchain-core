@@ -541,10 +541,9 @@ update_windows(Ledger,
                BlockHeight,
                POCHash,
                HotspotWindowUpdates) when length(HotspotWindowUpdates) > 0 ->
-
     ok = lists:foreach(fun({Hotspot, ScoreUpdate}) ->
                                case hotspot_window(Ledger, Hotspot) of
-                                   [_ | _]=Window when length(Window) >= ?WINDOW_CAP ->
+                                   [_ | _]=Window when length(Window) > ?WINDOW_CAP ->
                                        slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [_ | _]=Window ->
                                        add_to_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
@@ -552,8 +551,6 @@ update_windows(Ledger,
                                        %% first element
                                        WindowElement = {BlockHeight, POCHash, ScoreUpdate},
                                        ToInsert = term_to_binary([WindowElement]),
-                                       %% lager:info("empty window, hotspot: ~p, to_insert: ~p",
-                                       %%            [?TO_ANIMAL_NAME(Hotspot), WindowElement]),
                                        WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
                                        blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Hotspot, ToInsert)
                                end
@@ -573,7 +570,6 @@ window_score(Window) ->
         [] ->
             {undefined, undefined};
         [Head | _Tail] ->
-            %%lager:info("Window Head ~p", [Head]),
             {_, _, C} = Head,
             C
     end.
