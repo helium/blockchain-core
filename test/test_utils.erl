@@ -7,6 +7,7 @@
 -export([
     init/1, init/2,
     init_chain/2, init_chain/3, init_chain/4,
+    init_chain_with_fixed_locations/5,
     generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
     create_block/2, create_block/3, create_block/4,
@@ -41,19 +42,22 @@ init_chain(Balance, Keys) ->
     init_chain(Balance, Keys, true, #{}).
 
 
-init_chain(Balance, {PrivKey, PubKey}, InConsensus, ExtraVars) ->
-    % Generate fake blockchains (just the keys)
-    GenesisMembers = case InConsensus of
-                         true ->
-                             RandomKeys = test_utils:generate_keys(10),
-                             Address = blockchain_swarm:pubkey_bin(),
-                             [
-                              {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
-                             ] ++ RandomKeys;
-                         false ->
-                             test_utils:generate_keys(11)
-                     end,
+init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
+    GenesisMembers = init_genesis_members(Keys, InConsensus),
     init_chain(Balance, GenesisMembers, ExtraVars).
+
+init_genesis_members({PrivKey, PubKey}, InConsensus) ->
+    % Generate fake blockchains (just the keys)
+    case InConsensus of
+        true ->
+            RandomKeys = test_utils:generate_keys(10),
+            Address = blockchain_swarm:pubkey_bin(),
+            [
+             {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
+            ] ++ RandomKeys;
+        false ->
+            test_utils:generate_keys(11)
+    end.
 
 init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsensus) ->
     init_chain(Balance, Keys, InConsensus, #{});
@@ -76,6 +80,48 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
         [],
         lists:seq(1, length(Addresses))
     ),
+    InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
+                         || {Addr, Loc} <- lists:zip(Addresses, Locations)],
+
+    ConsensusMembers = lists:sublist(GenesisMembers, 7),
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
+                            [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
+    Txs = InitialVars ++
+        GenPaymentTxs ++
+        GenSecPaymentTxs ++
+        InitialGatewayTxn ++
+        [GenConsensusGroupTx],
+    lager:info("initial transactions: ~p", [Txs]),
+
+    GenesisBlock = blockchain_block:new_genesis_block(Txs),
+    ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
+
+    Chain = blockchain_worker:blockchain(),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ok = test_utils:wait_until(fun() ->{ok, 1} =:= blockchain:height(Chain) end),
+
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
+    {ok, GenesisMembers, GenesisBlock, ConsensusMembers, Keys}.
+
+init_chain_with_fixed_locations(Balance, {PrivKey, PubKey}, InConsensus, Locations, ExtraVars) when is_list(Locations), is_map(ExtraVars) ->
+
+    GenesisMembers = init_genesis_members({PrivKey, PubKey}, InConsensus),
+
+    % Create genesis block
+    {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
+
+    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
+                     || {Addr, _} <- GenesisMembers],
+
+    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
+                     || {Addr, _} <- GenesisMembers],
+
+    Addresses = [Addr || {Addr, _} <- GenesisMembers],
+
     InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
                          || {Addr, Loc} <- lists:zip(Addresses, Locations)],
 

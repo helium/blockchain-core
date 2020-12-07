@@ -1078,8 +1078,8 @@ maybe_calc_tx_scale(Challengee,
         {_, undefined} -> 1.0;
         {D, Loc} ->
             TxScale = blockchain_hex:scale(Loc, VarMap, D, Ledger),
-            lager:info("Challengee: ~p, RxScale: ~p", [blockchain_utils:addr2name(Challengee),
-                                                       TxScale]),
+            lager:info("Challengee: ~p, TxScale: ~p",
+                       [blockchain_utils:addr2name(Challengee), TxScale]),
             TxScale
     end.
 

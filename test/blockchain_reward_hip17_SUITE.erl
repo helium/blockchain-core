@@ -64,8 +64,9 @@ init_per_testcase(TestCase, Config) ->
                 #{}
         end,
 
+
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
-        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
+    test_utils:init_chain_with_fixed_locations(Balance, {PrivKey, PubKey}, true, known_locations(), ExtraVars),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -264,6 +265,17 @@ run_test(Witnesses, Config) ->
         lists:zip(AllGws, GatewayAddrs)
     ),
 
+    %% For crosscheck
+    GatewayLetterLocMap = lists:foldl(
+        fun({Letter, A}, Acc) ->
+            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
+            GwLoc = blockchain_ledger_gateway_v2:location(Gw),
+            maps:put(Letter, GwLoc, Acc)
+        end,
+        #{},
+        lists:zip(AllGws, GatewayAddrs)
+    ),
+
     Challenger = maps:get(k, GatewayLetterToAddrMap),
 
     GwA = maps:get(a, GatewayLetterToAddrMap),
@@ -422,6 +434,7 @@ run_test(Witnesses, Config) ->
     %% Theoretically, gateways J, K should have higher witness rewards than B, C, E, F, G, I
     ct:pal("GatewayNameMap: ~p", [GatewayNameMap]),
     ct:pal("GatewayLocMap: ~p", [GatewayLocMap]),
+    ct:pal("GatewayLetterLocMap: ~p", [GatewayLetterLocMap]),
     ct:pal("ChallengeesRewardsMap: ~p", [ChallengeesRewardsMap]),
     ct:pal("WitnessRewardsMap: ~p", [WitnessRewardsMap]),
 
@@ -463,3 +476,60 @@ hip17_vars() ->
         ?hip17_res_12 => <<"2,100000,100000">>,
         ?density_tgt_res => 8
     }.
+
+known_locations() ->
+
+    %% NameToPubkeyBin =
+    %% #{
+    %%   "rare-amethyst-reindeer" => libp2p_crypto:b58_to_bin("112VfPXs1WTRjp24WkbbjQmbFNhb5ptot7gpGwJULm4SRiacjuvW"),
+    %%   "cold-canvas-duck" => libp2p_crypto:b58_to_bin("112ciDxDUBwJZs5YjjPWJWKGwGtUtdJdxSgDAYJPhu9fHw4sgeQy"),
+    %%   "melted-tangelo-aphid" => libp2p_crypto:b58_to_bin("112eNuzPYSeeo3tqNDidr2gPysz7QtLkePkY5Yn1V7ddNPUDN6p5"),
+    %%   "early-lime-rat" => libp2p_crypto:b58_to_bin("112Xr4ZtiNbeh8wfiWTYfeo7KwBbXwvx5F2LPdNTC8wp8q4EQCAm"),
+    %%   "flat-lilac-shrimp" => libp2p_crypto:b58_to_bin("112euXBKmLzUAfyi7FaYRxRpcH5RmfPKprV3qEyHCTt8nqwyVFYo"),
+    %%   "harsh-sandstone-stork" => libp2p_crypto:b58_to_bin("11UFysjjP9W8S7ZV54iK7L6HpkxkHrSPRm4rKkWq22cStYYhDhM"),
+    %%   "pet-pewter-lobster" => libp2p_crypto:b58_to_bin("112LYrRkJX32jVNsuAzt9kDqrddXqWrwpG8N5QX2hELvzf8JJZbw"),
+    %%   "amateur-tan-monkey" => libp2p_crypto:b58_to_bin("112bQKSN3TiaYMrsjNKGZotd14QPi7DB37FeV88rmVMgP4MgTK9q"),
+    %%   "clean-wooden-zebra" => libp2p_crypto:b58_to_bin("112AT5baYcYG6yHchYa9xnkqNJ4cXbgxCh8i8nvnfZeewAHJ8zKc"),
+    %%   "odd-champagne-nuthatch" => libp2p_crypto:b58_to_bin("112fDV4b5FqSgcnu3F592RauuNo5HkuPzfETM7WJ9AfCdaCo9sLk"),
+    %%   "abundant-grape-butterfly" => libp2p_crypto:b58_to_bin("112pdh3waHFbu3XqtCWwbw9xEtYtUEvbqzgSVbEoENBRQznj9Tuy")
+    %%  },
+
+    %% Locs =
+    %% #{
+    %%   "rare-amethyst-reindeer" => 631786582666296319,
+    %%   "cold-canvas-duck" => 631786582410363903,
+    %%   "melted-tangelo-aphid" => 631786582655116287,
+    %%   "early-lime-rat" => 631786582659491327,
+    %%   "flat-lilac-shrimp" => 631786581941828607,
+    %%   "harsh-sandstone-stork" => 631786581946850303,
+    %%   "pet-pewter-lobster" => 631786581906280959,
+    %%   "amateur-tan-monkey" => 631786581937244159,
+    %%   "clean-wooden-zebra" => 631786581846989823,
+    %%   "odd-champagne-nuthatch" => 631786581944091647,
+    %%   "abundant-grape-butterfly" => 631786582694056959
+    %%  },
+
+    %% [631786581906280959,
+    %%  631786582666296319,
+    %%  631786582410363903,
+    %%  631786582694056959,
+    %%  631786582655116287,
+    %%  631786582659491327,
+    %%  631786581941828607,
+    %%  631786581937244159,
+    %%  631786581946850303,
+    %%  631786581846989823,
+    %%  631786581944091647],
+
+
+    [631211351866199551,
+     631211351866199551,
+     631211351866084351,
+     631211351866223615,
+     631211351866300415,
+     631211351866239999,
+     631211351866165759,
+     631211351866165247,
+     631211351866289663,
+     631211351865407487,
+     631211351865991679].
