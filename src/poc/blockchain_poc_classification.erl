@@ -17,10 +17,10 @@
 
 -spec process_assert_loc_txn(Txn :: blockchain_txn_assert_location_v1:txn_assert_location(),
                            Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-process_assert_loc_txn(Txn, _Ledger) ->
-    _Hotspot = blockchain_txn_assert_location_v1:gateway(Txn),
-    %ok = blockchain_ledger_som_v1:reset_window(Ledger, Hotspot).
-    ok.
+process_assert_loc_txn(Txn, Ledger) ->
+    Hotspot = blockchain_txn_assert_location_v1:gateway(Txn),
+    ok = blockchain_ledger_som_v1:reset_window(Ledger, Hotspot).
+    %ok.
 
 -spec process_poc_txn(BlockHeight :: pos_integer(),
                       Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),

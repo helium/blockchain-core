@@ -18,7 +18,7 @@
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
--define(STALE_THRESHOLD, 4000).
+-define(STALE_THRESHOLD, 8000).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
@@ -479,7 +479,7 @@ reset_window(Ledger, Hotspot) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
     Windows = windows(Ledger),
     lists:foldl(fun({Key, _Window}, _Acc) ->
-                                 <<SrcHotspot:32/binary, DstHotspot:32/binary>> = Key,
+                                 <<SrcHotspot:33/binary, DstHotspot:33/binary>> = Key,
                                  case Hotspot of
                                      Hotspot when SrcHotspot == Hotspot ->
                                          Key = <<Hotspot/binary, DstHotspot/binary>>,
@@ -597,7 +597,7 @@ scores(Ledger) ->
     Windows = windows(Ledger),
     lists:foldl(fun({Key, Window}, Acc) ->
                                  Score = window_score(Window),
-                                 <<SrcHotspot:32/binary, DstHotspot:32/binary>> = Key,
+                                 <<SrcHotspot:33/binary, DstHotspot:33/binary>> = Key,
                                  [{SrcHotspot, DstHotspot, Score} | Acc]
                          end, [], Windows).
 
