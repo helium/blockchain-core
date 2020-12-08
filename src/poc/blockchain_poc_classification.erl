@@ -103,7 +103,7 @@ acc_scores(Height, Index, Path, Ledger, Acc) ->
 -spec calculate_class(Height :: pos_integer(),
                       Element :: blockchain_poc_path_element_v1:poc_element(),
                       PreviousElement :: blockchain_poc_path_element_v1:poc_element(),
-                      Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_ledger_som_v1:classification()].
+                      Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_ledger_som_v1:tagged_score()].
 calculate_class(Height, Element, PreviousElement, Ledger) ->
     process_receipt(Height, PreviousElement, Element, Ledger),
     process_witness(Height, Element, Ledger),

@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 250).
--define(MAX_WINDOW_LENGTH, 1000).
+-define(WINDOW_PERIOD, 25).
+-define(MAX_WINDOW_LENGTH, 100).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
@@ -468,7 +468,7 @@ retrieve_trustees(Ledger) ->
 -spec windows(Ledger :: blockchain_ledger_v1:ledger()) -> windows().
 windows(Ledger) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({SrcHotspot, DstHotspot, Res}, Acc) ->
+    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({<<SrcHotspot:32/binary, DstHotspot:32/binary>>, Res}, Acc) ->
                                           [{SrcHotspot, DstHotspot, binary_to_term(Res)} | Acc] end,
                []).
 
@@ -525,6 +525,7 @@ update_windows(Ledger,
     ok = lists:foreach(fun({SourceHotspot, DestHostpot, ScoreUpdate}) ->
                                case hotspot_window(Ledger, SourceHotspot, DestHostpot) of
                                    [_ | _]=Window when length(Window) > ?WINDOW_CAP ->
+                                       lager:info("Sliding window for ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
                                        slide_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [_ | _]=Window ->
                                        add_to_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
@@ -574,7 +575,7 @@ hotspot_window(Ledger, SourceHotspot, DestHotspot) ->
 -spec scores(Ledger :: blockchain_ledger_v1:ledger()) -> [tagged_score()].
 scores(Ledger) ->
     Windows = windows(Ledger),
-    lists:foldl(fun({SrcHotspot, DstHotspot, Window}, Acc) ->
+    lists:foldl(fun({<<SrcHotspot:32/binary, DstHotspot:32/binary>>, Window}, Acc) ->
                                  Score = window_score(Window),
                                  [{SrcHotspot, DstHotspot, Score} | Acc]
                          end, [], Windows).
