@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 25).
--define(MAX_WINDOW_LENGTH, 100).
+-define(WINDOW_PERIOD, 1000).
+-define(MAX_WINDOW_LENGTH, 4000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
