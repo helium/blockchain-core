@@ -252,7 +252,7 @@ init_som(Ledger) ->
                          end,
             {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
             {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
-            {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"1">> => 1.7, <<"0">> => 0.6},
+            {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"positive">> => 1.7, <<"negative">> => 0.6, <<"middleman">> => 0.0},
                                             custom_weighting => false,
                                             sigma => 0.5,
                                             random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
@@ -449,8 +449,7 @@ retrieve_som(Ledger) ->
      case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
          {ok, Bin} ->
              lager:debug("SOM RETRIEVED"),
-             {ok, Som} = som:from_json(Bin),
-             {ok, Som};
+             {ok, Bin};
          not_found ->
              lager:debug("Retrieve FAIL"),
              {error, not_found}

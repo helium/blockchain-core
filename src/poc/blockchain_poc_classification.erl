@@ -201,10 +201,10 @@ process_links(PreviousElement, Element, Ledger) ->
                                  {{WT, _WTd}, {WF, _WFd}, {WM, _WMd}, {WU, _WUd}} = WitData,
                                  WSum = WT+WF+WM+WU,
 
-                                 WTPer = {WT/WSum*100, positive},
-                                 WFPer = {WF/WSum*100, negative},
-                                 WMPer = {WM/WSum*100, middleman},
-                                 WUPer = {WU/WSum*100, undefined},
+                                 WTPer = {WT/WSum, positive},
+                                 WFPer = {WF/WSum, negative},
+                                 WMPer = {WM/WSum, middleman},
+                                 WUPer = {WU/WSum, undefined},
                                  WSorted = lists:sort(fun({N, _},{N2, _}) -> N < N2 end, [WTPer, WFPer, WMPer, WUPer]),
                                  {_WNum, WClass} = lists:last(WSorted),
                                  [{WClass, WitData} | ResAcc];
