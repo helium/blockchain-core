@@ -20,6 +20,7 @@
 -type var_map() :: #{0..12 => map()}.
 -type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(), ...]}.
 -type h3_indices() :: [h3:h3_index()].
+-type tblnames() :: ?SCALE_MEMO_TBL|?DENSITY_MEMO_TBL.
 
 -export_type([var_map/0]).
 
@@ -64,10 +65,6 @@ scale(Location, VarMap, TargetRes, Ledger) ->
                     calculate_scale(Location, VarMap, TargetRes, Ledger))
     end.
 
-
-%% TODO: This ought to be stored in the ledger because it won't change much? ever?
-%% after it's been computed. Seems dumb to calculate it every single time we pay
-%% out rewards.
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, var_map()}.
 %% @doc This function returns a map of hex resolutions mapped to hotspot density targets and
 %% maximums. These numbers are used during PoC witness and challenge rewards calculations.
@@ -119,7 +116,7 @@ var_map(Ledger) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 -spec lookup(Key :: term(),
-             TblName :: ?SCALE_MEMO_TBL|?DENSITY_MEMO_TBL) ->
+             TblName :: tblnames()) ->
     {ok, Result :: term()} | not_found.
 lookup(Key, TblName) ->
     try
@@ -129,19 +126,20 @@ lookup(Key, TblName) ->
         end
     catch
         %% if the table doesn't exist yet, create it and return `not_found'
-        _:badarg ->
+        error:badarg ->
             _ = maybe_start(TblName),
             not_found
     end.
 
+-spec maybe_start(TblName :: tblnames()) -> tblnames().
 maybe_start(TblName) ->
     try
-        _Name = ets:new(TblName, ?ETS_OPTS)
+        _TblName = ets:new(TblName, ?ETS_OPTS)
     catch
-        _:_ -> TblName
+        error:badarg -> TblName
     end.
 
--spec memoize(TblName :: ?SCALE_MEMO_TBL|?DENSITY_MEMO_TBL,
+-spec memoize(TblName :: tblnames(),
               Key :: term(),
               Result :: term()) -> Result :: term().
 memoize(TblName, Key, Result) ->
