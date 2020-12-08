@@ -71,6 +71,9 @@ basic_test(_Config) ->
     {ok, Snapshot1} = blockchain_ledger_snapshot_v1:snapshot(Ledger1, []),
 
     ?assertEqual([], blockchain_ledger_snapshot_v1:diff(Snapshot, Snapshot1)),
+
+    ?assertEqual(blockchain_ledger_snapshot_v1:hash(Snapshot),
+                 blockchain_ledger_snapshot_v1:hash(Snapshot1)),
     ok.
 
 
