@@ -13,12 +13,12 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 250).
--define(MAX_WINDOW_LENGTH, 1000).
+-define(WINDOW_PERIOD, 25).
+-define(MAX_WINDOW_LENGTH, 100).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
--define(STALE_THRESHOLD, 2000).
+-define(STALE_THRESHOLD, 4000).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
@@ -42,6 +42,11 @@
 -type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
 %% A class associated with hotspot trust
 -type classification() :: {atom(), bmu_results()}.
+-type window_calculation() :: {float(), float(), float(), float(),
+                               float(), float(), float(), float(),
+                               float(), float(), float(), float(),
+                               float(), float(), float(), float(),
+                               float(), float()}.
 -type evaluations() :: {trustees(), trustees()}.
 
 -export([update_datapoints/7,
@@ -152,7 +157,7 @@ meanvar({RSum, SSum, Count, SetPoints}) ->
     {Rvar, Svar} = {Rssq/Count, Sssq/Count},
     {RMean, Rvar, SMean, Svar}.
 
--spec calculate_data_windows(Datapoints :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, term()}.
+-spec calculate_data_windows(Datapoints :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, window_calculation()}.
 calculate_data_windows(Datapoints, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -196,6 +201,11 @@ calculate_data_windows(Datapoints, Ledger) ->
     {RMean3, RVar3, SMean3, SVar3} = meanvar(WindowPoints3),
     {RMean2, RVar2, SMean2, SVar2} = meanvar(WindowPoints2),
     {RMean1, RVar1, SMean1, SVar1} = meanvar(WindowPoints1),
+    lager:info("DATA WINDOW: ~p", [{RMean1, RVar1, SMean1, SVar1,
+     RMean2, RVar2, SMean2, SVar2,
+     RMean3, RVar3, SMean3, SVar3,
+     RMean4, RVar4, SMean4, SVar4,
+     Fspl, Distance}]),
     {ok, {RMean1, RVar1, SMean1, SVar1,
      RMean2, RVar2, SMean2, SVar2,
      RMean3, RVar3, SMean3, SVar3,
@@ -250,6 +260,7 @@ init_som(Ledger) ->
             %% Train the network through supervised learning
             som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 10000),
             {ok, Serialized} = som:export_json(SOM),
+            lager:info("TRAINING SOM..."),
             blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized),
             SOM
     end.
@@ -302,7 +313,7 @@ calculate_bmus(Src, Dst, Ledger) ->
             {{0,0.0},{0,0.0},{0,0.0},{0,0.0}}
     end.
 
--spec update_bmus(binary(), binary(), term(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+-spec update_bmus(binary(), binary(), Values :: window_calculation(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 update_bmus(Src, Dst, Values, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     SomCF = blockchain_ledger_v1:som_cf(Ledger),

@@ -7,8 +7,6 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 
--define(MAX_WINDOW_SAMPLES, 1).
-
 -export([process_poc_txn/4,
          process_assert_loc_txn/2,
          acc_scores/5,
