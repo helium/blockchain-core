@@ -179,7 +179,7 @@
     cache_put/4,
     cache_delete/3,
     cache_fold/4,
-
+    cache_fold/5,
     som_cf/1,
     datapoints_cf/1,
     backlinks_cf/1,

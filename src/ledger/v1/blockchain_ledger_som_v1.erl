@@ -54,6 +54,7 @@
          classify_sample/4,
          update_windows/4,
          reset_window/3,
+         reset_window/2,
          windows/1,
          update_trustees/2,
          calculate_bmus/3,
@@ -471,6 +472,29 @@ windows(Ledger) ->
     blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({SrcHotspot, DstHotspot, Res}, Acc) ->
                                           [{SrcHotspot, DstHotspot, binary_to_term(Res)} | Acc] end,
                []).
+
+-spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
+                   Hotspot :: libp2p_crypto:pubkey_bin()) -> ok.
+reset_window(Ledger, Hotspot) ->
+    WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
+    ChalKeys = blockchain_ledger_v1:cache_fold(Ledger, WindowsCF,
+              fun({K, _V}, Acc) ->
+                      Key = binary_to_term(K),
+                      [Key | Acc]
+              end, [],
+              [{start, {seek, <<Hotspot:32/binary>>}},
+               {iterate_upper_bound, <<Hotspot:32/binary, ?MAX_NUM:256/unsigned-integer-big>>}]),
+
+    WitKeys = blockchain_ledger_v1:cache_fold(Ledger, WindowsCF,
+              fun({K, _V}, Acc) ->
+                      Key = binary_to_term(K),
+                      [Key | Acc]
+              end, [],
+              [{start, {seek, <<Hotspot:32/binary>>}},
+               {iterate_upper_bound, <<?MAX_NUM:256/unsigned-integer-big, Hotspot:32/binary>>}]),
+
+    Combined = ChalKeys ++ WitKeys,
+    lists:foldl(fun(Key, _Acc) -> blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])) end, [], Combined).
 
 -spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
                    SourceHotspot :: libp2p_crypto:pubkey_bin(),
