@@ -74,7 +74,6 @@ assign_scores(Height, Path, PathLength, Ledger) ->
                  Ledger :: blockchain_ledger_v1:ledger(),
                  Acc :: [blockchain_ledger_som_v1:tagged_score()]) -> [blockchain_ledger_som_v1:tagged_score()].
 acc_scores(Height, Index, Path, Ledger, Acc) ->
-    %% lager:info("frequency ~p Index ~p", [Frequencies, Index])
     PreviousElement = case Index of
         1 ->
             undefined;
@@ -82,22 +81,23 @@ acc_scores(Height, Index, Path, Ledger, Acc) ->
             lists:nth(Index - 1, Path)
     end,
     LookupElement = lists:nth(Index, Path),
-    CheckHotspot = blockchain_poc_path_element_v1:challengee(LookupElement),
+    %CheckHotspot = blockchain_poc_path_element_v1:challengee(LookupElement),
     Scores = calculate_class(Height,
                             LookupElement,
                             PreviousElement,
                             Ledger),
-    NewScores = lists:foldl(fun(Classification, ScoreAcc) ->
-                        case Classification of
-                            {ok, active_window} ->
-                                ScoreAcc;
-                            {error, _} ->
-                                ScoreAcc;
-                            _ ->
-                                [{CheckHotspot, Classification} | ScoreAcc]
-                        end
-                         end, [], Scores),
-    NewScores ++ Acc.
+    Scores ++ Acc.
+    %NewScores = lists:foldl(fun(Classification, ScoreAcc) ->
+    %                    case Classification of
+    %                        {ok, active_window} ->
+    %                            ScoreAcc;
+    %                        {error, _} ->
+    %                            ScoreAcc;
+    %                        _ ->
+    %                            [{CheckHotspot, Classification} | ScoreAcc]
+    %                    end
+    %                     end, [], Scores),
+    %NewScores ++ Acc.
 
 -spec calculate_class(Height :: pos_integer(),
                       Element :: blockchain_poc_path_element_v1:poc_element(),
@@ -167,16 +167,8 @@ process_links(PreviousElement, Element, Ledger) ->
                                              {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
                                              ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
                                              Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-                                             {{T, _Td}, {F, _Fd}, {M, _Md}, {U, _Ud}} = Data,
-                                             Sum = T+F+M+U,
-
-                                             TPer = {T/Sum, positive},
-                                             FPer = {F/Sum, negative},
-                                             MPer = {M/Sum, middleman},
-                                             UPer = {U/Sum, undefined},
-                                             Sorted = lists:sort(fun({N, _},{N2, _}) -> N < N2 end, [TPer, FPer, MPer, UPer]),
-                                             {_Num, Class} = lists:last(Sorted),
-                                             [{Class, Data}];
+                                             {{{_X, _Y}, _Dist}, Class} = Data,
+                                             [{Src, Dst, {Class, Data}}];
                                          {error, _Res} ->
                                              lager:info("No datapoints found when calculating class"),
                                              []
@@ -198,17 +190,9 @@ process_links(PreviousElement, Element, Ledger) ->
                                  ok = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
 
                                  WitData = blockchain_ledger_som_v1:calculate_bmus(SrcHotspot, DstHotspot, Ledger),
-                                 {{WT, _WTd}, {WF, _WFd}, {WM, _WMd}, {WU, _WUd}} = WitData,
-                                 WSum = WT+WF+WM+WU,
-
-                                 WTPer = {WT/WSum, positive},
-                                 WFPer = {WF/WSum, negative},
-                                 WMPer = {WM/WSum, middleman},
-                                 WUPer = {WU/WSum, undefined},
-                                 WSorted = lists:sort(fun({N, _},{N2, _}) -> N < N2 end, [WTPer, WFPer, WMPer, WUPer]),
-                                 {_WNum, WClass} = lists:last(WSorted),
-                                 [{WClass, WitData} | ResAcc];
-                              {error, _} ->
+                                 {{{_WX, _WY}, _WDist}, WClass} = WitData,
+                                 [{SrcHotspot, DstHotspot, {WClass, WitData}} | ResAcc];
+                             {error, _} ->
                                  lager:info("No datapoints found when calculating class"),
                                  ResAcc
                          end

@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 1000).
--define(MAX_WINDOW_LENGTH, 4000).
+-define(WINDOW_PERIOD, 250).
+-define(MAX_WINDOW_LENGTH, 1000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
@@ -22,12 +22,12 @@
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
--type tagged_score() :: {libp2p_crypto:pubkey_bin(), classification()}.
+-type tagged_score() :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), classification()}.
 %% BMU calculation return type
--type bmu_results() :: {{non_neg_integer(), float()},
-                        {non_neg_integer(), float()},
-                        {non_neg_integer(), float()},
-                        {non_neg_integer(), float()}}.
+%-type bmu_results() :: {{non_neg_integer(), float()},
+%                        {non_neg_integer(), float()},
+%                        {non_neg_integer(), float()},
+%                        {non_neg_integer(), float()}}.
 %% A type holding BMU data from one sample
 -type bmu_data() :: {{{integer(), integer()}, float()}, atom()}.
 %% List of BMU data
@@ -39,9 +39,9 @@
 %% List of window_elements
 -type window() :: [window_element()].
 %% List of windows, tagged via hotspot pubkey_bin
--type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
+-type windows() :: [{libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), window()}].
 %% A class associated with hotspot trust
--type classification() :: {atom(), bmu_results()}.
+-type classification() :: {atom(), bmu_data()}.
 -type window_calculation() :: {float(), float(), float(), float(),
                                float(), float(), float(), float(),
                                float(), float(), float(), float(),
@@ -53,7 +53,7 @@
          update_bmus/4,
          classify_sample/4,
          update_windows/4,
-         reset_window/2,
+         reset_window/3,
          windows/1,
          update_trustees/2,
          calculate_bmus/3,
@@ -61,7 +61,7 @@
          clear_som/1,
          clear_bmus/3,
          retrieve_som/1,
-         retrieve_bmus/2,
+         retrieve_bmus/3,
          retrieve_datapoints/3,
          retrieve_trustees/1,
          init_trustees/1,
@@ -69,7 +69,8 @@
          is_promoted/1,
          maybe_phase_out/2,
          scores/1,
-         hotspot_window/2]).
+         hotspot_window/3]).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -201,11 +202,6 @@ calculate_data_windows(Datapoints, Ledger) ->
     {RMean3, RVar3, SMean3, SVar3} = meanvar(WindowPoints3),
     {RMean2, RVar2, SMean2, SVar2} = meanvar(WindowPoints2),
     {RMean1, RVar1, SMean1, SVar1} = meanvar(WindowPoints1),
-    lager:info("DATA WINDOW: ~p", [{RMean1, RVar1, SMean1, SVar1,
-     RMean2, RVar2, SMean2, SVar2,
-     RMean3, RVar3, SMean3, SVar3,
-     RMean4, RVar4, SMean4, SVar4,
-     Fspl, Distance}]),
     {ok, {RMean1, RVar1, SMean1, SVar1,
      RMean2, RVar2, SMean2, SVar2,
      RMean3, RVar3, SMean3, SVar3,
@@ -260,12 +256,11 @@ init_som(Ledger) ->
             %% Train the network through supervised learning
             som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 10000),
             {ok, Serialized} = som:export_json(SOM),
-            lager:info("TRAINING SOM..."),
             blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized),
             SOM
     end.
 
--spec calculate_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
+-spec calculate_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_data().
 calculate_bmus(Src, Dst, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     Key = <<Src/binary, Dst/binary>>,
@@ -273,45 +268,10 @@ calculate_bmus(Src, Dst, Ledger) ->
         {ok, Bin} ->
             Bmus = binary_to_term(Bin),
             %% lager:info("Calculate BMUs for: ~p", [Key]),
-            {{Reals, RDist},
-             {Fakes, FDist},
-             {Mids, MDist},
-             {Undefs, UDist}} = lists:foldl(fun({{{_X, _Y}, Dist}, Class},
-                                                {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) -> case Class of
-                                                                             <<"positive">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
-                                                                             <<"negative">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
-                                                                             <<"middleman">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum + 1, MDsum + Dist}, {Usum, UDsum}};
-                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum + 1, UDsum + Dist}}
-                                                                         end
-                               end, {{0,0},{0,0},{0,0},{0,0}}, Bmus),
-            RAvg = case Reals of
-                       0 ->
-                           0;
-                       _ ->
-                           RDist/Reals
-                   end,
-            FAvg = case Fakes of
-                       0 ->
-                           0;
-                       _ ->
-                           FDist/Fakes
-                   end,
-            Mavg = case Mids of
-                       0 ->
-                           0;
-                       _ ->
-                           MDist/Mids
-                   end,
-            UAvg = case Undefs of
-                       0 ->
-                           0;
-                       _ ->
-                           UDist/Undefs
-                   end,
-
-            {{Reals, RAvg}, {Fakes, FAvg}, {Mids, Mavg}, {Undefs, UAvg}};
+            [H|_T] = Bmus,
+            H;
     not_found ->
-            {{0,0.0},{0,0.0},{0,0.0},{0,0.0}}
+            {{{0,0}, 0.0}, undefined}
     end.
 
 -spec update_bmus(binary(), binary(), Values :: window_calculation(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
@@ -416,12 +376,12 @@ classify_sample(Signal, Snr, Fspl, Ledger) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% SOM DB API (internal/console)
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec retrieve_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_list()} | {error, not_found}.
-retrieve_bmus(A, Ledger) ->
+-spec retrieve_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_list()} | {error, not_found}.
+retrieve_bmus(A, B, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
+    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary, B/binary>>, []) of
         {ok, Bin} ->
-            %%lager:info("BMUs RETRIEVED FOR: ~p", [?TO_ANIMAL_NAME(A)]),
+            lager:info("BMUs RETRIEVED FOR: ~p => ~p", [?TO_ANIMAL_NAME(A), ?TO_ANIMAL_NAME(B)]),
             N = binary_to_term(Bin),
             {ok, N};
         not_found ->
@@ -435,7 +395,7 @@ clear_bmus(Src, Dst, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, _Bin} ->
-            %%lager:info("Clear BMUs for: ~p", [?TO_ANIMAL_NAME(A)]),
+            lager:info("BMUs CLEARED FOR: ~p => ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst)]),
             blockchain_ledger_v1:cache_delete(Ledger, BmuCF, Key),
             ok;
         not_found ->
@@ -508,23 +468,26 @@ retrieve_trustees(Ledger) ->
 -spec windows(Ledger :: blockchain_ledger_v1:ledger()) -> windows().
 windows(Ledger) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({Hotspot, Res}, Acc) ->
-                                          [{Hotspot, binary_to_term(Res)} | Acc] end,
+    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({SrcHotspot, DstHotspot, Res}, Acc) ->
+                                          [{SrcHotspot, DstHotspot, binary_to_term(Res)} | Acc] end,
                []).
 
 -spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
-                   Hotspot :: libp2p_crypto:pubkey_bin()) -> ok.
-reset_window(Ledger, Hotspot) ->
+                   SourceHotspot :: libp2p_crypto:pubkey_bin(),
+                   DestHotspot :: libp2p_crypto:pubkey_bin()) -> ok.
+reset_window(Ledger, SourceHotspot, DestHotspot) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Hotspot, term_to_binary([])).
+    Key = <<SourceHotspot/binary, DestHotspot/binary>>,
+    blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])).
 
--spec slide_window(Hotspot :: libp2p_crypto:pubkey_bin(),
+-spec slide_window(SourceHotspot :: libp2p_crypto:pubkey_bin(),
+                   DestHostpot :: libp2p_crypto:pubkey_bin(),
                    Window :: window(),
                    BlockHeight :: pos_integer(),
                    POCHash :: blockchain_txn:hash(),
                    ScoreUpdate :: tagged_score(),
                    Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger) ->
+slide_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger) ->
     %% slide window
     [_Head | Tail] = lists:reverse(Window),
     WindowElement = {BlockHeight, POCHash, ScoreUpdate},
@@ -532,21 +495,24 @@ slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger) ->
     %% lager:info("sliding window, hotspot: ~p, popped: ~p, to_insert: ~p",
     %%            [?TO_ANIMAL_NAME(Hotspot), Head, WindowElement]),
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Hotspot, ToInsert).
+    Key = <<SourceHotspot/binary, DestHostpot/binary>>,
+    blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, ToInsert).
 
--spec add_to_window(Hotspot :: libp2p_crypto:pubkey_bin(),
+-spec add_to_window(SourceHotspot :: libp2p_crypto:pubkey_bin(),
+                    DestHotspot :: libp2p_crypto:pubkey_bin(),
                     Window :: blockchain_ledger_v1:window(),
                     BlockHeight :: pos_integer(),
                     POCHash :: blockchain_txn:hash(),
                     ScoreUpdate :: tagged_score(),
                     Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-add_to_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger) ->
+add_to_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger) ->
     WindowElement = {BlockHeight, POCHash, ScoreUpdate},
     ToInsert = term_to_binary([WindowElement | Window]),
     %% lager:info("adding to window, hotspot: ~p, to_insert: ~p",
     %%            [?TO_ANIMAL_NAME(Hotspot), WindowElement]),
+    Key = <<SourceHotspot/binary, DestHostpot/binary>>,
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Hotspot, ToInsert).
+    blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, ToInsert).
 
 -spec update_windows(Ledger :: blockchain_ledger_v1:ledger(),
                      BlockHeight :: pos_integer(),
@@ -556,18 +522,19 @@ update_windows(Ledger,
                BlockHeight,
                POCHash,
                HotspotWindowUpdates) when length(HotspotWindowUpdates) > 0 ->
-    ok = lists:foreach(fun({Hotspot, ScoreUpdate}) ->
-                               case hotspot_window(Ledger, Hotspot) of
+    ok = lists:foreach(fun({SourceHotspot, DestHostpot, ScoreUpdate}) ->
+                               case hotspot_window(Ledger, SourceHotspot, DestHostpot) of
                                    [_ | _]=Window when length(Window) > ?WINDOW_CAP ->
-                                       slide_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
+                                       slide_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [_ | _]=Window ->
-                                       add_to_window(Hotspot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
+                                       add_to_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [] ->
                                        %% first element
                                        WindowElement = {BlockHeight, POCHash, ScoreUpdate},
                                        ToInsert = term_to_binary([WindowElement]),
                                        WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-                                       blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Hotspot, ToInsert)
+                                       Key = <<SourceHotspot/binary, DestHostpot/binary>>,
+                                       blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, ToInsert)
                                end
                        end,
                        HotspotWindowUpdates);
@@ -590,10 +557,12 @@ window_score(Window) ->
     end.
 
 -spec hotspot_window(Ledger :: blockchain_ledger_v1:ledger(),
-                     Hotspot :: libp2p_crypto:pubkey_bin()) -> window().
-hotspot_window(Ledger, Hotspot) ->
+                     SourceHotspot :: libp2p_crypto:pubkey_bin(),
+                     DestHostpot :: libp2p_crypto:pubkey_bin()) -> window().
+hotspot_window(Ledger, SourceHotspot, DestHotspot) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, WindowsCF, Hotspot, []) of
+    Key = <<SourceHotspot/binary, DestHotspot/binary>>,
+    case blockchain_ledger_v1:cache_get(Ledger, WindowsCF, Key, []) of
         not_found ->
             [];
         {ok, BinWindow} ->
@@ -605,23 +574,23 @@ hotspot_window(Ledger, Hotspot) ->
 -spec scores(Ledger :: blockchain_ledger_v1:ledger()) -> [tagged_score()].
 scores(Ledger) ->
     Windows = windows(Ledger),
-    lists:foldl(fun({Hotspot, Window}, Acc) ->
+    lists:foldl(fun({SrcHotspot, DstHotspot, Window}, Acc) ->
                                  Score = window_score(Window),
-                                 [{Hotspot, Score} | Acc]
+                                 [{SrcHotspot, DstHotspot, Score} | Acc]
                          end, [], Windows).
 
 -spec maybe_phase_out(BlockHeight :: pos_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_phase_out(BlockHeight, Ledger) ->
     Windows = windows(Ledger),
-    lists:foreach(fun({_Hotspot, []}) ->
+    lists:foreach(fun({_SrcHotspot, _DstHotspot, []}) ->
                           ok;
-                     ({Hotspot, [{LatestPOCTxnHeight, _, _} | _]}) ->
+                     ({SrcHotspot, DstHotspot, [{LatestPOCTxnHeight, _, _} | _]}) ->
                           case (BlockHeight - LatestPOCTxnHeight) >= ?STALE_THRESHOLD of
                               false ->
                                   ok;
                               true ->
-                                  reset_window(Ledger, Hotspot)
+                                  reset_window(Ledger, SrcHotspot, DstHotspot)
                           end
                   end, Windows).
 
