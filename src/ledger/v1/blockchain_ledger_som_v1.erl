@@ -39,7 +39,7 @@
 %% List of window_elements
 -type window() :: [window_element()].
 %% List of windows, tagged via hotspot pubkey_bin
--type windows() :: [{libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), window()}].
+-type windows() :: [{binary(), window()}].
 %% A class associated with hotspot trust
 -type classification() :: {atom(), bmu_data()}.
 -type window_calculation() :: {float(), float(), float(), float(),
@@ -54,6 +54,7 @@
          classify_sample/4,
          update_windows/4,
          reset_window/3,
+         reset_window/2,
          windows/1,
          update_trustees/2,
          calculate_bmus/3,
@@ -468,9 +469,28 @@ retrieve_trustees(Ledger) ->
 -spec windows(Ledger :: blockchain_ledger_v1:ledger()) -> windows().
 windows(Ledger) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({<<SrcHotspot:32/binary, DstHotspot:32/binary>>, Res}, Acc) ->
-                                          [{SrcHotspot, DstHotspot, binary_to_term(Res)} | Acc] end,
+    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({HotspotKey, Res}, Acc) ->
+                                          [{HotspotKey, binary_to_term(Res)} | Acc] end,
                []).
+
+-spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
+                   Hotspot :: libp2p_crypto:pubkey_bin()) -> ok.
+reset_window(Ledger, Hotspot) ->
+    WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
+    Windows = windows(Ledger),
+    lists:foldl(fun({Key, _Window}, _Acc) ->
+                                 <<SrcHotspot:32/binary, DstHotspot:32/binary>> = Key,
+                                 case Hotspot of
+                                     Hotspot when SrcHotspot == Hotspot ->
+                                         Key = <<Hotspot/binary, DstHotspot/binary>>,
+                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]));
+                                     Hotspot when DstHotspot == Hotspot ->
+                                         Key = <<SrcHotspot/binary, Hotspot/binary>>,
+                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]))
+                                 end
+                         end, [], Windows),
+    ok.
+
 
 -spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
                    SourceHotspot :: libp2p_crypto:pubkey_bin(),
@@ -575,8 +595,9 @@ hotspot_window(Ledger, SourceHotspot, DestHotspot) ->
 -spec scores(Ledger :: blockchain_ledger_v1:ledger()) -> [tagged_score()].
 scores(Ledger) ->
     Windows = windows(Ledger),
-    lists:foldl(fun({<<SrcHotspot:32/binary, DstHotspot:32/binary>>, Window}, Acc) ->
+    lists:foldl(fun({Key, Window}, Acc) ->
                                  Score = window_score(Window),
+                                 <<SrcHotspot:32/binary, DstHotspot:32/binary>> = Key,
                                  [{SrcHotspot, DstHotspot, Score} | Acc]
                          end, [], Windows).
 
