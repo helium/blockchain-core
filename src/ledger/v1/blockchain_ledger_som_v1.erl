@@ -296,7 +296,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist([NewBmu | Bmus], ?WINDOW_CAP)));
@@ -312,7 +312,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist([NewBmu | Bmus], ?WINDOW_CAP)))
@@ -332,7 +332,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary([NewBmu]));
@@ -348,7 +348,7 @@ update_bmus(Src, Dst, Values, Ledger) ->
                                              float(Sigvar2/(250)), float(Snrvar2/(230)),
                                              float(Sigvar3/(250)), float(Snrvar3/(230)),
                                              float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920000))]),
+                                             float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary([NewBmu]))
