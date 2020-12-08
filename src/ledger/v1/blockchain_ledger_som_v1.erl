@@ -481,12 +481,14 @@ reset_window(Ledger, Hotspot) ->
     lists:foldl(fun({Key, _Window}, _Acc) ->
                                  <<SrcHotspot:33/binary, DstHotspot:33/binary>> = Key,
                                  case Hotspot of
-                                     Hotspot when SrcHotspot == Hotspot ->
+                                     SrcHotspot ->
                                          Key = <<Hotspot/binary, DstHotspot/binary>>,
                                          ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]));
-                                     Hotspot when DstHotspot == Hotspot ->
+                                     DstHotspot ->
                                          Key = <<SrcHotspot/binary, Hotspot/binary>>,
-                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]))
+                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]));
+                                     _ ->
+                                         lager:info("NO MATCH ON RESET")
                                  end
                          end, [], Windows),
     ok.
