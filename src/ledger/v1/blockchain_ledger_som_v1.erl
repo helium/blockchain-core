@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 250).
--define(MAX_WINDOW_LENGTH, 1000).
+-define(WINDOW_PERIOD, 1000).
+-define(MAX_WINDOW_LENGTH, 4000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, positive).
@@ -58,6 +58,8 @@
          windows/1,
          update_trustees/2,
          calculate_bmus/3,
+         calculate_hotspot_bmus/2,
+         calculate_hotspot_bmus/3,
          calculate_data_windows/2,
          clear_datapoints/3,
          clear_som/1,
@@ -129,7 +131,6 @@ clear_datapoints(Src, Dst, Ledger) ->
             lager:info("No datapoints found for ~p => ~p when trying to delete", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst)]),
             ok
     end.
-
 
 -spec retrieve_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {ok, active_window} | {error, atom()}.
 retrieve_datapoints(Src, Dst, Ledger) ->
@@ -277,6 +278,53 @@ init_som(Ledger) ->
             blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized),
             SOM
     end.
+
+-spec calculate_hotspot_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger(), Opts :: challengee | witness | combined) -> bmu_list().
+calculate_hotspot_bmus(Hotspot, Ledger, Opts) ->
+    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    case Opts of
+        challengee ->
+            blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<S:33/binary, _:33/binary>>, Res}, Acc) ->
+                                                                   case Hotspot of
+                                                                       S ->
+                                                                           [{Hotspot, binary_to_term(Res)} | Acc];
+                                                                       _ ->
+                                                                           Acc
+                                                                   end
+                                                           end, []);
+        witness ->
+            blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<_:33/binary, D:33/binary>>, Res}, Acc) ->
+                                                                   case Hotspot of
+                                                                       D ->
+                                                                           [{Hotspot, binary_to_term(Res)} | Acc];
+                                                                       _ ->
+                                                                           Acc
+                                                                   end
+                                                           end, []);
+        combined ->
+            blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<S:33/binary, D:33/binary>>, Res}, Acc) ->
+                                                                   case Hotspot of
+                                                                       S ->
+                                                                           [{Hotspot, binary_to_term(Res)} | Acc];
+                                                                       D ->
+                                                                           [{Hotspot, binary_to_term(Res)} | Acc];
+                                                                       _ ->
+                                                                           Acc
+                                                                   end
+                                                           end, [])
+    end.
+
+-spec calculate_hotspot_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_list().
+calculate_hotspot_bmus(Hotspot, Ledger) ->
+    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<S:33/binary, _:33/binary>>, Res}, Acc) ->
+                                                                   case Hotspot of
+                                                                       S ->
+                                                                           [{Hotspot, binary_to_term(Res)} | Acc];
+                                                                       _ ->
+                                                                           Acc
+                                                                   end
+                                                           end, []).
 
 -spec calculate_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_data().
 calculate_bmus(Src, Dst, Ledger) ->
@@ -494,30 +542,36 @@ windows(Ledger) ->
                    Hotspot :: libp2p_crypto:pubkey_bin()) -> ok.
 reset_window(Ledger, Hotspot) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
-    Windows = windows(Ledger),
-    lists:foldl(fun({Key, _Window}, _Acc) ->
-                                 <<SrcHotspot:33/binary, DstHotspot:33/binary>> = Key,
-                                 case Hotspot of
-                                     SrcHotspot ->
-                                         Key = <<Hotspot/binary, DstHotspot/binary>>,
-                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])),
-                                         ok = clear_datapoints(Hotspot, DstHotspot, Ledger);
-                                     DstHotspot ->
-                                         Key = <<SrcHotspot/binary, Hotspot/binary>>,
-                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])),
-                                         ok = clear_datapoints(SrcHotspot, Hotspot, Ledger);
-                                     _ ->
-                                         %lager:info("NO MATCH ON RESET")
-                                         ok
-                                 end
-                         end, [], Windows),
-    ok.
+    Keys = blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({<<S:33/binary, D:33/binary>>=Key, _Res}, Acc) ->
+                                                               case Hotspot of
+                                                                   S ->
+                                                                       lager:info("Clear Challengee: ~p", [?TO_ANIMAL_NAME(Hotspot)]),
+                                                                       [Key | Acc];
+                                                                   D ->
+                                                                       lager:info("Clear Witness: ~p", [?TO_ANIMAL_NAME(Hotspot)]),
+                                                                       [Key | Acc];
+                                                                   _ ->
+                                                                       Acc
+                                                               end
+                                                       end,
+               []),
+    case Keys of
+        [] ->
+            ok;
+        [_ | _] ->
+            lists:foldl(fun(<<S:33/binary, D:33/binary>>=Key, _Acc) ->
+                                ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])),
+                                ok = clear_datapoints(S, D, Ledger)
+                        end, [], Keys),
+            ok
+    end.
 
 
 -spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
                    SourceHotspot :: libp2p_crypto:pubkey_bin(),
                    DestHotspot :: libp2p_crypto:pubkey_bin()) -> ok.
 reset_window(Ledger, SourceHotspot, DestHotspot) ->
+    lager:info("Clear Window for ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHotspot/binary>>)]),
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
     Key = <<SourceHotspot/binary, DestHotspot/binary>>,
     ok = clear_datapoints(SourceHotspot, DestHotspot, Ledger),
@@ -571,7 +625,8 @@ update_windows(Ledger,
                                        lager:info("Sliding window for ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
                                        slide_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [_ | _]=Window ->
-                                       add_to_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
+                                        lager:info("Adding to  window for ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
+                                        add_to_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [] ->
                                        %% first element
                                        WindowElement = {BlockHeight, POCHash, ScoreUpdate},
