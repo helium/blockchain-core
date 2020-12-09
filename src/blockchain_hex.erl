@@ -221,7 +221,7 @@ densities(H3Root, VarMap, Locations, Ledger) ->
 
             [Head | Tail] = lists:seq(UpperBoundRes, LowerBoundRes, -1),
 
-            %% find parent hexs to all hotspots at highest resolution in chain variables
+            %% find parent hexes to all hotspots at highest resolution in chain variables
             {ParentHexes, InitialDensities} =
                 maps:fold(
                     fun(Hex, GWs, {HAcc, MAcc}) ->
