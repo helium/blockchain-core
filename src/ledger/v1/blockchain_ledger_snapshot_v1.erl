@@ -1077,7 +1077,6 @@ v4_to_v3(#blockchain_snapshot_v4{
 v5_to_v4(#{
            version := v5,
            current_height := CurrHeight,
-           transaction_fee := 0,
            consensus_members := ConsensusMembers,
 
            election_height := ElectionHeight,
@@ -1117,6 +1116,8 @@ v5_to_v4(#{
     #blockchain_snapshot_v4{
        current_height = CurrHeight,
        consensus_members = ConsensusMembers,
+
+       transaction_fee =  0,
 
        election_height = ElectionHeight,
        election_epoch = ElectionEpoch,
