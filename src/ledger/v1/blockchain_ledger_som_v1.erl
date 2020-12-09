@@ -59,6 +59,7 @@
          update_trustees/2,
          calculate_bmus/3,
          calculate_data_windows/2,
+         clear_datapoints/3,
          clear_som/1,
          clear_bmus/3,
          retrieve_som/1,
@@ -113,6 +114,22 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             %lager:info("NEW DATAPOINTS. Window set at ~p", [Height+?WINDOW_PERIOD]),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
     end.
+
+-spec clear_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+clear_datapoints(Src, Dst, Ledger) ->
+    DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
+    BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
+    %BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
+    Key1 = <<Src/binary, Dst/binary>>,
+    case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key1, []) of
+        {ok, _Bin} ->
+            ok = blockchain_ledger_v1:cache_delete(Ledger, DatapointsCF, Key1),
+            ok = blockchain_ledger_v1:cache_delete(Ledger, BacklinksCF, Key1);
+        not_found ->
+            lager:info("No datapoints found for ~p => ~p when trying to delete", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst)]),
+            ok
+    end.
+
 
 -spec retrieve_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {ok, active_window} | {error, atom()}.
 retrieve_datapoints(Src, Dst, Ledger) ->
@@ -483,12 +500,15 @@ reset_window(Ledger, Hotspot) ->
                                  case Hotspot of
                                      SrcHotspot ->
                                          Key = <<Hotspot/binary, DstHotspot/binary>>,
-                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]));
+                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])),
+                                         ok = clear_datapoints(Hotspot, DstHotspot, Ledger);
                                      DstHotspot ->
                                          Key = <<SrcHotspot/binary, Hotspot/binary>>,
-                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([]));
+                                         ok = blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])),
+                                         ok = clear_datapoints(SrcHotspot, Hotspot, Ledger);
                                      _ ->
-                                         lager:info("NO MATCH ON RESET")
+                                         %lager:info("NO MATCH ON RESET")
+                                         ok
                                  end
                          end, [], Windows),
     ok.
@@ -500,6 +520,7 @@ reset_window(Ledger, Hotspot) ->
 reset_window(Ledger, SourceHotspot, DestHotspot) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
     Key = <<SourceHotspot/binary, DestHotspot/binary>>,
+    ok = clear_datapoints(SourceHotspot, DestHotspot, Ledger),
     blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Key, term_to_binary([])).
 
 -spec slide_window(SourceHotspot :: libp2p_crypto:pubkey_bin(),
