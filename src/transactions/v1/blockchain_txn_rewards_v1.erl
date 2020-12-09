@@ -646,18 +646,8 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                                    end;
                                _ ->
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
-                                       {error, _} ->
-                                           %% Old behavior
-                                           maps:put(Challengee, I+1, Acc0);
-                                       {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(Challengee,
-                                                                         DensityTgtRes,
-                                                                         ChallengeeLoc,
-                                                                         VarMap,
-                                                                         Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
-                                   end
+                                   %% Old behavior
+                                   maps:put(Challengee, I+1, Acc0)
                            end,
                     poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1);
                 p2p ->
@@ -685,18 +675,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                                    end;
                                true ->
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
-                                       {error, _} ->
-                                           %% Old behavior
-                                           maps:put(Challengee, I+1, Acc0);
-                                       {ok, ToAdd} ->
-                                           TxScale = maybe_calc_tx_scale(Challengee,
-                                                                         DensityTgtRes,
-                                                                         ChallengeeLoc,
-                                                                         VarMap,
-                                                                         Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
-                                   end
+                                   maps:put(Challengee, I+1, Acc0)
                            end,
                     poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1)
             end
