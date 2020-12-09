@@ -7,7 +7,8 @@
 -export([
     init/1, init/2,
     init_chain/2, init_chain/3, init_chain/4,
-    init_chain_with_fixed_locations/5,
+    init_chain_with_fixed_locations/4,
+    generate_plain_keys/2,
     generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
     create_block/2, create_block/3, create_block/4,
@@ -107,10 +108,9 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     {ok, GenesisMembers, GenesisBlock, ConsensusMembers, Keys}.
 
-init_chain_with_fixed_locations(Balance, {PrivKey, PubKey}, InConsensus, Locations, ExtraVars) when is_list(Locations), is_map(ExtraVars) ->
-
-    GenesisMembers = init_genesis_members({PrivKey, PubKey}, InConsensus),
-
+init_chain_with_fixed_locations(Balance, GenesisMembers, Locations, ExtraVars) when is_list(Locations),
+                                                                                    is_list(GenesisMembers),
+                                                                                    is_map(ExtraVars) ->
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
@@ -147,7 +147,17 @@ init_chain_with_fixed_locations(Balance, {PrivKey, PubKey}, InConsensus, Locatio
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    {ok, GenesisMembers, GenesisBlock, ConsensusMembers, Keys}.
+    {ok, GenesisBlock, ConsensusMembers, Keys}.
+
+generate_plain_keys(N, Type) ->
+    lists:foldl(
+        fun(_, Acc) ->
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
+            [{libp2p_crypto:pubkey_to_bin(PubKey), PubKey, PrivKey}|Acc]
+        end
+        ,[]
+        ,lists:seq(1, N)
+    ).
 
 generate_keys(N) ->
     generate_keys(N, ecc_compact).

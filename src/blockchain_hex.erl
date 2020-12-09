@@ -367,6 +367,6 @@ get_density_var(Var, Ledger) ->
 get_target_res(Ledger) ->
     case blockchain:config(?density_tgt_res, Ledger) of
         {error, _}=E -> E;
-        {ok, V} -> V
+        {ok, V} -> {ok, V}
     end.
 

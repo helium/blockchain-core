@@ -372,7 +372,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
     ).
 
 export_gps_file(Fname, Scales) ->
-    Header = ["name,latitude,longitude,color,desc"],
+    Header = ["name,latitude,longitude,h3,color,desc"],
 
     Data = lists:foldl(
         fun({Name, H3, ScaleVal}, Acc) ->
@@ -383,6 +383,8 @@ export_gps_file(Fname, Scales) ->
                     io_lib:format("~.20f", [Lat]) ++
                     "," ++
                     io_lib:format("~.20f", [Long]) ++
+                    "," ++
+                    integer_to_list(H3) ++
                     "," ++
                     color(ScaleVal) ++
                     "," ++
