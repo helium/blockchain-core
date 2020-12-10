@@ -1071,9 +1071,100 @@ validate_var(?use_multi_keys, Value) ->
 validate_var(?transfer_hotspot_stale_poc_blocks, Value) ->
     validate_int(Value, "transfer_hotspot_stale_poc_blocks", 1, 50000, false);
 
+%% HIP 17 vars
+validate_var(?hip17_res_0, Value) ->
+    validate_hip17_vars(Value, "hip17_res_0");
+validate_var(?hip17_res_1, Value) ->
+    validate_hip17_vars(Value, "hip17_res_1");
+validate_var(?hip17_res_2, Value) ->
+    validate_hip17_vars(Value, "hip17_res_2");
+validate_var(?hip17_res_3, Value) ->
+    validate_hip17_vars(Value, "hip17_res_3");
+validate_var(?hip17_res_4, Value) ->
+    validate_hip17_vars(Value, "hip17_res_4");
+validate_var(?hip17_res_5, Value) ->
+    validate_hip17_vars(Value, "hip17_res_5");
+validate_var(?hip17_res_6, Value) ->
+    validate_hip17_vars(Value, "hip17_res_6");
+validate_var(?hip17_res_7, Value) ->
+    validate_hip17_vars(Value, "hip17_res_7");
+validate_var(?hip17_res_8, Value) ->
+    validate_hip17_vars(Value, "hip17_res_8");
+validate_var(?hip17_res_9, Value) ->
+    validate_hip17_vars(Value, "hip17_res_9");
+validate_var(?hip17_res_10, Value) ->
+    validate_hip17_vars(Value, "hip17_res_10");
+validate_var(?hip17_res_11, Value) ->
+    validate_hip17_vars(Value, "hip17_res_11");
+validate_var(?hip17_res_12, Value) ->
+    validate_hip17_vars(Value, "hip17_res_12");
+validate_var(?density_tgt_res, Value) ->
+    validate_int(Value, "density_tgt_res", 1, 15, false);
+validate_var(?hip17_interactivity_blocks, Value) ->
+    validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
+
+validate_hip17_vars(Value, Var) when is_binary(Value) ->
+    case get_density_var(Value) of
+        {error, _}=E0 ->
+            lager:error("unable to get density var, reason: ~p", [E0]),
+            throw({error, {invalid_density_var, Var, Value}});
+        {ok, Res} ->
+            case length(Res) == 3 of
+                false ->
+                    throw({error, {invalid_size, Var, Value}});
+                true ->
+                    [Siblings, DensityTgt, DensityMax] = Res,
+                    CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 1000),
+                    CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 200000),
+                    CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 200000),
+
+                    case CheckSiblings of
+                        {error, _}=E1 ->
+                            lager:error("invalid_siblings, reason: ~p", [E1]),
+                            throw({error, {invalid_siblings, Var, Value}});
+                        ok ->
+                            case CheckDensityTgt of
+                                {error, _}=E2 ->
+                                    lager:error("invalid_density_tgt, reason: ~p", [E2]),
+                                    throw({error, {invalid_density_tgt, Var, Value}});
+                                ok ->
+                                    case CheckDensityMax of
+                                        {error, _}=E3 ->
+                                            lager:error("invalid_density_max, reason: ~p", [E3]),
+                                            throw({error, {invalid_density_max, Var, Value}});
+                                        ok ->
+                                            ok
+                                    end
+                            end
+                    end
+            end
+    end;
+validate_hip17_vars(Value, Var) ->
+    throw({error, {invalid_format, Var, Value}}).
+
+validate_int_min_max(Value, Name, Min, Max) ->
+    case Value >= Min andalso Value =< Max of
+        false -> {error, {list_to_atom(Name ++ "_out_of_range"), Value}};
+        _ -> ok
+    end.
+
+get_density_var(Value) ->
+    try
+        Res = [list_to_integer(I) || I <- string:tokens(binary:bin_to_list(Value), ",")],
+        {ok, Res}
+    catch
+        What:Why:Stack ->
+            lager:error("Unable to get_density_var, What: ~p, Why: ~p, Stack: ~p", [
+                What,
+                Why,
+                Stack
+            ]),
+            {error, {unable_to_get_density_var, Value}}
+    end.
 
 -ifdef(TEST).
 invalid_var(Var, Value) ->

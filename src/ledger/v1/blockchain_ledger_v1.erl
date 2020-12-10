@@ -120,6 +120,12 @@
 
     clean_all_hexes/1,
 
+    bootstrap_h3dex/1,
+    get_h3dex/1,
+    lookup_gateways_from_hex/2,
+    add_gw_to_hex/3,
+    remove_gw_from_hex/3,
+
     %% snapshot save/restore stuff
 
     snapshot_vars/1,
@@ -142,6 +148,8 @@
     load_state_channels/2,
     snapshot_hexes/1,
     load_hexes/2,
+    snapshot_h3dex/1,
+    load_h3dex/2,
     snapshot_delayed_vars/1,
     load_delayed_vars/2,
     snapshot_threshold_txns/1,
@@ -207,6 +215,7 @@
     routing :: rocksdb:cf_handle(),
     subnets :: rocksdb:cf_handle(),
     state_channels :: rocksdb:cf_handle(),
+    h3dex :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid(),
     gateway_cache :: undefined | ets:tid()
 }).
@@ -244,15 +253,16 @@
 -type state_channel_map() ::  #{blockchain_state_channel_v1:id() =>
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
-
+-type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedDCEntriesCF,
-     DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF] = CFs,
+     SubnetsCF, SCsCF, H3DexCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
+     DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
+     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -268,7 +278,8 @@ new(Dir) ->
             securities=SecuritiesCF,
             routing=RoutingCF,
             subnets=SubnetsCF,
-            state_channels=SCsCF
+            state_channels=SCsCF,
+            h3dex=H3DexCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -280,7 +291,8 @@ new(Dir) ->
             securities=DelayedSecuritiesCF,
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
-            state_channels=DelayedSCsCF
+            state_channels=DelayedSCsCF,
+            h3dex=DelayedH3DexCF
         }
     }.
 
@@ -2795,6 +2807,10 @@ state_channels_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{state_channels=S
 state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels=SCsCF}}) ->
     SCsCF.
 
+-spec h3dex_cf(ledger()) -> rocksdb:cf_handle().
+h3dex_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF;
+h3dex_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF.
+
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
@@ -2950,9 +2966,12 @@ open_db(Dir) ->
 
     CFOpts = GlobalOpts,
 
-    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing", "subnets", "state_channels",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries", "delayed_htlcs",
-                  "delayed_pocs", "delayed_securities", "delayed_routing", "delayed_subnets","delayed_state_channels"],
+    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
+                  "pocs", "securities", "routing", "subnets", "state_channels", "h3dex",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries",
+                  "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
+                  "delayed_securities", "delayed_routing", "delayed_subnets",
+                  "delayed_state_channels", "delayed_h3dex"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3088,6 +3107,127 @@ clean_all_hexes(Ledger) ->
                      end, Hexes2),
             commit_context(L2);
         _ -> ok
+    end.
+
+-spec bootstrap_h3dex(ledger()) -> ok.
+bootstrap_h3dex(Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    H3Dex = cache_fold(
+              Ledger,
+              AGwsCF,
+              fun({GwAddr, Binary}, Acc) ->
+                      Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
+                      case blockchain_ledger_gateway_v2:location(Gw) of
+                          undefined ->
+                              Acc;
+                          Location ->
+                              maps:update_with(Location, fun(V) -> [GwAddr | V] end, [GwAddr], Acc)
+                      end
+              end,
+              #{}),
+    set_h3dex(H3Dex, Ledger).
+
+-spec set_h3dex(h3dex(), ledger()) -> ok.
+set_h3dex(H3Dex, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    _ = maps:map(fun(Loc, Gateways) ->
+                         BinLoc = h3_to_key(Loc),
+                         BinGWs = term_to_binary(Gateways, [compressed]),
+                         cache_put(Ledger, H3CF, BinLoc, BinGWs)
+                 end, H3Dex),
+    ok.
+
+-spec get_h3dex(ledger()) -> h3dex().
+get_h3dex(Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    Res = cache_fold(Ledger, H3CF,
+                     fun({Key, GWs}, Acc) ->
+                             maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
+                     end, #{}, []),
+    Res.
+
+-spec lookup_gateways_from_hex(Hex :: [non_neg_integer()] | non_neg_integer(),
+                               Ledger :: ledger()) -> Results :: h3dex().
+%% @doc Given a hex find candidate gateways in the span to the next adjacent
+%% hex. N.B. May return an empty map.
+lookup_gateways_from_hex(Hexes, Ledger) when is_list(Hexes) ->
+    lists:foldl(fun(Hex, Acc) ->
+                        maps:merge(Acc, lookup_gateways_from_hex(Hex, Ledger))
+                end, #{}, Hexes);
+lookup_gateways_from_hex(Hex, Ledger) when is_integer(Hex) ->
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({Key, GWs}, Acc) ->
+                       maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
+               end, #{}, [
+                          {start, {seek, find_lower_bound_hex(Hex)}},
+                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
+                         ]
+              ).
+
+-spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
+%% @doc Let's find the nearest set of k neighbors for this hex at the
+%% same resolution and return the "lowest" one. Since these numbers
+%% are actually packed binaries, we will destructure them to sort better
+%% lexically.
+find_lower_bound_hex(Hex) ->
+    %% both reserved fields must be 0 and Mode must be 1 for this to be a h3 cell
+    <<0:1, 1:4/integer-unsigned-big, 0:3, Resolution:4/integer-unsigned-big, BaseCell:7/integer-unsigned-big, Digits/bitstring>> = <<Hex:64/integer-unsigned-big>>,
+    ActualDigitCount = Resolution * 3,
+    %% pull out the actual digits used and dump the rest
+    <<ActualDigits:ActualDigitCount/integer-unsigned-big, _/bitstring>> = Digits,
+    Padding = 45 - ActualDigitCount,
+    %% store the resolution inverted (15 - 15) = 0 so it sorts earlier
+    %% pad the actual digits used with 0s on the end
+    <<BaseCell:7/integer-unsigned-big, ActualDigits:ActualDigitCount/integer-unsigned-big, 0:Padding, 0:4/integer-unsigned-big>>.
+
+h3_to_key(H3) ->
+    %% both reserved fields must be 0 and Mode must be 1 for this to be a h3 cell
+    <<0:1/integer-unsigned-big, 1:4/integer-unsigned-big, 0:3/integer-unsigned-big, Resolution:4/integer-unsigned-big, BaseCell:7/integer-unsigned-big, Digits:45/integer-unsigned-big>> = <<H3:64/integer-unsigned-big>>,
+    %% store the resolution inverted (15 - Resolution) so it sorts later
+    <<BaseCell:7/integer-unsigned-big, Digits:45/integer-unsigned-big, (15 - Resolution):4/integer-unsigned-big>>.
+
+key_to_h3(Key) ->
+    <<BaseCell:7/integer-unsigned-big, Digits:45/integer-unsigned-big, InverseResolution:4/integer-unsigned-big>> = Key,
+    <<H3:64/integer-unsigned-big>> = <<0:1, 1:4/integer-unsigned-big, 0:3, (15 - InverseResolution):4/integer-unsigned-big, BaseCell:7/integer-unsigned-big, Digits:45/integer-unsigned-big>>,
+    H3.
+
+
+-spec add_gw_to_hex(Hex :: non_neg_integer(),
+                    GWAddr :: libp2p_crypto:pubkey_bin(),
+                    Ledger :: ledger()) -> ok | {error, any()}.
+%% @doc During an assert, this function will add a gateway address to a hex
+add_gw_to_hex(Hex, GWAddr, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    BinHex = h3_to_key(Hex),
+    case cache_get(Ledger, H3CF, BinHex, []) of
+        not_found ->
+            cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]));
+        {ok, BinGws} ->
+            GWs = binary_to_term(BinGws),
+            cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr | GWs], [compressed]));
+        Error -> Error
+    end.
+
+-spec remove_gw_from_hex(Hex :: non_neg_integer(),
+                         GWAddr :: libp2p_crypto:pubkey_bin(),
+                         Ledger :: ledger()) -> ok | {error, any()}.
+%% @doc During an assert, if a gateway already had an asserted location
+%% (and has been reasserted), this function will remove a gateway
+%% address from a hex
+remove_gw_from_hex(Hex, GWAddr, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    BinHex = h3_to_key(Hex),
+    case cache_get(Ledger, H3CF, BinHex, []) of
+        not_found -> ok;
+        {ok, BinGws} ->
+            case lists:delete(GWAddr, binary_to_term(BinGws)) of
+                [] ->
+                    cache_delete(Ledger, H3CF, BinHex);
+                NewGWs ->
+                    cache_put(Ledger, H3CF, BinHex, term_to_binary(NewGWs, [compressed]))
+            end;
+        Error -> Error
     end.
 
 batch_from_cache(ETS) ->
@@ -3440,6 +3580,20 @@ load_hexes(Hexes0, Ledger) ->
         error ->
             ok
     end.
+
+snapshot_h3dex(Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, H3CF,
+          fun({Loc, GWs}, Acc) ->
+                  maps:put(<<Loc:64/unsigned-integer-big>>, binary_to_term(GWs), Acc)
+          end, #{},
+          []))).
+
+load_h3dex(H3DexList, Ledger) ->
+    set_h3dex(maps:from_list(H3DexList), Ledger).
 
 -spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
                            blockchain_ledger_state_channel_v2:state_channel_v2(),

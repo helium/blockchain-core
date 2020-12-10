@@ -63,7 +63,7 @@
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1]).
+-export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1, bootstrap_h3dex/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
@@ -94,7 +94,8 @@
 
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
-                          fun upgrade_gateways_oui/1]).
+                          fun upgrade_gateways_oui/1,
+                          fun bootstrap_h3dex/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -261,6 +262,18 @@ upgrade_gateways_oui_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G, A, Ledger)
       end, Gateways),
     ok.
+
+-spec bootstrap_h3dex(blockchain_ledger_v1:ledger()) -> ok.
+%% @doc Bootstrap the H3Dex for both the active and delayed ledgers
+bootstrap_h3dex(Ledger) ->
+   ok = do_bootstrap_h3dex(Ledger),
+   Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+   Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+   ok = do_bootstrap_h3dex(Ledger2),
+   blockchain_ledger_v1:commit_context(Ledger2).
+
+do_bootstrap_h3dex(Ledger) ->
+    blockchain_ledger_v1:bootstrap_h3dex(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

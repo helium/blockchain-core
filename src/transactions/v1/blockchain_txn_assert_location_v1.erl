@@ -396,10 +396,13 @@ absorb(Txn, Chain) ->
                     %% moved within the hex, no need to update
                     ok;
                 _ when OldHex == undefined ->
-                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger);
+                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger),
+                    blockchain_ledger_v1:add_gw_to_hex(Hex, Gateway, Ledger);
                 _ ->
                     blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
-                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger)
+                    blockchain_ledger_v1:remove_gw_from_hex(OldHex, Gateway, Ledger),
+                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger),
+                    blockchain_ledger_v1:add_gw_to_hex(Hex, Gateway, Ledger)
             end,
 
 

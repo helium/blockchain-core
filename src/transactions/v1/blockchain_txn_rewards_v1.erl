@@ -194,6 +194,10 @@ calculate_rewards(Start, End, Chain) ->
                        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
                         POCChallengeesRewards, POCWitnessesRewards, DCRewards]
                       ),
+            %% we are only keeping hex density calculations memoized for a single
+            %% rewards transaction calculation, then we discard that work and avoid
+            %% cache invalidation issues.
+            true = blockchain_hex:destroy_memoization(),
             {ok, Result}
     end.
 
@@ -234,10 +238,13 @@ get_rewards_for_epoch(Start, End, Chain, Vars, Ledger, DCRewards) ->
 get_rewards_for_epoch(Start, End, _Chain, Vars0, _Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) when Start == End+1 ->
     {DCRemainder, NewDCRewards} = normalize_dc_rewards(DCRewards, Vars0),
     Vars = maps:put(dc_remainder, DCRemainder, Vars0),
+
+    NormalizedWitnessRewards = normalize_witness_rewards(WitnessRewards, Vars),
+
     %% apply the DC remainder, if any to the other PoC categories pro rata
     {ok, normalize_challenger_rewards(ChallengerRewards, Vars),
      normalize_challengee_rewards(ChallengeeRewards, Vars),
-     normalize_witness_rewards(WitnessRewards, Vars),
+     NormalizedWitnessRewards,
      NewDCRewards};
 get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) ->
     case blockchain:get_block(Current, Chain) of
@@ -250,11 +257,43 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                 true ->
                     {error, already_existing_rewards};
                 false ->
-                    get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
-                                          poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
-                                          poc_challengees_rewards(Transactions, Vars, Chain, Ledger, ChallengeeRewards),
-                                          poc_witnesses_rewards(Transactions, Vars, Chain, Ledger, WitnessRewards),
-                                          dc_rewards(Transactions, End, Vars, Ledger, DCRewards))
+                    case blockchain_hex:var_map(Ledger) of
+                        {error, _} ->
+                            %% do the old thing
+                            get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
+                                                  poc_challengers_rewards(Transactions, Vars,
+                                                                          ChallengerRewards),
+                                                  poc_challengees_rewards(Transactions, Vars,
+                                                                          Chain, Ledger,
+                                                                          ChallengeeRewards, #{}),
+                                                  poc_witnesses_rewards(Transactions, Vars,
+                                                                        Chain, Ledger,
+                                                                        WitnessRewards, #{}),
+                                                  dc_rewards(Transactions, End, Vars,
+                                                             Ledger, DCRewards));
+                        {ok, VarMap} ->
+                            WR = poc_witnesses_rewards(Transactions, Vars,
+                                                       Chain, Ledger,
+                                                       WitnessRewards, VarMap),
+
+                            C0R = poc_challengers_rewards(Transactions, Vars,
+                                                          ChallengerRewards),
+
+                            DCR = dc_rewards(Transactions, End, Vars,
+                                             Ledger, DCRewards),
+
+                            CR = poc_challengees_rewards(Transactions, Vars,
+                                                         Chain, Ledger,
+                                                         ChallengeeRewards,
+                                                         VarMap),
+
+                            %% do the new thing
+                            get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
+                                                  C0R,
+                                                  CR,
+                                                  WR,
+                                                  DCR)
+                    end
             end
     end.
 
@@ -305,6 +344,11 @@ get_reward_vars(Start, End, Ledger) ->
                     _ -> undefined
                 end,
 
+    DensityTgtRes = case blockchain:config(?density_tgt_res, Ledger) of
+                        {ok, D} -> D;
+                        _ -> undefined
+                    end,
+
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -322,7 +366,8 @@ get_reward_vars(Start, End, Ledger) ->
         poc_version => POCVersion,
         reward_version => RewardVersion,
         witness_redundancy => WitnessRedundancy,
-        poc_reward_decay_rate => DecayRate
+        poc_reward_decay_rate => DecayRate,
+        density_tgt_res => DensityTgtRes
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -456,12 +501,15 @@ normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
                               Vars :: map(),
                               Chain :: blockchain:blockchain(),
                               Ledger :: blockchain_ledger_v1:ledger(),
-                              map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
+                              ExistingRewards :: map(),
+                              VarMap :: blockchain_hex:var_map()) ->
+    #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_challengees_rewards(Transactions,
                         Vars,
                         Chain,
                         Ledger,
-                        ExistingRewards) ->
+                        ExistingRewards,
+                        VarMap) ->
     lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -469,7 +517,7 @@ poc_challengees_rewards(Transactions,
                     Acc0;
                 true ->
                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
-                    poc_challengees_rewards_(Vars, Path, Path, Txn, Chain, Ledger, true, Acc0)
+                    poc_challengees_rewards_(Vars, Path, Path, Txn, Chain, Ledger, true, VarMap, Acc0)
             end
         end,
         ExistingRewards,
@@ -481,7 +529,6 @@ normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
     TotalChallenged = lists:sum(maps:values(ChallengeeRewards)),
     ShareOfDCRemainder = share_of_dc_rewards(poc_challengees_percent, Vars),
     ChallengeesReward = (EpochReward * PocChallengeesPercent) + ShareOfDCRemainder,
-    lager:info("TotalChallenged: ~p", [TotalChallenged]),
     maps:fold(
         fun(Challengee, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
@@ -493,7 +540,7 @@ normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
         ChallengeeRewards
     ).
 
-poc_challengees_rewards_(_Vars, [], _StaticPath, _Txn, _Chain, _Ledger, _, Acc) ->
+poc_challengees_rewards_(_Vars, [], _StaticPath, _Txn, _Chain, _Ledger, _, _, Acc) ->
     Acc;
 poc_challengees_rewards_(#{poc_version := Version}=Vars,
                          [Elem|Path],
@@ -502,12 +549,20 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                          Chain,
                          Ledger,
                          IsFirst,
+                         VarMap,
                          Acc0) when Version >= 2 ->
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
+    DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
     %% check if there were any legitimate witnesses
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+    ChallengeeLoc = case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
+                        {ok, ChallengeeGw} ->
+                            blockchain_ledger_gateway_v2:location(ChallengeeGw);
+                        _ ->
+                            undefined
+                    end,
     I = maps:get(Challengee, Acc0, 0),
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
@@ -524,7 +579,12 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% Old behavior
                                    maps:put(Challengee, I+1, Acc0);
                                {ok, ToAdd} ->
-                                   maps:put(Challengee, I+ToAdd, Acc0)
+                                   TxScale = maybe_calc_tx_scale(Challengee,
+                                                                 DensityTgtRes,
+                                                                 ChallengeeLoc,
+                                                                 VarMap,
+                                                                 Ledger),
+                                   maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                            end;
                        true when is_integer(Version), Version > 4, IsFirst == false ->
                            %% while we don't have a receipt for this node, we do know
@@ -537,12 +597,17 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% Old behavior
                                    maps:put(Challengee, I+2, Acc0);
                                {ok, ToAdd} ->
-                                   maps:put(Challengee, I+ToAdd, Acc0)
+                                   TxScale = maybe_calc_tx_scale(Challengee,
+                                                                 DensityTgtRes,
+                                                                 ChallengeeLoc,
+                                                                 VarMap,
+                                                                 Ledger),
+                                   maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                            end;
                        _ ->
                            Acc0
                    end,
-            poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, Acc1);
+            poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1);
         Receipt ->
             case blockchain_poc_receipt_v1:origin(Receipt) of
                 radio ->
@@ -559,7 +624,12 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+3, Acc0);
                                        {ok, ToAdd} ->
-                                           maps:put(Challengee, I+ToAdd, Acc0)
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
+                                                                         ChallengeeLoc,
+                                                                         VarMap,
+                                                                         Ledger),
+                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                                    end;
                                false when is_integer(Version), Version > 4 ->
                                    %% this challengee rx'd and sent a receipt
@@ -568,18 +638,18 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
                                        {ok, ToAdd} ->
-                                           maps:put(Challengee, I+ToAdd, Acc0)
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
+                                                                         ChallengeeLoc,
+                                                                         VarMap,
+                                                                         Ledger),
+                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                                    end;
                                _ ->
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
-                                       {error, _} ->
-                                           %% Old behavior
-                                           maps:put(Challengee, I+1, Acc0);
-                                       {ok, ToAdd} ->
-                                           maps:put(Challengee, I+ToAdd, Acc0)
-                                   end
+                                   %% Old behavior
+                                   maps:put(Challengee, I+1, Acc0)
                            end,
-                    poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, Acc1);
+                    poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1);
                 p2p ->
                     %% if there are legitimate witnesses or the path continues
                     %% the challengee did their job
@@ -597,29 +667,28 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
                                        {ok, ToAdd} ->
-                                           maps:put(Challengee, I+ToAdd, Acc0)
+                                           TxScale = maybe_calc_tx_scale(Challengee,
+                                                                         DensityTgtRes,
+                                                                         ChallengeeLoc,
+                                                                         VarMap,
+                                                                         Ledger),
+                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
                                    end;
                                true ->
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
-                                       {error, _} ->
-                                           %% Old behavior
-                                           maps:put(Challengee, I+1, Acc0);
-                                       {ok, ToAdd} ->
-                                           maps:put(Challengee, I+ToAdd, Acc0)
-                                   end
+                                   maps:put(Challengee, I+1, Acc0)
                            end,
-                    poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, Acc1)
+                    poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1)
             end
     end;
-poc_challengees_rewards_(Vars, [Elem|Path], StaticPath, Txn, Chain, Ledger, _IsFirst, Acc0) ->
+poc_challengees_rewards_(Vars, [Elem|Path], StaticPath, Txn, Chain, Ledger, _IsFirst, VarMap, Acc0) ->
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
-            poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, Acc0);
+            poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc0);
         _Receipt ->
             Challengee = blockchain_poc_path_element_v1:challengee(Elem),
             I = maps:get(Challengee, Acc0, 0),
             Acc1 =  maps:put(Challengee, I+1, Acc0),
-            poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, Acc1)
+            poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1)
     end.
 
 -spec poc_challengee_reward_unit(WitnessRedundancy :: undefined | pos_integer(),
@@ -632,22 +701,29 @@ poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) ->
         {N, R} ->
             W = length(Witnesses),
             Unit = poc_reward_tx_unit(R, W, N),
-            lager:info("poc_challengee_reward_unit: ~p", [Unit]),
-            {ok, Unit}
+            {ok, normalize_reward_unit(Unit)}
     end.
+
+-spec normalize_reward_unit(Unit :: float()) -> float().
+normalize_reward_unit(Unit) when Unit > 1.0 -> 1.0;
+normalize_reward_unit(Unit) -> Unit.
 
 -spec poc_witnesses_rewards(Transactions :: blockchain_txn:txns(),
                             Vars :: map(),
                             Chain :: blockchain:blockchain(),
                             Ledger :: blockchain_ledger_v1:ledger(),
-                            WitnessRewards :: map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
+                            WitnessRewards :: map(),
+                            VarMap :: blockchain_hex:var_map()) ->
+    #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_witnesses_rewards(Transactions,
                       #{poc_version := POCVersion}=Vars,
                       Chain,
                       Ledger,
-                      WitnessRewards) ->
+                      WitnessRewards,
+                      VarMap) ->
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
+    DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
     lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -662,7 +738,7 @@ poc_witnesses_rewards(Transactions,
                                 Path = blockchain_txn_poc_receipts_v1:path(Txn),
 
                                 %% Do the new thing for witness filtering
-                                lists:foldl(
+                                Res = lists:foldl(
                                   fun(Elem, Acc1) ->
                                           ElemPos = blockchain_utils:index_of(Elem, Path),
                                           WitnessChannel = lists:nth(ElemPos, Channels),
@@ -680,25 +756,50 @@ poc_witnesses_rewards(Transactions,
                                                               {_, undefined} -> 1;
                                                               {N, R} ->
                                                                   W = length(ValidWitnesses),
-                                                                  U = poc_reward_rx_unit(R, W, N),
-                                                                  lager:info("poc_reward_rx_unit: ~p", [U]),
+                                                                  U = poc_witness_reward_unit(R, W, N),
                                                                   U
                                                           end,
 
-                                                  lists:foldl(
-                                                    fun(WitnessRecord, Map) ->
-                                                            Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                            I = maps:get(Witness, Map, 0),
-                                                            maps:put(Witness, I+ToAdd, Map)
-                                                    end,
-                                                    Acc1,
-                                                    ValidWitnesses
-                                                   )
+                                                  case DensityTgtRes of
+                                                      undefined ->
+                                                          %% old (HIP15)
+                                                          lists:foldl(
+                                                            fun(WitnessRecord, Acc2) ->
+                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                    I = maps:get(Witness, Acc2, 0),
+                                                                    maps:put(Witness, I+ToAdd, Acc2)
+                                                            end,
+                                                            Acc1,
+                                                            ValidWitnesses
+                                                           );
+                                                      D ->
+                                                          %% new (HIP17)
+                                                          lists:foldl(
+                                                            fun(WitnessRecord, Acc2) ->
+                                                                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+                                                                    %% This must always be {ok, ...}
+                                                                    {ok, ChallengeeGw} = blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
+                                                                    %% Challengee must have a location
+                                                                    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                    %% The witnesses get scaled by the value of their transmitters
+                                                                    RxScale = blockchain_hex:scale(ChallengeeLoc,
+                                                                                                   VarMap,
+                                                                                                   D,
+                                                                                                   Ledger),
+                                                                    I = maps:get(Witness, Acc2, 0),
+                                                                    maps:put(Witness, I+(ToAdd*RxScale), Acc2)
+                                                            end,
+                                                            Acc1,
+                                                            ValidWitnesses
+                                                           )
+                                                  end
                                           end
                                   end,
                                   Acc0,
                                   Path
-                                 )
+                                 ),
+                                Res
                             catch What:Why:ST ->
                                   lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p:~p", [What, Why, ST]),
                                   Acc0
@@ -910,21 +1011,19 @@ normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
 -spec poc_reward_tx_unit(R :: float(),
                          W :: pos_integer(),
                          N :: pos_integer()) -> float().
-poc_reward_tx_unit(R, W, N) when W =< N ->
-    lager:info("nonorm, R: ~p, W: ~p, N: ~p, poc_reward_tx_unit: ~p", [R, W, N, W / N]),
+poc_reward_tx_unit(_R, W, N) when W =< N ->
     blockchain_utils:normalize_float(W / N);
 poc_reward_tx_unit(R, W, N) ->
     NoNorm = 1 + (1 - math:pow(R, (W - N))),
-    lager:info("nonorm, R: ~p, W: ~p, N: ~p, poc_reward_tx_unit: ~p", [R, W, N, NoNorm]),
     blockchain_utils:normalize_float(NoNorm).
 
--spec poc_reward_rx_unit(R :: float(),
-                         W :: pos_integer(),
-                         N :: pos_integer()) -> float().
-poc_reward_rx_unit(_R, W, N) when W =< N ->
-    1;
-poc_reward_rx_unit(R, W, N) ->
-    blockchain_utils:normalize_float((N - (1 - math:pow(R, (W - N))))/W).
+-spec poc_witness_reward_unit(R :: float(),
+                              W :: pos_integer(),
+                              N :: pos_integer()) -> float().
+poc_witness_reward_unit(_R, W, N) when W =< N ->
+    1.0;
+poc_witness_reward_unit(R, W, N) ->
+    normalize_reward_unit(blockchain_utils:normalize_float((N - (1 - math:pow(R, (W - N))))/W)).
 
 legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
     case Version of
@@ -935,8 +1034,8 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
                 ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
-                lager:debug("ValidWitnesses: ~p",
-                            [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
+                %% lager:info("ValidWitnesses: ~p",
+                           %% [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
                 ValidWitnesses
             catch What:Why:ST ->
                       lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
@@ -946,6 +1045,21 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
             blockchain_txn_poc_receipts_v1:good_quality_witnesses(Elem, Ledger);
         _ ->
             blockchain_poc_path_element_v1:witnesses(Elem)
+    end.
+
+maybe_calc_tx_scale(_Challengee,
+                    DensityTgtRes,
+                    ChallengeeLoc,
+                    VarMap,
+                    Ledger) ->
+    case {DensityTgtRes, ChallengeeLoc} of
+        {undefined, _} -> 1.0;
+        {_, undefined} -> 1.0;
+        {D, Loc} ->
+            TxScale = blockchain_hex:scale(Loc, VarMap, D, Ledger),
+            %% lager:info("Challengee: ~p, TxScale: ~p",
+                       %% [blockchain_utils:addr2name(Challengee), TxScale]),
+            TxScale
     end.
 
 %%--------------------------------------------------------------------
@@ -968,6 +1082,7 @@ share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
     0;
 share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
     erlang:round(DCRemainder * ((maps:get(Key, Vars) / (maps:get(poc_challengers_percent, Vars) + maps:get(poc_challengees_percent, Vars) + maps:get(poc_witnesses_percent, Vars))))).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1140,7 +1255,8 @@ poc_challengees_rewards_1_test() ->
         {gateway, poc_challengees, <<"a">>} => 117,
         {gateway, poc_challengees, <<"b">>} => 233
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(
+                            poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengees_rewards_2_test() ->
@@ -1199,7 +1315,8 @@ poc_challengees_rewards_2_test() ->
         {gateway, poc_challengees, <<"a">>} => 117,
         {gateway, poc_challengees, <<"b">>} => 233
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(
+                            poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, {}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengees_rewards_3_test() ->
@@ -1267,7 +1384,8 @@ poc_challengees_rewards_3_test() ->
         %% c gets 2 shares
         {gateway, poc_challengees, <<"c">>} => 44
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(
+                            poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, {}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_witnesses_rewards_test() ->
@@ -1323,7 +1441,8 @@ poc_witnesses_rewards_test() ->
     Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
                 {gateway,poc_witnesses,<<"b">>} => 25},
 
-    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}), EpochVars)),
+    ?assertEqual(Rewards, normalize_witness_rewards(
+                            poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengers_rewards_test() ->
@@ -1379,7 +1498,8 @@ old_poc_challengees_rewards_version_1_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(
+                            poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengees_rewards_version_2_test() ->
@@ -1425,7 +1545,8 @@ old_poc_challengees_rewards_version_2_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(
+                            poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_witnesses_rewards_test() ->
@@ -1459,7 +1580,8 @@ old_poc_witnesses_rewards_test() ->
         {gateway, poc_witnesses, <<"1">>} => 25,
         {gateway, poc_witnesses, <<"2">>} => 25
     },
-    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}), EpochVars)),
+    ?assertEqual(Rewards, normalize_witness_rewards(
+                            poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 dc_rewards_test() ->
@@ -1656,8 +1778,10 @@ dc_rewards_v3_spillover_test() ->
 
     %% compute the original rewards with no spillover
     ChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), Vars),
-    ChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}), Vars),
-    WitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}), Vars),
+    ChallengeeRewards = normalize_challengee_rewards(
+                          poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}), Vars),
+    WitnessRewards = normalize_witness_rewards(
+                       poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}), Vars),
 
     ChallengersAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengers_percent, Vars)),
     ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward}, ChallengerRewards), %% entire 15% allocation
@@ -1673,8 +1797,10 @@ dc_rewards_v3_spillover_test() ->
 
     %% apply the DC remainder, if any to the other PoC categories pro rata
     SpilloverChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), NewVars),
-    SpilloverChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}), NewVars),
-    SpilloverWitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}), NewVars),
+    SpilloverChallengeeRewards = normalize_challengee_rewards(
+                                   poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}), NewVars),
+    SpilloverWitnessRewards = normalize_witness_rewards(
+                                poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}), NewVars),
 
     ChallengerSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengers_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
                                                                                                        maps:get(poc_witnesses_percent, Vars) +
