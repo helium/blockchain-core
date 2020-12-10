@@ -777,24 +777,18 @@ poc_witnesses_rewards(Transactions,
                                                           lists:foldl(
                                                             fun(WitnessRecord, Acc2) ->
                                                                     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-                                                                    case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
-                                                                        {ok, ChallengeeGw} ->
-                                                                            case blockchain_ledger_gateway_v2:location(ChallengeeGw) of
-                                                                                undefined ->
-                                                                                    Acc2;
-                                                                                ChallengeeLoc ->
-                                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                                                    %% The witnesses get scaled by the value of their transmitters
-                                                                                    RxScale = blockchain_hex:scale(ChallengeeLoc,
-                                                                                                                   VarMap,
-                                                                                                                   D,
-                                                                                                                   Ledger),
-                                                                                    I = maps:get(Witness, Acc2, 0),
-                                                                                    maps:put(Witness, I+(ToAdd*RxScale), Acc2)
-                                                                            end;
-                                                                        _ ->
-                                                                            Acc2
-                                                                    end
+                                                                    %% This must always be {ok, ...}
+                                                                    {ok, ChallengeeGw} = blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
+                                                                    %% Challengee must have a location
+                                                                    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+                                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                    %% The witnesses get scaled by the value of their transmitters
+                                                                    RxScale = blockchain_hex:scale(ChallengeeLoc,
+                                                                                                   VarMap,
+                                                                                                   D,
+                                                                                                   Ledger),
+                                                                    I = maps:get(Witness, Acc2, 0),
+                                                                    maps:put(Witness, I+(ToAdd*RxScale), Acc2)
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
