@@ -89,7 +89,7 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 all() ->
-    [].
+    [reward_perf_test].
 
 reward_perf_test(Config) ->
     Chain = ?config(chain, Config),
@@ -124,7 +124,7 @@ reward_perf_test(Config) ->
           end),
     ct:pal("hip 17 calc took: ~p ms", [Time3 div 1000]),
 
-    error(print),
+    %% error(print),
     ok.
 
 

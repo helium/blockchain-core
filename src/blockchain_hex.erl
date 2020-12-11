@@ -15,7 +15,7 @@
 -define(DENSITY_MEMO_TBL, '__blockchain_hex_density_memoization_tbl').
 -define(ETS_OPTS, [named_table, public]).
 
--type density_map() :: #{h3:h3_index() => pos_integer()}.
+-type density_map() :: #{h3:h3_index() => non_neg_integer()}.
 -type densities() :: {UnclippedDensities :: density_map(), ClippedDensities :: density_map()}.
 -type var_map() :: #{0..12 => map()}.
 -type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(), ...]}.
