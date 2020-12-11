@@ -1023,7 +1023,7 @@ clusters(Ledger) ->
                                     {Footprint, ExtendedWitnesses} = footprint(Height, GW, #{Addr => GW}, #{}, maps:keys(Witnesses), Ledger, AG),
                                     case ExtendedWitnesses of
                                         [Addr] ->
-                                            Acc;
+                                            [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
                                         _ ->
                                             case lists:filter(fun({Filter, _, Wss}) ->
                                                                       Matched = lists:any(fun(A) ->
@@ -1034,14 +1034,13 @@ clusters(Ledger) ->
                                                               end, Acc) of
                                                 [] ->
                                                     %io:format("found new cluster with size ~p in ~p~n", [length(ExtendedWitnesses), Time]),
-                                                    [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), Footprint, ExtendedWitnesses}|Acc];
-                                                Matches ->
-                                                    {CombinedFootprint, CombinedWitnesses} = lists:foldl(fun({_, Fp, Wi}, {FpAcc, WiAcc}) ->
-                                                                                                                 {lists:usort(Fp ++ FpAcc),
-                                                                                                                  lists:usort(Wi ++ WiAcc)}
-                                                                                                         end, {Footprint, ExtendedWitnesses},
-                                                                                                         Matches),
-                                                    NewAcc = [{xor16:new(CombinedWitnesses, fun xxhash:hash64/1), CombinedFootprint, CombinedWitnesses}|Acc] -- Matches,
+                                                    [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
+                                                [FirstMatch|Matches] ->
+                                                    NewGraph = lists:foldl(fun({_, GM}, Acc2) ->
+                                                                                   merge_graph(GM, Acc2)
+                                                                           end, extend_graph(Footprint, element(2, FirstMatch)),
+                                                                           Matches),
+                                                    NewAcc = [{xor16:new(element(1, lists:unzip(maps:keys(element(2, NewGraph)))), fun xxhash:hash64/1), NewGraph}|Acc] -- Matches,
                                                     %io:format("merged ~p with ~p existing cluster ~w in ~p ~p -> ~p ~p~n", [length(ExtendedWitnesses), length(Matches), [ length(X) || {_, _, X} <- Matches], Time, length(Acc), length(NewAcc), length(CombinedWitnesses)]),
                                                     NewAcc
                                             end
@@ -1055,6 +1054,48 @@ clusters(Ledger) ->
                     []
                    )
                  ).
+
+make_graph(Edges) ->
+    extend_graph(Edges, {graph:new(), #{}}).
+
+extend_graph(Edges, GM) ->
+    maps:fold(fun({From, To}, Hexes, {G, M}) ->
+                      add_edge(From, To, Hexes, G, M)
+              end, GM, Edges).
+
+add_edge(A, B, Data, Graph, Map) ->
+    N1 = case maps:get(A, Map, undefined) of
+             undefined ->
+                 graph:add_node(Graph, A);
+             X ->
+                 X
+         end,
+    N2 = case maps:get(B, Map, undefined) of
+             undefined ->
+                 graph:add_node(Graph, B);
+             Y ->
+                 Y
+         end,
+    case graph:find_edge(Graph, A, B) of
+        nil ->
+            graph:add_edge(Graph, N1, N2, Data),
+            {Graph, maps:put(A, N1, maps:put(B, N2, Map))};
+        _ ->
+            {Graph, Map}
+    end.
+
+merge_graph(G1, G2) ->
+    {Smaller, Bigger} = case graph:node_count(element(1, G1)) =< graph:node_count(element(1, G2)) of
+                            true ->
+                                {G1, G2};
+                            false ->
+                                {G2, G1}
+                        end,
+    Edges = graph:fold_edges(fun({N1, N2, E}, Acc) ->
+                                     maps:put({graph:get_node(Smaller, N1), graph:get_node(Smaller, N2)}, graph:get_edge(Smaller, E), Acc)
+                             end, #{}, Smaller, 0),
+    extend_graph(Edges, Bigger).
+
 
 cluster_connectivity(Clusters) ->
     %% find the biggest overlapping cluster with this cluster, if any and figure out which is bigger
@@ -1073,11 +1114,12 @@ cluster_connectivity(Clusters) ->
                       end
               end, Clusters).
 
-build_clusters(Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    Clusters = cluster_connectivity(clusters(Ledger)),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    cache_put(Ledger, DefaultCF, <<"cluster_map">>, term_to_binary({Height, Clusters})).
+build_clusters(_Ledger) ->
+    ok.
+    %DefaultCF = default_cf(Ledger),
+    %Clusters = cluster_connectivity(clusters(Ledger)),
+    %{ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    %cache_put(Ledger, DefaultCF, <<"cluster_map">>, term_to_binary({Height, Clusters})).
 
 gateway_connectivity_score(Address, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -1161,7 +1203,7 @@ simplify_footprint(Footprint, Resolution) ->
 
 footprint(_Height, _GW, Witnesses, H3Lines, [], _Ledger, _AG) ->
     %io:format("finding footprint over ~p gateways~n", [maps:size(Witnesses)]),
-    {maps:keys(H3Lines), maps:keys(Witnesses)};
+    {H3Lines, maps:keys(Witnesses)};
 footprint(Height, Gw, Seen, H3Lines0, [H|T], Ledger, AG) ->
     {ok, W1} = blockchain_gateway_cache:get_at(H, Ledger, Height),
     case is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(W1)) %andalso blockchain_ledger_gateway_v2:last_poc_challenge(W1) > Height - 10000
@@ -1177,12 +1219,9 @@ footprint(Height, Gw, Seen, H3Lines0, [H|T], Ledger, AG) ->
                                           of
                                               false -> Acc;
                                               true ->
-                                                  lists:foldl(fun(K, Acc2) ->
-                                                                      maps:put(K, 1, Acc2)
-                                                              end,
-                                                              Acc,
+                                                    maps:put({H, WA}, 
                                                               h3:line(h3:parent(blockchain_ledger_gateway_v2:location(W1), 9),
-                                                                      h3:parent(blockchain_ledger_gateway_v2:location(W), 9)))
+                                                                      h3:parent(blockchain_ledger_gateway_v2:location(W), 9)), Acc)
                                           end
                                   end, H3Lines0, New),
             %io:format("got ~p witnesses ~p remain~n", [maps:size(Seen) + 1, length(T++New)]),
