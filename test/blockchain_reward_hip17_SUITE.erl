@@ -906,7 +906,8 @@ hip17_vars() ->
         ?hip17_res_10 => <<"2,1,1">>,
         ?hip17_res_11 => <<"2,100000,100000">>,
         ?hip17_res_12 => <<"2,100000,100000">>,
-        ?density_tgt_res => 8
+        ?density_tgt_res => 8,
+        ?hip17_interactivity_blocks => 1200 * 3
     }.
 
 known_locations() ->

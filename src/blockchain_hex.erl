@@ -163,7 +163,10 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
 
     lists:foldl(fun(Res, Acc) ->
                         Parent = h3:parent(Location, Res),
-                        Acc * (maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities))
+                        case maps:get(Parent, UnclippedDensities) of
+                            0 -> Acc;
+                            Unclipped -> Acc * (maps:get(Parent, ClippedDensities) / Unclipped)
+                        end
                 end, 1.0, lists:seq(R, TargetRes, -1)).
 
 
