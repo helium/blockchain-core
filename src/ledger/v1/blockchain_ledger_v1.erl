@@ -1076,7 +1076,7 @@ add_edge(A, B, Data, Graph, Map) ->
              Y ->
                  Y
          end,
-    case graph:find_edge(Graph, A, B) of
+    case graph:find_edge(Graph, N1, N2) of
         nil ->
             graph:add_edge(Graph, N1, N2, Data),
             {Graph, maps:put(A, N1, maps:put(B, N2, Map))};
