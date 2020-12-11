@@ -3582,15 +3582,9 @@ load_hexes(Hexes0, Ledger) ->
     end.
 
 snapshot_h3dex(Ledger) ->
-    H3CF = h3dex_cf(Ledger),
     lists:sort(
       maps:to_list(
-        cache_fold(
-          Ledger, H3CF,
-          fun({Loc, GWs}, Acc) ->
-                  maps:put(<<Loc:64/unsigned-integer-big>>, binary_to_term(GWs), Acc)
-          end, #{},
-          []))).
+        get_h3dex(Ledger))).
 
 load_h3dex(H3DexList, Ledger) ->
     set_h3dex(maps:from_list(H3DexList), Ledger).

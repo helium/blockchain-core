@@ -314,6 +314,7 @@ import(Chain, SHA,
          oui_counter := OUICounter,
 
          hexes := Hexes,
+         h3dex := H3dex,
 
          state_channels := StateChannels,
 
@@ -369,6 +370,7 @@ import(Chain, SHA,
                  ok = blockchain_ledger_v1:set_oui_counter(OUICounter, Ledger),
 
                  ok = blockchain_ledger_v1:load_hexes(Hexes, Ledger),
+                 ok = blockchain_ledger_v1:load_h3dex(H3dex, Ledger),
 
                  ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
 
@@ -1216,6 +1218,8 @@ diff(A, B) ->
                                   {ADiffs, BDiffs} ->
                                       [{Field, [Height || {Height, _Hash} <- ADiffs], [Height || {Height, _Hash} <- BDiffs]} | Acc]
                               end;
+                          h3dex ->
+                              [{Field, length(AI), length(BI)} | Acc];
                           _ ->
                               [Field | Acc]
                       end
