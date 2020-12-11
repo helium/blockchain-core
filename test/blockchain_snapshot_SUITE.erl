@@ -47,6 +47,14 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic_test(_Config) ->
     Ledger = ledger(),
+    case blockchain_ledger_v1:get_h3dex(Ledger) of
+        #{} ->
+            LedgerBoot = blockchain_ledger_v1:new_context(Ledger),
+            blockchain:bootstrap_h3dex(LedgerBoot),
+            blockchain_ledger_v1:commit_context(LedgerBoot);
+        _ -> ok
+    end,
+
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, []),
 
     %% make a dir for the loaded snapshot
