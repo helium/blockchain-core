@@ -1014,9 +1014,9 @@ clusters(Ledger) ->
                                     Acc;
                                 true ->
                             Witnesses = blockchain_ledger_gateway_v2:witnesses(GW),
-                            case lists:filter(fun({Filter, _, Wss}) ->
+                            case lists:filter(fun({Filter, {_G, M}}) ->
                                                       lists:any(fun(A) ->
-                                                                        xor16:contain(Filter, A) andalso lists:member(A, Wss)
+                                                                        xor16:contain(Filter, A) andalso maps:is_key(A, M)
                                                                 end, [Addr|maps:keys(Witnesses)])
                                               end, Acc) of
                                 [] ->
@@ -1025,9 +1025,9 @@ clusters(Ledger) ->
                                         [Addr] ->
                                             [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
                                         _ ->
-                                            case lists:filter(fun({Filter, _, Wss}) ->
+                                            case lists:filter(fun({Filter, {_G, M}}) ->
                                                                       Matched = lists:any(fun(A) ->
-                                                                                                  xor16:contain(Filter, A) andalso lists:member(A, Wss) %andalso min(length(ExtendedWitnesses), length(Wss)) / max(length(ExtendedWitnesses), length(Wss)) > 0.01
+                                                                                                  xor16:contain(Filter, A) andalso maps:is_key(A, M) %andalso min(length(ExtendedWitnesses), length(Wss)) / max(length(ExtendedWitnesses), length(Wss)) > 0.01
                                                                                           end, ExtendedWitnesses),
                                                                       %io:format("checking ~p against ~p -> ~p~n", [length(ExtendedWitnesses), length(Wss), Matched]),
                                                                       Matched
@@ -1040,7 +1040,7 @@ clusters(Ledger) ->
                                                                                    merge_graph(GM, Acc2)
                                                                            end, extend_graph(Footprint, element(2, FirstMatch)),
                                                                            Matches),
-                                                    NewAcc = [{xor16:new(element(1, lists:unzip(maps:keys(element(2, NewGraph)))), fun xxhash:hash64/1), NewGraph}|Acc] -- Matches,
+                                                    NewAcc = [{xor16:new(maps:keys(element(2, NewGraph)), fun xxhash:hash64/1), NewGraph}|Acc] -- Matches,
                                                     %io:format("merged ~p with ~p existing cluster ~w in ~p ~p -> ~p ~p~n", [length(ExtendedWitnesses), length(Matches), [ length(X) || {_, _, X} <- Matches], Time, length(Acc), length(NewAcc), length(CombinedWitnesses)]),
                                                     NewAcc
                                             end
@@ -1085,7 +1085,7 @@ add_edge(A, B, Data, Graph, Map) ->
     end.
 
 merge_graph(G1, G2) ->
-    {Smaller, Bigger} = case graph:node_count(element(1, G1)) =< graph:node_count(element(1, G2)) of
+    {{Smaller, _}, Bigger} = case graph:node_count(element(1, G1)) =< graph:node_count(element(1, G2)) of
                             true ->
                                 {G1, G2};
                             false ->
