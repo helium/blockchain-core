@@ -651,8 +651,8 @@ window_score(Window) ->
         [] ->
             {{{0,0}, 0.0}, undefined};
         [Head | _Tail] ->
-            {{{_,_},_}, C} = Head,
-            C
+            {_Height, _Hash, Data} = Head,
+            Data
     end.
 
 -spec hotspot_window(Ledger :: blockchain_ledger_v1:ledger(),
