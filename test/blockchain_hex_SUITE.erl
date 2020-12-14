@@ -347,6 +347,8 @@ gateways_with_locs(Ledger) ->
     ).
 
 export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
     %% Calculate scale at each density target res for eventual comparison
     lists:foreach(
         fun(TargetRes) ->
@@ -355,7 +357,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
                 fun({GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
-                        VarMap,
+                        VarMap#{density_tgt_res => TargetRes},
                         TargetRes,
                         Ledger
                     ),
@@ -366,13 +368,14 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
             ),
 
             Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
-            ok = export_gps_file(Fname, Scales)
+            ok = export_gps_file(Fname, Scales, Height),
+            blockchain_hex:destroy_memoization()
         end,
         DensityTargetResolutions
     ).
 
-export_gps_file(Fname, Scales) ->
-    Header = ["name,latitude,longitude,h3,color,desc"],
+export_gps_file(Fname, Scales, Height) ->
+    Header = ["name,latitude,longitude,h3,color,height,desc"],
 
     Data = lists:foldl(
         fun({Name, H3, ScaleVal}, Acc) ->
@@ -387,6 +390,8 @@ export_gps_file(Fname, Scales) ->
                     integer_to_list(H3) ++
                     "," ++
                     color(ScaleVal) ++
+                    "," ++
+                    integer_to_list(Height) ++
                     "," ++
                     io_lib:format("scale: ~p", [ScaleVal]),
             [ToAppend | Acc]
