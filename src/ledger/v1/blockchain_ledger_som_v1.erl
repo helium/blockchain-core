@@ -13,35 +13,35 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 1000).
--define(MAX_WINDOW_LENGTH, 4000).
+-define(WINDOW_PERIOD, 2500).
+-define(MAX_WINDOW_LENGTH, 10000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
--define(SCORE_THRESHOLD, positive).
--define(STALE_THRESHOLD, 8000).
+-define(SCORE_THRESHOLD, <<"positive">>).
+-define(STALE_THRESHOLD, 20000).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
--type tagged_score() :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), classification()}.
+-type tagged_score() :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), bmu_data()}.
 %% BMU calculation return type
 %-type bmu_results() :: {{non_neg_integer(), float()},
 %                        {non_neg_integer(), float()},
 %                        {non_neg_integer(), float()},
 %                        {non_neg_integer(), float()}}.
 %% A type holding BMU data from one sample
--type bmu_data() :: {{{integer(), integer()}, float()}, atom()}.
+-type bmu_data() :: {{{integer(), integer()}, float()}, binary()}.
 %% List of BMU data
 -type bmu_list() :: [bmu_data()].
 %% list of trustees
 -type trustees() :: [libp2p_crypto:pubkey_bin()].
 %% Each window element is a block_height, poc_hash, score_update
--type window_element() :: {pos_integer(), blockchain_txn:hash(), classification()}.
+-type window_element() :: {pos_integer(), blockchain_txn:hash(), bmu_data()}.
 %% List of window_elements
 -type window() :: [window_element()].
 %% List of windows, tagged via hotspot pubkey_bin
 -type windows() :: [{binary(), window()}].
 %% A class associated with hotspot trust
--type classification() :: {atom(), bmu_data()}.
+%%-type classification() :: {atom(), bmu_data()}.
 -type window_calculation() :: {float(), float(), float(), float(),
                                float(), float(), float(), float(),
                                float(), float(), float(), float(),
@@ -622,10 +622,10 @@ update_windows(Ledger,
     ok = lists:foreach(fun({SourceHotspot, DestHostpot, ScoreUpdate}) ->
                                case hotspot_window(Ledger, SourceHotspot, DestHostpot) of
                                    [_ | _]=Window when length(Window) > ?WINDOW_CAP ->
-                                       lager:info("Sliding window for ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
+                                       lager:info("SLIDING WINDOW FOR ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
                                        slide_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [_ | _]=Window ->
-                                        lager:info("Adding to  window for ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
+                                        lager:info("ADDING TO WINDOW FOR ~p => ~p", [?TO_ANIMAL_NAME(<<SourceHotspot/binary>>), ?TO_ANIMAL_NAME(<<DestHostpot/binary>>)]),
                                         add_to_window(SourceHotspot, DestHostpot, Window, BlockHeight, POCHash, ScoreUpdate, Ledger);
                                    [] ->
                                        %% first element
@@ -642,16 +642,16 @@ update_windows( _, _, _, _) ->
 
 -spec is_promoted(Window :: window()) -> boolean().
 is_promoted(Window) ->
-    {LatestClass, _Data} = window_score(Window),
+    {{{_, _}, _Dist}, LatestClass} = window_score(Window),
     LatestClass == ?SCORE_THRESHOLD.
 
--spec window_score(Window :: window()) -> classification().
+-spec window_score(Window :: window()) -> bmu_data().
 window_score(Window) ->
     case Window of
         [] ->
-            {undefined, undefined};
+            {{{0,0}, 0.0}, undefined};
         [Head | _Tail] ->
-            {_, _, C} = Head,
+            {{{_,_},_}, C} = Head,
             C
     end.
 

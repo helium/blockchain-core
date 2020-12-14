@@ -82,23 +82,11 @@ acc_scores(Height, Index, Path, Ledger, Acc) ->
             lists:nth(Index - 1, Path)
     end,
     LookupElement = lists:nth(Index, Path),
-    %CheckHotspot = blockchain_poc_path_element_v1:challengee(LookupElement),
     Scores = calculate_class(Height,
                             LookupElement,
                             PreviousElement,
                             Ledger),
     Scores ++ Acc.
-    %NewScores = lists:foldl(fun(Classification, ScoreAcc) ->
-    %                    case Classification of
-    %                        {ok, active_window} ->
-    %                            ScoreAcc;
-    %                        {error, _} ->
-    %                            ScoreAcc;
-    %                        _ ->
-    %                            [{CheckHotspot, Classification} | ScoreAcc]
-    %                    end
-    %                     end, [], Scores),
-    %NewScores ++ Acc.
 
 -spec calculate_class(Height :: pos_integer(),
                       Element :: blockchain_poc_path_element_v1:poc_element(),
@@ -168,8 +156,7 @@ process_links(PreviousElement, Element, Ledger) ->
                                              {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
                                              ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
                                              Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-                                             {{{_X, _Y}, _Dist}, Class} = Data,
-                                             [{Src, Dst, {Class, Data}}];
+                                             [{Src, Dst, Data}];
                                          {error, _Res} ->
                                              lager:info("No datapoints found when calculating class"),
                                              []
@@ -191,8 +178,7 @@ process_links(PreviousElement, Element, Ledger) ->
                                  ok = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
 
                                  WitData = blockchain_ledger_som_v1:calculate_bmus(SrcHotspot, DstHotspot, Ledger),
-                                 {{{_WX, _WY}, _WDist}, WClass} = WitData,
-                                 [{SrcHotspot, DstHotspot, {WClass, WitData}} | ResAcc];
+                                 [{SrcHotspot, DstHotspot, WitData} | ResAcc];
                              {error, _} ->
                                  lager:info("No datapoints found when calculating class"),
                                  ResAcc
