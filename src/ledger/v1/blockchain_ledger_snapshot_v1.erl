@@ -182,7 +182,7 @@ serialize(Snapshot, BlocksP) ->
     BinSz = byte_size(Bin),
 
     %% do some simple framing with version, size, & snap
-    Snap = <<4, %% version
+    Snap = <<5, %% version
              BinSz:32/little-unsigned-integer, Bin/binary>>,
     {ok, Snap}.
 

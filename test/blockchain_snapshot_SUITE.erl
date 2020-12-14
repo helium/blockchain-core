@@ -63,7 +63,8 @@ basic_test(_Config) ->
     NewDir = PrivDir ++ "/ledger2/",
     ok = filelib:ensure_dir(NewDir),
 
-    Size = byte_size(element(2, blockchain_ledger_snapshot_v1:serialize(Snapshot))),
+    {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
+    Size = byte_size(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
     ct:pal("size ~p", [Size]),
 
@@ -75,7 +76,9 @@ basic_test(_Config) ->
 
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
-    {ok, Ledger1} = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
+    {ok, SnapshotA} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+
+    {ok, Ledger1} = blockchain_ledger_snapshot_v1:import(Chain, SHA, SnapshotA),
     {ok, Snapshot1} = blockchain_ledger_snapshot_v1:snapshot(Ledger1, []),
 
     ?assertEqual([], blockchain_ledger_snapshot_v1:diff(Snapshot, Snapshot1)),
