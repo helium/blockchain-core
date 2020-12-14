@@ -355,7 +355,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
                 fun({GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
-                        VarMap,
+                        VarMap#{density_tgt_res => TargetRes},
                         TargetRes,
                         Ledger
                     ),
@@ -366,7 +366,8 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
             ),
 
             Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
-            ok = export_gps_file(Fname, Scales)
+            ok = export_gps_file(Fname, Scales),
+            blockchain_hex:destroy_memoization()
         end,
         DensityTargetResolutions
     ).
