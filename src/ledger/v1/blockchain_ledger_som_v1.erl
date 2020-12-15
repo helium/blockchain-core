@@ -57,12 +57,13 @@
          reset_window/2,
          windows/1,
          update_trustees/2,
+         initialize_som/1,
+         initialize_som/7,
          calculate_bmus/3,
          calculate_hotspot_bmus/2,
          calculate_hotspot_bmus/3,
          calculate_data_windows/2,
          clear_datapoints/3,
-         clear_som/1,
          clear_bmus/3,
          retrieve_som/1,
          retrieve_bmus/3,
@@ -475,18 +476,78 @@ retrieve_som(Ledger) ->
              {error, not_found}
      end.
 
--spec clear_som(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, not_found}.
-clear_som(Ledger) ->
+-spec initialize_som(Ledger :: blockchain_ledger_v1:ledger(), Classes :: #{}, Sigma :: float(), Xdim :: non_neg_integer(), Ydim :: non_neg_integer(), InVec :: non_neg_integer(), CustomWeights :: boolean()) -> ok.
+initialize_som(Ledger, Classes, Sigma, Xdim, Ydim, InVec, CustomWeights) ->
     SomCF = blockchain_ledger_v1:som_cf(Ledger),
-    case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
-        {ok, Bin} ->
-            lager:info("Clear SOM"),
-            blockchain_ledger_v1:cache_delete(Ledger, SomCF, term_to_binary(global)),
-            {ok, Bin};
-        not_found ->
-            lager:debug("Clear SOM FAIL"),
-            {error, not_found}
-    end.
+    PrivDir = code:priv_dir(miner_pro),
+    File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples_3.csv"),
+    TrainingSetFile = PrivDir ++ "/" ++ File,
+    {ok, IoDevice} = file:open(TrainingSetFile, [read]),
+    Processor = fun({newline, ["pos"|_]}, Acc) ->
+                         %% ignore header
+                         Acc;
+                   ({newline, [_Pos,
+                               Signal1, Sigvar1, Snr1, Snrvar1,
+                               _Signal2, Sigvar2, _Snr2, Snrvar2,
+                               _Signal3, Sigvar3, _Snr3, Snrvar3,
+                               Signal4, Sigvar4, Snr4, Snrvar4,
+                               FSPL, Dist, Class]}, Acc) ->
+                         [{[to_num(Signal1), to_num(Sigvar1), to_num(Snr1), to_num(Snrvar1),
+                            to_num(Sigvar2), to_num(Snrvar2),
+                            to_num(Sigvar3), to_num(Snrvar3),
+                            to_num(Signal4), to_num(Sigvar4), to_num(Snr4), to_num(Snrvar4),
+                            to_num(FSPL), to_num(Dist)], list_to_binary(Class)} | Acc];
+                    (_, Acc) ->
+                         Acc
+                 end,
+    {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
+    {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
+    {ok, SOM} = som:new(Xdim, Ydim, InVec, true, #{classes => Classes,
+                                    custom_weighting => CustomWeights,
+                                    sigma => Sigma,
+                                    random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
+                                                     186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
+    %% Train the network through supervised learning
+    som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 10000),
+    {ok, Serialized} = som:export_json(SOM),
+    blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized).
+
+
+-spec initialize_som(Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+initialize_som(Ledger) ->
+    SomCF = blockchain_ledger_v1:som_cf(Ledger),
+    PrivDir = code:priv_dir(miner_pro),
+    File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples_3.csv"),
+    TrainingSetFile = PrivDir ++ "/" ++ File,
+    {ok, IoDevice} = file:open(TrainingSetFile, [read]),
+    Processor = fun({newline, ["pos"|_]}, Acc) ->
+                         %% ignore header
+                         Acc;
+                   ({newline, [_Pos,
+                               Signal1, Sigvar1, Snr1, Snrvar1,
+                               _Signal2, Sigvar2, _Snr2, Snrvar2,
+                               _Signal3, Sigvar3, _Snr3, Snrvar3,
+                               Signal4, Sigvar4, Snr4, Snrvar4,
+                               FSPL, Dist, Class]}, Acc) ->
+                         [{[to_num(Signal1), to_num(Sigvar1), to_num(Snr1), to_num(Snrvar1),
+                            to_num(Sigvar2), to_num(Snrvar2),
+                            to_num(Sigvar3), to_num(Snrvar3),
+                            to_num(Signal4), to_num(Sigvar4), to_num(Snr4), to_num(Snrvar4),
+                            to_num(FSPL), to_num(Dist)], list_to_binary(Class)} | Acc];
+                    (_, Acc) ->
+                         Acc
+                 end,
+    {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
+    {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
+    {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"0">> => 1.7, <<"1">> => 0.6, <<"2">> => 0.0},
+                                    custom_weighting => false,
+                                    sigma => 0.5,
+                                    random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
+                                                     186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
+    %% Train the network through supervised learning
+    som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 10000),
+    {ok, Serialized} = som:export_json(SOM),
+    blockchain_ledger_v1:cache_put(Ledger, SomCF, term_to_binary(global), Serialized).
 
 -spec init_trustees(Evaluations :: evaluations()) -> trustees().
 init_trustees({InitTrustees, _}) ->
