@@ -24,10 +24,10 @@
 %% {hotspot, score_update}
 -type tagged_score() :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), bmu_data()}.
 %% BMU calculation return type
-%-type bmu_results() :: {{non_neg_integer(), float()},
-%                        {non_neg_integer(), float()},
-%                        {non_neg_integer(), float()},
-%                        {non_neg_integer(), float()}}.
+-type bmu_results() :: {{non_neg_integer(), float()},
+                        {non_neg_integer(), float()},
+                        {non_neg_integer(), float()},
+                        {non_neg_integer(), float()}}.
 %% A type holding BMU data from one sample
 -type bmu_data() :: {{{integer(), integer()}, float()}, binary()}.
 %% List of BMU data
@@ -59,7 +59,8 @@
          update_trustees/2,
          initialize_som/1,
          initialize_som/7,
-         calculate_bmus/3,
+         calculate_bmus/2,
+         calculate_bmus/1,
          calculate_hotspot_bmus/2,
          calculate_hotspot_bmus/3,
          calculate_data_windows/2,
@@ -305,6 +306,100 @@ calculate_hotspot_bmus(Hotspot, Ledger, Opts) ->
                                                            end, [])
     end.
 
+-spec calculate_bmus(Ledger :: blockchain_ledger_v1:ledger()) -> [{binary(), bmu_results()}].
+calculate_bmus(Ledger) ->
+    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    Keys = blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<S:33/binary, D:33/binary>>, _Res}, Acc) ->
+                                          [S] ++ [D] ++ Acc end,
+               []),
+    NonDupKeys = sets:to_list(sets:from_list(Keys)),
+    lists:foldl(fun(Key, Acc) ->
+                        Result = case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
+        {ok, Bin} ->
+            Bmus = binary_to_term(Bin),
+            %% lager:info("Calculate BMUs for: ~p", [Key]),
+            {{Reals, RDist}, {Fakes, FDist}, {Mids, FMids}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) -> case Class of
+                                                                             <<"0">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                             <<"1">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                             <<"2">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum + 1, MDsum + Dist}, {Usum, UDsum}};
+                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum + 1, UDsum + Dist}}
+                                                                         end
+                               end, {{0,0},{0,0},{0,0},{0,0}}, Bmus),
+            RAvg = case Reals of
+                       0 ->
+                           0;
+                       _ ->
+                           RDist/Reals
+                   end,
+            FAvg = case Fakes of
+                       0 ->
+                           0;
+                       _ ->
+                           FDist/Fakes
+                   end,
+            MAvg = case Mids of
+                       0 ->
+                           0;
+                       _ ->
+                           FMids/Mids
+                   end,
+            UAvg = case Undefs of
+                       0 ->
+                           0;
+                       _ ->
+                           UDist/Undefs
+                   end,
+            {{Reals, RAvg}, {Fakes, FAvg}, {Mids, MAvg}, {Undefs, UAvg}};
+    not_found ->
+            {{0,0.0},{0,0.0},{0,0.0},{0,0.0}}
+    end,
+                        [{Key, Result} | Acc]
+                end, [], NonDupKeys).
+
+
+-spec calculate_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
+calculate_bmus(Key, Ledger) ->
+    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
+    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
+        {ok, Bin} ->
+            Bmus = binary_to_term(Bin),
+            %% lager:info("Calculate BMUs for: ~p", [Key]),
+            {{Reals, RDist}, {Fakes, FDist}, {Mids, FMids}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) -> case Class of
+                                                                             <<"0">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                             <<"1">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                             <<"2">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum + 1, MDsum + Dist}, {Usum, UDsum}};
+                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum + 1, UDsum + Dist}}
+                                                                         end
+                               end, {{0,0},{0,0},{0,0},{0,0}}, Bmus),
+            RAvg = case Reals of
+                       0 ->
+                           0;
+                       _ ->
+                           RDist/Reals
+                   end,
+            FAvg = case Fakes of
+                       0 ->
+                           0;
+                       _ ->
+                           FDist/Fakes
+                   end,
+            MAvg = case Mids of
+                       0 ->
+                           0;
+                       _ ->
+                           FMids/Mids
+                   end,
+            UAvg = case Undefs of
+                       0 ->
+                           0;
+                       _ ->
+                           UDist/Undefs
+                   end,
+            {{Reals, RAvg}, {Fakes, FAvg}, {Mids, MAvg}, {Undefs, UAvg}};
+    not_found ->
+            {{0,0.0},{0,0.0},{0,0.0},{0,0.0}}
+    end.
+
 -spec calculate_hotspot_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_list().
 calculate_hotspot_bmus(Hotspot, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
@@ -316,20 +411,6 @@ calculate_hotspot_bmus(Hotspot, Ledger) ->
                                                                            Acc
                                                                    end
                                                            end, []).
-
--spec calculate_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_data().
-calculate_bmus(Src, Dst, Ledger) ->
-    BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
-    Key = <<Src/binary, Dst/binary>>,
-    case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
-        {ok, Bin} ->
-            Bmus = binary_to_term(Bin),
-            %% lager:info("Calculate BMUs for: ~p", [Key]),
-            [H|_T] = Bmus,
-            H;
-    not_found ->
-            {{{0,0}, 0.0}, <<"undefined">>}
-    end.
 
 -spec update_bmus(binary(), binary(), Values :: window_calculation(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_data()}.
 update_bmus(Src, Dst, Values, Ledger) ->
