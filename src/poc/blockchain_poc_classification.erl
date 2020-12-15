@@ -155,15 +155,7 @@ process_links(PreviousElement, Element, Ledger) ->
                                              lager:info("Window period reached"),
                                              {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
                                              {ok, NewBmu} = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
-                                             Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-                                             Bmu = case NewBmu /= Data of
-                                                 true ->
-                                                     NewBmu;
-                                                 false ->
-                                                     lager:debug("PULLING THE WRONG BMU HERE \n ~p /= ~p", [NewBmu, Data]),
-                                                     NewBmu
-                                             end,
-                                             [{Src, Dst, Bmu}];
+                                             [{Src, Dst, NewBmu}];
                                          {error, _Res} ->
                                              lager:info("No datapoints found when calculating class"),
                                              []
@@ -183,15 +175,7 @@ process_links(PreviousElement, Element, Ledger) ->
                                  lager:info("Window period reached"),
                                  {ok, WitWindowedData} = blockchain_ledger_som_v1:calculate_data_windows(WitDataPoints, Ledger),
                                  {ok, NewWBmu} = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
-                                 WitData = blockchain_ledger_som_v1:calculate_bmus(SrcHotspot, DstHotspot, Ledger),
-                                 WBmu = case NewWBmu /= WitData of
-                                            true ->
-                                                NewWBmu;
-                                            false ->
-                                                lager:info("PULLING THE WRONG BMU HERE TOO \n ~p /= ~p", [NewWBmu, WitData]),
-                                                NewWBmu
-                                        end,
-                                 [{SrcHotspot, DstHotspot, WBmu} | ResAcc];
+                                 [{SrcHotspot, DstHotspot, NewWBmu} | ResAcc];
                              {error, _} ->
                                  lager:info("No datapoints found when calculating class"),
                                  ResAcc
