@@ -154,9 +154,16 @@ process_links(PreviousElement, Element, Ledger) ->
                                          {ok, DataPoints} ->
                                              lager:info("Window period reached"),
                                              {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
-                                             ok = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
+                                             {ok, NewBmu} = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
                                              Data = blockchain_ledger_som_v1:calculate_bmus(Src, Dst, Ledger),
-                                             [{Src, Dst, Data}];
+                                             Bmu = case NewBmu /= Data of
+                                                 true ->
+                                                     NewBmu;
+                                                 false ->
+                                                     lager:debug("PULLING THE WRONG BMU HERE \n ~p /= ~p", [NewBmu, Data]),
+                                                     NewBmu
+                                             end,
+                                             [{Src, Dst, Bmu}];
                                          {error, _Res} ->
                                              lager:info("No datapoints found when calculating class"),
                                              []
@@ -175,10 +182,16 @@ process_links(PreviousElement, Element, Ledger) ->
                              {ok, WitDataPoints} ->
                                  lager:info("Window period reached"),
                                  {ok, WitWindowedData} = blockchain_ledger_som_v1:calculate_data_windows(WitDataPoints, Ledger),
-                                 ok = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
-
+                                 {ok, NewWBmu} = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
                                  WitData = blockchain_ledger_som_v1:calculate_bmus(SrcHotspot, DstHotspot, Ledger),
-                                 [{SrcHotspot, DstHotspot, WitData} | ResAcc];
+                                 WBmu = case NewWBmu /= WitData of
+                                            true ->
+                                                NewWBmu;
+                                            false ->
+                                                lager:info("PULLING THE WRONG BMU HERE TOO \n ~p /= ~p", [NewWBmu, WitData]),
+                                                NewWBmu
+                                        end,
+                                 [{SrcHotspot, DstHotspot, WBmu} | ResAcc];
                              {error, _} ->
                                  lager:info("No datapoints found when calculating class"),
                                  ResAcc
