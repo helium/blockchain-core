@@ -189,9 +189,9 @@ process_links(PreviousElement, Element, Ledger) ->
 
 update_trust_scores(Height, SrcHotspot, Source, DstHotspot, Destination, RSSI, SNR, MinRcvSig, Ledger) ->
     Value = case blockchain_ledger_som_v1:classify_sample(RSSI, SNR, MinRcvSig, Ledger) of
-                {{_, _Dist}, <<"negative">>} -> -1;
-                {{_, _Dist}, <<"positive">>} -> 1;
-                {{_, _Dist}, <<"middleman">>} -> -1;
+                {{_, _Dist}, <<"1">>} -> -1;
+                {{_, _Dist}, <<"0">>} -> 1;
+                {{_, _Dist}, <<"2">>} -> -1;
                 {{_, _Dist}, <<"undefined">>} -> 0
             end,
     case {lists:member(libp2p_crypto:bin_to_b58(SrcHotspot), application:get_env(miner_pro, init_trustees, [])) orelse blockchain_ledger_gateway_v3:is_trusted(Source),

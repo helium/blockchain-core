@@ -13,11 +13,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 2500).
--define(MAX_WINDOW_LENGTH, 10000).
+-define(WINDOW_PERIOD, 250).
+-define(MAX_WINDOW_LENGTH, 1000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
--define(SCORE_THRESHOLD, <<"positive">>).
+-define(SCORE_THRESHOLD, <<"0">>).
 -define(STALE_THRESHOLD, 20000).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
@@ -103,8 +103,6 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
                                               [{H, R, S, F, D} | DAcc]
                                       end
                                    end, [], Combined),
-            %lager:info("DATAPOINTS FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(<<Src/binary>>),
-            %                                       ?TO_ANIMAL_NAME(<<Dst/binary>>), Clipped]),
             ToInsert = term_to_binary(Clipped),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert);
         not_found ->
@@ -112,7 +110,7 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             Sample = [{Height, Rssi, Snr, Fspl, Distance}],
             ToInsert = term_to_binary(Sample),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
-            LastWindow = term_to_binary(Height + ?WINDOW_PERIOD*3),
+            LastWindow = term_to_binary(Height + ?WINDOW_PERIOD * 4),
             %lager:info("NEW DATAPOINTS. Window set at ~p", [Height+?WINDOW_PERIOD]),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
     end.
@@ -141,32 +139,25 @@ retrieve_datapoints(Src, Dst, Ledger) ->
         {ok, Bin} ->
             N = binary_to_term(Bin),
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            [H|_] = N,
-            {BlockHeight, _, _, _, _} = H,
-            case BlockHeight =< Height-?MAX_WINDOW_LENGTH of
-                true ->
-                    case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
-                        {ok, Res} ->
-                            LastWindow = binary_to_term(Res),
-                            lager:info("LAST WINDOW: ~p | WINDOW EXPIRES ~p", [LastWindow, (Height - ?WINDOW_PERIOD)]),
-                            case LastWindow < Height - ?WINDOW_PERIOD of
-                                true ->
-                                    ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height)),
-                                    lager:info("AWWW YIS WE GOT DATA FOR ~p => ~p",
-                                               [?TO_ANIMAL_NAME(<<Src/binary>>),
-                                                ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
+            case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
+                {ok, Res} ->
+                    LastWindow = binary_to_term(Res),
+                    lager:info("LAST WINDOW: ~p | WINDOW EXPIRES ~p", [LastWindow, (Height - ?WINDOW_PERIOD)]),
+                    case LastWindow =< Height of
+                        true ->
+                            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height + ?WINDOW_PERIOD)),
+                            lager:info("AWWW YIS WE GOT DATA FOR ~p => ~p",
+                                       [?TO_ANIMAL_NAME(<<Src/binary>>),
+                                        ?TO_ANIMAL_NAME(<<Dst/binary>>)]),
 
-                                    {ok, N};
-                                false ->
-                                    {ok, active_window}
-                            end;
-                        not_found ->
-                            lager:info("Shit we should never get to here by this point..."),
-                            {error, ohfuck}
-                       end;
-                false ->
-                    {ok, active_window}
-            end;
+                            {ok, N};
+                        false ->
+                            {ok, active_window}
+                    end;
+                not_found ->
+                    lager:info("Shit we should never get to here by this point..."),
+                    {error, ohfuck}
+               end;
         not_found ->
             {error, no_datapoints}
     end.
@@ -267,7 +258,7 @@ init_som(Ledger) ->
                          end,
             {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
             {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
-            {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"positive">> => 1.7, <<"negative">> => 0.6, <<"middleman">> => 0.0},
+            {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"0">> => 1.7, <<"1">> => 0.6, <<"2">> => 0.0},
                                             custom_weighting => false,
                                             sigma => 0.5,
                                             random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
