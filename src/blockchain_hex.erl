@@ -312,7 +312,7 @@ limit(Res, VarMap, OccupiedCount) ->
     DensityMax = maps:get(max, VarAtRes),
     DensityTgt = maps:get(tgt, VarAtRes),
     N = maps:get(n, VarAtRes),
-    Max = max((OccupiedCount - (N + 1)), 1),
+    Max = max(((OccupiedCount - N) + 1), 1),
     min(DensityMax, DensityTgt * Max).
 
 -spec occupied_count(
