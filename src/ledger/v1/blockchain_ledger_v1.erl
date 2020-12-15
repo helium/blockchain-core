@@ -3134,7 +3134,7 @@ set_h3dex(H3Dex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     _ = maps:map(fun(Loc, Gateways) ->
                          BinLoc = h3_to_key(Loc),
-                         BinGWs = term_to_binary(Gateways, [compressed]),
+                         BinGWs = term_to_binary(lists:sort(Gateways), [compressed]),
                          cache_put(Ledger, H3CF, BinLoc, BinGWs)
                  end, H3Dex),
     ok.
@@ -3215,7 +3215,7 @@ add_gw_to_hex(Hex, GWAddr, Ledger) ->
             cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]));
         {ok, BinGws} ->
             GWs = binary_to_term(BinGws),
-            cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr | GWs], [compressed]));
+            cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort([GWAddr | GWs]), [compressed]));
         Error -> Error
     end.
 
@@ -3235,7 +3235,7 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
                 [] ->
                     cache_delete(Ledger, H3CF, BinHex);
                 NewGWs ->
-                    cache_put(Ledger, H3CF, BinHex, term_to_binary(NewGWs, [compressed]))
+                    cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort(NewGWs), [compressed]))
             end;
         Error -> Error
     end.
