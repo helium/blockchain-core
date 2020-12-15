@@ -361,7 +361,7 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             case blockchain_ledger_v1:get_h3dex(NewLedger) of
                 %% there is a hole in the snapshot history where this will be true, but later it
                 %% will have come from the snap.
-                #{} ->
+                M when map_size(M) == 0 ->
                     NewLedger1 = blockchain_ledger_v1:new_context(NewLedger),
                     blockchain:bootstrap_h3dex(NewLedger1),
                     blockchain_ledger_v1:commit_context(NewLedger1);
