@@ -121,7 +121,7 @@
     clean_all_hexes/1,
 
     bootstrap_h3dex/1,
-    get_h3dex/1,
+    get_h3dex/1, delete_h3dex/1,
     lookup_gateways_from_hex/2,
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
@@ -3109,8 +3109,10 @@ clean_all_hexes(Ledger) ->
         _ -> ok
     end.
 
+
 -spec bootstrap_h3dex(ledger()) -> ok.
 bootstrap_h3dex(Ledger) ->
+    ok = delete_h3dex(Ledger),
     AGwsCF = active_gateways_cf(Ledger),
     H3Dex = cache_fold(
               Ledger,
@@ -3145,6 +3147,14 @@ get_h3dex(Ledger) ->
                              maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
                      end, #{}, []),
     Res.
+
+-spec delete_h3dex(ledger()) -> ok.
+delete_h3dex(Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    _ = maps:map(fun(H3Index, _) ->
+                         cache_delete(Ledger, H3CF, h3_to_key(H3Index))
+                 end, get_h3dex(Ledger)),
+    ok.
 
 -spec lookup_gateways_from_hex(Hex :: [non_neg_integer()] | non_neg_integer(),
                                Ledger :: ledger()) -> Results :: h3dex().

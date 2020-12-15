@@ -55,7 +55,7 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
-    mark_upgrades/2,
+    mark_upgrades/2, bootstrap_h3dex/1,
     snapshot_height/1
 ]).
 
@@ -95,6 +95,10 @@
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
                           fun upgrade_gateways_oui/1,
+                          %% NOTE: Duplication is not an error, we do this because
+                          %% we have had to delete a previously build h3dex so we are
+                          %% reinitializing it with a different name specified in the hrl
+                          fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.

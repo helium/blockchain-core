@@ -783,12 +783,14 @@ poc_witnesses_rewards(Transactions,
                                                                     ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
                                                                     Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                                     %% The witnesses get scaled by the value of their transmitters
-                                                                    RxScale = blockchain_hex:scale(ChallengeeLoc,
+                                                                    RxScale = blockchain_utils:normalize_float(
+                                                                                blockchain_hex:scale(ChallengeeLoc,
                                                                                                    VarMap,
                                                                                                    D,
-                                                                                                   Ledger),
+                                                                                                   Ledger)),
+                                                                    Value = blockchain_utils:normalize_float(ToAdd * RxScale),
                                                                     I = maps:get(Witness, Acc2, 0),
-                                                                    maps:put(Witness, I+(ToAdd*RxScale), Acc2)
+                                                                    maps:put(Witness, I+Value, Acc2)
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
@@ -1059,7 +1061,7 @@ maybe_calc_tx_scale(_Challengee,
             TxScale = blockchain_hex:scale(Loc, VarMap, D, Ledger),
             %% lager:info("Challengee: ~p, TxScale: ~p",
                        %% [blockchain_utils:addr2name(Challengee), TxScale]),
-            TxScale
+            blockchain_utils:normalize_float(TxScale)
     end.
 
 %%--------------------------------------------------------------------

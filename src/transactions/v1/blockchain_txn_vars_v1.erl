@@ -1118,7 +1118,8 @@ validate_hip17_vars(Value, Var) when is_binary(Value) ->
                     throw({error, {invalid_size, Var, Value}});
                 true ->
                     [Siblings, DensityTgt, DensityMax] = Res,
-                    CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 1000),
+                    %% Siblings are allowed to go to 0
+                    CheckSiblings = validate_int_min_max(Siblings, "siblings", 0, 1000),
                     CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 200000),
                     CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 200000),
 

@@ -14,10 +14,8 @@
 ]).
 
 -export([
-    full_known_values_test/1,
+    known_scale_test/1,
     known_values_test/1,
-    known_differences_test/1,
-    scale_test/1,
     h3dex_test/1,
     export_scale_test/1
 ]).
@@ -66,32 +64,13 @@
     {599685859897245695, 1}
 ]).
 
-%% There are 1952 differences when we calculate clipped vs unclipped densities
--define(KNOWN_CLIP_VS_UNCLIPPED, 1952).
-
-%% Some known differences between clipped vs unclipped densities
--define(KNOWN_DIFFERENCES, #{
-    617712130192310271 => {1, 2},
-    617761313717485567 => {1, 2},
-    617733151106007039 => {2, 3},
-    617684909104562175 => {2, 3},
-    617700174986739711 => {1, 2},
-    617700552987901951 => {2, 4},
-    617700552891170815 => {2, 4},
-    617733123580887039 => {1, 2},
-    617733151091589119 => {1, 3},
-    617743888390553599 => {1, 3},
-    617733269885550591 => {1, 2}
-}).
-
 %% Value taken from hip17
 -define(KNOWN_RES_FOR_SCALING, "8828361563fffff").
 
 all() ->
     [
+        known_scale_test,
         known_values_test,
-        known_differences_test,
-        scale_test,
         h3dex_test
         %% export_scale_test
     ].
@@ -100,7 +79,7 @@ all() ->
 %% TEST SUITE SETUP
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
-    LedgerURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-586724.tar.gz",
+    LedgerURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-632627.tar.gz",
     Ledger = blockchain_ct_utils:ledger(hip17_vars(), LedgerURL),
 
     ok = application:set_env(blockchain, hip17_test_mode, true),
@@ -111,7 +90,7 @@ init_per_suite(Config) ->
     blockchain_ledger_v1:compact(Ledger),
 
     %% Check that the pinned ledger is at the height we expect it to be
-    {ok, 586724} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, 632627} = blockchain_ledger_v1:current_height(Ledger),
 
     %% Check that the vars are correct, one is enough...
     {ok, VarMap} = blockchain_hex:var_map(Ledger),
@@ -148,47 +127,30 @@ end_per_suite(_Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-%% XXX: Remove this test when done cross-checking with python
-full_known_values_test(Config) ->
-    Ledger = ?config(ledger, Config),
 
-    {ok, [List]} = file:consult("/tmp/tracker.erl"),
+%% XXX: Remove this test when done cross-checking with python
+known_scale_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    PythonScaledURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/hip17-python-scaled-632627.erl",
+    Fname = "hip17-python-scaled-632627.erl",
+    FPath = filename:join(["/tmp/", Fname]),
+
+    ok = ssl:start(),
+    {ok, {{_, 200, "OK"}, _, Body}} = httpc:request(PythonScaledURL),
+    ok = file:write_file(FPath, Body),
+
+    {ok, [List]} = file:consult(FPath),
 
     %% assert some known values calculated from the python model (thanks @para1!)
     true = lists:all(
-        fun({Hex, Res, UnclippedValue, _Limit, ClippedValue}) ->
+        fun({Hex, Scale}) ->
             case h3:get_resolution(Hex) of
                 0 ->
                     true;
                 _ ->
-                    {ok, VarMap} = blockchain_hex:var_map(Ledger),
-
-                    {UnclippedDensities, ClippedDensities} = blockchain_hex:densities(
-                        Hex,
-                        VarMap,
-                        Ledger
-                    ),
-
-                    Dex = blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger),
-                    Spots = [blockchain_utils:addr2name(I) || I <- lists:flatten(maps:values(Dex))],
-                    NumSpots = length(Spots),
-
-                    ct:pal(
-                        "Hex: ~p, Res: ~p, PythonUnclippedDensity: ~p, CalculatedUnclippedDensity: ~p, PythonClippedDensity: ~p, CalculatedClippedDensity: ~p, NumSpots: ~p, Spots: ~p",
-                        [
-                            Hex,
-                            Res,
-                            UnclippedValue,
-                            maps:get(Hex, UnclippedDensities),
-                            ClippedValue,
-                            maps:get(Hex, ClippedDensities),
-                            NumSpots,
-                            Spots
-                        ]
-                    ),
-
-                    UnclippedValue == maps:get(Hex, UnclippedDensities) andalso
-                        ClippedValue == maps:get(Hex, ClippedDensities)
+                    {ok, GotScale} = blockchain_hex:scale(Hex, Ledger),
+                    ct:pal("GotScale: ~p, Scale: ~p", [GotScale, Scale]),
+                    (GotScale >= Scale - 0.001) andalso (GotScale =< Scale + 0.001)
             end
         end,
         List
@@ -219,49 +181,6 @@ known_values_test(Config) ->
         end,
         ?KNOWN
     ),
-
-    ok.
-
-known_differences_test(Config) ->
-    Ledger = ?config(ledger, Config),
-
-    true = lists:all(
-        fun({Hex, {Clipped, Unclipped}}) ->
-            {ok, VarMap} = blockchain_hex:var_map(Ledger),
-            {UnclippedDensities, ClippedDensities} = blockchain_hex:densities(Hex, VarMap, Ledger),
-            GotUnclipped = maps:get(Hex, UnclippedDensities),
-            GotClipped = maps:get(Hex, ClippedDensities),
-            ct:pal(
-                "Hex: ~p, Clipped: ~p, GotClipped: ~p, Unclipped: ~p, GotUnclipped: ~p",
-                [Hex, Clipped, GotClipped, Unclipped, GotUnclipped]
-            ),
-            Unclipped == GotUnclipped andalso Clipped == GotClipped
-        end,
-        maps:to_list(?KNOWN_DIFFERENCES)
-    ),
-
-    ok.
-
-scale_test(Config) ->
-    Ledger = ?config(ledger, Config),
-    VarMap = ?config(var_map, Config),
-    TargetResolutions = lists:seq(3, 10),
-    KnownHex = h3:from_string("8c2836152804dff"),
-
-    Result = lists:foldl(
-               fun(TargetRes, Acc) ->
-                       Scale = blockchain_hex:scale(KnownHex, VarMap, TargetRes, Ledger),
-                       ct:pal("TargetRes: ~p, Scale: ~p", [TargetRes, Scale]),
-                       blockchain_hex:destroy_memoization(),
-                       maps:put(TargetRes, Scale, Acc)
-               end,
-               #{},
-               TargetResolutions
-              ),
-
-    ct:pal("Result: ~p", [Result]),
-
-    "0.18" = io_lib:format("~.2f", [maps:get(8, Result)]),
 
     ok.
 
@@ -324,7 +243,7 @@ hip17_vars() ->
         hip17_res_10 => <<"2,1,1">>,
         hip17_res_11 => <<"2,100000,100000">>,
         hip17_res_12 => <<"2,100000,100000">>,
-        density_tgt_res => 8,
+        density_tgt_res => 4,
         hip17_interactivity_blocks => 1200 * 3
     }.
 
@@ -347,6 +266,8 @@ gateways_with_locs(Ledger) ->
     ).
 
 export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
     %% Calculate scale at each density target res for eventual comparison
     lists:foreach(
         fun(TargetRes) ->
@@ -355,7 +276,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
                 fun({GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
-                        VarMap,
+                        VarMap#{density_tgt_res => TargetRes},
                         TargetRes,
                         Ledger
                     ),
@@ -366,13 +287,14 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
             ),
 
             Fname = "/tmp/scale_" ++ integer_to_list(TargetRes),
-            ok = export_gps_file(Fname, Scales)
+            ok = export_gps_file(Fname, Scales, Height),
+            blockchain_hex:destroy_memoization()
         end,
         DensityTargetResolutions
     ).
 
-export_gps_file(Fname, Scales) ->
-    Header = ["name,latitude,longitude,h3,color,desc"],
+export_gps_file(Fname, Scales, Height) ->
+    Header = ["name,latitude,longitude,h3,color,height,desc"],
 
     Data = lists:foldl(
         fun({Name, H3, ScaleVal}, Acc) ->
@@ -387,6 +309,8 @@ export_gps_file(Fname, Scales) ->
                     integer_to_list(H3) ++
                     "," ++
                     color(ScaleVal) ++
+                    "," ++
+                    integer_to_list(Height) ++
                     "," ++
                     io_lib:format("scale: ~p", [ScaleVal]),
             [ToAppend | Acc]
