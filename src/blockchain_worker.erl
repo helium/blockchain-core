@@ -358,15 +358,19 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             {ok, NewLedger} = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
-            case blockchain_ledger_v1:get_h3dex(NewLedger) of
+            try
                 %% there is a hole in the snapshot history where this will be true, but later it
                 %% will have come from the snap.
-                M when map_size(M) == 0 ->
+                true = erlang:is_map(Snapshot), % fail into the catch if it's an older record
+                H3dex = maps:get(Snapshot, h3dex), % fail into the catch if it's missing
+                case maps:size(H3dex) > 0 of
+                    true -> ok;
+                    false -> throw(bootstrap) % fail into the catch it's an empty default value
+                end
+            catch _:_ ->
                     NewLedger1 = blockchain_ledger_v1:new_context(NewLedger),
                     blockchain:bootstrap_h3dex(NewLedger1),
-                    blockchain_ledger_v1:commit_context(NewLedger1);
-                _ ->
-                    ok
+                    blockchain_ledger_v1:commit_context(NewLedger1)
             end,
             remove_handlers(Swarm),
             notify({new_chain, Chain1}),
