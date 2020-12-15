@@ -55,7 +55,7 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
-    mark_upgrades/2,
+    mark_upgrades/2, bootstrap_h3dex/1,
     snapshot_height/1
 ]).
 

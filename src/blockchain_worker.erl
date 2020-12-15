@@ -358,6 +358,14 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             {ok, NewLedger} = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
+            case blockchain_ledger_v1:get_h3dex(NewLedger) of
+                %% there is a hole in the snapshot history where this will be true, but later it
+                %% will have come from the snap.
+                #{} ->
+                    blockchain:bootstrap_h3dex(NewLedger);
+                _ ->
+                    ok
+            end,
             remove_handlers(Swarm),
             notify({new_chain, Chain1}),
             {ok, GossipRef} = add_handlers(Swarm, Chain1),
