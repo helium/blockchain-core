@@ -95,6 +95,7 @@
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
                           fun upgrade_gateways_oui/1,
+                          fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
