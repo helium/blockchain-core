@@ -840,7 +840,7 @@ validate_var(?poc_challenge_sync_interval, Value) ->
 validate_var(?poc_path_limit, undefined) ->
     ok;
 validate_var(?poc_path_limit, Value) ->
-    validate_int(Value, "poc_path_limit", 3, 10, false);
+    validate_int(Value, "poc_path_limit", 1, 10, false);
 validate_var(?poc_witness_consideration_limit, Value) ->
     validate_int(Value, "poc_witness_consideration_limit", 10, 100, false);
 validate_var(?poc_v4_exclusion_cells, Value) ->
