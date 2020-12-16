@@ -309,51 +309,72 @@ calculate_hotspot_bmus(Hotspot, Ledger, Opts) ->
 -spec calculate_bmus(Ledger :: blockchain_ledger_v1:ledger()) -> [{binary(), bmu_results()}].
 calculate_bmus(Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
-    Keys = blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<S:33/binary, D:33/binary>>, _Res}, Acc) ->
-                                          [S] ++ [D] ++ Acc end,
-               []),
-    NonDupKeys = sets:to_list(sets:from_list(Keys)),
+
+    {SKeys, Keys} = blockchain_ledger_v1:cache_fold(Ledger, BmuCF, fun({<<S:33/binary, D:33/binary>>, _Res}, {SAcc, Acc}) ->
+                                                                           {[S | SAcc], [{S, D} | Acc]} end, {[], []}),
+
+    NonDupKeys = sets:to_list(sets:from_list(SKeys)),
     lists:foldl(fun(Key, Acc) ->
-                        Result = case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
-        {ok, Bin} ->
-            Bmus = binary_to_term(Bin),
-            %% lager:info("Calculate BMUs for: ~p", [Key]),
-            {{Reals, RDist}, {Fakes, FDist}, {Mids, FMids}, {Undefs, UDist}} = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) -> case Class of
-                                                                             <<"0">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
-                                                                             <<"1">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
-                                                                             <<"2">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum + 1, MDsum + Dist}, {Usum, UDsum}};
-                                                                             <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum + 1, UDsum + Dist}}
-                                                                         end
-                               end, {{0,0},{0,0},{0,0},{0,0}}, Bmus),
-            RAvg = case Reals of
-                       0 ->
-                           0;
-                       _ ->
-                           RDist/Reals
-                   end,
-            FAvg = case Fakes of
-                       0 ->
-                           0;
-                       _ ->
-                           FDist/Fakes
-                   end,
-            MAvg = case Mids of
-                       0 ->
-                           0;
-                       _ ->
-                           FMids/Mids
-                   end,
-            UAvg = case Undefs of
-                       0 ->
-                           0;
-                       _ ->
-                           UDist/Undefs
-                   end,
-            {{Reals, RAvg}, {Fakes, FAvg}, {Mids, MAvg}, {Undefs, UAvg}};
-    not_found ->
-            {{0,0.0},{0,0.0},{0,0.0},{0,0.0}}
-    end,
-                        [{Key, Result} | Acc]
+                        %% Return all BMUs for keys matching the challengee address
+                        KeyMatchBmus = lists:foldl(fun({First, Second}, ResultAcc) ->
+                                                           case Key == First of
+                                                               true ->
+                                                                   Lookup = <<First/binary, Second/binary>>,
+                                                                  case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Lookup, []) of
+                                                                      {ok, Bin} ->
+                                                                           Bmus = binary_to_term(Bin),
+                                                                           Bmus ++ ResultAcc;
+                                                                      not_found ->
+                                                                          ResultAcc
+                                                                  end;
+                                                               false ->
+                                                                  ResultAcc
+                                                           end
+                                                   end, [], Keys),
+                        case KeyMatchBmus of
+                            [] ->
+                                lager:info("NO KEY MATCH BMUs FOUND FOR: ~p => ~p", [Key, ?TO_ANIMAL_NAME(Key)]),
+                                %% For some reason we didn't match any keys here
+                                Acc;
+                            [_|_] ->
+                                %% Calculate the average based on all the BMUs for the prior key results
+                                Results = lists:foldl(fun({{_, Dist}, Class}, {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}}) ->
+                                                             case Class of
+                                                                 <<"0">> -> {{Rsum + 1, RDsum + Dist}, {Fsum, FDsum}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                 <<"1">> -> {{Rsum, RDsum}, {Fsum + 1, FDsum + Dist}, {Msum, MDsum}, {Usum, UDsum}};
+                                                                 <<"2">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum + 1, MDsum + Dist}, {Usum, UDsum}};
+                                                                 <<"undefined">> -> {{Rsum, RDsum}, {Fsum, FDsum}, {Msum, MDsum}, {Usum + 1, UDsum + Dist}}
+                                                             end
+                                                     end, {{0,0},{0,0},{0,0},{0,0}}, KeyMatchBmus),
+                                {{Reals, RDist}, {Fakes, FDist}, {Mids, FMids}, {Undefs, UDist}} = Results,
+                                RAvg = case Reals of
+                                           0 ->
+                                               0;
+                                           _ ->
+                                               RDist/Reals
+                                       end,
+                                FAvg = case Fakes of
+                                           0 ->
+                                               0;
+                                           _ ->
+                                               FDist/Fakes
+                                       end,
+                                MAvg = case Mids of
+                                           0 ->
+                                               0;
+                                           _ ->
+                                               FMids/Mids
+                                       end,
+                                UAvg = case Undefs of
+                                           0 ->
+                                               0;
+                                           _ ->
+                                               UDist/Undefs
+                                       end,
+                                BmuDataAvgs = {{Reals, RAvg}, {Fakes, FAvg}, {Mids, MAvg}, {Undefs, UAvg}},
+                                %% Add this challengee key and it's average result to list and move on to next one
+                                [{Key, BmuDataAvgs} | Acc]
+                        end
                 end, [], NonDupKeys).
 
 
