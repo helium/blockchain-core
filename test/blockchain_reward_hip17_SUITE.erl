@@ -40,6 +40,20 @@
 %%      - g's witnesses [a, b, c, f] should get scaled using 0.33
 %%      - h's witnesses [i] should get scaled using 0.33
 %%
+%% - test between different beaconers
+%%   - For each test there will be two beaconers
+%%      - comparison between beacons in the same test:
+%%          - j (0.2) and e (0.25) are beaconers:
+%%              - j's witnesses should have less rewards than e's witnesses
+%%          - k (0.5) and e (0.25) are beaconers
+%%              - k's witnesses should have higher rewards than e's witnesses
+%%          - g (0.33) and e (0.25) are beaconers
+%%              - g's witnesses should have higher rewards than e's witnesses
+%%
+%%      - comparison between beacon tests
+%%          - k's witnesses should have higher rewards than g's witnesses
+%%          - j's witnesses should have lower rewards than g's witnesses
+%%
 
 -module(blockchain_reward_hip17_SUITE).
 
@@ -67,7 +81,11 @@
     path_ehj/1,
     path_khj/1,
     path_ghj/1,
-    compare_challengee_test/1
+    compare_challengee_test/1,
+    beaconer_j/1,
+    beaconer_k/1,
+    beaconer_g/1,
+    compare_beacon_test/1
 ]).
 
 all_var_tests() ->
@@ -86,8 +104,19 @@ all_challengee_tests() ->
         compare_challengee_test
     ].
 
+all_beacon_tests() ->
+    [
+        beaconer_j,
+        beaconer_k,
+        beaconer_g,
+        compare_beacon_test
+    ].
+
 all() ->
-    [{group, test_between_vars}, {group, test_between_challengees}].
+    [{group, test_between_vars},
+     {group, test_between_challengees},
+     {group, test_beacon_only}
+    ].
 
 groups() ->
     [{test_between_vars,
@@ -97,6 +126,10 @@ groups() ->
      {test_between_challengees,
       [],
       all_challengee_tests()
+     },
+     {test_beacon_only,
+      [],
+      all_beacon_tests()
      }].
 
 %%--------------------------------------------------------------------
@@ -157,6 +190,12 @@ init_per_testcase(TestCase, Config) ->
             path_ghj ->
                 BothHip15And17Vars;
             path_khj ->
+                BothHip15And17Vars;
+            beaconer_j ->
+                BothHip15And17Vars;
+            beaconer_g ->
+                BothHip15And17Vars;
+            beaconer_k ->
                 BothHip15And17Vars;
             _ ->
                 #{}
@@ -343,6 +382,21 @@ path_khj(Config) ->
 path_ghj(Config) ->
     run_challengees_test(d, g, h, j, [a, b, c, f], [i], Config).
 
+beaconer_j(Config) ->
+    _RunConfig = #{challenger => d,
+                   beaconer1 => j,
+                   beaconer1_witnesses => [a, b],
+                   beaconer2 => e,
+                   beaconer2_witnesses => [c, f]},
+
+    run_beacon_test(d, j, [a, b], e, [c, f], Config).
+
+beaconer_k(Config) ->
+    run_beacon_test(d, k, [a, b], e, [c, f], Config).
+
+beaconer_g(Config) ->
+    run_beacon_test(d, g, [a, b], e, [c, f], Config).
+
 compare_challengee_test(_Config) ->
     ChallengeeE = maps:get(e, blockchain_test_reward_store:fetch(path_ehj_challengee_rewards)),
     ChallengeeG = maps:get(g, blockchain_test_reward_store:fetch(path_ghj_challengee_rewards)),
@@ -393,6 +447,69 @@ compare_challengee_test(_Config) ->
     (WitnessC_PathGHJ == WitnessF_PathGHJ) andalso
     (WitnessA_PathGHJ == WitnessC_PathGHJ) andalso
     (WitnessI_PathGHJ == WitnessA_PathGHJ),
+
+    ok.
+
+compare_beacon_test(_Config) ->
+    %% - test between different beaconers
+    %%   - For each test there will be two beaconers
+    %%      - comparison between beacons in the same test:
+    %%          - j (0.2) and e (0.25) are beaconers:
+    %%              - j's witnesses should have less rewards than e's witnesses
+    %%          - k (0.5) and e (0.25) are beaconers
+    %%              - k's witnesses should have higher rewards than e's witnesses
+    %%          - g (0.33) and e (0.25) are beaconers
+    %%              - g's witnesses should have higher rewards than e's witnesses
+    %%
+    %%      - comparison between beacon tests
+    %%          - k's witnesses should have higher rewards than g's witnesses
+    %%          - j's witnesses should have lower rewards than g's witnesses
+    BeaconerE_J = maps:get(e, blockchain_test_reward_store:fetch(beaconer_j_challengee_rewards)),
+    BeaconerE_K = maps:get(e, blockchain_test_reward_store:fetch(beaconer_k_challengee_rewards)),
+    BeaconerE_G = maps:get(e, blockchain_test_reward_store:fetch(beaconer_g_challengee_rewards)),
+
+    BeaconerJ = maps:get(j, blockchain_test_reward_store:fetch(beaconer_j_challengee_rewards)),
+    BeaconerK = maps:get(k, blockchain_test_reward_store:fetch(beaconer_k_challengee_rewards)),
+    BeaconerG = maps:get(g, blockchain_test_reward_store:fetch(beaconer_g_challengee_rewards)),
+
+    ct:pal("BeaconerJ: ~p, BeaconerG: ~p, BeaconerK: ~p",
+           [BeaconerJ, BeaconerG, BeaconerK]),
+
+    BeaconerChecks = ((BeaconerJ < BeaconerE_J) andalso
+                      (BeaconerK > BeaconerE_K) andalso
+                      (BeaconerG > BeaconerE_G)),
+
+    true = BeaconerChecks,
+
+    WitnessA_J = maps:get(a, blockchain_test_reward_store:fetch(beaconer_j_witness_rewards)),
+    WitnessB_J = maps:get(b, blockchain_test_reward_store:fetch(beaconer_j_witness_rewards)),
+    WitnessC_JE = maps:get(c, blockchain_test_reward_store:fetch(beaconer_j_witness_rewards)),
+    WitnessF_JE = maps:get(f, blockchain_test_reward_store:fetch(beaconer_j_witness_rewards)),
+
+    true = ((WitnessA_J == WitnessB_J) andalso
+            (WitnessC_JE == WitnessF_JE) andalso
+            (WitnessA_J < WitnessC_JE)),
+
+    WitnessA_K = maps:get(a, blockchain_test_reward_store:fetch(beaconer_k_witness_rewards)),
+    WitnessB_K = maps:get(b, blockchain_test_reward_store:fetch(beaconer_k_witness_rewards)),
+    WitnessC_KE = maps:get(c, blockchain_test_reward_store:fetch(beaconer_k_witness_rewards)),
+    WitnessF_KE = maps:get(f, blockchain_test_reward_store:fetch(beaconer_k_witness_rewards)),
+
+    true = ((WitnessA_K == WitnessB_K) andalso
+            (WitnessC_KE == WitnessF_KE) andalso
+            (WitnessA_K > WitnessC_KE)),
+
+    WitnessA_G = maps:get(a, blockchain_test_reward_store:fetch(beaconer_g_witness_rewards)),
+    WitnessB_G = maps:get(b, blockchain_test_reward_store:fetch(beaconer_g_witness_rewards)),
+    WitnessC_GE = maps:get(c, blockchain_test_reward_store:fetch(beaconer_g_witness_rewards)),
+    WitnessF_GE = maps:get(f, blockchain_test_reward_store:fetch(beaconer_g_witness_rewards)),
+
+    true = ((WitnessA_G == WitnessB_G) andalso
+            (WitnessC_GE == WitnessF_GE) andalso
+            (WitnessA_G > WitnessC_GE)),
+
+    true = ((WitnessA_K > WitnessA_G) andalso
+            (WitnessA_J < WitnessA_G)),
 
     ok.
 
@@ -891,6 +1008,271 @@ hip15_vars() ->
         ?witness_redundancy => 4
     }.
 
+run_beacon_test(Challenger0,
+                FirstBeaconer,
+                FirstBeaconerWitnesses,
+                SecondBeaconer,
+                SecondBeaconerWitnesses,
+                Config) ->
+    GenesisMembers = ?config(genesis_members, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    TCName = ?config(tc_name, Config),
+    #{ gateway_names := GatewayNameMap,
+       gateway_letter_to_addr := GatewayLetterToAddrMap } = cross_check_maps(Config),
+
+    Challenger = maps:get(Challenger0, GatewayLetterToAddrMap),
+    {_, {_, _, ChallengerSigFun}} = lists:keyfind(Challenger, 1, GenesisMembers),
+
+    %% First beaconer (challengee)
+    GwFirstBeaconer = maps:get(FirstBeaconer, GatewayLetterToAddrMap),
+
+    %% Receipt for first beaconer
+    Rx1 = blockchain_poc_receipt_v1:new(
+        GwFirstBeaconer,
+        1000,
+        10,
+        <<"first_rx">>,
+        p2p
+    ),
+
+    %% Witnesses for first beaconer
+    ConstructedWitnesses1 = lists:foldl(
+        fun(W, Acc) ->
+            WitnessGw = maps:get(W, GatewayLetterToAddrMap),
+            Witness = blockchain_poc_witness_v1:new(
+                WitnessGw,
+                1001,
+                10,
+                crypto:strong_rand_bytes(32),
+                9.800000190734863,
+                915.2000122070313,
+                10,
+                "data_rate"
+            ),
+            [Witness | Acc]
+        end,
+        [],
+        FirstBeaconerWitnesses
+    ),
+
+    %% Second beaconer (challengee)
+    GwSecondBeaconer = maps:get(SecondBeaconer, GatewayLetterToAddrMap),
+
+    %% Rceipt for second beaconer
+    Rx2 = blockchain_poc_receipt_v1:new(
+        GwSecondBeaconer,
+        1000,
+        10,
+        <<"first_rx">>,
+        p2p
+    ),
+
+    %% Witnesses for second beaconer
+    ConstructedWitnesses2 = lists:foldl(
+        fun(W, Acc) ->
+            WitnessGw = maps:get(W, GatewayLetterToAddrMap),
+            Witness = blockchain_poc_witness_v1:new(
+                WitnessGw,
+                1001,
+                10,
+                crypto:strong_rand_bytes(32),
+                9.800000190734863,
+                915.2000122070313,
+                10,
+                "data_rate"
+            ),
+            [Witness | Acc]
+        end,
+        [],
+        SecondBeaconerWitnesses
+    ),
+
+    %% poc request for first beacon
+    Secret = crypto:strong_rand_bytes(32),
+    OnionKeyHash = crypto:strong_rand_bytes(32),
+    BlockHash = crypto:strong_rand_bytes(32),
+
+    FirstRequestTxn = blockchain_txn_poc_request_v1:new(Challenger,
+                                                        Secret,
+                                                        OnionKeyHash,
+                                                        BlockHash,
+                                                        10),
+    SignedFirstRequestTxn = blockchain_txn_poc_request_v1:sign(FirstRequestTxn, ChallengerSigFun),
+    ct:pal("SignedFirstRequestTxn: ~p", [SignedFirstRequestTxn]),
+
+    %% Construct first poc receipt txn
+    P1 = blockchain_poc_path_element_v1:new(GwFirstBeaconer, Rx1, ConstructedWitnesses1),
+    ct:pal("P1: ~p", [P1]),
+    FirstPocTxn = blockchain_txn_poc_receipts_v1:new(
+                    Challenger,
+                    Secret,
+                    OnionKeyHash,
+                    BlockHash,
+                    [P1]
+                   ),
+    SignedFirstPocTxn = blockchain_txn_poc_receipts_v1:sign(FirstPocTxn, ChallengerSigFun),
+    ct:pal("SignedFirstPocTxn: ~p", [SignedFirstPocTxn]),
+
+    %% Second poc request and receipt txn
+    Secret2 = crypto:strong_rand_bytes(32),
+    OnionKeyHash2 = crypto:strong_rand_bytes(32),
+    BlockHash2 = crypto:strong_rand_bytes(32),
+
+    SecondRequestTxn = blockchain_txn_poc_request_v1:new(Challenger,
+                                                         Secret2,
+                                                         OnionKeyHash2,
+                                                         BlockHash2,
+                                                         10),
+    SignedSecondRequestTxn = blockchain_txn_poc_request_v1:sign(SecondRequestTxn, ChallengerSigFun),
+    ct:pal("SignedSecondRequestTxn: ~p", [SignedSecondRequestTxn]),
+
+    %% Construct second poc receipt txn
+    P2 = blockchain_poc_path_element_v1:new(GwSecondBeaconer, Rx2, ConstructedWitnesses2),
+    ct:pal("P2: ~p", [P2]),
+    SecondPocTxn = blockchain_txn_poc_receipts_v1:new(
+                    Challenger,
+                    Secret2,
+                    OnionKeyHash2,
+                    BlockHash2,
+                    [P2]
+                   ),
+    SignedSecondPocTxn = blockchain_txn_poc_receipts_v1:sign(SecondPocTxn, ChallengerSigFun),
+    ct:pal("SignedSecondPocTxn: ~p", [SignedSecondPocTxn]),
+
+
+    %% We'll consider all the witnesses to be "good quality" for the sake of testing
+    meck:expect(
+        blockchain_txn_rewards_v1,
+        legit_witnesses,
+        fun
+            (_, _, _, E, _, _) when E == P1 ->
+                ConstructedWitnesses1;
+            (_, _, _, E, _, _) when E == P2 ->
+                ConstructedWitnesses2;
+            (_, _, _, _, _, _) ->
+                []
+        end
+    ),
+    meck:expect(blockchain_txn_poc_receipts_v1, good_quality_witnesses,
+                fun
+                    (E, _) when E == P1 ->
+                        ConstructedWitnesses1;
+                    (E, _) when E == P2 ->
+                        ConstructedWitnesses2;
+                    (_, _) ->
+                        []
+                end),
+    meck:expect(blockchain_txn_poc_receipts_v1, valid_witnesses,
+                fun
+                    (E, _, _) when E == P1 ->
+                        ConstructedWitnesses1;
+                    (E, _, _) when E == P2 ->
+                        ConstructedWitnesses2;
+                    (_, _, _) ->
+                        []
+                end),
+    meck:expect(blockchain_txn_poc_request_v1, is_valid, fun(_, _) ->
+        ok
+    end),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_, _) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_, _) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, get_channels, fun(_, _) ->
+        {ok, lists:seq(1, 11)}
+    end),
+
+    %% Construct a block for the first poc request txn
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedFirstRequestTxn], #{}, false),
+    ct:pal("Block2: ~p", [Block2]),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+
+    %% Construct a block for the first poc receipt txn
+    {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedFirstPocTxn], #{}, false),
+    ct:pal("Block3: ~p", [Block3]),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
+
+    %% Construct a block for the second poc request txn
+    {ok, Block4} = test_utils:create_block(ConsensusMembers, [SignedSecondRequestTxn], #{}, false),
+    ct:pal("Block4: ~p", [Block4]),
+    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:swarm()),
+    ?assertEqual({ok, 4}, blockchain:height(Chain)),
+
+    %% Construct a block for the second poc receipt txn
+    {ok, Block5} = test_utils:create_block(ConsensusMembers, [SignedSecondPocTxn]),
+    ct:pal("Block5: ~p", [Block5]),
+    _ = blockchain_gossip_handler:add_block(Block5, Chain, self(), blockchain_swarm:swarm()),
+    ?assertEqual({ok, 5}, blockchain:height(Chain)),
+
+    %% Calculate rewards by hand
+    Start = 1,
+    End = 5,
+    {ok, Rewards} = blockchain_txn_rewards_v1:calculate_rewards(Start, End, Chain),
+
+    ct:pal("Rewards: ~p", [Rewards]),
+    ct:pal("TotalRewards: ~p", [lists:sum([blockchain_txn_reward_v1:amount(R) || R <- Rewards])]),
+
+    ChallengeesRewards = lists:filter(
+        fun(R) ->
+            blockchain_txn_reward_v1:type(R) == poc_challengees
+        end,
+        Rewards
+    ),
+
+    WitnessRewards = lists:filter(
+        fun(R) ->
+            blockchain_txn_reward_v1:type(R) == poc_witnesses
+        end,
+        Rewards
+    ),
+
+    ChallengeesRewardsMap =
+        lists:foldl(
+            fun(R, Acc) ->
+                maps:put(
+                    maps:get(
+                        blockchain_utils:addr2name(blockchain_txn_reward_v1:gateway(R)),
+                        GatewayNameMap
+                    ),
+                    blockchain_txn_reward_v1:amount(R),
+                    Acc
+                )
+            end,
+            #{},
+            ChallengeesRewards
+        ),
+
+    WitnessRewardsMap =
+        lists:foldl(
+            fun(R, Acc) ->
+                maps:put(
+                    maps:get(
+                        blockchain_utils:addr2name(blockchain_txn_reward_v1:gateway(R)),
+                        GatewayNameMap
+                    ),
+                    blockchain_txn_reward_v1:amount(R),
+                    Acc
+                )
+            end,
+            #{},
+            WitnessRewards
+        ),
+
+    ct:pal("ChallengeesRewardsMap: ~p", [ChallengeesRewardsMap]),
+    ct:pal("WitnessRewardsMap: ~p", [WitnessRewardsMap]),
+
+    ok = blockchain_test_reward_store:insert(
+        list_to_atom(atom_to_list(TCName) ++ "_witness_rewards"),
+        WitnessRewardsMap
+    ),
+    ok = blockchain_test_reward_store:insert(
+        list_to_atom(atom_to_list(TCName) ++ "_challengee_rewards"),
+        ChallengeesRewardsMap
+    ),
+
+    ok.
+
 hip17_vars() ->
     #{
         ?hip17_res_0 => <<"2,100000,100000">>,
@@ -907,7 +1289,13 @@ hip17_vars() ->
         ?hip17_res_11 => <<"2,100000,100000">>,
         ?hip17_res_12 => <<"2,100000,100000">>,
         ?density_tgt_res => 4,
-        ?hip17_interactivity_blocks => 1200 * 3
+        ?hip17_interactivity_blocks => 1200 * 3,
+        ?poc_challengees_percent => 0.0531,
+        ?poc_witnesses_percent => 0.2124,
+        ?consensus_percent => 0.06,
+        ?dc_percent => 0.325,
+        ?poc_challengers_percent => 0.0095,
+        ?securities_percent => 0.34
     }.
 
 known_locations() ->
