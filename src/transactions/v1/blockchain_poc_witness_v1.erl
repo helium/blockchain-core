@@ -152,7 +152,7 @@ print(#blockchain_poc_witness_v1_pb{
 
 -spec to_json(poc_witness(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Witness, Opts) ->
-    Base = #{
+    Base0 = #{
              gateway => ?BIN_TO_B58(gateway(Witness)),
              timestamp => timestamp(Witness),
              signal => signal(Witness),
@@ -162,9 +162,13 @@ to_json(Witness, Opts) ->
              channel => ?MAYBE_UNDEFINED(channel(Witness)),
              datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Witness)))
             },
-    case lists:keyfind(is_valid, 1, Opts) of
+    Base = case lists:keyfind(is_valid, 1, Opts) of
+               false -> Base0;
+               {is_valid, Valid} -> Base0#{ is_valid => Valid }
+           end,
+    case lists:keyfind(invalid_reason, 1, Opts) of
         false -> Base;
-        {is_valid, Valid} -> Base#{ is_valid => Valid }
+        {invalid_reason, InvalidReason} -> Base#{ invalid_reason => InvalidReason }
     end.
 
 
