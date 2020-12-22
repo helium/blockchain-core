@@ -94,6 +94,7 @@
 
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
+                          fun bootstrap_clusters/1,
                           fun upgrade_gateways_oui/1,
                           %% NOTE: Duplication is not an error, we do this because
                           %% we have had to delete a previously build h3dex so we are
@@ -248,6 +249,13 @@ bootstrap_hexes_(Ledger) ->
                   blockchain_ledger_v1:set_hex(Hex, Addresses, Ledger)
           end, Hexes),
     ok.
+
+bootstrap_clusters(Ledger) ->
+    blockchain_ledger_v1:build_clusters(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    blockchain_ledger_v1:build_clusters(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
 
 upgrade_gateways_oui(Ledger) ->
     upgrade_gateways_oui_(Ledger),

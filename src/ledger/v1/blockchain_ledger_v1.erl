@@ -10,7 +10,7 @@
     mode/1, mode/2,
     dir/1,
 
-    check_key/2, mark_key/2,
+    check_key/2, mark_key/2, unmark_key/2,
 
     new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
@@ -38,6 +38,13 @@
     vars_nonce/1, vars_nonce/2,
     save_threshold_txn/2,
 
+    clusters/1,
+    cluster_connectivity/1,
+    build_clusters/1,
+    gateway_connectivity_score/2,
+    footprint/7,
+    gateway_connectivity/2,
+    gateway_disjoint/2,
     find_gateway_info/2,
     gateway_cache_get/2,
     add_gateway/3, add_gateway/5,
@@ -322,6 +329,10 @@ check_key(Key, Ledger) ->
 mark_key(Key, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, Key, <<"true">>).
+
+unmark_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_delete(Ledger, DefaultCF, Key).
 
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
@@ -951,6 +962,219 @@ vars_nonce(Ledger) ->
 vars_nonce(NewNonce, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?VARS_NONCE, term_to_binary(NewNonce)).
+
+-spec gateway_connectivity(libp2p_crypto:pubkey_bin(), ledger()) -> {non_neg_integer(), non_neg_integer()}.
+gateway_connectivity(Address, Ledger) ->
+    {ok, GW} = find_gateway_info(Address, Ledger),
+    Witnesses = blockchain_ledger_gateway_v2:witnesses(GW),
+    %% find the furthest witness
+    {_, FurthestWitness} = lists:foldl(fun(WitnessAddr, {MaxDist, _BestGW}=Acc) ->
+                       {ok, W1} = find_gateway_info(WitnessAddr, Ledger),
+                       case blockchain_ledger_gateway_v2:location(W1) == undefined of
+                           true ->
+                               Acc;
+                           false ->
+                               case blockchain_utils:distance(blockchain_ledger_gateway_v2:location(W1), blockchain_ledger_gateway_v2:location(GW)) of
+                                   X when X > MaxDist ->
+                                       {X, W1};
+                                   _ ->
+                                       Acc
+                               end
+                       end
+                end, {0, undefined}, maps:keys(Witnesses)),
+    %% compute the hex distance
+    MinRes = min(h3:get_resolution(blockchain_ledger_gateway_v2:location(GW)), h3:get_resolution(blockchain_ledger_gateway_v2:location(FurthestWitness))),
+    GridDistance = h3:grid_distance(h3:parent(blockchain_ledger_gateway_v2:location(GW), MinRes), h3:parent(blockchain_ledger_gateway_v2:location(FurthestWitness), MinRes)),
+    Footprint = h3:k_ring(h3:parent(blockchain_ledger_gateway_v2:location(GW), MinRes), GridDistance),
+    AG = active_gateways(Ledger),
+    %% find active gateways in this footprint
+    FAG = lists:filter(fun({_, AGW}) ->
+                               case blockchain_ledger_gateway_v2:location(AGW) of
+                                   undefined -> false;
+                                   Location ->
+                                       lists:member(h3:parent(Location, MinRes), Footprint)
+                               end
+                 end, maps:to_list(AG)),
+    {maps:size(Witnesses), length(FAG)}.
+
+clusters(Ledger) ->
+    AG = active_gateways(Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    AGwsCF = active_gateways_cf(Ledger),
+    lists:reverse(cache_fold(
+                    Ledger,
+                    AGwsCF,
+                    fun({Addr, Binary}, Acc) ->
+                            GW = blockchain_ledger_gateway_v2:deserialize(Binary),
+                            case is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(GW)) %andalso
+                                %blockchain_ledger_gateway_v2:last_poc_challenge(GW) > Height - 10000
+                            of
+                                false ->
+                                    Acc;
+                                true ->
+                            Witnesses = blockchain_ledger_gateway_v2:witnesses(GW),
+                            case lists:filter(fun({Filter, _, Wss}) ->
+                                                      lists:any(fun(A) ->
+                                                                        xor16:contain(Filter, A) andalso lists:member(A, Wss)
+                                                                end, [Addr|maps:keys(Witnesses)])
+                                              end, Acc) of
+                                [] ->
+                                    {Footprint, ExtendedWitnesses} = footprint(Height, GW, #{Addr => GW}, #{}, maps:keys(Witnesses), Ledger, AG),
+                                    case ExtendedWitnesses of
+                                        [Addr] ->
+                                            Acc;
+                                        _ ->
+                                            case lists:filter(fun({Filter, _, Wss}) ->
+                                                                      Matched = lists:any(fun(A) ->
+                                                                                                  xor16:contain(Filter, A) andalso lists:member(A, Wss) %andalso min(length(ExtendedWitnesses), length(Wss)) / max(length(ExtendedWitnesses), length(Wss)) > 0.01
+                                                                                          end, ExtendedWitnesses),
+                                                                      %io:format("checking ~p against ~p -> ~p~n", [length(ExtendedWitnesses), length(Wss), Matched]),
+                                                                      Matched
+                                                              end, Acc) of
+                                                [] ->
+                                                    %io:format("found new cluster with size ~p in ~p~n", [length(ExtendedWitnesses), Time]),
+                                                    [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), Footprint, ExtendedWitnesses}|Acc];
+                                                Matches ->
+                                                    {CombinedFootprint, CombinedWitnesses} = lists:foldl(fun({_, Fp, Wi}, {FpAcc, WiAcc}) ->
+                                                                                                                 {lists:usort(Fp ++ FpAcc),
+                                                                                                                  lists:usort(Wi ++ WiAcc)}
+                                                                                                         end, {Footprint, ExtendedWitnesses},
+                                                                                                         Matches),
+                                                    NewAcc = [{xor16:new(CombinedWitnesses, fun xxhash:hash64/1), CombinedFootprint, CombinedWitnesses}|Acc] -- Matches,
+                                                    %io:format("merged ~p with ~p existing cluster ~w in ~p ~p -> ~p ~p~n", [length(ExtendedWitnesses), length(Matches), [ length(X) || {_, _, X} <- Matches], Time, length(Acc), length(NewAcc), length(CombinedWitnesses)]),
+                                                    NewAcc
+                                            end
+                                    end;
+                                _Matches ->
+                                    Acc
+                            end
+                            end
+
+                    end,
+                    []
+                   )
+                 ).
+
+cluster_connectivity(Clusters) ->
+    %% find the biggest overlapping cluster with this cluster, if any and figure out which is bigger
+    lists:map(fun({Filter, Footprint, Members}) ->
+                      FpSet = sets:from_list(Footprint),
+                      case lists:sort(fun({_A1, _B1, C1}, {_A2, _B2, C2}) ->
+                                              length(C1) >= length(C2)
+                                      end, lists:filter(fun({F1, F2, _}) ->
+                                                                F1 /= Filter andalso
+                                                                not sets:is_disjoint(sets:from_list(F2), FpSet)
+                                                        end, Clusters)) of
+                          [] ->
+                              {1.0, element(1, xor16:to_bin(Filter)), sets:from_list(Members)};
+                          [Hd|_] ->
+                              {length(Members) / (length(Members) + length(element(3, Hd))), element(1, xor16:to_bin(Filter)), sets:from_list(Members)}
+                      end
+              end, Clusters).
+
+build_clusters(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    Clusters = cluster_connectivity(clusters(Ledger)),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    cache_put(Ledger, DefaultCF, <<"cluster_map">>, term_to_binary({Height, Clusters})).
+
+gateway_connectivity_score(Address, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, Bin} = cache_get(Ledger, DefaultCF, <<"cluster_map">>, []),
+    {AHeight, Map} = binary_to_term(Bin),
+    case Height rem 100 == 0 andalso AHeight /= Height of
+        true ->
+            %% need to rebuild
+            build_clusters(Ledger),
+            gateway_connectivity_score(Address, Ledger);
+        false ->
+            find_cluster(Address, Map)
+    end.
+
+find_cluster(_, []) ->
+    %% assume it's connected for now
+    1.0;
+find_cluster(Address, [{Score, Filter, Members}|T]) ->
+    case xor16:contain({Filter, fun xxhash:hash64/1}, Address) andalso
+         sets:is_element(Address, Members) of
+        true ->
+            Score;
+        false ->
+            find_cluster(Address, T)
+    end.
+
+gateway_disjoint(Address, Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, GW} = blockchain_gateway_cache:get(Address, Ledger),
+    Witnesses = blockchain_ledger_gateway_v2:witnesses(GW),
+    {Footprint, ExtendedWitnesses} = footprint(Height, GW, #{}, #{}, maps:keys(Witnesses), Ledger, []),
+ 
+    %io:format("footprint ~p ~p ~p~n", [length(Footprint), GridDistance, MinRes]),
+    MinRes = 9,
+    SimplifiedFootprint = lists:sort(fun(A, B) -> h3:get_resolution(A) >= h3:get_resolution(B) end, simplify_footprint(Footprint, MinRes)),
+    %io:format("simplfied footprint ~p ~n", [length(SimplifiedFootprint)]),
+    AG = active_gateways(Ledger),
+    %io:format("checking ~p active gateways~n", [maps:size(AG)]),
+    %% find active gateways in this footprint
+    DisJointGWs = lists:filter(fun({Addr, AGW}) ->
+                               case blockchain_ledger_gateway_v2:location(AGW) of
+                                   undefined -> false;
+                                   Location ->
+                                       not lists:member(Addr, ExtendedWitnesses) andalso lists:any(fun(E) -> h3:parent(Location, h3:get_resolution(E)) == E end, SimplifiedFootprint)
+                               end
+                 end, maps:to_list(AG)),
+    {length(ExtendedWitnesses), length(DisJointGWs)}.
+
+
+simplify_footprint(Footprint, 0) ->
+    Footprint;
+simplify_footprint(Footprint, Resolution) ->
+    Res = lists:foldl(fun(E, Acc) ->
+                        Parent = h3:parent(E, Resolution - 1),
+                        V = maps:get(Parent, Acc, []),
+                        maps:put(Parent, [E|V], Acc)
+                end, #{}, Footprint),
+    {Combineable, NotCombineable} = lists:partition(fun({_P, C}) -> length(C) == 7 end, maps:to_list(Res)),
+    %io:format("found ~p combineable hexes~n", [length(Combineable)]),
+    case Combineable of
+        [] ->
+            Footprint;
+        _ ->
+            lists:flatten(element(2, lists:unzip(NotCombineable))) ++ simplify_footprint(element(1, lists:unzip(Combineable)), Resolution - 1)
+    end.
+
+footprint(_Height, _GW, Witnesses, H3Lines, [], _Ledger, _AG) ->
+    %io:format("finding footprint over ~p gateways~n", [maps:size(Witnesses)]),
+    {maps:keys(H3Lines), maps:keys(Witnesses)};
+footprint(Height, Gw, Seen, H3Lines0, [H|T], Ledger, AG) ->
+    {ok, W1} = blockchain_gateway_cache:get_at(H, Ledger, Height),
+    case is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(W1)) %andalso blockchain_ledger_gateway_v2:last_poc_challenge(W1) > Height - 10000
+    of
+        true ->
+            New = (maps:keys(blockchain_ledger_gateway_v2:witnesses(W1)) -- maps:keys(Seen)) -- T,
+            H3Lines = lists:foldl(fun(WA, Acc) ->
+                                          {ok, W} = blockchain_gateway_cache:get_at(WA, Ledger, Height),
+                                          case blockchain_utils:distance(blockchain_ledger_gateway_v2:location(W1),
+                                                                         blockchain_ledger_gateway_v2:location(W)) < 8 andalso
+                                               is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(W1)) %andalso
+                                               %blockchain_ledger_gateway_v2:last_poc_challenge(W) > Height - 10000
+                                          of
+                                              false -> Acc;
+                                              true ->
+                                                  lists:foldl(fun(K, Acc2) ->
+                                                                      maps:put(K, 1, Acc2)
+                                                              end,
+                                                              Acc,
+                                                              h3:line(h3:parent(blockchain_ledger_gateway_v2:location(W1), 9),
+                                                                      h3:parent(blockchain_ledger_gateway_v2:location(W), 9)))
+                                          end
+                                  end, H3Lines0, New),
+            %io:format("got ~p witnesses ~p remain~n", [maps:size(Seen) + 1, length(T++New)]),
+            footprint(Height, Gw, maps:put(H, W1, Seen), H3Lines, (T++New), Ledger, AG);
+        false ->
+            footprint(Height, Gw, Seen, H3Lines0, T, Ledger, AG)
+    end.
 
 -spec find_gateway_info(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_gateway_v2:gateway()}
                                                                  | {error, any()}.

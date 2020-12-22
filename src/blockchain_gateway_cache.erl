@@ -6,6 +6,7 @@
 -export([
          start_link/0,
          get/2, get/3,
+         get_at/3,
          %% invalidate/2,
          bulk_put/2,
          stats/0
@@ -45,9 +46,12 @@ get(Addr, Ledger, false) ->
     catch ets:update_counter(?MODULE, total, 1, {total, 0}),
     blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
 get(Addr, Ledger, true) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    get_at(Addr, Ledger, Height).
+
+get_at(Addr, Ledger, Height) ->
     try
         ets:update_counter(?MODULE, total, 1, {total, 0}),
-        {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
         %% first try the context cache
         case blockchain_ledger_v1:gateway_cache_get(Addr, Ledger) of
             spillover ->
@@ -58,7 +62,7 @@ get(Addr, Ledger, true) ->
                 {ok, Gw};
             _ ->
                 %% then try our cache
-                case cache_get(Addr, Ledger) of
+                case cache_get(Addr, Height) of
                     {ok, _} = Result ->
                         ets:update_counter(?MODULE, hit, 1, {hit, 0}),
                         lager:debug("get ~p at ~p hit", [Addr, Height]),
@@ -68,7 +72,7 @@ get(Addr, Ledger, true) ->
                         case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
                             {ok, DiskGw} = Result2 ->
                                 lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
-                                cache_put(Addr, DiskGw, Ledger),
+                                cache_put(Addr, DiskGw, Height),
                                 Result2;
                             Else ->
                                 lager:debug("get ~p at ~p miss err", [Addr, Height]),
@@ -199,8 +203,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-cache_get(Addr, Ledger) ->
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+cache_get(Addr, Height) ->
     [{_, StartHeight}] = ets:lookup(?MODULE, start_height),
     case ets:lookup(?MODULE, curr_height) of
         [{_, CurrHeight}] ->
@@ -222,8 +225,7 @@ cache_get(Addr, Ledger) ->
         _ -> {error, not_found}
     end.
 
-cache_put(Addr, Gw, Ledger) ->
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+cache_put(Addr, Gw, Height) ->
     [{_, StartHeight}] = ets:lookup(?MODULE, start_height),
     case Height =< StartHeight of
         true ->
