@@ -91,13 +91,16 @@ to_json(Elem, Opts) ->
             {valid_receipt, _} -> [{is_valid, true}]
         end,
     Witnesses =
-        case lists:keyfind(valid_witnesses, 1, Opts) of
+        case lists:keyfind(tagged_witnesses, 1, Opts) of
             false ->
                 [{W, []} || W <- witnesses(Elem)];
-            {valid_witnesses, ValidWitnesses} ->
-                lists:map(fun(W) ->
-                                  {W, [{is_valid, lists:member(W, ValidWitnesses)}]}
-                          end, witnesses(Elem))
+            {tagged_witnesses, TaggedWitnesses} ->
+                lists:map(fun
+                              ({true, _, W}) ->
+                                  {W, [{is_valid, true}]};
+                              ({false, InvalidReason, W}) ->
+                                  {W, [{is_valid, false}, {invalid_reason, InvalidReason}]}
+                          end, TaggedWitnesses)
         end,
     #{
       challengee => ?BIN_TO_B58(challengee(Elem)),
