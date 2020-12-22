@@ -79,10 +79,10 @@ all() ->
 %% TEST SUITE SETUP
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
-    LedgerURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-632627.tar.gz",
+    LedgerURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-642988.tar.gz",
     Ledger = blockchain_ct_utils:ledger(hip17_vars(), LedgerURL),
 
-    ok = application:set_env(blockchain, hip17_test_mode, true),
+    ok = application:set_env(blockchain, hip17_test_mode, false),
 
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     blockchain:bootstrap_h3dex(Ledger1),
@@ -90,7 +90,7 @@ init_per_suite(Config) ->
     blockchain_ledger_v1:compact(Ledger),
 
     %% Check that the pinned ledger is at the height we expect it to be
-    {ok, 632627} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, 642988} = blockchain_ledger_v1:current_height(Ledger),
 
     %% Check that the vars are correct, one is enough...
     {ok, VarMap} = blockchain_hex:var_map(Ledger),
@@ -213,13 +213,13 @@ export_scale_test(Config) ->
     DensityTargetResolutions = lists:seq(3, 10),
 
     %% Only do this for gateways with known locations
-    GatewaysWithLocs = gateways_with_locs(Ledger),
+    InteractiveGateways = interactive_gateways(Ledger),
 
     ok = export_scale_data(
         Ledger,
         VarMap,
         DensityTargetResolutions,
-        GatewaysWithLocs
+        InteractiveGateways
     ),
 
     ok.
@@ -250,15 +250,26 @@ hip17_vars() ->
 %%--------------------------------------------------------------------
 %% INTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
-
-gateways_with_locs(Ledger) ->
+interactive_gateways(Ledger) ->
+    {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, InteractiveBlocks} = blockchain:config(?hip17_interactivity_blocks, Ledger),
     AG = blockchain_ledger_v1:active_gateways(Ledger),
 
     maps:fold(
         fun(Addr, GW, Acc) ->
             case blockchain_ledger_gateway_v2:location(GW) of
                 undefined -> Acc;
-                Loc -> [{blockchain_utils:addr2name(Addr), Loc} | Acc]
+                Loc ->
+                    %% This gateway has a location
+                    %% Check whether it's "interactive"
+                    case blockchain_ledger_gateway_v2:last_poc_challenge(GW) of
+                        undefined -> Acc;
+                        LastPOC ->
+                            case (CurrentHeight - LastPOC) =< InteractiveBlocks of
+                                false -> Acc;
+                                true -> [{blockchain_utils:addr2name(Addr), Loc} | Acc]
+                            end
+                    end
             end
         end,
         [],
