@@ -1021,27 +1021,30 @@ clusters(Ledger) ->
                                               end, Acc) of
                                 [] ->
                                     {Footprint, ExtendedWitnesses} = footprint(Height, GW, #{Addr => GW}, #{}, maps:keys(Witnesses), Ledger, AG),
-                                    case ExtendedWitnesses of
-                                        [Addr] ->
-                                            [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
+                                    Hexes = lists:usort(lists:flatten(maps:values(Footprint))),
+                                    case maps:size(Footprint) of
+                                        0 ->
+                                            Acc;
+                                            %[{xor16:new(ExtendedWitnesses ++ Hexes, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
                                         _ ->
                                             case lists:filter(fun({Filter, {_G, M}}) ->
                                                                       Matched = lists:any(fun(A) ->
-                                                                                                  xor16:contain(Filter, A) andalso maps:is_key(A, M) %andalso min(length(ExtendedWitnesses), length(Wss)) / max(length(ExtendedWitnesses), length(Wss)) > 0.01
-                                                                                          end, ExtendedWitnesses),
+                                                                                                  xor16:contain(Filter, A) andalso (maps:is_key(A, M) orelse
+                                                                                                                                    lists:member(A, graph_edges({_G, M})))
+                                                                                          end, ExtendedWitnesses ++ Hexes),
                                                                       %io:format("checking ~p against ~p -> ~p~n", [length(ExtendedWitnesses), length(Wss), Matched]),
                                                                       Matched
                                                               end, Acc) of
                                                 [] ->
-                                                    %io:format("found new cluster with size ~p in ~p~n", [length(ExtendedWitnesses), Time]),
-                                                    [{xor16:new(ExtendedWitnesses, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
+                                                    io:format("found new cluster with size ~p~n", [length(ExtendedWitnesses)]),
+                                                    [{xor16:new(ExtendedWitnesses ++ Hexes, fun xxhash:hash64/1), make_graph(Footprint)}|Acc];
                                                 [FirstMatch|Matches] ->
-                                                    NewGraph = lists:foldl(fun({_, GM}, Acc2) ->
+                                                    NewGraph = lists:foldl(fun({_Filter, GM}, Acc2) ->
                                                                                    merge_graph(GM, Acc2)
                                                                            end, extend_graph(Footprint, element(2, FirstMatch)),
                                                                            Matches),
-                                                    NewAcc = [{xor16:new(maps:keys(element(2, NewGraph)), fun xxhash:hash64/1), NewGraph}|Acc] -- Matches,
-                                                    %io:format("merged ~p with ~p existing cluster ~w in ~p ~p -> ~p ~p~n", [length(ExtendedWitnesses), length(Matches), [ length(X) || {_, _, X} <- Matches], Time, length(Acc), length(NewAcc), length(CombinedWitnesses)]),
+                                                    NewAcc = [{xor16:new(maps:keys(element(2, NewGraph)) ++ graph_edges(NewGraph), fun xxhash:hash64/1), NewGraph}|Acc] -- [FirstMatch|Matches],
+                                                    io:format("merged ~p with ~p existing clusters~n", [length(ExtendedWitnesses), length(Matches)+1]),
                                                     NewAcc
                                             end
                                     end;
@@ -1063,6 +1066,8 @@ extend_graph(Edges, GM) ->
                       add_edge(From, To, Hexes, G, M)
               end, GM, Edges).
 
+add_edge(A, A, _, G, M) ->
+    {G, M};
 add_edge(A, B, Data, Graph, Map) ->
     N1 = case maps:get(A, Map, undefined) of
              undefined ->
@@ -1076,6 +1081,12 @@ add_edge(A, B, Data, Graph, Map) ->
              Y ->
                  Y
          end,
+    case A == B orelse N1 == N2 of
+        true ->
+            io:format("adding self edge ~p ~p~n", [A, B]);
+        false ->
+            ok
+    end,
     case graph:find_edge(Graph, N1, N2) of
         nil ->
             graph:add_edge(Graph, N1, N2, Data),
@@ -1085,17 +1096,34 @@ add_edge(A, B, Data, Graph, Map) ->
     end.
 
 merge_graph(G1, G2) ->
-    {{Smaller, _}, Bigger} = case graph:node_count(element(1, G1)) =< graph:node_count(element(1, G2)) of
+    {{Smaller, Map}, Bigger} = case graph:node_count(element(1, G1)) =< graph:node_count(element(1, G2)) of
                             true ->
                                 {G1, G2};
                             false ->
                                 {G2, G1}
                         end,
-    Edges = graph:fold_edges(fun({N1, N2, E}, Acc) ->
-                                     maps:put({graph:get_node(Smaller, N1), graph:get_node(Smaller, N2)}, graph:get_edge(Smaller, E), Acc)
-                             end, #{}, Smaller, 0),
+    %Edges = graph:fold_edges(fun({N1, N2, E}, Acc) ->
+    %                                 maps:put({graph:get_node(Smaller, N1), graph:get_node(Smaller, N2)}, graph:get_edge(Smaller, E), Acc)
+    %                         end, #{}, Smaller, 0),
+    Edges = maps:fold(fun(Key, Node, Acc) ->
+                              lists:foldl(fun(N, Acc2) ->
+                                                  case graph:find_edge(Smaller, Node, N) of
+                                                      nil ->
+                                                          Acc2;
+                                                      E ->
+                                                          maps:put({Key, graph:get_node(Smaller, N)}, graph:get_edge(Smaller, E), Acc2)
+                                                  end
+                                          end, Acc, graph:neighbors(Smaller, Node))
+                      end, #{}, Map),
     extend_graph(Edges, Bigger).
 
+
+graph_edges({Graph, Map}) ->
+    maps:fold(fun(_, Node, Acc) ->
+                      lists:foldl(fun(E, Acc2) ->
+                                          lists:usort(graph:get_edge(Graph, E) ++ Acc2)
+                                  end, Acc, graph:edges(Graph, Node))
+              end, [], Map).
 
 cluster_connectivity(Clusters) ->
     %% find the biggest overlapping cluster with this cluster, if any and figure out which is bigger
@@ -1219,6 +1247,12 @@ footprint(Height, Gw, Seen, H3Lines0, [H|T], Ledger, AG) ->
                                           of
                                               false -> Acc;
                                               true ->
+                                                  case H == WA of
+                                                      true ->
+                                                          io:format("found self witness ~p~n", [H]);
+                                                      false ->
+                                                          ok
+                                                  end,
                                                     maps:put({H, WA}, 
                                                               h3:line(h3:parent(blockchain_ledger_gateway_v2:location(W1), 9),
                                                                       h3:parent(blockchain_ledger_gateway_v2:location(W), 9)), Acc)
