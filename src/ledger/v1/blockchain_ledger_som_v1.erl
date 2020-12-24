@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(WINDOW_PERIOD, 250).
--define(MAX_WINDOW_LENGTH, 1000).
+-define(WINDOW_PERIOD, 1400).
+-define(MAX_WINDOW_LENGTH, 16000).
 -define(WINDOW_SIZE, 25).
 -define(WINDOW_CAP, 50).
 -define(SCORE_THRESHOLD, <<"0">>).
@@ -43,14 +43,11 @@
 %% A class associated with hotspot trust
 %%-type classification() :: {atom(), bmu_data()}.
 -type window_calculation() :: {float(), float(), float(), float(),
-                               float(), float(), float(), float(),
-                               float(), float(), float(), float(),
-                               float(), float(), float(), float(),
                                float(), float()}.
 -type evaluations() :: {trustees(), trustees()}.
 
 -export([update_datapoints/7,
-         update_bmus/4,
+         update_bmus/5,
          classify_sample/4,
          update_windows/4,
          reset_window/3,
@@ -112,12 +109,12 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Distance, Ledger) ->
             Sample = [{Height, Rssi, Snr, Fspl, Distance}],
             ToInsert = term_to_binary(Sample),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
-            LastWindow = term_to_binary(Height + ?WINDOW_PERIOD * 4),
+            LastWindow = term_to_binary({Height + ?WINDOW_PERIOD * 4, {0.0, 0.0, 0.0}}),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key1, LastWindow)
     end.
 
 -spec clear_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-clear_datapoints(Src, Dst, Ledger) ->
+clear_datapoints(Dst, Src, Ledger) ->
     DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
     BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
     %BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
@@ -131,7 +128,7 @@ clear_datapoints(Src, Dst, Ledger) ->
             ok
     end.
 
--spec retrieve_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {ok, active_window} | {error, atom()}.
+-spec retrieve_datapoints(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, {list(), {float(), float(), float()}}} | {ok, active_window} | {error, atom()}.
 retrieve_datapoints(Src, Dst, Ledger) ->
     DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
     BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
@@ -142,16 +139,16 @@ retrieve_datapoints(Src, Dst, Ledger) ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             case blockchain_ledger_v1:cache_get(Ledger, BacklinksCF, Key, []) of
                 {ok, Res} ->
-                    LastWindow = binary_to_term(Res),
+                    {LastWindow, _Distribution} = binary_to_term(Res),
                     case LastWindow =< Height of
                         true ->
                             lager:info("HEIGHT: ~p | WINDOW EXPIRED ~p", [Height, LastWindow]),
-                            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary(Height + ?WINDOW_PERIOD)),
+                            NewDistribution = distribution(Dst, Ledger),
+                            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, term_to_binary({Height + ?WINDOW_PERIOD, NewDistribution})),
                             lager:info("GOT DATA FOR ~p => ~p \n ~p",
                                        [?TO_ANIMAL_NAME(<<Src/binary>>),
                                         ?TO_ANIMAL_NAME(<<Dst/binary>>), N]),
-
-                            {ok, N};
+                            {ok, {N, NewDistribution}};
                         false ->
                             {ok, active_window}
                     end;
@@ -169,54 +166,54 @@ meanvar({RSum, SSum, Count, SetPoints}) ->
     {Rvar, Svar} = {Rssq/Count, Sssq/Count},
     {RMean, Rvar, SMean, Svar}.
 
--spec calculate_data_windows(Datapoints :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, window_calculation()}.
-calculate_data_windows(Datapoints, Ledger) ->
-    {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
+-spec distribution(Hotspot :: binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {float(), float(), float()}.
+distribution(Hotspot, Ledger) ->
+    DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
+    CollectedDatapoints = blockchain_ledger_v1:cache_fold(Ledger, DatapointsCF, fun({<<D:33/binary, S:33/binary>>, Res}, Acc) ->
+                                                                   case Hotspot of
+                                                                       D ->
+                                                                           [{Hotspot, binary_to_term(Res)} | Acc];
+                                                                       S ->
+                                                                           Acc;
+                                                                       _ ->
+                                                                           Acc
+                                                                   end
+                                                           end, []),
 
+    AvgDatapoints = lists:foldl(fun({_Height, Rssi, Snr, _Fspl, _Distance},
+                                 {Rssi4Acc, Snr4Acc, Count4Acc, Set4Acc}) ->
+                                     {Rssi4Acc + Rssi, Snr4Acc + Snr, Count4Acc + 1, [{Rssi, Snr} | Set4Acc]}
+                              end, {0,0,0, []}, CollectedDatapoints),
+    {_RMean, _RVar, SMean, SVar} = meanvar(AvgDatapoints),
+    {C, L, R, Count} = lists:foldl(fun({_Height, _Rssi, Snr, _Fspl, _Distance},
+                                 {CAcc, LAcc, RAcc, CountAcc}) ->
+                                     case Snr > (SMean - math:sqrt(SVar)) andalso Snr < (SMean + math:sqrt(SVar)) of
+                                         true ->
+                                             {CAcc + 1, LAcc, RAcc, CountAcc + 1};
+                                         false ->
+                                               case Snr >= (SMean + math:sqrt(SVar)) of
+                                                   true ->
+                                                       {CAcc, LAcc, RAcc+1, CountAcc + 1};
+                                                   false -> % SNR =< (SMean + math:sqrt(SVar))
+                                                       {CAcc, LAcc+1, RAcc, CountAcc + 1}
+                                               end
+                                     end
+                              end, {0,0,0,0}, CollectedDatapoints),
+    {C/Count, L/Count, R/Count}.
+
+
+
+
+-spec calculate_data_windows(Datapoints :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, window_calculation()}.
+calculate_data_windows(Datapoints, _Ledger) ->
     WindowPoints4 = lists:foldl(fun({_Height, Rssi, Snr, _Fspl, _Distance},
                                  {Rssi4Acc, Snr4Acc, Count4Acc, Set4Acc}) ->
                                      {Rssi4Acc + Rssi, Snr4Acc + Snr, Count4Acc + 1, [{Rssi, Snr} | Set4Acc]}
                               end, {0,0,0, []}, Datapoints),
-
-    WindowPoints3 = lists:foldl(fun({Height, Rssi, Snr, _Fspl, _Distance},
-                                 {Rssi3Acc, Snr3Acc, Count3Acc, Set3Acc}) ->
-                                      case Height > (CurrentHeight - ?WINDOW_PERIOD*3) of
-                                          true ->
-                                              {Rssi3Acc + Rssi, Snr3Acc + Snr, Count3Acc + 1, [{Rssi, Snr} | Set3Acc]};
-                                          false ->
-                                              {Rssi3Acc, Snr3Acc, Count3Acc, Set3Acc}
-                                      end
-                              end, {0,0,0, []}, Datapoints),
-
-    WindowPoints2 = lists:foldl(fun({Height, Rssi, Snr, _Fspl, _Distance},
-                                 {Rssi2Acc, Snr2Acc, Count2Acc, Set2Acc}) ->
-                                      case Height > (CurrentHeight - ?WINDOW_PERIOD*2) of
-                                          true ->
-                                              {Rssi2Acc + Rssi, Snr2Acc + Snr, Count2Acc + 1, [{Rssi, Snr} | Set2Acc]};
-                                          false ->
-                                              {Rssi2Acc, Snr2Acc, Count2Acc, Set2Acc}
-                                      end
-                              end, {0,0,0, []}, Datapoints),
-
-    WindowPoints1 = lists:foldl(fun({Height, Rssi, Snr, _Fspl, _Distance},
-                                 {Rssi1Acc, Snr1Acc, Count1Acc, Set1Acc}) ->
-                                      case Height > (CurrentHeight - ?WINDOW_PERIOD*1) of
-                                          true ->
-                                              {Rssi1Acc + Rssi, Snr1Acc + Snr, Count1Acc + 1, [{Rssi, Snr} | Set1Acc]};
-                                          false ->
-                                              {Rssi1Acc, Snr1Acc, Count1Acc, Set1Acc}
-                                      end
-                              end, {0,0,0, []}, Datapoints),
     [H|_T] = Datapoints,
     {_, _Rssi, _Snr, Fspl, Distance} = H,
-    {RMean4, RVar4, SMean4, SVar4} = meanvar(WindowPoints4),
-    {RMean3, RVar3, SMean3, SVar3} = meanvar(WindowPoints3),
-    {RMean2, RVar2, SMean2, SVar2} = meanvar(WindowPoints2),
-    {RMean1, RVar1, SMean1, SVar1} = meanvar(WindowPoints1),
-    {ok, {RMean1, RVar1, SMean1, SVar1,
-     RMean2, RVar2, SMean2, SVar2,
-     RMean3, RVar3, SMean3, SVar3,
-     RMean4, RVar4, SMean4, SVar4,
+    {RMean, RVar, SMean, SVar} = meanvar(WindowPoints4),
+    {ok, {RMean, RVar, SMean, SVar,
      Fspl, Distance}}.
 
 to_num(String) ->
@@ -244,22 +241,17 @@ init_som(Ledger) ->
                                  %% ignore header
                                  Acc;
                            ({newline, [_Pos,
-                                       Signal1, Sigvar1, Snr1, Snrvar1,
-                                       _Signal2, Sigvar2, _Snr2, Snrvar2,
-                                       _Signal3, Sigvar3, _Snr3, Snrvar3,
-                                       Signal4, Sigvar4, Snr4, Snrvar4,
-                                       FSPL, Dist, Class]}, Acc) ->
-                                 [{[to_num(Signal1), to_num(Sigvar1), to_num(Snr1), to_num(Snrvar1),
-                                    to_num(Sigvar2), to_num(Snrvar2),
-                                    to_num(Sigvar3), to_num(Snrvar3),
-                                    to_num(Signal4), to_num(Sigvar4), to_num(Snr4), to_num(Snrvar4),
-                                    to_num(FSPL), to_num(Dist)], list_to_binary(Class)} | Acc];
+                                       Dist, FSPL, Signal, Snr,
+                                       FSnrPer, RSnrPer, LSnrPer, _FSigPer, _RSigPer, _LSigPer, Class]}, Acc) ->
+                                 [{[to_num(Signal), to_num(Snr), to_num(FSnrPer), to_num(LSnrPer),
+                                    to_num(RSnrPer), to_num(FSPL),
+                                    to_num(Dist)], list_to_binary(Class)} | Acc];
                             (_, Acc) ->
                                  Acc
                          end,
             {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
             {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
-            {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"0">> => 1.7, <<"1">> => 0.6, <<"2">> => 0.0},
+            {ok, SOM} = som:new(20, 20, 7, true, #{classes => #{<<"0">> => 1.7, <<"1">> => 0.6, <<"2">> => 0.0},
                                             custom_weighting => false,
                                             sigma => 0.5,
                                             random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
@@ -433,11 +425,12 @@ calculate_hotspot_bmus(Hotspot, Ledger) ->
                                                                    end
                                                            end, []).
 
--spec update_bmus(binary(), binary(), Values :: window_calculation(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_data()}.
-update_bmus(Src, Dst, Values, Ledger) ->
+-spec update_bmus(binary(), binary(), Values :: window_calculation(), Distribution :: {float(), float(), float()}, Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_data()}.
+update_bmus(Src, Dst, Values, Distribution, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     SomCF = blockchain_ledger_v1:som_cf(Ledger),
     Key = <<Dst/binary, Src/binary>>,
+    {CDist, LDist, RDist} = Distribution,
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, BmusBin} ->
             Bmus = binary_to_term(BmusBin),
@@ -445,33 +438,23 @@ update_bmus(Src, Dst, Values, Ledger) ->
                 {ok, SomBin} ->
                     {ok, Som} = som:from_json(SomBin),
                     %% Calculate new BMUs with stored SOM
-                    {Signal1, Sigvar1, Snr1, Snrvar1,
-                     _Signal2, Sigvar2, _Snr2, Snrvar2,
-                     _Signal3, Sigvar3, _Snr3, Snrvar3,
-                     Signal4, Sigvar4, Snr4, Snrvar4,
+                    {Signal, _Sigvar, Snr, _Snrvar,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
-                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
-                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
-                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
-                                             float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
+                                             [float((Signal - (-135))/(135)), float((Snr - (-19))/(17 - (-19))),
+                                              float(CDist), float(LDist), float(RDist),
+                                              float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
                     blockchain_ledger_v1:cache_put(Ledger, BmuCF, Key, term_to_binary(lists:sublist([NewBmu | Bmus], ?WINDOW_CAP))),
                     {ok, NewBmu};
                 not_found ->
                     Som = init_som(Ledger),
-                    {Signal1, Sigvar1, Snr1, Snrvar1,
-                     _Signal2, Sigvar2, _Snr2, Snrvar2,
-                     _Signal3, Sigvar3, _Snr3, Snrvar3,
-                     Signal4, Sigvar4, Snr4, Snrvar4,
+                    {Signal, _Sigvar, Snr, _Snrvar,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
-                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
-                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
-                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             [float((Signal - (-135))/(135)), float((Snr - (-19))/(17 - (-19))),
+                                              float(CDist), float(LDist), float(RDist),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
@@ -483,16 +466,11 @@ update_bmus(Src, Dst, Values, Ledger) ->
                 {ok, SomBin} ->
                     {ok, Som} = som:from_json(SomBin),
                     %% Calculate new BMUs with stored SOM
-                    {Signal1, Sigvar1, Snr1, Snrvar1,
-                     _Signal2, Sigvar2, _Snr2, Snrvar2,
-                     _Signal3, Sigvar3, _Snr3, Snrvar3,
-                     Signal4, Sigvar4, Snr4, Snrvar4,
+                    {Signal, _Sigvar, Snr, _Snrvar,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
-                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
-                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
-                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             [float((Signal - (-135))/(135)), float((Snr - (-19))/(17 - (-19))),
+                                              float(CDist), float(LDist), float(RDist),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
@@ -500,16 +478,11 @@ update_bmus(Src, Dst, Values, Ledger) ->
                     {ok, NewBmu};
                 not_found ->
                     Som = init_som(Ledger),
-                    {Signal1, Sigvar1, Snr1, Snrvar1,
-                     _Signal2, Sigvar2, _Snr2, Snrvar2,
-                     _Signal3, Sigvar3, _Snr3, Snrvar3,
-                     Signal4, Sigvar4, Snr4, Snrvar4,
+                    {Signal, _Sigvar, Snr, _Snrvar,
                      Fspl, Dist} = Values,
                     NewBmu = som:winner_vals(Som,
-                                             [float((Signal1 - (-135))/(135)), float(Sigvar1/(250)), float((Snr1 - (-19))/(17 - (-19))), float(Snrvar1/(230)),
-                                             float(Sigvar2/(250)), float(Snrvar2/(230)),
-                                             float(Sigvar3/(250)), float(Snrvar3/(230)),
-                                             float((Signal4 - (-135))/(135)), float(Sigvar4/(250)), float((Snr4 - (-19))/(17 - (-19))), float(Snrvar4/(230)),
+                                             [float((Signal - (-135))/(135)), float((Snr - (-19))/(17 - (-19))),
+                                              float(CDist), float(LDist), float(RDist),
                                              float((Fspl - (-165))/(165)), float((Dist)/(3920))]),
                     lager:info("NORMALIZED BMU FOR ~p => ~p | ~p", [?TO_ANIMAL_NAME(Src), ?TO_ANIMAL_NAME(Dst), NewBmu]),
                     %% Append BMUs list
@@ -554,7 +527,7 @@ retrieve_bmus(A, B, Ledger) ->
 
 -spec clear_bmus(binary(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, not_found}.
 clear_bmus(Src, Dst, Ledger) ->
-    Key = <<Src/binary, Dst/binary>>,
+    Key = <<Dst/binary, Src/binary>>,
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, Key, []) of
         {ok, _Bin} ->
@@ -585,23 +558,19 @@ initialize_som(Ledger, Classes, Sigma, Xdim, Ydim, InVec, CustomWeights) ->
     File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples_3.csv"),
     TrainingSetFile = PrivDir ++ "/" ++ File,
     {ok, IoDevice} = file:open(TrainingSetFile, [read]),
+
     Processor = fun({newline, ["pos"|_]}, Acc) ->
-                         %% ignore header
-                         Acc;
-                   ({newline, [_Pos,
-                               Signal1, Sigvar1, Snr1, Snrvar1,
-                               _Signal2, Sigvar2, _Snr2, Snrvar2,
-                               _Signal3, Sigvar3, _Snr3, Snrvar3,
-                               Signal4, Sigvar4, Snr4, Snrvar4,
-                               FSPL, Dist, Class]}, Acc) ->
-                         [{[to_num(Signal1), to_num(Sigvar1), to_num(Snr1), to_num(Snrvar1),
-                            to_num(Sigvar2), to_num(Snrvar2),
-                            to_num(Sigvar3), to_num(Snrvar3),
-                            to_num(Signal4), to_num(Sigvar4), to_num(Snr4), to_num(Snrvar4),
-                            to_num(FSPL), to_num(Dist)], list_to_binary(Class)} | Acc];
-                    (_, Acc) ->
-                         Acc
-                 end,
+                                 %% ignore header
+                                 Acc;
+                           ({newline, [_Pos,
+                                       Dist, FSPL, Signal, Snr,
+                                       FSnrPer, RSnrPer, LSnrPer, _FSigPer, _RSigPer, _LSigPer, Class]}, Acc) ->
+                                 [{[to_num(Signal), to_num(Snr), to_num(FSnrPer), to_num(LSnrPer),
+                                    to_num(RSnrPer), to_num(FSPL),
+                                    to_num(Dist)], list_to_binary(Class)} | Acc];
+                            (_, Acc) ->
+                                 Acc
+                         end,
     {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
     {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
     {ok, SOM} = som:new(Xdim, Ydim, InVec, true, #{classes => Classes,
@@ -623,29 +592,25 @@ initialize_som(Ledger) ->
     TrainingSetFile = PrivDir ++ "/" ++ File,
     {ok, IoDevice} = file:open(TrainingSetFile, [read]),
     Processor = fun({newline, ["pos"|_]}, Acc) ->
-                         %% ignore header
-                         Acc;
-                   ({newline, [_Pos,
-                               Signal1, Sigvar1, Snr1, Snrvar1,
-                               _Signal2, Sigvar2, _Snr2, Snrvar2,
-                               _Signal3, Sigvar3, _Snr3, Snrvar3,
-                               Signal4, Sigvar4, Snr4, Snrvar4,
-                               FSPL, Dist, Class]}, Acc) ->
-                         [{[to_num(Signal1), to_num(Sigvar1), to_num(Snr1), to_num(Snrvar1),
-                            to_num(Sigvar2), to_num(Snrvar2),
-                            to_num(Sigvar3), to_num(Snrvar3),
-                            to_num(Signal4), to_num(Sigvar4), to_num(Snr4), to_num(Snrvar4),
-                            to_num(FSPL), to_num(Dist)], list_to_binary(Class)} | Acc];
-                    (_, Acc) ->
-                         Acc
-                 end,
-    {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
-    {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
-    {ok, SOM} = som:new(20, 20, 14, true, #{classes => #{<<"0">> => 1.7, <<"1">> => 0.6, <<"2">> => 0.0},
-                                    custom_weighting => false,
-                                    sigma => 0.5,
-                                    random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
-                                                     186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
+                                 %% ignore header
+                                 Acc;
+                           ({newline, [_Pos,
+                                       Dist, FSPL, Signal, Snr,
+                                       FSnrPer, RSnrPer, LSnrPer, _FSigPer, _RSigPer, _LSigPer, Class]}, Acc) ->
+                                 [{[to_num(Signal), to_num(Snr), to_num(FSnrPer), to_num(LSnrPer),
+                                    to_num(RSnrPer), to_num(FSPL),
+                                    to_num(Dist)], list_to_binary(Class)} | Acc];
+                            (_, Acc) ->
+                                 Acc
+                         end,
+            {ok, ProcessedRows} = ecsv:process_csv_file_with(IoDevice, Processor, []),
+            {SupervisedSamples, SupervisedClasses} = lists:unzip(ProcessedRows),
+            {ok, SOM} = som:new(20, 20, 7, true, #{classes => #{<<"0">> => 1.7, <<"1">> => 0.6, <<"2">> => 0.0},
+                                            custom_weighting => false,
+                                            sigma => 0.5,
+                                            random_seed => [209,162,182,84,44,167,62,240,152,122,118,154,48,208,143,84,
+                                                             186,211,219,113,71,108,171,185,51,159,124,176,167,192,23,245]}),
+
     %% Train the network through supervised learning
     som:train_random_supervised(SOM, SupervisedSamples, SupervisedClasses, 10000),
     {ok, Serialized} = som:export_json(SOM),

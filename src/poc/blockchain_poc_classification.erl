@@ -151,10 +151,10 @@ process_links(PreviousElement, Element, Ledger) ->
                                      case blockchain_ledger_som_v1:retrieve_datapoints(Src, Dst, Ledger) of
                                          {ok, active_window} ->
                                              [];
-                                         {ok, DataPoints} ->
+                                         {ok, {DataPoints, Distribution}} ->
                                              lager:info("Window period reached"),
                                              {ok, WindowedData} = blockchain_ledger_som_v1:calculate_data_windows(DataPoints, Ledger),
-                                             {ok, NewBmu} = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Ledger),
+                                             {ok, NewBmu} = blockchain_ledger_som_v1:update_bmus(Src, Dst, WindowedData, Distribution, Ledger),
                                              [{Src, Dst, NewBmu}];
                                          {error, _Res} ->
                                              lager:info("No datapoints found when calculating class"),
@@ -171,10 +171,10 @@ process_links(PreviousElement, Element, Ledger) ->
                          case blockchain_ledger_som_v1:retrieve_datapoints(SrcHotspot, DstHotspot, Ledger) of
                              {ok, active_window} ->
                                  ResAcc;
-                             {ok, WitDataPoints} ->
+                             {ok, {WitDataPoints, WDistribution}} ->
                                  lager:info("Window period reached"),
                                  {ok, WitWindowedData} = blockchain_ledger_som_v1:calculate_data_windows(WitDataPoints, Ledger),
-                                 {ok, NewWBmu} = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, Ledger),
+                                 {ok, NewWBmu} = blockchain_ledger_som_v1:update_bmus(SrcHotspot, DstHotspot, WitWindowedData, WDistribution, Ledger),
                                  [{SrcHotspot, DstHotspot, NewWBmu} | ResAcc];
                              {error, _} ->
                                  lager:info("No datapoints found when calculating class"),
