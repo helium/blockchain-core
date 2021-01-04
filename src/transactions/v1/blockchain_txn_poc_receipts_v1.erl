@@ -737,6 +737,23 @@ absorb(Txn, Chain) ->
                     {error, not_found} ->
                         %% Older poc version, don't add witnesses
                         ok;
+                    {ok, POCVersion} when POCVersion >= 10 ->
+                        %% Add filtered witnesses and remove self-witnessing with poc-v10
+                        ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
+                                                              Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                              WitnessesToInsert0 = case FilteredReceipt of
+                                                                                       undefined ->
+                                                                                           %% no receipt, only insert filtered witnesses
+                                                                                           FilteredWitnesses;
+                                                                                       FR ->
+                                                                                           %% Add receipt to filtered witnesses list
+                                                                                           FilteredWitnesses ++ [FR]
+                                                                                   end,
+                                                              %% Ensure Challengee is not in FilteredWitnesses
+                                                              WitnessesToInsert = [ Witness || Witness <- WitnessesToInsert0,
+                                                                                               blockchain_poc_witness_v1:gateway(Witness) /= Challengee ],
+                                                              ok = blockchain_ledger_v1:insert_witnesses(Challengee, WitnessesToInsert, Ledger)
+                                                      end, ok, Txn, Ledger, Chain);
                     {ok, POCVersion} when POCVersion >= 9 ->
                         %% Add filtered witnesses with poc-v9
                         ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
