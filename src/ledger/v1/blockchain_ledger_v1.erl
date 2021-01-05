@@ -51,6 +51,8 @@
     update_gateway/3,
     fixup_neighbors/4,
     add_gateway_location/4,
+    add_gateway_gain/4,
+    add_gateway_elevation/4,
     insert_witnesses/3,
     add_gateway_witnesses/3,
     refresh_gateway_witnesses/2,
@@ -1240,6 +1242,28 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             end
     end.
 
+-spec add_gateway_gain(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
+add_gateway_gain(GatewayAddress, Gain, Nonce, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw} ->
+            Gw1 = blockchain_ledger_gateway_v2:gain(Gain, Gw),
+            Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
+            update_gateway(Gw2, GatewayAddress, Ledger)
+    end.
+
+-spec add_gateway_elevation(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
+add_gateway_elevation(GatewayAddress, Elevation, Nonce, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw} ->
+            Gw1 = blockchain_ledger_gateway_v2:elevation(Elevation, Gw),
+            Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
+            update_gateway(Gw2, GatewayAddress, Ledger)
+    end.
+
 gateway_versions(Ledger) ->
     case config(?var_gw_inactivity_threshold, Ledger) of
         {error, not_found} ->
@@ -1834,8 +1858,9 @@ txn_fee_multiplier(Ledger)->
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
+
 %%--------------------------------------------------------------------
-%% @doc  get staking fee chain var value for add gateway
+%% @doc  get staking fee chain var value for assert_location_v1
 %% or return default
 %% @end
 %%--------------------------------------------------------------------

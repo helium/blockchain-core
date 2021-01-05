@@ -1114,6 +1114,18 @@ validate_var(?density_tgt_res, Value) ->
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
 
+validate_var(?assert_loc_txn_version, Value) ->
+    case Value of
+        N when is_integer(N), N >= 1, N =< 2 -> ok;
+        _ -> throw({error, {invalid_assert_loc_txn_version, Value}})
+    end;
+validate_var(?min_antenna_gain, Value) ->
+    %% Initially set to 10 to imply 1 dBi
+    validate_int(Value, "min_antenna_gain", 1, 11, false);
+validate_var(?max_antenna_gain, Value) ->
+    %% Initially set to 150 to imply 15 dBi
+    validate_int(Value, "max_antenna_gain", 100, 600, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
