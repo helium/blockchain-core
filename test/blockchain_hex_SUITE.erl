@@ -213,7 +213,7 @@ export_scale_test(Config) ->
     DensityTargetResolutions = lists:seq(3, 10),
 
     %% Only do this for gateways with known locations
-    GatewaysWithLocs = gateways_with_locs(Ledger),
+    GatewaysWithLocs = active_gateways_with_locs(Ledger),
 
     ok = export_scale_data(
         Ledger,
@@ -251,14 +251,24 @@ hip17_vars() ->
 %% INTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
 
-gateways_with_locs(Ledger) ->
+active_gateways_with_locs(Ledger) ->
     AG = blockchain_ledger_v1:active_gateways(Ledger),
+    {ok, H} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, InteractiveBlocks} = blockchain:config(?hip17_interactivity_blocks, Ledger),
 
     maps:fold(
         fun(Addr, GW, Acc) ->
             case blockchain_ledger_gateway_v2:location(GW) of
                 undefined -> Acc;
-                Loc -> [{blockchain_utils:addr2name(Addr), Loc} | Acc]
+                Loc ->
+                    case blockchain_ledger_gateway_v2:last_poc_challenge(GW) of
+                        undefined -> Acc;
+                        L ->
+                            case (H - L) =< InteractiveBlocks of
+                                false -> Acc;
+                                true -> [{Addr, blockchain_utils:addr2name(Addr), Loc} | Acc]
+                            end
+                    end
             end
         end,
         [],
@@ -273,7 +283,7 @@ export_scale_data(Ledger, VarMap, DensityTargetResolutions, GatewaysWithLocs) ->
         fun(TargetRes) ->
             %% Export scale data for every single gateway to a gps file
             Scales = lists:foldl(
-                fun({GwName, Loc}, Acc) ->
+                fun({_GwAddr, GwName, Loc}, Acc) ->
                     Scale = blockchain_hex:scale(
                         Loc,
                         VarMap#{density_tgt_res => TargetRes},
