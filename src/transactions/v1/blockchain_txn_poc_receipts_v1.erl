@@ -737,7 +737,7 @@ absorb(Txn, Chain) ->
                     {error, not_found} ->
                         %% Older poc version, don't add witnesses
                         ok;
-                    {ok, POCVersion} when POCVersion >= 10 ->
+                    {ok, POCVersion} when POCVersion >= 11 ->
                         %% Add filtered witnesses and remove self-witnessing with poc-v10
                         ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
                                                               Challengee = blockchain_poc_path_element_v1:challengee(Element),
