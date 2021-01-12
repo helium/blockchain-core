@@ -670,22 +670,25 @@ good_quality_witnesses(Element, Ledger) ->
 %% Iterate over all poc_path elements and for each path element calls a given
 %% callback function with reason tagged witnesses and valid receipt.
 tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
-    Path = ?MODULE:path(Txn),
-    {ok, Channels} = get_channels(Txn, Chain),
-    lists:foldl(fun({ElementPos, Element}, Acc) ->
-                        {PreviousElement, ReceiptChannel, WitnessChannel} =
-                        case ElementPos of
-                            1 ->
-                                {undefined, 0, hd(Channels)};
-                            _ ->
-                                {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-                        end,
-
-                        FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-                        TaggedWitnesses = tagged_witnesses(Element, WitnessChannel, Ledger),
-
-                        Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
-                end, Acc0, lists:zip(lists:seq(1, length(Path)), Path)).
+    case get_channels(Txn, Chain) of
+        {ok, Channels} ->
+            Path = ?MODULE:path(Txn),
+            lists:foldl(fun({ElementPos, Element}, Acc) ->
+                                {PreviousElement, ReceiptChannel, WitnessChannel} =
+                                case ElementPos of
+                                    1 ->
+                                        {undefined, 0, hd(Channels)};
+                                    _ ->
+                                        {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                end,
+        
+                                FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                                TaggedWitnesses = tagged_witnesses(Element, WitnessChannel, Ledger),
+        
+                                Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
+                        end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
+        {error, request_block_hash_not_found} -> []
+    end.
 
 
 %% Iterate over all poc_path elements and for each path element calls a given
