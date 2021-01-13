@@ -291,16 +291,13 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
 filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
     lists:filter(fun(GWAddr) ->
-                         case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
-                             {ok, GWInfo} ->
-                                 case blockchain_ledger_gateway_v2:last_poc_challenge(GWInfo) of
-                                     undefined -> false;
-                                     LastChallenge ->
-                                         (CurrentHeight - LastChallenge) =< InteractiveBlocks
-                                 end;
+                         case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
+                             {ok, undefined} -> false;
+                             {ok, LastChallenge} ->
+                                 (CurrentHeight - LastChallenge) =< InteractiveBlocks;
                              {error, not_found} -> false
                          end
-                 end, GWs).
+                    end, GWs).
 
 -spec limit(
     Res :: 0..12,

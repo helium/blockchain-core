@@ -42,6 +42,7 @@
 
     find_gateway_info/2,
     find_gateway_location/2,
+    find_gateway_owner/2,
     find_gateway_last_challenge/2,
     %% todo add more here
 
@@ -990,6 +991,25 @@ find_gateway_location(Address, Ledger) ->
                     Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                     Location = blockchain_ledger_gateway_v2:location(Gw),
                     {ok, Location};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
+find_gateway_owner(Address,  Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-owner">>, []) of
+        {ok, Owner} ->
+            {ok, Owner};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+                    {ok, Owner};
                 not_found ->
                     {error, not_found};
                 Error ->
@@ -3305,9 +3325,11 @@ bootstrap_gw_denorm(Ledger) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
               Location = blockchain_ledger_gateway_v2:location(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+              Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
-                        term_to_binary(LastChallenge))
+                        term_to_binary(LastChallenge)),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
       end,
       ignore).
 
