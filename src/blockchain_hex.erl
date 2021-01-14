@@ -44,8 +44,14 @@ scale(Location, Ledger) ->
             case get_target_res(Ledger) of
                 {error, _}=E -> E;
                 {ok, TargetRes} ->
-                    S = scale(Location, VarMap, TargetRes, Ledger),
-                    {ok, S}
+                    try
+                        S = scale(Location, VarMap, TargetRes, Ledger),
+                        {ok, S}
+                    catch What:Why:ST ->
+                        {ok, CurHeight} = blockchain_ledger_v1:current_height(Ledger),
+                        lager:error("failed to calculate scale for location: ~p, ~p:~p:~p", [Location, What, Why, ST]),
+                        {error, {failed_scale_calc, Location, CurHeight}}
+                    end
             end
     end.
 
