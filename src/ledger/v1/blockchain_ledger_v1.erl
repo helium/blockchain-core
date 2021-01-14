@@ -839,9 +839,17 @@ load_raw_gateways(Gateways, Ledger) ->
                     ledger()) -> ok | {error, _}.
 load_gateways(Gws, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
     maps:map(
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
+              Location = blockchain_ledger_gateway_v2:location(Gw),
+              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+              Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
+                        term_to_binary(LastChallenge)),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
@@ -1146,9 +1154,16 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
 update_gateway(Gw, GwAddr, Ledger) ->
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
-    %% lager:info("updating ~p", [GwAddr]),
+    GwDenormCF = gw_denorm_cf(Ledger),
     gateway_cache_put(GwAddr, Gw, Ledger),
-    cache_put(Ledger, AGwsCF, GwAddr, Bin).
+    cache_put(Ledger, AGwsCF, GwAddr, Bin),
+    Location = blockchain_ledger_gateway_v2:location(Gw),
+    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
+              term_to_binary(LastChallenge)),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
