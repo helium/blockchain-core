@@ -202,7 +202,7 @@ check_is_valid_poc(Txn, Chain) ->
                 {error, _} ->
                     {error, poc_not_found};
                 {ok, PoC} ->
-                    {ok, LastChallenge} = blockchain_ledger_gateway_v2:find_gatewaylast_challenge(Challenger),
+                    {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
                     %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
                     case blockchain:get_block(LastChallenge, Chain) of
                         {error, Reason}=Error ->
