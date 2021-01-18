@@ -789,33 +789,30 @@ scan_threshold_txns(Ledger, CF) ->
                     {iterate_upper_bound, <<"$threshold_txn`">>}]),
     lists:reverse(L).
 
--spec active_gateways(ledger()) -> active_gateways().
-active_gateways(Ledger) ->
+-spec active_gateways_fold(ledger(), 
+                            Fun :: fun((Key::binary(), Gateway::blockchain_ledger_gateway_v2:gateway(), Acc::any()) -> NewAcc::any()), 
+                            OriginalAcc::any()) -> FinalAcc::any().
+active_gateways_fold(Ledger, Fun, Acc0) ->
     AGwsCF = active_gateways_cf(Ledger),
     cache_fold(
       Ledger,
       AGwsCF,
       fun({Address, Binary}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-              maps:put(Address, Gw, Acc)
+              Fun(Address, Gw, Acc)
       end,
-      #{}
+      Acc0
      ).
+
+-spec active_gateways(ledger()) -> active_gateways().
+active_gateways(Ledger) ->
+    active_gateways_fold(Ledger, fun(Address, Gw, Acc) -> maps:put(Address, Gw, Acc) end, #{}).
 
 %% note that instead of calling lists:sort(maps:to_list(active_gateways())) here
 %% we construct the list in the same order without an intermediate map to make less
 %% garbage
 snapshot_gateways(Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
-    lists:reverse(cache_fold(
-                    Ledger,
-                    AGwsCF,
-                    fun({Address, Binary}, Acc) ->
-                            Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-                            [{Address, Gw}| Acc]
-                    end,
-                    []
-                   )).
+    active_gateways_fold(Ledger, fun(Address, Gw, Acc) -> [{Address, Gw} | Acc] end, []).
 
 snapshot_raw_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
