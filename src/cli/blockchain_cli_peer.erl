@@ -61,7 +61,7 @@ peer_usage() ->
       "  peer connect           - Connnect this node to another node.\n",
       "  peer disconnect        - Disconnect from a connected peer.\n"
       "  peer addr              - Display the p2p address of this node.\n"
-      "  peer book              - Display informatiom from the peerbook of this node.\n"
+      "  peer book              - Display information from the peerbook of this node.\n"
       "  peer gossip_peers      - Display gossip peers of this node.\n"
       "  peer refresh           - Request an updated peerbook for this peer from our gossip peers.\n"
      ]
