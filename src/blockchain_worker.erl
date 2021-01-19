@@ -49,7 +49,7 @@
 
     grab_snapshot/2,
 
-    add_commit_hook/2, add_commit_hook/3,
+    add_commit_hook/3, add_commit_hook/4,
     remove_commit_hook/1
 ]).
 
@@ -237,11 +237,11 @@ mismatch() ->
 async_reset(Height) ->
     gen_server:cast(?SERVER, {async_reset, Height}).
 
-add_commit_hook(CF, HookFun) ->
-    gen_server:call(?SERVER, {add_commit_hook, CF, HookFun}).
+add_commit_hook(CF, HookIncFun, HookEndFun) ->
+    gen_server:call(?SERVER, {add_commit_hook, CF, HookIncFun, HookEndFun}).
 
-add_commit_hook(CF, HookFun, Pred) ->
-    gen_server:call(?SERVER, {add_commit_hook, CF, HookFun, Pred}).
+add_commit_hook(CF, HookIncFun, HookEndFun, Pred) ->
+    gen_server:call(?SERVER, {add_commit_hook, CF, HookIncFun, HookEndFun, Pred}).
 
 remove_commit_hook(RefOrAtom) ->
     gen_server:call(?SERVER, {remove_commit_hook, RefOrAtom}).
@@ -429,14 +429,14 @@ handle_call(is_resyncing, _From, State) ->
 handle_call({reset_ledger_to_snap, Hash, Height}, _From, State) ->
     {reply, ok, reset_ledger_to_snap(Hash, Height, State)};
 
-handle_call({add_commit_hook, CF, HookFun} , _From, #state{blockchain = Chain} = State) ->
+handle_call({add_commit_hook, CF, HookIncFun, HookEndFun} , _From, #state{blockchain = Chain} = State) ->
     Ledger = blockchain:ledger(Chain),
-    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookFun, Ledger),
+    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookIncFun, HookEndFun, Ledger),
     Chain1 = blockchain:ledger(Ledger1, Chain),
     {reply, Ref, State#state{blockchain = Chain1}};
-handle_call({add_commit_hook, CF, HookFun, Pred} , _From, #state{blockchain = Chain} = State) ->
+handle_call({add_commit_hook, CF, HookIncFun, HookEndFun, Pred} , _From, #state{blockchain = Chain} = State) ->
     Ledger = blockchain:ledger(Chain),
-    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookFun, Pred, Ledger),
+    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookIncFun, HookEndFun, Pred, Ledger),
     Chain1 = blockchain:ledger(Ledger1, Chain),
     {reply, Ref, State#state{blockchain = Chain1}};
 handle_call({remove_commit_hook, RefOrCF} , _From, #state{blockchain = Chain} = State) ->

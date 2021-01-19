@@ -136,7 +136,7 @@
     lookup_gateways_from_hex/2,
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
-    add_commit_hook/3, add_commit_hook/4,
+    add_commit_hook/4, add_commit_hook/5,
     remove_commit_hook/2,
 
     %% snapshot save/restore stuff
@@ -211,7 +211,8 @@
         {
          cf :: atom(),
          predicate :: undefined | fun(),
-         hook_fun :: fun(),
+         hook_inc_fun :: fun(),  %% fun called for each incremental/partial update for the relevant CF
+         hook_end_fun :: fun(),  %% fun called after all incremental/partial updates are complete for the relevant cf
          ref :: undefined | reference()
         }).
 
@@ -284,7 +285,7 @@ new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
     %% allow config-set commit hooks in case we're worried about something being racy
     Hooks =
-        [#hook{cf = CF, predicate = Predicate, hook_fun = Fun}
+        [#hook{cf = CF, predicate = Predicate, hook_inc_fun = Fun}
          || {CF, Predicate, Fun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
@@ -3382,14 +3383,15 @@ bootstrap_gw_denorm(Ledger) ->
       ignore).
 
 %% do not call this except via the blockchain_worker wrapper
-add_commit_hook(CF, HookFun, Ledger) ->
-    add_commit_hook(CF, HookFun, undefined, Ledger).
+add_commit_hook(CF, HookIncFun, HookEndFun, Ledger) ->
+    add_commit_hook(CF, HookIncFun, HookEndFun, undefined, Ledger).
 
-add_commit_hook(CF, HookFun, Pred, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
+add_commit_hook(CF, HookIncFun, HookEndFun, Pred, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
     Ref = make_ref(),
     NewHook = #hook{cf = CF,
                     predicate = Pred,
-                    hook_fun = HookFun,
+                    hook_inc_fun = HookIncFun,
+                    hook_end_fun = HookEndFun,
                     ref = Ref},
     Hooks1 = [NewHook | Hooks],
     {Ref, Ledger#ledger_v1{commit_hooks = Hooks1}}.
@@ -3482,15 +3484,15 @@ invoke_commit_hooks(Changes, Filters) ->
                          #{},
                          Changes),
 
-              %% call each hook on each group
+              %% call each incremental hook on each group
               maps:map(
                 fun(CF, HookList) ->
                         HookAtom = maps:get(CF, FiltersMap),
                         HookChanges = maps:get(HookAtom, Groups),
                         lists:foreach(
-                          fun(#hook{hook_fun = HookFun, predicate = undefined}) ->
+                          fun(#hook{hook_inc_fun = HookFun, predicate = undefined}) ->
                                   HookFun(HookChanges);
-                             (#hook{hook_fun = HookFun, predicate = Pred}) ->
+                             (#hook{hook_inc_fun = HookFun, predicate = Pred}) ->
                                   FilteredHookChanges =
                                       lists:filter(fun({_, _, K, V}) ->
                                                            Pred(K, V)
@@ -3498,7 +3500,19 @@ invoke_commit_hooks(Changes, Filters) ->
                                   HookFun(FilteredHookChanges)
                           end, HookList)
                 end,
+                Filters),
+
+                %% call the end hook on each group now that all incremental updates are applied
+              maps:map(
+                fun(_CF, HookList) ->
+                        lists:foreach(
+                          fun(#hook{hook_end_fun = HookFun}) ->
+                                  HookFun()
+                          end, HookList)
+                end,
                 Filters)
+
+
       end).
 
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
