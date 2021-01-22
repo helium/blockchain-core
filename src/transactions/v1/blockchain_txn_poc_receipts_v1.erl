@@ -41,6 +41,7 @@
 ]).
 
 -ifdef(TEST).
+-export([check_witness_allowed_count/3]).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
