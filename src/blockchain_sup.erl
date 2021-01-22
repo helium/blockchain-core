@@ -105,6 +105,7 @@ init(Args) ->
            {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
         ] ++ GroupMgrArgs,
+
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, BaseDir},

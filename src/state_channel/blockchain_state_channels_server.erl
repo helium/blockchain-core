@@ -364,7 +364,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
                     SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
                     %% save it
                     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-                    %% Put new state_channel in our map  
+                    %% Put new state_channel in our map
                     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
                     maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
             end
@@ -436,7 +436,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
                                     Region = blockchain_state_channel_offer_v1:region(SCOffer),
-                                    ok = blockchain_state_channel_handler:send_purchase(HandlerPid,
+                                    ok = blockchain_state_channel_common:send_purchase(HandlerPid,
                                                                                         SignedPurchaseSC,
                                                                                         Hotspot,
                                                                                         PacketHash,
@@ -447,7 +447,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                                          HandlerPid,
                                                          State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)})
                             end
-                            
+
                     end
             end
     end.
@@ -700,7 +700,7 @@ update_state_with_ledger_channels(#state{db=DB, chain=Chain}=State0) ->
             {ok, X} -> X;
             X -> X
         end,
-    
+
     ActiveSCIDs =
         maps:fold(
             fun(ID, {SC, _}, Acc) ->
@@ -710,7 +710,7 @@ update_state_with_ledger_channels(#state{db=DB, chain=Chain}=State0) ->
                     blockchain_state_channel_v1:state(SC) == open andalso
                     blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom) andalso
                     erlang:length(blockchain_state_channel_v1:summaries(SC)) > 0
-                of 
+                of
                     true ->
                         [ID|Acc];
                     false ->
@@ -886,7 +886,7 @@ try_update_summary(SC, Hotspot, PayloadSize, DCPayloadSize, MaxActorsAllowed) ->
 active_scs(#state{active_sc_ids=[]}) ->
     [];
 active_scs(#state{state_channels=SCs, active_sc_ids=ActiveSCIDs}) ->
-    F = fun(ID, Map) -> 
+    F = fun(ID, Map) ->
         {SC, _} = maps:get(ID, Map),
         SC
     end,
@@ -916,7 +916,7 @@ send_rejection(Stream) ->
     erlang:spawn(
         fun() ->
             RejectionMsg = blockchain_state_channel_rejection_v1:new(),
-            ok = blockchain_state_channel_handler:send_rejection(Stream, RejectionMsg)
+            ok = blockchain_state_channel_common:send_rejection(Stream, RejectionMsg)
         end
     ),
     ok.
@@ -995,7 +995,7 @@ send_banner(SC, Stream) ->
     %% NOTE: The banner itself is not signed, however, the state channel
     %% it contains should be signed already
     BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
-    blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
+    blockchain_state_channel_common:send_banner(Stream, BannerMsg1).
 
 -spec update_state_with_blooms(State :: state()) -> state().
 update_state_with_blooms(#state{state_channels=SCs}=State) when map_size(SCs) == 0 ->
