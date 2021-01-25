@@ -25,9 +25,6 @@
          raw_vars/1,
          init_base_dir_config/3,
          join_packet/3,
-         download_ledger/1,
-         apply_extra_vars/2,
-         remove_var/2,
          ledger/2,
          destroy_ledger/0
         ]).
@@ -437,7 +434,9 @@ reverse_bin(<<>>, Acc) -> Acc;
 reverse_bin(<<H:1/binary, Rest/binary>>, Acc) ->
     reverse_bin(Rest, <<H/binary, Acc/binary>>).
 
-download_ledger(S3URL) ->
+ledger(ExtraVars, S3URL) ->
+    %% Ledger at height: 481929
+    %% ActiveGateway Count: 8000
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -447,9 +446,7 @@ download_ledger(S3URL) ->
     %% Extract ledger tar if required
     ok = extract_ledger_tar(PrivDir, LedgerTar, S3URL),
     %% Get the ledger
-    blockchain_ledger_v1:new(PrivDir).
-
-apply_extra_vars(ExtraVars, Ledger) ->
+    Ledger = blockchain_ledger_v1:new(PrivDir),
     %% Get current ledger vars
     LedgerVars = ledger_vars(Ledger),
     %% Ensure the ledger has the vars we're testing against
@@ -459,16 +456,6 @@ apply_extra_vars(ExtraVars, Ledger) ->
     blockchain:bootstrap_hexes(Ledger1),
     blockchain_ledger_v1:commit_context(Ledger1),
     Ledger.
-
-remove_var(VarName, Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:vars(#{}, [VarName], Ledger1),
-    ok = blockchain_ledger_v1:commit_context(Ledger1),
-    Ledger1.
-
-ledger(ExtraVars, S3URL) ->
-    Ledger = download_ledger(S3URL),
-    apply_extra_vars(ExtraVars, Ledger).
 
 extract_ledger_tar(PrivDir, LedgerTar, S3URL) ->
     case filelib:is_file(LedgerTar) of

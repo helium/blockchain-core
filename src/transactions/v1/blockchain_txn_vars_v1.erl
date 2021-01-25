@@ -873,8 +873,6 @@ validate_var(?poc_v4_randomness_wt, Value) ->
     validate_float(Value, "poc_v4_randomness_wt", 0.0, 1.0);
 validate_var(?poc_v5_target_prob_randomness_wt, Value) ->
     validate_float(Value, "poc_v5_target_prob_randomness_wt", 0.0, 1.0);
-validate_var(?poc_witnessing_max, Value) ->
-    validate_int(Value, "poc_witnessing_max", 1, 50, false);
 validate_var(?poc_typo_fixes, Value) ->
     case Value of
         true -> ok;

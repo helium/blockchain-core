@@ -26,7 +26,6 @@
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
-    lookup_witness_count/2,
     witnesses/1,
     witnesses_plain/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
@@ -484,16 +483,6 @@ has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
         _ -> true
     end.
 
--spec lookup_witness_count(gateway(), libp2p_crypto:pubkey_bin()) -> undefined | non_neg_integer().
-lookup_witness_count(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
-    case lists:keyfind(WitnessAddr, 1, Witnesses) of
-        false ->
-            %% no witness found
-            undefined;
-        {_, Witness} ->
-            witness_count(Witness)
-    end.
-
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
     maps:from_list(Gateway#gateway_v2.witnesses).
@@ -505,10 +494,6 @@ witnesses_plain(Gateway) ->
 -spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | histogram().
 witness_hist(Witness) ->
     maps:from_list(Witness#witness.hist).
-
--spec witness_count(gateway_witness()) -> undefined | non_neg_integer().
-witness_count(Witness) ->
-    Witness#witness.count.
 
 -spec witness_recent_time(gateway_witness()) -> undefined | non_neg_integer().
 witness_recent_time(Witness) ->
