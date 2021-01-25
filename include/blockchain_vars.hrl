@@ -149,9 +149,6 @@
 %% during targeting
 -define(poc_witness_consideration_limit, poc_witness_consideration_limit).
 
-%% Maximum number of times hotspot A is allowed to witness some other hotspot B
--define(poc_witnessing_max, poc_witnessing_max).
-
 %%%
 %%% score vars
 %%%
