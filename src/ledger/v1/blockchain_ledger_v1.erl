@@ -39,8 +39,12 @@
     save_threshold_txn/2,
 
     clusters/1,
+    cluster_to_dot/1,
+    cluster_to_walktrap/2,
+    cluster_to_infomap/2,
     cluster_connectivity/1,
     build_clusters/1,
+    find_cluster/2,
     gateway_connectivity_score/2,
     gateway_cluster_size/2,
     footprint/7,
@@ -1021,7 +1025,7 @@ clusters(Ledger) ->
                                               end, Acc) of
                                 [] ->
                                     {Footprint, ExtendedWitnesses} = footprint(Height, GW, #{Addr => GW}, #{}, maps:keys(Witnesses), Ledger, AG),
-                                    Hexes = lists:usort(lists:flatten(maps:values(Footprint))),
+                                    Hexes = lists:usort(lists:flatten([Hx || {Hx, _} <- maps:values(Footprint)])),
                                     case maps:size(Footprint) of
                                         0 ->
                                             Acc;
@@ -1121,7 +1125,7 @@ merge_graph(G1, G2) ->
 graph_edges({Graph, Map}) ->
     maps:fold(fun(_, Node, Acc) ->
                       lists:foldl(fun(E, Acc2) ->
-                                          lists:usort(graph:get_edge(Graph, E) ++ Acc2)
+                                          lists:usort(element(1, graph:get_edge(Graph, E)) ++ Acc2)
                                   end, Acc, graph:edges(Graph, Node))
               end, [], Map).
 
@@ -1149,19 +1153,49 @@ build_clusters(_Ledger) ->
     %{ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %cache_put(Ledger, DefaultCF, <<"cluster_map">>, term_to_binary({Height, Clusters})).
 
-gateway_connectivity_score(Address, Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, Bin} = cache_get(Ledger, DefaultCF, <<"cluster_map">>, []),
-    {AHeight, Map} = binary_to_term(Bin),
-    case Height rem 100 == 0 andalso AHeight /= Height of
-        true ->
-            %% need to rebuild
-            build_clusters(Ledger),
-            gateway_connectivity_score(Address, Ledger);
-        false ->
-            find_cluster(Address, Map)
+gateway_connectivity_score(Address, Cluster) ->
+    gateway_connectivity_score(Address, Cluster, []).
+
+gateway_connectivity_score(Address, _Cluster, Exclusions) ->
+    FinalEdges = gateway_connectivity_score_(Address, _Cluster, Exclusions),
+    Degrees = 3,
+    EdgeCounts = lists:keysort(2,
+                  maps:to_list(
+                    lists:foldl(fun({_, RR, D}, Acc) when D < Degrees, D > 1 ->
+                                        case lists:filter(fun({RR2, _, D2}) when RR == RR2, D2 < D -> true;
+                                                             (_) -> false
+                                                          end, FinalEdges) of
+                                            [] -> Acc;
+                                            _X ->
+                                               % [ io:format("~p continues to ~p~n", [RR, RR3]) || {_, RR3, _} <- X ],
+                                                maps:update_with(RR, fun(V) -> V+1 end, 1, Acc)
+                                        end;
+                                   (_, Acc) -> Acc
+                                end, #{}, FinalEdges))),
+    SingletonEdges = lists:filter(fun({_, X}) -> X > 3 end, EdgeCounts),
+    case SingletonEdges of
+        [] ->
+            %% done
+            FinalEdges;
+        _ ->
+            io:format("Excluding ~p more edges~n", [length(SingletonEdges)]),
+            gateway_connectivity_score(Address, _Cluster, Exclusions ++ element(1, lists:unzip(SingletonEdges)))
     end.
+
+gateway_connectivity_score_(Address, {_Filter, {Graph, Map}} = _Cluster, Exclusions) ->
+    Node = maps:get(Address, Map),
+    Degrees = 3,
+    Edges = [ {Address, graph:get_node(Graph, N), Degrees} || N <- graph:neighbors(Graph, Node) ],
+    lists:usort(Edges ++ gcs(element(2, lists:unzip3(Edges)), Graph, Map, Degrees, Exclusions)).
+
+
+gcs(_, _, _, 0, _) ->
+    [];
+gcs(Addresses, Graph, Map, Degrees, Exclusions) ->
+    Edges = lists:flatten([ [ {Address, graph:get_node(Graph, N), Degrees} || N <- graph:neighbors(Graph, maps:get(Address, Map)), not lists:member(graph:get_node(Graph, N), Exclusions) ] || Address <- Addresses, not lists:member(Address, Exclusions) ]),
+
+    Edges ++ gcs(element(2, lists:unzip3(Edges)), Graph, Map, Degrees - 1, Exclusions).
+
 
 gateway_cluster_size(Address, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -1178,16 +1212,33 @@ gateway_cluster_size(Address, Ledger) ->
     end.
 
 find_cluster(_, []) ->
-    %% assume it's connected for now
-    {1.0, 1};
-find_cluster(Address, [{Score, Filter, Members}|T]) ->
-    case xor16:contain({Filter, fun xxhash:hash64/1}, Address) andalso
-         sets:is_element(Address, Members) of
+    undefined;
+find_cluster(Address, [{Filter, {Graph, Map}}|T]) ->
+    case xor16:contain(Filter, Address) andalso
+         maps:is_key(Address, Map) of
         true ->
-            {Score, sets:size(Members)};
+            {Graph, Map};
         false ->
             find_cluster(Address, T)
     end.
+
+cluster_to_dot({Graph, _Map}) ->
+    [<<"digraph {\n">>,
+       [ [<<"    ">>, integer_to_list(I), <<" [label=\"">>, element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(graph:get_node(Graph, I)))), "\"]\n" ] || I <- lists:seq(0, graph:node_count(Graph) - 1) ],
+       [ [ io_lib:format("    ~b -> ~b~n", [N, E]) || E <- graph:neighbors(Graph, N) ] || N <- maps:values(_Map)], 
+    "}\n"].
+
+cluster_to_walktrap({Graph, _Map}, File) ->
+    file:write_file(File ++ ".net", [ [ io_lib:format("~b ~b ~p~n", [min(N, E), max(N, E), element(2, graph:get_edge(Graph, graph:find_edge(Graph, N, E)))]) || E <- graph:neighbors(Graph, N) ] || N <- maps:values(_Map)]),
+    file:write_file(File ++ ".idx", [ [integer_to_list(I), " ", element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(graph:get_node(Graph, I)))), "\n" ] || I <- lists:seq(0, graph:node_count(Graph) - 1) ]).
+
+cluster_to_infomap({Graph, _Map}, File) ->
+    Edges = lists:flatten([ [ list_to_binary(io_lib:format("~b ~b ~p~n", [N, E, element(2, graph:get_edge(Graph, graph:find_edge(Graph, N, E)))])) || E <- graph:neighbors(Graph, N) ] || N <- maps:values(_Map)]),
+    file:write_file(File ++ ".net", [io_lib:format("*Vertices ~b\n", [maps:size(_Map)]),
+                                     [ io_lib:format("~b ~p~n", [I, element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(graph:get_node(Graph, I))))]) || I <- lists:seq(0, graph:node_count(Graph) - 1)],
+                                     io_lib:format("*Edges ~p~n", [length(Edges)]), Edges]).
+
+
 
 gateway_disjoint(Address, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -1237,27 +1288,36 @@ footprint(Height, Gw, Seen, H3Lines0, [H|T], Ledger, AG) ->
     case is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(W1)) %andalso blockchain_ledger_gateway_v2:last_poc_challenge(W1) > Height - 10000
     of
         true ->
-            New = (maps:keys(blockchain_ledger_gateway_v2:witnesses(W1)) -- maps:keys(Seen)) -- T,
-            H3Lines = lists:foldl(fun(WA, Acc) ->
+            Witnesses = blockchain_ledger_gateway_v2:witnesses(W1),
+            New = maps:keys(Witnesses) -- (maps:keys(Seen) ++ T),
+            H3Lines = lists:foldl(fun({WA, WD}, Acc) ->
                                           {ok, W} = blockchain_gateway_cache:get_at(WA, Ledger, Height),
                                           case blockchain_utils:distance(blockchain_ledger_gateway_v2:location(W1),
-                                                                         blockchain_ledger_gateway_v2:location(W)) < 8 andalso
-                                               is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(W1)) %andalso
+                                                                         blockchain_ledger_gateway_v2:location(W)) < 16 andalso
+                                               is_integer(blockchain_ledger_gateway_v2:last_poc_challenge(W)) %andalso
                                                %blockchain_ledger_gateway_v2:last_poc_challenge(W) > Height - 10000
                                           of
                                               false -> Acc;
                                               true ->
                                                   case H == WA of
                                                       true ->
-                                                          io:format("found self witness ~p~n", [H]);
+                                                          %io:format("found self witness ~p~n", [H]),
+                                                          Acc;
                                                       false ->
-                                                          ok
-                                                  end,
-                                                    maps:put({H, WA}, 
-                                                              h3:line(h3:parent(blockchain_ledger_gateway_v2:location(W1), 9),
-                                                                      h3:parent(blockchain_ledger_gateway_v2:location(W), 9)), Acc)
+                                                          Boo = element(3, WD),
+                                                          %_Resp = case maps:get(H, blockchain_ledger_gateway_v2:witnesses(W), undefined) of
+                                                          %           undefined ->
+                                                          %               0;
+                                                          %           XXX ->
+                                                          %               %io:format("~p / ~p~n", [min(Boo, element(3, XXX)), max(Boo, element(3, XXX))]),
+                                                          %               min(Boo, element(3, XXX))/max(Boo, element(3, XXX))
+                                                          %       end,
+                                                          maps:put({H, WA}, 
+                                                                   {h3:line(h3:parent(blockchain_ledger_gateway_v2:location(W1), 9),
+                                                                           h3:parent(blockchain_ledger_gateway_v2:location(W), 9)), Boo}, Acc)
+                                                  end
                                           end
-                                  end, H3Lines0, New),
+                                  end, H3Lines0, maps:to_list(Witnesses)),
             %io:format("got ~p witnesses ~p remain~n", [maps:size(Seen) + 1, length(T++New)]),
             footprint(Height, Gw, maps:put(H, W1, Seen), H3Lines, (T++New), Ledger, AG);
         false ->
