@@ -266,6 +266,17 @@ is_valid(Txn, Chain) ->
                         throw({error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}})
                 end,
 
+                %% do these before the proof, so we can check validation on unsigned txns
+                maps:map(fun validate_var/2, Vars),
+                lists:foreach(
+                  fun(VarName) ->
+                          case blockchain:config(VarName, Ledger) of % ignore this one using "?"
+                              {ok, _} -> ok;
+                              {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
+                          end
+                  end,
+                  decode_unsets(unsets(Txn))),
+
                 %% here we can accept a valid master key
                 ok = validate_master_keys(Txn, Gen, Artifact, Ledger),
                 case Gen of
@@ -308,15 +319,6 @@ is_valid(Txn, Chain) ->
                         end
                 end,
                 %% NB: validation errors MUST throw
-                maps:map(fun validate_var/2, Vars),
-                lists:foreach(
-                  fun(VarName) ->
-                          case blockchain:config(VarName, Ledger) of % ignore this one using "?"
-                              {ok, _} -> ok;
-                              {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
-                          end
-                  end,
-                  decode_unsets(unsets(Txn))),
 
                 %% TODO: validate that a cancelled transaction is actually on
                 %% the chain
