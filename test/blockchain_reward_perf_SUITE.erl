@@ -104,18 +104,24 @@ reward_perf_test(Config) ->
           end),
     ct:pal("basic calc took: ~p ms", [Time div 1000]),
 
-    %% {Time2, _} =
-    %%     timer:tc(
-    %%       fun() ->
-    %%               blockchain_txn_rewards_v1:calculate_rewards(Height - 20, Height, Chain)
-    %%       end),
-    %% ct:pal("basic calc 2 took: ~p ms", [Time2 div 1000]),
-
     Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:vars(Vars, [], Ledger1),
-    blockchain:bootstrap_h3dex(Ledger1),
-    blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:vars(Vars, [], Ledger2),
+    blockchain:bootstrap_h3dex(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2),
+     
+    [erlang:garbage_collect(P) || P <- processes()],
+    timer:sleep(3000),
+    
+    {Time2, _} =
+        timer:tc(
+          fun() ->
+                  blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
+          end),
+    ct:pal("basic calc 2 took: ~p ms", [Time2 div 1000]),
+
+    [erlang:garbage_collect(P) || P <- processes()],
+    timer:sleep(3000),
 
     {Time3, _} =
         timer:tc(
@@ -123,6 +129,11 @@ reward_perf_test(Config) ->
                   blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
           end),
     ct:pal("hip 17 calc took: ~p ms", [Time3 div 1000]),
+
+    Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    blockchain_ledger_v1:bootstrap_gw_denorm(Ledger1),
+    blockchain_ledger_v1:commit_context(Ledger1),
 
     %% error(print),
     ok.

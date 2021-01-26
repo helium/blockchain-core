@@ -178,7 +178,7 @@ calculate_rewards(Start, End, Chain) ->
                                          Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
                                          [Reward|Acc1];
                                     ({gateway, Type, Gateway}, Amount, Acc1) ->
-                                         case get_gateway_owner(Gateway, Ledger) of
+                                         case blockchain_ledger_v1:find_gateway_owner(Gateway, Ledger) of
                                              {error, _} ->
                                                  Acc1;
                                              {ok, Owner} ->
@@ -557,9 +557,9 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     %% check if there were any legitimate witnesses
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-    ChallengeeLoc = case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
-                        {ok, ChallengeeGw} ->
-                            blockchain_ledger_gateway_v2:location(ChallengeeGw);
+    ChallengeeLoc = case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
+                        {ok, CLoc} ->
+                            CLoc;
                         _ ->
                             undefined
                     end,
@@ -1063,22 +1063,6 @@ maybe_calc_tx_scale(_Challengee,
                        %% [blockchain_utils:addr2name(Challengee), TxScale]),
             blockchain_utils:normalize_float(TxScale)
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec get_gateway_owner(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger())-> {ok, libp2p_crypto:pubkey_bin()}
-                                                                                     | {error, any()}.
-get_gateway_owner(Address, Ledger) ->
-    case blockchain_gateway_cache:get(Address, Ledger) of
-        {error, _Reason}=Error ->
-            lager:debug("failed to get gateway owner for ~p: ~p", [Address, _Reason]),
-            Error;
-        {ok, GwInfo} ->
-            {ok, blockchain_ledger_gateway_v2:owner_address(GwInfo)}
-    end.
-
 
 share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
     0;
