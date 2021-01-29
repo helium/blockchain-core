@@ -1000,8 +1000,9 @@ routing_test(Config) ->
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
 
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    RouterSigFun = libp2p_crypto:mk_sig_fun(RouterPrivKey),
 
     meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
     %% an OUI has a default staking fee of 1, the old version of the test was defaulting this to zero
@@ -1012,7 +1013,7 @@ routing_test(Config) ->
     meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
 
     OUI1 = 1,
-    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm), Router1],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
     OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
@@ -1134,7 +1135,6 @@ routing_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4e]),
 
     OUI2 = 2,
-    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     OUITxn01 = blockchain_txn_oui_v1:new(OUI2, Payer, Addresses0, Filter, 8),
     SignedOUITxn01 = blockchain_txn_oui_v1:sign(OUITxn01, SigFun),
 
@@ -1147,6 +1147,18 @@ routing_test(Config) ->
 
     Routing4 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, Filter, <<0,0,4,127,255,254>>, 0),
     ?assertEqual({ok, Routing4}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
+
+    %% Test if router (in addresses can modify filters)
+    {FilterX, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn02 = blockchain_txn_routing_v1:new_xor(OUI2, Router1, FilterX, 1),
+    SignedOUITxn02 = blockchain_txn_routing_v1:sign(OUITxn02, RouterSigFun),
+    {ok, Block5} = test_utils:create_block(ConsensusMembers, [SignedOUITxn02]),
+    _ = blockchain_gossip_handler:add_block(Block5, Chain, self(), blockchain_swarm:swarm()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 7} == blockchain:height(Chain) end),
+
+    {ok, Routing5} = blockchain_ledger_v1:find_routing(OUI2, Ledger),
+    ?assertEqual([Filter, FilterX], blockchain_ledger_routing_v1:filters(Routing5)),
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
