@@ -1160,6 +1160,18 @@ routing_test(Config) ->
     {ok, Routing5} = blockchain_ledger_v1:find_routing(OUI2, Ledger),
     ?assertEqual([Filter, FilterX], blockchain_ledger_routing_v1:filters(Routing5)),
 
+    %% Test if OUI owner can modify filters
+    {FilterY, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn03 = blockchain_txn_routing_v1:new_xor(OUI2, Payer, FilterY, 2),
+    SignedOUITxn03 = blockchain_txn_routing_v1:sign(OUITxn03, SigFun),
+    {ok, Block6} = test_utils:create_block(ConsensusMembers, [SignedOUITxn03]),
+    _ = blockchain_gossip_handler:add_block(Block6, Chain, self(), blockchain_swarm:swarm()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 8} == blockchain:height(Chain) end),
+
+    {ok, Routing6} = blockchain_ledger_v1:find_routing(OUI2, Ledger),
+    ?assertEqual([Filter, FilterX, FilterY], blockchain_ledger_routing_v1:filters(Routing6)),
+
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
     ok.
