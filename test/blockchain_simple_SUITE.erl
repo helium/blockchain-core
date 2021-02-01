@@ -1172,6 +1172,15 @@ routing_test(Config) ->
     {ok, Routing6} = blockchain_ledger_v1:find_routing(OUI2, Ledger),
     ?assertEqual([Filter, FilterX, FilterY], blockchain_ledger_routing_v1:filters(Routing6)),
 
+    %% Negative test
+    #{secret := NegPivKey, public := NegPubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    NegPubKeyBin = libp2p_crypto:pubkey_to_bin(NegPubKey),
+    NegSigFun = libp2p_crypto:mk_sig_fun(NegPivKey),
+    {FilterZ, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn04 = blockchain_txn_routing_v1:new_xor(OUI2, NegPubKeyBin, FilterZ, 3),
+    SignedOUITxn04 = blockchain_txn_routing_v1:sign(OUITxn04, NegSigFun),
+    {error, _} = test_utils:create_block(ConsensusMembers, [SignedOUITxn04]),
+
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
     ok.
