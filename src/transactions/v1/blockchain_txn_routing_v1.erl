@@ -199,7 +199,7 @@ is_valid(Txn, Chain) ->
             Error;
         {ok, Routing} ->
             Owner = ?MODULE:owner(Txn),
-            case Owner == blockchain_ledger_routing_v1:owner(Routing) of
+            case validate_owner(Txn, Routing) of
                 false ->
                     {error, bad_owner};
                 true ->
@@ -343,6 +343,20 @@ to_json(Txn, _Opts) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec validate_owner(Txn :: txn_routing(), Routing :: blockchain_ledger_routing_v1:routing()) -> boolean().
+validate_owner(Txn, Routing) ->
+    Owner = ?MODULE:owner(Txn),
+    Addresses = blockchain_ledger_routing_v1:addresses(Routing),
+    IsOwner = Owner == blockchain_ledger_routing_v1:owner(Routing),
+    case ?MODULE:action(Txn) of
+        {new_xor, _Xor} ->
+            lists:member(Owner, Addresses) orelse IsOwner;
+        {update_xor, _Index, _Filter} ->
+            lists:member(Owner, Addresses) orelse IsOwner;
+        _ ->
+            IsOwner
+    end.
 
 -spec validate_addresses(string()) -> boolean().
 validate_addresses([]) ->
