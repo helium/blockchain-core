@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
@@ -31,6 +32,7 @@
     election_test/1,
     election_v3_test/1,
     election_v4_test/1,
+    election_v5_test/1,
     chain_vars_test/1,
     chain_vars_set_unset_test/1,
     token_burn_test/1,
@@ -111,6 +113,15 @@ init_per_testcase(TestCase, Config) ->
                           election_seen_penalty => 0.03};
                     election_v4_test ->
                         #{election_version => 4,
+                          election_bba_penalty => 0.01,
+                          election_seen_penalty => 0.03};
+                    election_v5_test ->
+                        #{election_version => 5,
+                          validator_minimum_stake => ?bones(10000),
+                          validator_liveness_grace_period => 50,
+                          validator_liveness_interval => 200,
+                          dkg_penalty => 1.0,
+                          penalty_history_limit => 100,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     _ ->
@@ -1452,7 +1463,7 @@ epoch_reward_test(Config) ->
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
     % 2604167 (poc_challengers) + 552399 (securities) + 248016 (consensus group) + 5000 (initial balance)
-    ?assertEqual(3409582, blockchain_ledger_entry_v1:balance(Entry)),
+    ?assertEqual(34045820296, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
@@ -1798,6 +1809,120 @@ election_v4_test(Config) ->
 
     %% seven should not have been penalized
     ?assertEqual(element(1, lists:nth(7, ScoredOldGroup)), SevenScore),
+
+    ok.
+
+election_v5_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    %% GenesisMembers = ?config(genesis_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    %% Chain = ?config(chain, Config),
+    Chain = blockchain_worker:blockchain(),
+    N = 7,
+
+    %% make sure our generated alpha & beta values are the same each time
+    rand:seed(exs1024s, {1, 2, 234098723564079}),
+    Ledger = blockchain:ledger(Chain),
+
+    %% we need to add some blocks here.   they have to have seen
+    %% values and bbas.
+    %% index 5 will be entirely absent
+    %% index 6 will be talking (seen) but missing from bbas (maybe
+    %% byzantine, maybe just missing/slow on too many packets to
+    %% finish anything)
+    %% index 7 will be bba-present, but only partially seen, and
+    %% should not be penalized
+
+    %% it's possible to test unseen but bba-present here, but that seems impossible?
+
+    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
+
+    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
+                          || I <- lists:seq(1, N)]),
+
+    {_, Seen} =
+        lists:foldl(fun(S, {I, Acc})->
+                            V = blockchain_utils:map_to_bitvector(S),
+                            {I + 1, [{I, V} | Acc]}
+                    end,
+                    {1, []},
+                    Seen0),
+    BBA = blockchain_utils:map_to_bitvector(BBA0),
+
+    %% maybe these should vary more?
+
+    BlockCt0 = 50,
+    BlockCt = 49, % different offset
+
+    lists:foreach(
+      fun(_) ->
+              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
+                                                                      bba_completion => BBA}),
+              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+      end,
+      lists:seq(1, BlockCt0)
+    ),
+
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
+
+    %% generate new group of the same length
+    New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+
+    ct:pal("new ~p new1 ~p", [New, New1]),
+
+    ?assertEqual(N, length(New)),
+    ?assertEqual(N, length(New1)),
+
+    ?assertNotEqual(OldGroup, New),
+    ?assertNotEqual(OldGroup, New1),
+    ?assertNotEqual(New, New1),
+
+    %% no dupes
+    ?assertEqual(lists:usort(New), lists:sort(New)),
+    ?assertEqual(lists:usort(New1), lists:sort(New1)),
+
+    ?assertEqual(1, length(New -- OldGroup)),
+
+    OldGroupVals =
+        [begin
+             {val_v1, 1.0, 1, Addr}
+         end
+         || Addr <- OldGroup],
+
+    Adjusted = blockchain_election:adjust_old_group_v2(OldGroupVals, Ledger),
+
+    ct:pal("adjusted ~p", [Adjusted]),
+
+    {_, FiveScore} = lists:nth(5, Adjusted),
+    {_, SixScore} = lists:nth(6, Adjusted),
+    {_, SevenScore} = lists:nth(7, Adjusted),
+
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+
+    %% five should have taken both hits
+    FiveTarget = normalize_float(element(2, lists:nth(5, OldGroupVals)) +
+                                     normalize_float((BlockCt * BBAPenalty) + (BlockCt * SeenPenalty))),
+    ?assert(FiveTarget > FiveScore),
+    ?assertEqual(2.4896087646484375, FiveScore),
+
+    %% six should have taken only the BBA hit
+    %% move to static targets here because this is no longer easy to calculate
+    SixTarget = normalize_float(element(2, lists:nth(6, OldGroupVals))
+                                + (BlockCt * BBAPenalty)),
+    ?assert(SixTarget > SixScore),
+    ?assertEqual(1.372406005859375, SixScore),
+
+    %% seven should not have been penalized
+    ?assertEqual(element(2, lists:nth(7, OldGroupVals)), SevenScore),
 
     ok.
 
