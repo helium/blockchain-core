@@ -37,7 +37,12 @@
              | blockchain_txn_price_oracle_v1:txn_price_oracle()
              | blockchain_txn_gen_price_oracle_v1:txn_genesis_price_oracle()
              | blockchain_txn_transfer_hotspot_v1:txn_transfer_hotspot()
-             | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
+             | blockchain_txn_state_channel_close_v1:txn_state_channel_close()
+             | blockchain_txn_gen_validator_v1:txn_gen_validator()
+             | blockchain_txn_stake_validator_v1:txn_stake_validator()
+             | blockchain_txn_transfer_validator_stake_v1:txn_transfer_validator_stake()
+             | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
+             | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -113,7 +118,13 @@
     {blockchain_txn_price_oracle_v1, 23},
     {blockchain_txn_state_channel_close_v1, 24},
     {blockchain_txn_token_burn_v1, 25},
-    {blockchain_txn_transfer_hotspot_v1, 26}
+    {blockchain_txn_transfer_hotspot_v1, 26},
+    {blockchain_txn_gen_validator_v1, 27},
+    {blockchain_txn_stake_validator_v1, 28},
+    {blockchain_txn_transfer_validator_stake_v1, 29},
+    {blockchain_txn_unstake_validator_v1, 30},
+    {blockchain_txn_validator_heartbeat_v1, 31},
+    {blockchain_txn_gen_price_oracle_v1, 32}
 ]).
 
 block_delay() ->
@@ -192,7 +203,17 @@ wrap_txn(#blockchain_txn_price_oracle_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_gen_price_oracle_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={gen_price_oracle, Txn}};
 wrap_txn(#blockchain_txn_transfer_hotspot_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={transfer_hotspot, Txn}}.
+    #blockchain_txn_pb{txn={transfer_hotspot, Txn}};
+wrap_txn(#blockchain_txn_gen_validator_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={gen_validator, Txn}};
+wrap_txn(#blockchain_txn_stake_validator_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={stake_validator, Txn}};
+wrap_txn(#blockchain_txn_transfer_validator_stake_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={transfer_val_stake, Txn}};
+wrap_txn(#blockchain_txn_unstake_validator_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={unstake_validator, Txn}};
+wrap_txn(#blockchain_txn_validator_heartbeat_v1_pb{} = Txn) ->
+    #blockchain_txn_pb{txn={val_heartbeat, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -448,7 +469,7 @@ absorb_block(Block, Rescue, Chain) ->
     case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
-            ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain),
+            ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
             {ok, Chain};
         Error ->
             Error
@@ -579,8 +600,17 @@ type(#blockchain_txn_price_oracle_v1_pb{}) ->
 type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
     blockchain_txn_gen_price_oracle_v1;
 type(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
-    blockchain_txn_transfer_hotspot_v1.
-
+    blockchain_txn_transfer_hotspot_v1;
+type(#blockchain_txn_gen_validator_v1_pb{}) ->
+    blockchain_txn_gen_validator_v1;
+type(#blockchain_txn_stake_validator_v1_pb{}) ->
+     blockchain_txn_stake_validator_v1;
+type(#blockchain_txn_unstake_validator_v1_pb{}) ->
+    blockchain_txn_unstake_validator_v1;
+type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
+    blockchain_txn_transfer_validator_stake_v1;
+type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
+    blockchain_txn_validator_heartbeat_v1.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
@@ -645,7 +675,8 @@ type_order(Txn) ->
     Type = type(Txn),
     case lists:keyfind(Type, 1, ?ORDER) of
         {Type, Index} -> Index;
-        false -> erlang:length(?ORDER) + 1
+        %% don't implicitly order unknown transactions
+        false -> error(unknown_transaction)
     end.
 
 %%--------------------------------------------------------------------

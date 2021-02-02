@@ -13,6 +13,7 @@
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain.hrl").
 
 -export([
          new/2, new/3,
@@ -532,7 +533,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                     case check_members(Members, V, Ledger) of
                         true ->
                             {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
-                            Versions = blockchain_ledger_v1:gateway_versions(Ledger),
+                            Versions = blockchain_ledger_v1:cg_versions(Ledger),
                             case sum_higher(V, Versions) of
                                 Pct when Pct >= Threshold andalso Delay =:= 0 ->
                                     delayed_absorb(Txn, Ledger),
@@ -540,7 +541,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                                 Pct when Pct >= Threshold ->
                                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                                     true;
-                                _ ->
+                                _Pct ->
                                     false
                             end;
                         _ ->
@@ -550,7 +551,21 @@ maybe_absorb(Txn, Ledger, _Chain) ->
     end.
 
 check_members(Members, Target, Ledger) ->
-    lists:all(fun(M) ->
+    case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 5 ->
+            lists:all(
+              fun(M) ->
+                      case blockchain_ledger_v1:get_validator(M, Ledger) of
+                          {ok, Val} ->
+                              V = blockchain_ledger_validator_v1:version(Val),
+                              V >= Target;
+                          _Err -> false
+                      end
+              end,
+              Members);
+        _ ->
+            lists:all(
+              fun(M) ->
                       case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
                           {ok, Gw} ->
                               V = blockchain_ledger_gateway_v2:version(Gw),
@@ -558,7 +573,8 @@ check_members(Members, Target, Ledger) ->
                           _ -> false
                       end
               end,
-              Members).
+              Members)
+    end.
 
 delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
@@ -723,6 +739,7 @@ validate_var(?election_version, Value) ->
         2 -> ok;
         3 -> ok;
         4 -> ok;
+        5 -> ok;  % validator move trigger
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
@@ -906,7 +923,7 @@ validate_var(?max_staleness, Value) ->
 
 %% reward vars
 validate_var(?monthly_reward, Value) ->
-    validate_int(Value, "monthly_reward", 1000 * 1000000, 10000000 * 1000000, false);
+    validate_int(Value, "monthly_reward", ?bones(1000), ?bones(10000000), false);
 validate_var(?securities_percent, Value) ->
     validate_float(Value, "securities_percent", 0.0, 1.0);
 validate_var(?consensus_percent, Value) ->
@@ -1106,6 +1123,19 @@ validate_var(?density_tgt_res, Value) ->
     validate_int(Value, "density_tgt_res", 1, 15, false);
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
+
+%% validators vars
+validate_var(?validator_minimum_stake, Value) ->
+    validate_int(Value, "validator_minimum_stake", ?bones(5000), ?bones(100000), false);
+validate_var(?validator_liveness_interval, Value) ->
+    validate_int(Value, "validator_liveness_interval", 5, 200, false);
+validate_var(?validator_liveness_grace_period, Value) ->
+    validate_int(Value, "validator_liveness_grace_period", 1, 100, false);
+validate_var(?stake_withdrawl_cooldown, Value) ->
+    %% maybe set this in the test
+    validate_int(Value, "stake_withdrawl_cooldown", 5, 1000000, false);
+ validate_var(testnet_oops, Value) ->
+     validate_int(Value, "testnet_oops", 1, 3, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

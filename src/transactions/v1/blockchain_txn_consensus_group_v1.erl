@@ -164,6 +164,18 @@ is_valid(Txn, Chain) ->
                             true -> ok;
                             _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
                         end,
+                        %% if we're on validators make sure that everyone is staked
+                        case blockchain_ledger_v1:config(?election_version, Ledger) of
+                            {ok, N} when N >= 5 ->
+                                case lists:all(fun(M) ->
+                                                       {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
+                                                       blockchain_ledger_validator_v1:status(V) == staked end,
+                                               Members) of
+                                    true -> ok;
+                                    false -> throw({error, not_all_validators_staked})
+                                end;
+                            _ -> ok
+                        end,
                         Hash = blockchain_block:hash_block(Block),
                         {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                         case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
@@ -269,7 +281,10 @@ verify_proof(Proof, Members, Hash, Delay, OldLedger) ->
                     {error, group_verification_failed}
             end;
         _ ->
-            lager:info("groups didn't match: ~ntxn ~p ~nhash ~p", [Members, HashMembers]),
+            lager:info("groups didn't match: ~p ~p ~ntxn ~p ~nhash ~p",
+                       [length(Members), length(HashMembers),
+                        lists:map(fun blockchain_utils:addr2name/1, Members),
+                        lists:map(fun blockchain_utils:addr2name/1, HashMembers)]),
             {error, group_mismatch}
     end.
 
