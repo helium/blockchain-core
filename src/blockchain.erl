@@ -853,7 +853,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     Height = blockchain_block:height(Block),
                     Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
-                    MyAddress = blockchain_swarm:pubkey_bin(),
+                    MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
                     BeforeCommit = fun(FChain, FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
@@ -1750,13 +1750,13 @@ load(Dir, Mode) ->
                     blessed_snapshot when HonorQuickSync == true ->
                         %% use 1 as a noop, but this combo is poorly defined
                         Height = application:get_env(blockchain, blessed_snapshot_block_height, 1),
-                        L = blockchain_ledger_v1:new(Dir),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
                         case blockchain_ledger_v1:current_height(L) of
                             {ok, 1} ->
                                 L;
                             {ok, CHt} when CHt < Height ->
                                 blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir);
+                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF);
                             {ok, _} ->
                                 L;
                             %% if we can't open the ledger and we can
@@ -1764,10 +1764,10 @@ load(Dir, Mode) ->
                             %% just reload
                             {error, _} ->
                                 blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir)
+                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF)
                         end;
                     _ ->
-                        L = blockchain_ledger_v1:new(Dir),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
                         blockchain_ledger_v1:compact(L),
                         L
                 end,
@@ -2313,7 +2313,11 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
             lager:error("Error creating snapshot, Reason: ~p", [Reason]),
             Error;
         {ok, NewLedger} ->
-            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+            case application:get_env(blockchain, test_mode, false) of
+                false ->
+                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
+                true -> ok
+            end
     end.
 
 %%--------------------------------------------------------------------

@@ -180,7 +180,7 @@ absorb_rewards(Rewards, Ledger) ->
     ),
     maps:fold(
         fun(Account, Amount, _) ->
-            blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
+                blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
         end,
         ok,
         AccRewards
@@ -228,6 +228,15 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
                                                  Acc1;
                                              {ok, Owner} ->
                                                  Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
+                                                 [Reward|Acc1]
+                                         end;
+                                    ({validator, Type, Validator}, Amount, Acc1) ->
+                                         case blockchain_ledger_v1:get_validator(Validator, Ledger) of
+                                             {error, _} ->
+                                                 Acc1;
+                                             {ok, Val} ->
+                                                 Owner = blockchain_ledger_validator_v1:owner_address(Val),
+                                                 Reward = blockchain_txn_reward_v1:new(Owner, Validator, Amount, Type),
                                                  [Reward|Acc1]
                                          end
                                  end,
@@ -457,6 +466,13 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
                                 map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
                                     consensus_percent := ConsensusPercent}) ->
+    GwOrVal =
+        case blockchain:config(?election_version, Ledger) of
+            {ok, N} when N >= 5 ->
+                validator;
+            _ ->
+                gateway
+        end,
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
             lager:error("failed to get consensus_members ~p", [_Reason]),
@@ -469,7 +485,7 @@ consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
                 fun(Member, Acc) ->
                     PercentofReward = 100/Total/100,
                     Amount = erlang:round(PercentofReward*ConsensusReward),
-                    maps:put({gateway, consensus, Member}, Amount, Acc)
+                    maps:put({GwOrVal, consensus, Member}, Amount, Acc)
                 end,
                 #{},
                 ConsensusMembers
