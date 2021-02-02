@@ -81,16 +81,22 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
         [],
         lists:seq(1, length(Addresses))
     ),
-    InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
-                         || {Addr, Loc} <- lists:zip(Addresses, Locations)],
-
+    InitialConsensusTxn =
+        case ExtraVars of
+            #{election_version := V} when V >= 5 ->
+                [blockchain_txn_gen_validator_v1:new(Addr, Addr, 10000, Addr)
+                 || Addr <- Addresses];
+            _ ->
+                [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
+                 || {Addr, Loc} <- lists:zip(Addresses, Locations)]
+        end,
     ConsensusMembers = lists:sublist(GenesisMembers, 7),
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
                             [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
     Txs = InitialVars ++
         GenPaymentTxs ++
         GenSecPaymentTxs ++
-        InitialGatewayTxn ++
+        InitialConsensusTxn ++
         [GenConsensusGroupTx],
     lager:info("initial transactions: ~p", [Txs]),
 

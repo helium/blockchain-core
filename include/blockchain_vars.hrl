@@ -399,3 +399,12 @@
 -define(hip17_res_12, hip17_res_12).
 -define(density_tgt_res, density_tgt_res).
 -define(hip17_interactivity_blocks, hip17_interactivity_blocks).
+
+%%%
+%%% validators variables
+%%%
+
+-define(validator_minimum_stake, validator_minimum_stake).  % HNT
+-define(validator_liveness_interval, validator_liveness_interval).  % HNT
+-define(stake_withdrawl_cooldown, stake_withdrawl_cooldown). % blocks
+-define(maximum_overstake, maximum_overstake). % float multiple of min stake

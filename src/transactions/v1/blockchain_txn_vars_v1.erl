@@ -723,6 +723,7 @@ validate_var(?election_version, Value) ->
         2 -> ok;
         3 -> ok;
         4 -> ok;
+        5 -> ok;  % validator move trigger
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
@@ -1104,6 +1105,16 @@ validate_var(?density_tgt_res, Value) ->
     validate_int(Value, "density_tgt_res", 1, 15, false);
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
+
+%% validators vars
+validate_var(?validator_minimum_stake, Value) ->
+    validate_int(Value, "validator_minimum_stake", 5000, 100000, false);
+validate_var(?validator_liveness_interval, Value) ->
+    validate_int(Value, "validator_minimum_stake", 5, 200, false);
+validate_var(?stake_withdrawl_cooldown, Value) ->
+    validate_int(Value, "stake_withdrawl_cooldown", 50000, 1000000, false);
+validate_var(?maximum_overstake, Value) ->
+    validate_float(Value, "maximum_overstake", 0.0, 10.0);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

@@ -31,6 +31,7 @@
     election_test/1,
     election_v3_test/1,
     election_v4_test/1,
+    election_v5_test/1,
     chain_vars_test/1,
     chain_vars_set_unset_test/1,
     token_burn_test/1,
@@ -111,6 +112,12 @@ init_per_testcase(TestCase, Config) ->
                           election_seen_penalty => 0.03};
                     election_v4_test ->
                         #{election_version => 4,
+                          election_bba_penalty => 0.01,
+                          election_seen_penalty => 0.03};
+                    election_v5_test ->
+                        #{election_version => 5,
+                          validator_minimum_stake => 10000,
+                          validator_liveness_interval => 200,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     _ ->
@@ -1798,6 +1805,118 @@ election_v4_test(Config) ->
 
     %% seven should not have been penalized
     ?assertEqual(element(1, lists:nth(7, ScoredOldGroup)), SevenScore),
+
+    ok.
+
+election_v5_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    %% GenesisMembers = ?config(genesis_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    %% Chain = ?config(chain, Config),
+    Chain = blockchain_worker:blockchain(),
+    N = 7,
+
+    %% make sure our generated alpha & beta values are the same each time
+    rand:seed(exs1024s, {1, 2, 234098723564079}),
+    Ledger = blockchain:ledger(Chain),
+
+    %% we need to add some blocks here.   they have to have seen
+    %% values and bbas.
+    %% index 5 will be entirely absent
+    %% index 6 will be talking (seen) but missing from bbas (maybe
+    %% byzantine, maybe just missing/slow on too many packets to
+    %% finish anything)
+    %% index 7 will be bba-present, but only partially seen, and
+    %% should not be penalized
+
+    %% it's possible to test unseen but bba-present here, but that seems impossible?
+
+    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
+
+    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
+                          || I <- lists:seq(1, N)]),
+
+    {_, Seen} =
+        lists:foldl(fun(S, {I, Acc})->
+                            V = blockchain_utils:map_to_bitvector(S),
+                            {I + 1, [{I, V} | Acc]}
+                    end,
+                    {1, []},
+                    Seen0),
+    BBA = blockchain_utils:map_to_bitvector(BBA0),
+
+    %% maybe these should vary more?
+
+    BlockCt = 50,
+
+    lists:foreach(
+      fun(_) ->
+              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
+                                                                      bba_completion => BBA}),
+              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+      end,
+      lists:seq(1, BlockCt)
+    ),
+
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
+
+    %% generate new group of the same length
+    New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+
+    ct:pal("new ~p new1 ~p", [New, New1]),
+
+    ?assertEqual(N, length(New)),
+    ?assertEqual(N, length(New1)),
+
+    ?assertNotEqual(OldGroup, New),
+    ?assertNotEqual(OldGroup, New1),
+    ?assertNotEqual(New, New1),
+
+    %% no dupes
+    ?assertEqual(lists:usort(New), lists:sort(New)),
+    ?assertEqual(lists:usort(New1), lists:sort(New1)),
+
+    ?assertEqual(1, length(New -- OldGroup)),
+
+    OldGroupVals =
+        [begin
+             {val_v1, 1.0, 1, Addr}
+         end
+         || Addr <- OldGroup],
+
+    Adjusted = blockchain_election:adjust_old_group(OldGroupVals, Ledger),
+
+    ct:pal("adjusted ~p", [Adjusted]),
+
+    {_, FiveScore} = lists:nth(5, Adjusted),
+    {_, SixScore} = lists:nth(6, Adjusted),
+    {_, SevenScore} = lists:nth(7, Adjusted),
+
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+
+    %% five should have taken both hits
+    FiveTarget = max(0.001,
+                     normalize_float(element(2, lists:nth(5, OldGroupVals)) -
+                                         normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty)))),
+    ?assertEqual(FiveTarget, FiveScore),
+
+    %% six should have taken only the BBA hit
+    SixTarget = max(0.001,
+                    normalize_float(element(2, lists:nth(6, OldGroupVals))
+                                    - (BlockCt * BBAPenalty))),
+    ?assertEqual(SixTarget, SixScore),
+
+    %% seven should not have been penalized
+    ?assertEqual(element(2, lists:nth(7, OldGroupVals)), SevenScore),
 
     ok.
 

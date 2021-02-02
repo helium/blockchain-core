@@ -133,6 +133,14 @@
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
 
+    add_validator/5,
+    get_validator/2,
+    deactivate_validator/2,
+    update_validator/3,
+
+    delay_stake/3,
+    cancel_stake_delay/3,
+
     %% snapshot save/restore stuff
 
     snapshot_vars/1,
@@ -224,6 +232,7 @@
     subnets :: rocksdb:cf_handle(),
     state_channels :: rocksdb:cf_handle(),
     h3dex :: rocksdb:cf_handle(),
+    validators :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid(),
     gateway_cache :: undefined | ets:tid()
 }).
@@ -268,9 +277,11 @@
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
-     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
+     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF,
+     DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -288,7 +299,8 @@ new(Dir) ->
             routing=RoutingCF,
             subnets=SubnetsCF,
             state_channels=SCsCF,
-            h3dex=H3DexCF
+            h3dex=H3DexCF,
+            validators=ValidatorsCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -302,7 +314,8 @@ new(Dir) ->
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
-            h3dex=DelayedH3DexCF
+            h3dex=DelayedH3DexCF,
+            validators=DelayedValidatorsCF
         }
     }.
 
@@ -500,9 +513,11 @@ atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
             htlcs -> SL#sub_ledger_v1.htlcs;
             pocs -> SL#sub_ledger_v1.pocs;
             securities -> SL#sub_ledger_v1.securities;
-            routing -> SL#sub_ledger_v1.routing;
-            state_channels -> SL#sub_ledger_v1.state_channels
-        end.
+            routing -> SL#sub_ledger_v1.routing; 
+            state_channels -> SL#sub_ledger_v1.state_channels;
+            h3dex -> SL#sub_ledger_v1.h3dex;
+            validators -> SL#sub_ledger_v1.validators
+       end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
     {ok, Batch} = rocksdb:batch(),
@@ -2899,6 +2914,10 @@ state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels
 h3dex_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF;
 h3dex_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF.
 
+-spec validators_cf(ledger()) -> rocksdb:cf_handle().
+validators_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{validators=ValidatorsCF}}) -> ValidatorsCF;
+validators_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{validators=ValidatorsCF}}) -> ValidatorsCF.
+
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
@@ -3056,11 +3075,12 @@ open_db(Dir) ->
 
     DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
                   "pocs", "securities", "routing", "subnets", "state_channels",
-                  "h3dex", "gw_denorm",
+                  "h3dex", "gw_denorm", "gw_denorm","validators",
                   "delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
-                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
+                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm",
+                  "delayed_validators"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3347,6 +3367,63 @@ bootstrap_gw_denorm(Ledger) ->
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
       end,
       ignore).
+
+-spec add_validator(ValidatorAddress :: libp2p_crypto:pubkey_bin(),
+                    OwnerAddress :: libp2p_crypto:pubkey_bin(),
+                    Stake :: pos_integer(),
+                    Description :: string(),
+                    Ledger :: ledger()) -> ok | {error, gateway_already_active}.
+add_validator(Address,
+              OwnerAddr,
+              Stake,
+              Description,
+              Ledger) ->
+    case ?MODULE:get_validator(Address, Ledger) of
+        {ok, _} ->
+            {error, validator_already_added};
+        _ ->
+            Val = blockchain_ledger_validator_v1:new(OwnerAddr, Stake, Description),
+
+            update_validator(Address, Val, Ledger)
+    end.
+
+-spec update_validator(Addr :: libp2p_crypto:pubkey_bin(),
+                       Gw :: blockchain_ledger_validator_v1:validator(),
+                       Ledger :: ledger()) -> ok | {error, _}.
+update_validator(Addr, Val, Ledger) ->
+    Bin = blockchain_ledger_validator_v1:serialize(Val),
+    ValsCF = validators_cf(Ledger),
+    cache_put(Ledger, ValsCF, Addr, Bin).
+
+-spec get_validator(libp2p_crypto:pubkey_bin(), ledger()) ->
+          {ok, blockchain_ledger_validator_v1:validator()}
+              | {error, any()}.
+get_validator(Address, Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    case cache_get(Ledger, ValsCF, Address, []) of
+        {ok, BinVal} ->
+            {ok, blockchain_ledger_validator_v1:deserialize(BinVal)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec deactivate_validator(libp2p_crypto:pubkey_bin(), ledger()) ->
+          ok | {error, any()}.
+deactivate_validator(Address, Ledger) ->
+    case get_validator(Address, Ledger) of
+        {ok, Val} ->
+            Val1 = blockchain_ledger_validator_v1:status(unstaked, Val),
+            update_validator(Address, Val1, Ledger);
+        Error -> Error
+    end.
+            
+delay_stake(_, _, _) ->
+    ok.
+
+cancel_stake_delay(_, _, _) ->
+    ok.
 
 batch_from_cache(ETS) ->
     {ok, Batch} = rocksdb:batch(),

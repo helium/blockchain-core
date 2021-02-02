@@ -16,8 +16,17 @@
         ]).
 -endif.
 
+-record(val_v1,
+        {
+         prob :: float(),
+         heartbeat :: pos_integer(),
+         addr :: libp2p_crypto:pubkey_bin()
+        }).
+
 new_group(Ledger, Hash, Size, Delay) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 5 ->
+            new_group_v5(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 4 ->
             new_group_v4(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 3 ->
@@ -151,6 +160,69 @@ new_group_v4(Ledger, Hash, Size, Delay) ->
     Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
     Rem ++ New.
 
+new_group_v5(Ledger, Hash, Size, Delay) ->
+    %% some complications here in the transfer. 
+
+    %% we don't want to clutter this code with a bunch of gateway crap.  so we have a special,
+    %% simple code path just for the transitional time, and then a clean path for afterwards
+
+    %% deterministically set the random seed
+    blockchain_utils:rand_from_hash(Hash),
+
+    {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
+
+    OldLen = length(OldGroup0),
+    {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
+
+    Validators0 = validators_filter(Ledger),
+
+    %% remove dupes, sort
+    {OldGroupDeduped, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
+    
+    %% adjust for bbas and seen votes
+    OldGroupAdjusted = adjust_old_group(OldGroupDeduped, Ledger),
+    
+    %% random shuffle of all validators
+    
+    Validators1 = [{Addr, Prob}
+                  || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
+    
+    %% replace select with iterative icdf
+    New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
+    
+    NewLen = min(Remove, length(New)),
+    ToRem = 
+        case have_gateways(OldGroup0, Ledger) of 
+            [] ->
+                icdf_select(lists:keysort(1, OldGroupAdjusted), NewLen, []);
+            Gateways ->
+                %% just sort and remove the first removal amount rather than selecting, leaving
+                %% validators in to make up the number on the last round if needed.
+                lists:sublist(lists:sort(Gateways), 1, NewLen)
+        end,
+
+    (OldGroup0 -- ToRem) ++ New.
+
+icdf_select(_List, 0, Acc) ->
+    Acc;
+icdf_select(List, ToSelect, _Acc) when ToSelect > length(List) ->
+    {error, not_enough_elements};
+icdf_select(List, ToRemove, Acc) ->
+    ct:pal("remove ~p", [ToRemove]),
+    {ok, Elt} = blockchain_utils:icdf_select(List, rand:uniform()),
+    icdf_select(lists:delete(Elt, List), ToRemove - 1, [Elt | Acc]).
+
+have_gateways(List, Ledger) ->
+    lists:filter(
+      fun(X) ->
+              case blockchain_ledger_v1:get_validator(X, Ledger) of
+                  {ok, _} -> 
+                      false;
+                  {error, not_found} ->
+                      true
+              end
+      end, List).
+
 %% all blocks other than the first block in an election epoch contain
 %% information about the nodes that consensus members saw during the
 %% course of the block, and also information about which BBAs were
@@ -238,7 +310,12 @@ adjust_old_group(Group, Ledger) ->
               Index = maps:get(Addr, Addrs),
               Penalty = maps:get(Index, Penalties, 0.0),
               lager:info("~s ~p ~p", [blockchain_utils:addr2name(Addr), Score, Penalty]),
-              {normalize_float(Score - Penalty), Loc, Addr}
+              {normalize_float(Score - Penalty), Loc, Addr};
+         %% validators v1
+         (#val_v1{prob = Prob, addr = Addr}) ->
+              Index = maps:get(Addr, Addrs),
+              Penalty = maps:get(Index, Penalties, 0.0),
+              {Addr, max(normalize_float(Prob - Penalty), 0.001)}
       end,
       Group).
 
@@ -531,3 +608,53 @@ get_election_txn(Block) ->
         _ ->
             {error, no_group_txn}
     end.
+
+validators_filter(Ledger) ->
+    {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+    blockchain_ledger_v1:cf_fold(
+      validators,
+      fun({Addr, BinVal}, Acc) ->
+              Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+              Stake = blockchain_ledger_validator_v1:stake(Val),
+              HB = blockchain_ledger_validator_v1:last_heartbeat(Val),
+              case Stake >= MinStake of
+                  true ->
+                      maps:put(Addr, #val_v1{addr = Addr,
+                                             heartbeat = HB,
+                                             prob = 1.0}, Acc);
+                  _ -> Acc
+              end
+      end,
+      #{},
+      Ledger).
+
+val_dedup(OldGroup0, Validators0, Ledger) ->
+    %% filter liveness here
+    {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    maps:fold(
+      fun(Addr, Val = #val_v1{heartbeat = Last}, {Old, Candidates} = Acc) ->
+              Missing = (Height - Last) > HBInterval,
+              case lists:member(Addr, OldGroup0) of
+                  true ->
+                      OldGw =
+                          case Missing of
+                              true ->
+                                  Val#val_v1{prob = 0.001};
+                              _ ->
+                                  Val
+                          end,
+                      {[OldGw | Old], Candidates};
+                  _ ->
+                      case Missing of
+                          %% don't bother to add to the candidate list
+                          true ->
+                              Acc;
+                          _ ->
+                              {Old, [Val | Candidates]}
+                      end
+              end
+      end,
+      {[], []},
+      Validators0).
