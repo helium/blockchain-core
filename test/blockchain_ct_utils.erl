@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("include/blockchain_vars.hrl").
+-include("include/blockchain.hrl").
 -include("blockchain_ct_utils.hrl").
 
 -export([pmap/2,
@@ -334,7 +335,7 @@ raw_vars(Vars) ->
                 ?block_version => v1,
                 ?predicate_threshold => 0.85,
                 ?num_consensus_members => 7,
-                ?monthly_reward => 50000 * 1000000,
+                ?monthly_reward => ?bones(5000000),
                 ?securities_percent => 0.35,
                 ?poc_challengees_percent => 0.19 + 0.16,
                 ?poc_challengers_percent => 0.09 + 0.06,
