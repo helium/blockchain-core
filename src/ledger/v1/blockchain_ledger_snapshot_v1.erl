@@ -152,7 +152,9 @@ generate_snapshot(Ledger0, Blocks) ->
         {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
         Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
         Gateways = blockchain_ledger_v1:snapshot_raw_gateways(Ledger),
-        %% need to write these on the ledger side
+        Validators = blockchain_ledger_v1:snapshot_validators(Ledger),
+        DelayedHNT = blockchain_ledger_v1:snapshot_delayed_hnt(Ledger),
+
         PoCs = blockchain_ledger_v1:snapshot_raw_pocs(Ledger),
         Accounts = blockchain_ledger_v1:snapshot_raw_accounts(Ledger),
         DCAccounts = blockchain_ledger_v1:snapshot_raw_dc_accounts(Ledger),
@@ -191,6 +193,8 @@ generate_snapshot(Ledger0, Blocks) ->
               vars => Vars,
 
               gateways => Gateways,
+              validators => Validators,
+              delayed_hnt => DelayedHNT,
               pocs => PoCs,
 
               accounts => Accounts,
@@ -420,6 +424,17 @@ import(Chain, SHA,
                  ok = blockchain_ledger_v1:load_vars(Vars, Ledger),
 
                  ok = blockchain_ledger_v1:load_raw_gateways(Gateways, Ledger),
+                 %% optional validator era stuff will be missing in pre validator snaps
+                 case maps:find(validators, Snapshot) of
+                     error -> ok;
+                     {ok, Validators} ->
+                         ok = blockchain_ledger_v1:load_validators(Validators, Ledger)
+                 end, 
+                 case maps:find(delayed_hnt, Snapshot) of
+                     error -> ok;
+                     {ok, DelayedHNT} ->
+                         ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT, Ledger)
+                 end, 
                  ok = blockchain_ledger_v1:load_raw_pocs(PoCs, Ledger),
                  ok = blockchain_ledger_v1:load_raw_accounts(Accounts, Ledger),
                  ok = blockchain_ledger_v1:load_raw_dc_accounts(DCAccounts, Ledger),
@@ -520,7 +535,15 @@ get_blocks(Chain) ->
     %% this is for rewards calculation when an epoch ends
     %% see https://github.com/helium/blockchain-core/pull/627
     #{ election_height := ElectionHeight } = blockchain_election:election_info(Ledger, Chain),
-    {ok, GraceBlocks} = blockchain:config(?sc_grace_blocks, Ledger),
+    GraceBlocks =
+        case blockchain:config(?sc_grace_blocks, Ledger) of
+            {ok, GBs} ->
+                GBs;
+            %% hard matching on this config makes it impossible to snapshot before we hit state
+            %% channels
+            {error, not_found} ->
+                0
+        end,
 
     DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),

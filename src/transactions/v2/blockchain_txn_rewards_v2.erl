@@ -27,6 +27,11 @@
     start_epoch/1,
     end_epoch/1,
     rewards/1,
+
+    %% reward v2 accessors
+    reward_account/1,
+    reward_amount/1,
+
     sign/2,
     fee/1,
     is_valid/2,
@@ -93,6 +98,14 @@ end_epoch(#blockchain_txn_rewards_v2_pb{end_epoch=End}) ->
 rewards(#blockchain_txn_rewards_v2_pb{rewards=Rewards}) ->
     Rewards.
 
+-spec reward_account(reward_v2()) -> binary().
+reward_account(#blockchain_txn_reward_v2_pb{account = Account}) ->
+    Account.
+
+-spec reward_amount(reward_v2()) -> non_neg_integer().
+reward_amount(#blockchain_txn_reward_v2_pb{amount = Amount}) ->
+    Amount.
+
 -spec sign(txn_rewards_v2(), libp2p_crypto:sig_fun()) -> txn_rewards_v2().
 sign(Txn, _SigFun) ->
     Txn.
@@ -105,16 +118,22 @@ fee(_Txn) ->
 is_valid(Txn, Chain) ->
     Start = ?MODULE:start_epoch(Txn),
     End = ?MODULE:end_epoch(Txn),
-    case ?MODULE:calculate_rewards(Start, End, Chain) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, CalRewards} ->
-            TxnRewards = ?MODULE:rewards(Txn),
-            CalRewardsHashes = [hash(R)|| R <- CalRewards],
-            TxnRewardsHashes = [hash(R)|| R <- TxnRewards],
-            case CalRewardsHashes == TxnRewardsHashes of
-                false -> {error, invalid_rewards_v2};
-                true -> ok
+    TxnRewards = ?MODULE:rewards(Txn),
+    %% TODO: REMOVE THIS ENTIRE CASE STATEMENT AT NEXT RESTART
+    case TxnRewards of
+        [] ->
+            ok;
+        _ ->
+            case ?MODULE:calculate_rewards(Start, End, Chain) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, CalRewards} ->
+                    CalRewardsHashes = [hash(R)|| R <- CalRewards],
+                    TxnRewardsHashes = [hash(R)|| R <- TxnRewards],
+                    case CalRewardsHashes == TxnRewardsHashes of
+                        false -> {error, invalid_rewards_v2};
+                        true -> ok
+                    end
             end
     end.
 
@@ -241,18 +260,27 @@ to_json(Txn, Opts) ->
                     {error, _Error} ->
                         Acc;
                     {ok, GwOwner} ->
-                        [#{
-                            account => ?BIN_TO_B58(GwOwner),
-                            gateway => ?BIN_TO_B58(G),
-                            amount => Amount,
-                            type => Type} | Acc]
+                        [#{account => ?BIN_TO_B58(GwOwner),
+                           gateway => ?BIN_TO_B58(G),
+                           amount => Amount,
+                           type => Type} | Acc]
+                end;
+            ({validator, Type, V}, Amount, Ledger, Acc) ->
+                case blockchain_ledger_v1:get_validator(V, Ledger) of
+                    {error, _Error} ->
+                        Acc;
+                    {ok, Val} ->
+                        Owner = blockchain_ledger_validator_v1:owner_address(Val),
+                        [#{account => ?BIN_TO_B58(Owner),
+                           gateway => ?BIN_TO_B58(V),
+                           amount => Amount,
+                           type => Type} | Acc]
                 end;
             ({owner, Type, O}, Amount, _Ledger, Acc) ->
-                [#{
-                    account => ?BIN_TO_B58(O),
-                    gateway => undefined,
-                    amount => Amount,
-                    type => Type} | Acc]
+                [#{account => ?BIN_TO_B58(O),
+                   gateway => undefined,
+                   amount => Amount,
+                   type => Type} | Acc]
         end,
     Rewards = case lists:keyfind(chain, 1, Opts) of
         {chain, Chain} ->
@@ -450,7 +478,17 @@ prepare_rewards_v2_txns(Results, Ledger) ->
                                                                  fun(Balance) -> Balance + Amt end,
                                                                  Amt,
                                                                  Acc)
-                                        end % gw case
+                                        end; % gw case
+                                    {validator, _Type, V} ->
+                                        case blockchain_ledger_v1:get_validator(V, Ledger) of
+                                            {error, _} -> Acc;
+                                            {ok, Val} ->
+                                                Owner = blockchain_ledger_validator_v1:owner_address(Val),
+                                                maps:update_with(Owner,
+                                                                 fun(Balance) -> Balance + Amt end,
+                                                                 Amt,
+                                                                 Acc)
+                                         end
                                 end % Entry case
                         end, % function
                         Rewards,
@@ -590,6 +628,13 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
                                 non_neg_integer()) -> rewards_map().
 consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
                                     consensus_percent := ConsensusPercent}, OverageTotal) ->
+    GwOrVal =
+        case blockchain:config(?election_version, Ledger) of
+            {ok, N} when N >= 5 ->
+                validator;
+            _ ->
+                gateway
+        end,
     {ok, Members} = blockchain_ledger_v1:consensus_members(Ledger),
     Count = erlang:length(Members),
     OveragePerMember = OverageTotal div Count,
@@ -598,7 +643,7 @@ consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
       fun(Member, Acc) ->
               PercentofReward = 100/Count/100,
               Amount = erlang:round(PercentofReward*ConsensusReward),
-              maps:put({gateway, consensus, Member}, Amount+OveragePerMember, Acc)
+              maps:put({GwOrVal, consensus, Member}, Amount+OveragePerMember, Acc)
       end,
       #{},
       Members).
