@@ -136,7 +136,7 @@ absorb(Txn, Chain) ->
             Account = blockchain_txn_reward_v1:account(Reward),
             Gateway = blockchain_txn_reward_v1:gateway(Reward),
             Split = blockchain_ledger_gateway_v2:get_split(Gateway, Account),
-            Amount = blockchain_txn_reward_v1:amount(Reward) * Split / 100,
+            Amount = (blockchain_txn_reward_v1:amount(Reward) * Split) / 100,
 
             Total = maps:get(Account, Acc, 0),
             maps:put(Account, Total + Amount, Acc)
