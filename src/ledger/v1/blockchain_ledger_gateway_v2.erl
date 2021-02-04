@@ -53,6 +53,7 @@
 -record(gateway_v2, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
+    rewards_map = [] :: rewards_map(),
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
     delta :: non_neg_integer(),
@@ -69,6 +70,7 @@
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
+-type rewards_map() :: #{libp2p_crypto:pubkey_bin(), float()}.
 -type histogram() :: #{integer() => integer()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
@@ -82,6 +84,7 @@ new(OwnerAddress, Location) ->
     #gateway_v2{
         owner_address=OwnerAddress,
         location=Location,
+        rewards_map=[OwnerAddress,1.0]
         delta=1
     }.
 
@@ -92,6 +95,7 @@ new(OwnerAddress, Location, Nonce) ->
     #gateway_v2{
         owner_address=OwnerAddress,
         location=Location,
+        rewards_map=[OwnerAddress,1.0]
         nonce=Nonce,
         delta=1
     }.
@@ -148,6 +152,46 @@ neighbors(Gateway) ->
 
 neighbors(Neighbors, Gateway) ->
     Gateway#gateway_v2{neighbors = Neighbors}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+
+%% rewards map as a list
+
+-spec rewards_map(Gateway :: gateway()) -> #[{libp2p_crypto:pubkey_bin(), float()}].
+rewards_map(Gateway) ->
+    maps:from_list(Gateway#gateway_v2.rewards_map).
+
+-spec rewards_map_plain(Gateway :: gateway()) -> [{libp2p_crypto:pubkey_bin(), float()}].
+rewards_map_plain(Gateway) ->
+  Gateway#gateway_v2.rewards_map.
+
+%% returns split % for a specific owner
+
+-spec get_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> float().
+get_split(Gateway,OwnerAddress) ->
+  maps:find(OwnerAddress,Gateway#gateway_v2.rewards_map).
+
+%% returns all split %'s (sum = 1.0)
+
+-spec get_splits(Gateway :: gateway()) -> [float()].
+get_split(Gateway) ->
+  maps:values(Gateway#gateway_v2.rewards_map).
+
+%% returns all owners of a gateway
+
+-spec get_owners(Gateway :: gateway()) -> [libp2p_crypto:pubkey_bin()].
+get_split(Gateway) ->
+  maps:keys(Gateway#gateway_v2.rewards_map).
+
+%% set split
+
+-spec set_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin(), RewardSplit :: float()) -> boolean().
+set_split(Gateway, OwnerAddress, RewardSplit) ->
+  maps:put(OwnerAddress, RewardSplit, Gateway#gateway_v2.rewards_map).
+
 
 
 %%--------------------------------------------------------------------
