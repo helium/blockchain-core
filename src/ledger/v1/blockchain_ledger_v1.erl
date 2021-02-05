@@ -138,11 +138,13 @@
     deactivate_validator/2,
     update_validator/3,
 
-    delay_stake/3,
-    cancel_stake_delay/3,
+    delay_stake/4,
+    %% cancel_stake_delay/3,
+
+    staked_hnt/1,
+    cooldown_hnt/1,
 
     %% snapshot save/restore stuff
-
     snapshot_vars/1,
     load_vars/2,
     snapshot_pocs/1,
@@ -183,6 +185,11 @@
 
     load_oracle_price/2,
     load_oracle_price_list/2,
+
+    snapshot_validators/1,
+    load_validators/2,
+    snapshot_delayed_hnt/1,
+    load_delayed_hnt/2,
 
     clean/1, close/1,
     compact/1,
@@ -757,6 +764,32 @@ process_delayed_txns(Block, Ledger, Chain) ->
       end,
       PendingTxns),
     cache_delete(Ledger, DefaultCF, block_name(Block)),
+
+    %% do the stake cooldown work
+    HeightEntries =
+        case cache_get(Ledger, DefaultCF, cd_block_name(Block), []) of
+            {ok, HE} ->
+                binary_to_term(HE);
+            not_found ->
+                []
+            %% just gonna function clause for now
+        end,
+    lists:foreach(
+      fun({Owner, Validator, Stake}) ->
+              credit_account(Owner, Stake, Ledger),
+              %% cleanup owner entry
+              {ok, OwnerEntry0} = cache_get(Ledger, DefaultCF, owner_name(Owner), []),
+              OwnerEntry = binary_to_term(OwnerEntry0),
+              
+              case lists:keydelete(Validator, 1, OwnerEntry) of
+                  [] ->
+                      cache_delete(Ledger, DefaultCF, owner_name(Owner));
+                  OwnerEntry1 ->
+                      cache_put(Ledger, DefaultCF, owner_name(Owner),
+                                term_to_binary(OwnerEntry1))
+              end
+      end, HeightEntries),
+    cache_delete(Ledger, DefaultCF, cd_block_name(Block)),
     ok.
 
 delay_vars(Effective, Vars, Ledger) ->
@@ -781,6 +814,12 @@ delay_vars(Effective, Vars, Ledger) ->
 
 block_name(Block) ->
     <<"$block_", (integer_to_binary(Block))/binary>>.
+
+cd_block_name(Block) ->
+    <<"$cd_block_", (integer_to_binary(Block))/binary>>.
+
+owner_name(Block) ->
+    <<"$owner_", (integer_to_binary(Block))/binary>>.
 
 -spec save_threshold_txn(blockchain_txn_vars_v1:txn_vars(), ledger()) ->  ok | {error, any()}.
 save_threshold_txn(Txn, Ledger) ->
@@ -849,6 +888,14 @@ snapshot_raw_gateways(Ledger) ->
 load_raw_gateways(Gateways, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     load_raw(Gateways, AGwsCF, Ledger).
+
+snapshot_validators(Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    snapshot_raw(ValsCF, Ledger).
+
+load_validators(Gateways, Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    load_raw(Gateways, ValsCF, Ledger).
 
 -spec load_gateways([{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}],
                     ledger()) -> ok | {error, _}.
@@ -3414,16 +3461,85 @@ get_validator(Address, Ledger) ->
 deactivate_validator(Address, Ledger) ->
     case get_validator(Address, Ledger) of
         {ok, Val} ->
+            Nonce = blockchain_ledger_validator_v1:nonce(Val),
+            Stake = blockchain_ledger_validator_v1:stake(Val),
+            Owner = blockchain_ledger_validator_v1:owner_address(Val),
+
+            %% set status to unstaked
             Val1 = blockchain_ledger_validator_v1:status(unstaked, Val),
-            update_validator(Address, Val1, Ledger);
+            %% increment the nonce
+            Val2 = blockchain_ledger_validator_v1:nonce(Nonce + 1, Val1),
+            %% 0 the stake
+            Val3 = blockchain_ledger_validator_v1:stake(0, Val2),
+            %% put the stake HNT into cooldown
+            ok = delay_stake(Owner, Address, Stake, Ledger),
+            update_validator(Address, Val3, Ledger);
         Error -> Error
     end.
             
-delay_stake(_, _, _) ->
-    ok.
+delay_stake(Owner, Validator, Stake, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    {ok, Height} = current_height(Ledger),
+    {ok, Cooldown} = config(?stake_withdrawl_cooldown, Ledger),
+    TargetBlock = Height + Cooldown,
 
-cancel_stake_delay(_, _, _) ->
-    ok.
+    %% make an entry for the owner with {validator, stake, target block}
+    OwnerEntry =
+        case cache_get(Ledger, DefaultCF, owner_name(Owner), []) of
+            {ok, OE} ->
+                binary_to_term(OE);
+            not_found ->
+                []
+            %% just gonna function clause for now
+        end,
+    OwnerEntry1 = OwnerEntry ++ [{Validator, Stake, TargetBlock}],
+    cache_put(Ledger, DefaultCF, owner_name(Owner),
+              term_to_binary(OwnerEntry1)),
+    %% make an entry for the return with {owner, validator, stake} at height
+    HeightEntry =
+        case cache_get(Ledger, DefaultCF, cd_block_name(TargetBlock), []) of
+            {ok, HE} ->
+                binary_to_term(HE);
+            not_found ->
+                []
+            %% just gonna function clause for now
+        end,
+    HeightEntry1 = HeightEntry ++ [{Owner, Validator, Stake}],
+    cache_put(Ledger, DefaultCF, cd_block_name(TargetBlock),
+              term_to_binary(HeightEntry1)).
+
+staked_hnt(Ledger) ->
+    cache_fold(
+      Ledger,
+      validators_cf(Ledger),
+      fun({_Addr, BinVal}, Acc) ->
+              Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+              Acc + blockchain_ledger_validator_v1:stake(Val)
+      end,
+      0
+     ).
+
+cooldown_hnt(Ledger) ->
+    cache_fold(
+      Ledger,
+      default_cf(Ledger),
+      fun({_Addr, BinEntries}, Acc) ->
+              Entries = binary_to_term(BinEntries),
+              lists:foldl(
+                fun({_Owner, _ValAddr, Stake}, A) ->
+                        Stake + A
+                end,
+                Acc,
+                Entries)
+      end,
+      0,
+      [{start, {seek, <<"$cd_block_">>}},
+       {iterate_upper_bound, <<"$cd_block`">>}]
+     ).
+
+%% not sure that we need this
+%% cancel_stake_delay(_, _, _) ->
+%%     ok.
 
 batch_from_cache(ETS) ->
     {ok, Batch} = rocksdb:batch(),
@@ -3540,6 +3656,23 @@ load_delayed_vars(DVars, Ledger) ->
                 end, HashesAndVars)
       end, maps:from_list(DVars)),
     ok.
+
+snapshot_delayed_hnt(Ledger) ->
+    CF = default_cf(Ledger),
+    %% steal this from the raw code
+    lists:reverse(
+      cache_fold(
+        Ledger, CF,
+        fun(KV, Acc) ->
+                [KV | Acc]
+        end,
+        [],
+        [{start, {seek, <<"$cd_block_">>}},
+         {iterate_upper_bound, <<"$cd_block`">>}])).
+
+load_delayed_hnt(DHNT, Ledger) ->
+    CF = default_cf(Ledger),
+    load_raw(DHNT, CF, Ledger).
 
 snapshot_threshold_txns(Ledger) ->
     CF = default_cf(Ledger),

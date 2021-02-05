@@ -405,6 +405,8 @@
 %%%
 
 -define(validator_minimum_stake, validator_minimum_stake).  % HNT
--define(validator_liveness_interval, validator_liveness_interval).  % HNT
+-define(validator_liveness_interval, validator_liveness_interval).  % blocks
+-define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
+-define(validator_description_max_len, validator_description_max_len).  % bytes
 -define(stake_withdrawl_cooldown, stake_withdrawl_cooldown). % blocks
--define(maximum_overstake, maximum_overstake). % float multiple of min stake
+%% -define(maximum_overstake, maximum_overstake). % float multiple of min stake

@@ -140,7 +140,7 @@ to_json(Txn, _Opts) ->
     #{
       type => <<"gen_validator_v1">>,
       hash => ?BIN_TO_B64(hash(Txn)),
-      address => ?BIN_TO_B58(address(Txn)),
+      addr => ?BIN_TO_B58(address(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),
       stake => stake(Txn),
       description => description(Txn)
@@ -178,8 +178,7 @@ description_test() ->
 json_test() ->
     Tx = new(<<"0">>, <<"1">>, 1000, <<"meat popsicle">>),
     Json = to_json(Tx, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, validator, owner, location, nonce])).
-
+    ?assertEqual(lists:sort(maps:keys(Json)),
+                 lists:sort([type, hash] ++ record_info(fields, blockchain_txn_gen_validator_v1_pb))).
 
 -endif.

@@ -1110,11 +1110,15 @@ validate_var(?hip17_interactivity_blocks, Value) ->
 validate_var(?validator_minimum_stake, Value) ->
     validate_int(Value, "validator_minimum_stake", 5000, 100000, false);
 validate_var(?validator_liveness_interval, Value) ->
-    validate_int(Value, "validator_minimum_stake", 5, 200, false);
+    validate_int(Value, "validator_liveness_interval", 5, 200, false);
+validate_var(?validator_liveness_grace_period, Value) ->
+    validate_int(Value, "validator_liveness_grace_period", 1, 100, false);
+validate_var(?validator_description_max_len, Value) ->
+    validate_int(Value, "validator_minimum_stake", 64, 1024, false);
 validate_var(?stake_withdrawl_cooldown, Value) ->
     validate_int(Value, "stake_withdrawl_cooldown", 50000, 1000000, false);
-validate_var(?maximum_overstake, Value) ->
-    validate_float(Value, "maximum_overstake", 0.0, 10.0);
+%% validate_var(?maximum_overstake, Value) ->
+%%     validate_float(Value, "maximum_overstake", 0.0, 10.0);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

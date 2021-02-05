@@ -631,11 +631,12 @@ validators_filter(Ledger) ->
 val_dedup(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
     {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
+    {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     maps:fold(
       fun(Addr, Val = #val_v1{heartbeat = Last}, {Old, Candidates} = Acc) ->
-              Missing = (Height - Last) > HBInterval,
+              Missing = (Height - Last) > (HBInterval + HBGrace),
               case lists:member(Addr, OldGroup0) of
                   true ->
                       OldGw =

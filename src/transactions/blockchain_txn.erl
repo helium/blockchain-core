@@ -118,7 +118,13 @@
     {blockchain_txn_price_oracle_v1, 23},
     {blockchain_txn_state_channel_close_v1, 24},
     {blockchain_txn_token_burn_v1, 25},
-    {blockchain_txn_transfer_hotspot_v1, 26}
+    {blockchain_txn_transfer_hotspot_v1, 26},
+    {blockchain_txn_gen_validator_v1, 27},
+    {blockchain_txn_stake_validator_v1, 28},
+    {blockchain_txn_change_validator_description_v1, 29},
+    {blockchain_txn_transfer_validator_stake_v1, 30},
+    {blockchain_txn_unstake_validator_v1, 31},
+    {blockchain_txn_validator_heatbeat_v1, 32}
 ]).
 
 block_delay() ->
@@ -669,7 +675,8 @@ type_order(Txn) ->
     Type = type(Txn),
     case lists:keyfind(Type, 1, ?ORDER) of
         {Type, Index} -> Index;
-        false -> erlang:length(?ORDER) + 1
+        %% don't implicitly order unknown transactions
+        false -> error(unknown_transaction)
     end.
 
 %%--------------------------------------------------------------------

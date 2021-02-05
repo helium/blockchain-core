@@ -11,7 +11,8 @@
          stake/1, stake/2,
          description/1, description/2,
          last_heartbeat/1, last_heartbeat/2,
-
+         status/1, status/2,
+         nonce/1, nonce/2,
          serialize/1, deserialize/1
         ]).
 
@@ -85,6 +86,24 @@ last_heartbeat(Validator) ->
             Validator :: validator()) -> validator().
 last_heartbeat(Heartbeat, Validator) ->
     Validator#validator_v1{heartbeat = Heartbeat}.
+
+-spec nonce(Validator :: validator()) -> non_neg_integer().
+nonce(Validator) ->
+    Validator#validator_v1.nonce.
+
+-spec nonce(Nonce :: non_neg_integer(),
+            Validator :: validator()) -> validator().
+nonce(Nonce, Validator) ->
+    Validator#validator_v1{nonce = Nonce}.
+
+-spec status(Validator :: validator()) -> staked | unstaked.
+status(Validator) ->
+    Validator#validator_v1.status.
+
+-spec status(Status :: staked | unstaked,
+            Validator :: validator()) -> validator().
+status(Status, Validator) ->
+    Validator#validator_v1{status = Status}.
 
 -spec serialize(Validator :: validator()) -> binary().
 serialize(Validator) ->
