@@ -354,7 +354,7 @@ raw_vars(Vars) ->
                 ?reward_version => 1,
                 ?reward_transfer_minimum => 1,
                 ?reward_transfer_maximum => 100,
-                ?max_reward_splits => 10,
+                ?max_num_splits => 10,
                 ?allow_zero_amount => false,
                 ?poc_version => 8,
                 ?poc_good_bucket_low => -132,

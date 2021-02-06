@@ -909,8 +909,8 @@ validate_var(?reward_transfer_minimum, Value) ->
   validate_int(Value, "reward_transfer_minimum", 1,100, false);
 validate_var(?reward_transfer_maximum, Value) ->
   validate_int(Value, "reward_transfer_maximum", 1, 100, false);
-validate_var(?max_reward_splits, Value) ->
-  validate_int(Value, "max_reward_splits", 0, 10, false);
+validate_var(?max_num_splits, Value) ->
+  validate_int(Value, "max_num_splits", 0, 10, false);
 validate_var(?securities_percent, Value) ->
     validate_float(Value, "securities_percent", 0.0, 1.0);
 validate_var(?consensus_percent, Value) ->

@@ -33,6 +33,8 @@
          is_valid_seller/1,
          is_valid_buyer/1,
          is_valid_percentage/2,
+         seller_has_percentage/2,
+         is_valid_num_splits/2,
          absorb/2,
          print/1,
          to_json/2
@@ -169,20 +171,50 @@ is_valid_buyer(#blockchain_txn_split_rewards_v1_pb{buyer=Buyer,
     Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
     libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
--spec is_valid_percentage(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid_percentage(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
-  buyer=Buyer,
-  percentage=Percentage}=Txn,
-    Chain) ->
-  BaseTxn = Txn#blockchain_txn_split_rewards_v1_pb{buyer_signature= <<>>,
-    seller_signature= <<>>},
-  EncodedTxn = blockchain_txn_split_rewards_v1_pb:encode_msg(BaseTxn),
-  Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
-  libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
--spec is_valid(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
+  %% Check if % <= the hotspot owners currently allocated reward %
+  %% Check if The sum of all splits on the ledger would add up to 100 after the transaction
+  %% Check The number of splits on the ledger does not exceed 10 (This limit would be defined by a chain variable)
+
+%% Get Size of gateways map -> if == 10, error - max_splits_reached
+    %% {ok, MaxRewardSplits} = blockchain:config(?max_reward_splits, Ledger),
+ -spec is_valid_percentage(non_neg_integer(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid_percentage(Percentage,Ledger) ->
+    {ok, RewardTransferMinimum} = blockchain:config(?reward_transfer_minimum, Ledger),
+    {ok, RewardTransferMaximum} = blockchain:config(?reward_transfer_maximum, Ledger),
+    case is_integer(Percentage) andalso Percentage >= RewardTransferMinimum
+                                andalso Percentage =< RewardTransferMaximum of
+      {error,_Reason} -> false;
+      ok -> true
+    end.
+
+ -spec seller_has_percentage(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
+seller_has_percentage(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway,
+                                                             seller=Seller,
+                                                             percentage=Percentage},
+                      Ledger) ->
+     OwnedPercentage = blockchain_ledger_gateway_v2:get_split(Gateway,Seller),
+     case OwnedPercentage =< Percentage of
+       {error,_Reason} -> false;
+       ok -> true
+     end.
+
+ -spec is_valid_num_splits(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid_num_splits(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway},
+                    Ledger) ->
+     {ok, MaxNumSplits} = blockchain:config(?max_num_splits, Ledger),
+     NumSplits = blockchain_ledger_gateway_v2:num_splits(Gateway),
+     case NumSplits =< MaxNumSplits of
+       {error,_Reason} -> false;
+       ok -> true
+     end.
+
+
+
+ -spec is_valid(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                                 buyer=Buyer,
+                                                percentage=Percentage,
                                                 amount_to_seller=Bones}=Txn,
          Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -194,10 +226,15 @@ is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                           {error, bad_buyer_signature}},
                   {fun() -> is_integer(Bones) andalso Bones >= 0 end,
                                           {error, invalid_hnt_to_seller}},
+                  {fun() -> is_valid_percentage(Percentage,Ledger) end,
+                                          {error, invalid_percentage}},
+                  {fun() -> seller_has_percentage(Txn, Ledger) end,
+                                          {error, seller_insufficient_percentage}},
+                                          %% Adds up to 10
+                  {fun() -> is_valid_split(Ledger) end,
+                                          {error, too_many_splits}},
                   {fun() -> gateway_not_stale(Txn, Ledger) end,
                                           {error, gateway_too_stale}},
-            %%   Modify this to check for reward split % instead   {fun() -> seller_owns_gateway(Txn, Ledger) end,
-            %%                              {error, gateway_not_owned_by_seller}},
                   {fun() -> txn_fee_valid(Txn, Chain, AreFeesEnabled) end,
                                           {error, wrong_txn_fee}},
                   {fun() -> buyer_has_enough_hnt(Txn, Ledger) end,
