@@ -230,6 +230,8 @@ is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                           {error, buyer_insufficient_hnt_balance}}],
     blockchain_utils:fold_condition_checks(Conditions).
 
+%% This only handles the case where the buyer already owns a %. Has to be reworked to 
+%% handle case where buyer is not in the gateway's reward map
 -spec absorb(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
