@@ -272,6 +272,7 @@ to_json(Txn, _Opts) ->
       gateway => ?BIN_TO_B58(gateway(Txn)),
       seller => ?BIN_TO_B58(seller(Txn)),
       buyer => ?BIN_TO_B58(buyer(Txn)),
+      percentage => ?BIN_TO_B58(percentage(Txn)),
       fee => fee(Txn),
       amount_to_seller => amount_to_seller(Txn)
      }.
