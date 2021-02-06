@@ -33,7 +33,7 @@
          is_valid_seller/1,
          is_valid_buyer/1,
          is_valid_percentage/2,
-         seller_has_percentage/2,
+         seller_has_percentage/1,
          is_valid_num_splits/2,
          absorb/2,
          print/1,
@@ -188,11 +188,10 @@ is_valid_percentage(#blockchain_txn_transfer_hotspot_v1_pb{percentage=Percentage
       ok -> true
     end.
 
- -spec seller_has_percentage(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
+ -spec seller_has_percentage(txn_transfer_hotspot()) -> boolean().
 seller_has_percentage(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway,
                                                              seller=Seller,
-                                                             percentage=Percentage},
-                      Ledger) ->
+                                                             percentage=Percentage}) ->
      OwnedPercentage = blockchain_ledger_gateway_v2:get_split(Gateway,Seller),
      case OwnedPercentage =< Percentage of
        {error,_Reason} -> false;
@@ -225,7 +224,7 @@ is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                           {error, invalid_hnt_to_seller}},
                   {fun() -> is_valid_percentage(Txn,Ledger) end,
                                           {error, invalid_percentage}},
-                  {fun() -> seller_has_percentage(Txn, Ledger) end,
+                  {fun() -> seller_has_percentage(Txn) end,
                                           {error, seller_insufficient_percentage}},
                   {fun() -> is_valid_num_splits(Txn, Ledger) end,
                                           {error, too_many_splits}},
@@ -244,19 +243,23 @@ absorb(Txn, Chain) ->
     Gateway = ?MODULE:gateway(Txn),
     Seller = ?MODULE:seller(Txn),
     Buyer = ?MODULE:buyer(Txn),
+    Percentage = ?MODULE:percentage(Txn),
+    OldSellerPercentage = blockchain_ledger_gateway_v2:get_split(Gateway,Seller),
+    OldBuyerPercentage = blockchain_ledger_gateway_v2:get_split(Gateway,Buyer),
+    NewSellerPercentage = OldSellerPercentage - Percentage,
+    NewBuyerPercentage = OldBuyerPercentage + Percentage,
     Fee = ?MODULE:fee(Txn),
     HNTToSeller = ?MODULE:amount_to_seller(Txn),
 
-    {ok, GWInfo} = blockchain_gateway_cache:get(Gateway, Ledger),
     %% fees here are in DC (and perhaps converted to HNT automagically)
     case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled) of
         {error, _Reason} = Error -> Error;
         ok ->
           %% Not sure if nonce is necessary here
-            ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, BuyerNonce, Ledger),
+            ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, 0, Ledger),
             ok = blockchain_ledger_v1:credit_account(Seller, HNTToSeller, Ledger),
-            NewGWInfo = blockchain_ledger_gateway_v2:owner_address(Buyer, GWInfo),
-            ok = blockchain_ledger_v1:update_gateway(NewGWInfo, Gateway, Ledger)
+            ok = blockchain_ledger_v2:set_split(Gateway, Buyer, NewSellerPercentage),
+            ok = blockchain_ledger_v2:set_split(Gateway, Seller, NewBuyerPercentage)
     end.
 
 -spec print(txn_split_rewards()) -> iodata().
