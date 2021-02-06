@@ -174,7 +174,6 @@
 -define(reward_version, reward_version).
 -define(reward_transfer_minimum, reward_transfer_minimum).
 -define(reward_transfer_maximum, reward_transfer_maximum).
--define(min_reward_splits,min_reward_splits).
 -define(max_reward_splits,max_reward_splits).
 -define(monthly_reward, monthly_reward).
 -define(securities_percent, securities_percent).
