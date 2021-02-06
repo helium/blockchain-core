@@ -188,7 +188,7 @@ is_valid_percentage(#blockchain_txn_transfer_hotspot_v1_pb{percentage=Percentage
       ok -> true
     end.
 
- -spec seller_has_percentage(txn_transfer_hotspot()) -> boolean().
+ -spec seller_has_percentage(txn_split_rewards()) -> boolean().
 seller_has_percentage(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway,
                                                              seller=Seller,
                                                              percentage=Percentage}) ->
@@ -198,7 +198,7 @@ seller_has_percentage(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway,
        ok -> true
      end.
 
- -spec is_valid_num_splits(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
+ -spec is_valid_num_splits(txn_split_rewards(), blockchain_ledger_v1:ledger()) -> boolean().
 is_valid_num_splits(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway},
                     Ledger) ->
      {ok, MaxNumSplits} = blockchain:config(?max_num_splits, Ledger),
