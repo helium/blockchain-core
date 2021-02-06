@@ -73,7 +73,7 @@
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
--type rewards_map() :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()].
+-type rewards_map() :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()}].
 -type histogram() :: #{integer() => integer()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
