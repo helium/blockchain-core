@@ -179,7 +179,7 @@ is_valid_buyer(#blockchain_txn_split_rewards_v1_pb{buyer=Buyer,
 %% Get Size of gateways map -> if == 10, error - max_splits_reached
     %% {ok, MaxRewardSplits} = blockchain:config(?max_reward_splits, Ledger),
  -spec is_valid_percentage(non_neg_integer(), blockchain_ledger_v1:ledger()) -> boolean().
-is_valid_percentage(Percentage,Ledger) ->
+is_valid_percentage(#blockchain_txn_transfer_hotspot_v1_pb{percentage=Percentage},Ledger) ->
     {ok, RewardTransferMinimum} = blockchain:config(?reward_transfer_minimum, Ledger),
     {ok, RewardTransferMaximum} = blockchain:config(?reward_transfer_maximum, Ledger),
     case is_integer(Percentage) andalso Percentage >= RewardTransferMinimum
@@ -212,7 +212,6 @@ is_valid_num_splits(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway},
  -spec is_valid(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                                 buyer=Buyer,
-                                                percentage=Percentage,
                                                 amount_to_seller=Bones}=Txn,
          Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -224,7 +223,7 @@ is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                           {error, bad_buyer_signature}},
                   {fun() -> is_integer(Bones) andalso Bones >= 0 end,
                                           {error, invalid_hnt_to_seller}},
-                  {fun() -> is_valid_percentage(Percentage,Ledger) end,
+                  {fun() -> is_valid_percentage(Txn,Ledger) end,
                                           {error, invalid_percentage}},
                   {fun() -> seller_has_percentage(Txn, Ledger) end,
                                           {error, seller_insufficient_percentage}},
