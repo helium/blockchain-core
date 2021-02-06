@@ -15,10 +15,11 @@
 -endif.
 
 -export([
-         new/3, new/4,
+         new/4, new/5,
          gateway/1,
          seller/1,
          buyer/1,
+         rewards/1,
          seller_signature/1,
          buyer_signature/1,
          amount_to_seller/1,
@@ -41,22 +42,30 @@
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
-          Buyer :: libp2p_crypto:pubkey_bin()
+          Buyer :: libp2p_crypto:pubkey_bin(),
+          Rewards :: non_neg_integer()
          ) -> txn_split_rewards().
-new(Gateway, Seller, Buyer) ->
-    new(Gateway, Seller, Buyer, 0).
+new(Gateway, Seller, Buyer, Rewards) when is_integer(Rewards)
+                                        andalso Rewards > 0
+                                        andalso Rewards <= 100 ->
+    new(Gateway, Seller, Buyer, Rewards, 0).
 
 %% @doc AmountToSeller should be given in Bones, not raw HNT
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
-          Buyer :: libp2p_crypto:pubkey_bin()
+          Buyer :: libp2p_crypto:pubkey_bin(),
+          Rewards :: non_neg_integer(),
           AmountToSeller :: non_neg_integer()) -> txn_split_rewards().
-new(Gateway, Seller, Buyer, AmountToSeller) when is_integer(AmountToSeller)
-                                                        andalso AmountToSeller >= 0 ->
+new(Gateway, Seller, Buyer, Rewards, AmountToSeller) when is_integer(AmountToSeller)
+                                                        andalso AmountToSeller >= 0
+                                                        andalso is_integer(Rewards)
+                                                        andalso Rewards > 0
+                                                        andalso Rewards =< 100 ->
     #blockchain_txn_split_rewards_v1_pb{
        gateway=Gateway,
        seller=Seller,
        buyer=Buyer,
+       rewards=Rewards,
        seller_signature= <<>>,
        buyer_signature= <<>>,
        amount_to_seller=AmountToSeller,
@@ -81,6 +90,10 @@ seller(Txn) ->
 -spec buyer(txn_split_rewards()) -> libp2p_crypto:pubkey_bin().
 buyer(Txn) ->
     Txn#blockchain_txn_split_rewards_v1_pb.buyer.
+
+-spec rewards(txn_split_rewards()) -> libp2p_crypto:pubkey_bin().
+rewards(Txn) ->
+  Txn#blockchain_txn_split_rewards_v1_pb.rewards.
 
 -spec seller_signature(txn_split_rewards()) -> binary().
 seller_signature(Txn) ->
