@@ -209,8 +209,6 @@ is_valid_num_splits(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway},
        ok -> true
      end.
 
-
-
  -spec is_valid(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                                 buyer=Buyer,
@@ -230,8 +228,7 @@ is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                           {error, invalid_percentage}},
                   {fun() -> seller_has_percentage(Txn, Ledger) end,
                                           {error, seller_insufficient_percentage}},
-                                          %% Adds up to 10
-                  {fun() -> is_valid_split(Ledger) end,
+                  {fun() -> is_valid_num_splits(Txn, Ledger) end,
                                           {error, too_many_splits}},
                   {fun() -> gateway_not_stale(Txn, Ledger) end,
                                           {error, gateway_too_stale}},
