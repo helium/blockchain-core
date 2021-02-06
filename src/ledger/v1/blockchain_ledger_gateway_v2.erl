@@ -187,11 +187,9 @@ num_splits(Gateway) ->
 get_owners(Gateway) ->
   maps:keys(Gateway#gateway_v2.rewards_map).
 
-
 -spec set_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin(), RewardSplit :: non_neg_integer()) -> boolean().
 set_split(Gateway, OwnerAddress, RewardSplit) ->
   maps:put(OwnerAddress, RewardSplit, Gateway#gateway_v2.rewards_map).
-
 
 
 %%--------------------------------------------------------------------
