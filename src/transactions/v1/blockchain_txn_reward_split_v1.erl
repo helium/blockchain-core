@@ -171,13 +171,6 @@ is_valid_buyer(#blockchain_txn_split_rewards_v1_pb{buyer=Buyer,
     Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
     libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
-
-  %% Check if % <= the hotspot owners currently allocated reward %
-  %% Check if The sum of all splits on the ledger would add up to 100 after the transaction
-  %% Check The number of splits on the ledger does not exceed 10 (This limit would be defined by a chain variable)
-
-%% Get Size of gateways map -> if == 10, error - max_splits_reached
-    %% {ok, MaxRewardSplits} = blockchain:config(?max_reward_splits, Ledger),
  -spec is_valid_percentage(non_neg_integer(), blockchain_ledger_v1:ledger()) -> boolean().
 is_valid_percentage(#blockchain_txn_transfer_hotspot_v1_pb{percentage=Percentage},Ledger) ->
     {ok, RewardTransferMinimum} = blockchain:config(?reward_transfer_minimum, Ledger),
