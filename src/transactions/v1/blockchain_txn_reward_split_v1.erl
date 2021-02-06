@@ -32,6 +32,7 @@
          is_valid/2,
          is_valid_seller/1,
          is_valid_buyer/1,
+         is_valid_percentage/2,
          absorb/2,
          print/1,
          to_json/2
@@ -43,29 +44,29 @@
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
           Buyer :: libp2p_crypto:pubkey_bin(),
-          Rewards :: non_neg_integer()
+          Percentage :: non_neg_integer()
          ) -> txn_split_rewards().
-new(Gateway, Seller, Buyer, Rewards) when is_integer(Rewards)
-                                        andalso Rewards > 0
-                                        andalso Rewards <= 100 ->
-    new(Gateway, Seller, Buyer, Rewards, 0).
+new(Gateway, Seller, Buyer, Percentage) when is_integer(Percentage)
+                                        andalso Percentage > 0
+                                        andalso Percentage =< 100 ->
+    new(Gateway, Seller, Buyer, Percentage, 0).
 
 %% @doc AmountToSeller should be given in Bones, not raw HNT
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
           Buyer :: libp2p_crypto:pubkey_bin(),
-          Rewards :: non_neg_integer(),
+          Percentage :: non_neg_integer(),
           AmountToSeller :: non_neg_integer()) -> txn_split_rewards().
-new(Gateway, Seller, Buyer, Rewards, AmountToSeller) when is_integer(AmountToSeller)
+new(Gateway, Seller, Buyer, Percentage, AmountToSeller) when is_integer(AmountToSeller)
                                                         andalso AmountToSeller >= 0
-                                                        andalso is_integer(Rewards)
-                                                        andalso Rewards > 0
-                                                        andalso Rewards =< 100 ->
+                                                        andalso is_integer(Percentage)
+                                                        andalso Percentage > 0
+                                                        andalso Percentage =< 100 ->
     #blockchain_txn_split_rewards_v1_pb{
        gateway=Gateway,
        seller=Seller,
        buyer=Buyer,
-       rewards=Rewards,
+       percentage=Percentage,
        seller_signature= <<>>,
        buyer_signature= <<>>,
        amount_to_seller=AmountToSeller,
@@ -167,6 +168,17 @@ is_valid_buyer(#blockchain_txn_split_rewards_v1_pb{buyer=Buyer,
     EncodedTxn = blockchain_txn_split_rewards_v1_pb:encode_msg(BaseTxn),
     Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
     libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
+
+-spec is_valid_percentage(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid_percentage(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
+  buyer=Buyer,
+  percentage=Percentage}=Txn,
+    Chain) ->
+  BaseTxn = Txn#blockchain_txn_split_rewards_v1_pb{buyer_signature= <<>>,
+    seller_signature= <<>>},
+  EncodedTxn = blockchain_txn_split_rewards_v1_pb:encode_msg(BaseTxn),
+  Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
+  libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
 -spec is_valid(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
