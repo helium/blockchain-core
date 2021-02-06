@@ -256,7 +256,7 @@ absorb(Txn, Chain) ->
         {error, _Reason} = Error -> Error;
         ok ->
           %% Not sure if nonce is necessary here
-            ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, 0, Ledger),
+            ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, Ledger),
             ok = blockchain_ledger_v1:credit_account(Seller, HNTToSeller, Ledger),
             ok = blockchain_ledger_v2:set_split(Gateway, Buyer, NewSellerPercentage),
             ok = blockchain_ledger_v2:set_split(Gateway, Seller, NewBuyerPercentage)
