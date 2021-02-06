@@ -905,6 +905,12 @@ validate_var(?max_staleness, Value) ->
 %% reward vars
 validate_var(?monthly_reward, Value) ->
     validate_int(Value, "monthly_reward", 1000 * 1000000, 10000000 * 1000000, false);
+validate_var(?reward_transfer_minimum, Value) ->
+  validate_int(Value, "reward_transfer_minimum", 1,100, false);
+validate_var(?reward_transfer_maximum, Value) ->
+  validate_int(Value, "reward_transfer_maximum", 1, 100, false);
+validate_var(?max_reward_splits, Value) ->
+  validate_int(Value, "max_reward_splits", 0, 10, false);
 validate_var(?securities_percent, Value) ->
     validate_float(Value, "securities_percent", 0.0, 1.0);
 validate_var(?consensus_percent, Value) ->

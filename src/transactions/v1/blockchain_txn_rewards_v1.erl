@@ -303,6 +303,9 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
 -spec get_reward_vars(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> map().
 get_reward_vars(Start, End, Ledger) ->
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
+    {ok, RewardTransferMinimum} = blockchain:config(?reward_transfer_minimum, Ledger),
+    {ok, RewardTransferMaximum} = blockchain:config(?reward_transfer_maximum, Ledger),
+    {ok, MaxRewardSplits} = blockchain:config(?max_reward_splits, Ledger),
     {ok, SecuritiesPercent} = blockchain:config(?securities_percent, Ledger),
     {ok, PocChallengeesPercent} = blockchain:config(?poc_challengees_percent, Ledger),
     {ok, PocChallengersPercent} = blockchain:config(?poc_challengers_percent, Ledger),
@@ -355,6 +358,9 @@ get_reward_vars(Start, End, Ledger) ->
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
+        reward_transfer_minimum => RewardTransferMinimum,
+        reward_transfer_maximum => RewardTransferMaximum,
+        max_reward_splits => MaxRewardSplits,
         epoch_reward => EpochReward,
         oracle_price => OraclePrice,
         securities_percent => SecuritiesPercent,
