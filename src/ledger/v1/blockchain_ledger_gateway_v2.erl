@@ -56,7 +56,7 @@
 -record(gateway_v2, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
-    rewards_map = [] :: rewards_map(),
+    rewards_map = [] :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()],
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
     delta :: non_neg_integer(),
