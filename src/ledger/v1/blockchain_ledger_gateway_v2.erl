@@ -581,6 +581,7 @@ deserialize(<<1, Bin/binary>>) ->
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
+    erlang:display(Gw),
     Gw1 =
         case size(Gw) of
             %% pre-oui upgrade
@@ -589,8 +590,7 @@ deserialize(<<2, Bin/binary>>) ->
                 %% add an undefined OUI slot
                 L1 = lists:append(L, [undefined]),
                 G1 = list_to_tuple(L1),
-                neighbors([], G1),
-                erlang:display(G1);
+                neighbors([], G1);
             14 ->
                 Gw
         end,
@@ -610,6 +610,7 @@ deserialize(<<2, Bin/binary>>) ->
             false ->
                 Witnesses
         end,
+
     Gw2#gateway_v2{witnesses = Witnesses1}.
 
 %% OK to include here, v1 should now be immutable.
