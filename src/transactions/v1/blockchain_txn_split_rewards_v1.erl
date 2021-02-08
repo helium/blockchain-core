@@ -187,9 +187,8 @@ seller_has_percentage(#blockchain_txn_split_rewards_v1_pb{gateway=Gateway,
                                                              seller=Seller,
                                                              percentage=Percentage}) ->
      OwnedPercentage = blockchain_ledger_gateway_v2:get_split(Gateway,Seller),
-     case OwnedPercentage =< Percentage of
-       {error,_Reason} -> false;
-       ok -> true
+     if OwnedPercentage >= Percentage -> true;
+       false -> false
      end.
 
  -spec is_valid_num_splits(txn_split_rewards(), blockchain_ledger_v1:ledger()) -> boolean().
@@ -197,9 +196,8 @@ is_valid_num_splits(#blockchain_txn_split_rewards_v1_pb{gateway=Gateway},
                     Ledger) ->
      {ok, MaxNumSplits} = blockchain:config(?max_num_splits, Ledger),
      NumSplits = blockchain_ledger_gateway_v2:num_splits(Gateway),
-     case NumSplits =< MaxNumSplits of
-       {error,_Reason} -> false;
-       ok -> true
+     if NumSplits =:= MaxNumSplits -> false;
+        true -> true
      end.
 
  -spec is_valid(txn_split_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
