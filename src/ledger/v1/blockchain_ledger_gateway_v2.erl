@@ -611,7 +611,6 @@ deserialize(<<2, Bin/binary>>) ->
 -record(gateway_v1, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
-    rewards_map :: rewards_map(),
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
     delta :: non_neg_integer(),
@@ -624,7 +623,6 @@ deserialize(<<2, Bin/binary>>) ->
 convert(#gateway_v1{
           owner_address = Owner,
           location = Location,
-          rewards_map=RewardsMap,
           alpha = Alpha,
           beta = Beta,
           delta = Delta,
@@ -635,7 +633,7 @@ convert(#gateway_v1{
     #gateway_v2{
        owner_address = Owner,
        location = Location,
-       rewards_map=RewardsMap,
+       rewards_map=[Owner,100],
        alpha = Alpha,
        beta = Beta,
        delta = Delta,
