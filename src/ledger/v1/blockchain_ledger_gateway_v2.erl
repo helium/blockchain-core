@@ -13,7 +13,7 @@
     version/1, version/2,
     add_neighbor/2, remove_neighbor/2,
     neighbors/1, neighbors/2,
-    rewards_map/1, rewards_map_plain/1,
+    rewards_map/1,
     get_split/2, get_splits/1, num_splits/1,
     get_owners/1,
     last_poc_challenge/1, last_poc_challenge/2,
@@ -87,7 +87,7 @@ new(OwnerAddress, Location) ->
     #gateway_v2{
         owner_address=OwnerAddress,
         location=Location,
-        rewards_map=[OwnerAddress,100]
+        rewards_map=[OwnerAddress,100],
         delta=1
     }.
 
@@ -98,7 +98,7 @@ new(OwnerAddress, Location, Nonce) ->
     #gateway_v2{
         owner_address=OwnerAddress,
         location=Location,
-        rewards_map=[OwnerAddress,100]
+        rewards_map=[OwnerAddress,100],
         nonce=Nonce,
         delta=1
     }.
@@ -163,13 +163,9 @@ neighbors(Neighbors, Gateway) ->
 
 %% rewards map as a list
 
--spec rewards_map(Gateway :: gateway()) -> #[{libp2p_crypto:pubkey_bin(), non_neg_integer() => rewards_map()}].
+-spec rewards_map(Gateway :: gateway()) -> rewards_map().
 rewards_map(Gateway) ->
     maps:from_list(Gateway#gateway_v2.rewards_map).
-
--spec rewards_map_plain(Gateway :: gateway()) -> [{libp2p_crypto:pubkey_bin(), non_neg_integer() => rewards_map()}].
-rewards_map_plain(Gateway) ->
-  Gateway#gateway_v2.rewards_map.
 
 -spec get_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> non_neg_integer().
 get_split(Gateway,OwnerAddress) ->
