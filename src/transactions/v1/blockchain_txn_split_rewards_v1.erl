@@ -408,10 +408,10 @@ sign_buyer_test() ->
     ?assert(is_valid_buyer(Tx0)).
 
 to_json_test() ->
-    Tx = new(<<"gateway">>, <<"seller">>, <<"buyer">>, 1, 100),
+    Tx = new(<<"gateway">>, <<"seller">>, <<"buyer">>, 50, 100),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, gateway, seller, buyer, amount_to_seller, fee])).
+                      [type, hash, gateway, seller, buyer, percentage, amount_to_seller, fee])).
 
 
 -endif.
