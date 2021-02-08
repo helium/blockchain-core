@@ -592,7 +592,7 @@ deserialize(<<2, Bin/binary>>) ->
                 G1 = list_to_tuple(L1),
                 rewards_map(G1,[OwnerAddress,100]),
                 neighbors([], G1),
-                erlang:display(Gw1);
+                erlang:display(G1);
             14 ->
                 Gw
         end,
