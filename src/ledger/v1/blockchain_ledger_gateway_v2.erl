@@ -652,6 +652,7 @@ new_test() ->
     Gw = #gateway_v2{
         owner_address = <<"owner_address">>,
         location = 12,
+        rewards_map = [<<"owner_address">>,100],
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
         nonce = 0,
