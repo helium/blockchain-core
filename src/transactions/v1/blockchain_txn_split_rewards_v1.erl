@@ -270,12 +270,12 @@ print(#blockchain_txn_split_rewards_v1_pb{
 -spec to_json(txn_split_rewards(), blockchain_json:options()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"transfer_hotspot_v1">>,
+      type => <<"split_rewards_v1">>,
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       seller => ?BIN_TO_B58(seller(Txn)),
       buyer => ?BIN_TO_B58(buyer(Txn)),
-      percentage => ?BIN_TO_B58(percentage(Txn)),
+      percentage => percentage(Txn),
       fee => fee(Txn),
       amount_to_seller => amount_to_seller(Txn)
      }.
