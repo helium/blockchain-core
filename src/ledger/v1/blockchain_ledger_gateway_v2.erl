@@ -638,7 +638,7 @@ convert(#gateway_v1{
     #gateway_v2{
        owner_address = Owner,
        location = Location,
-       rewards_map=[Owner,100],
+       rewards_map=[owner_address,100],
        alpha = Alpha,
        beta = Beta,
        delta = Delta,
