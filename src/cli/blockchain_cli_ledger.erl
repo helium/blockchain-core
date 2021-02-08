@@ -183,9 +183,9 @@ ledger_fold(Verbose) ->
     Ledger = get_ledger(),
     blockchain_ledger_v1:cf_fold(
       active_gateways,
-      fun({_Addr, BinGw}, Acc) ->
+      fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              [format_ledger_gateway_entry(Gw, Ledger, Verbose) | Acc]
+              [format_ledger_gateway_entry({Addr, Gw}, Ledger, Verbose) | Acc]
       end,
       [],
       Ledger).
