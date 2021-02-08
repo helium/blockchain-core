@@ -6,7 +6,7 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
--include_lib("helium_proto/include/blockchain_txn_reward_split_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_split_rewards_v1_pb.hrl").
 
 -define(STALE_POC_DEFAULT, 0).
 
