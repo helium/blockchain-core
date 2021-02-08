@@ -582,7 +582,6 @@ deserialize(<<1, Bin/binary>>) ->
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
     OwnerAddress = blockchain_ledger_gateway_v2:owner_address(Gw),
-    erlang:display(Gw),
     Gw1 =
         case size(Gw) of
             %% pre-oui upgrade
