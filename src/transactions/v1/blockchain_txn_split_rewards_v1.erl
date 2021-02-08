@@ -173,7 +173,7 @@ is_valid_buyer(#blockchain_txn_split_rewards_v1_pb{buyer=Buyer,
 
 %% These can be made private
  -spec is_valid_percentage(non_neg_integer(), blockchain_ledger_v1:ledger()) -> boolean().
-is_valid_percentage(#blockchain_txn_transfer_hotspot_v1_pb{percentage=Percentage},Ledger) ->
+is_valid_percentage(#blockchain_txn_split_rewards_v1_pb{percentage=Percentage},Ledger) ->
     {ok, RewardTransferMinimum} = blockchain:config(?reward_transfer_minimum, Ledger),
     {ok, RewardTransferMaximum} = blockchain:config(?reward_transfer_maximum, Ledger),
     case is_integer(Percentage) andalso Percentage >= RewardTransferMinimum
@@ -183,7 +183,7 @@ is_valid_percentage(#blockchain_txn_transfer_hotspot_v1_pb{percentage=Percentage
     end.
 
  -spec seller_has_percentage(txn_split_rewards()) -> boolean().
-seller_has_percentage(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway,
+seller_has_percentage(#blockchain_txn_split_rewards_v1_pb{gateway=Gateway,
                                                              seller=Seller,
                                                              percentage=Percentage}) ->
      OwnedPercentage = blockchain_ledger_gateway_v2:get_split(Gateway,Seller),
@@ -193,7 +193,7 @@ seller_has_percentage(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway,
      end.
 
  -spec is_valid_num_splits(txn_split_rewards(), blockchain_ledger_v1:ledger()) -> boolean().
-is_valid_num_splits(#blockchain_txn_transfer_hotspot_v1_pb{gateway=Gateway},
+is_valid_num_splits(#blockchain_txn_split_rewards_v1_pb{gateway=Gateway},
                     Ledger) ->
      {ok, MaxNumSplits} = blockchain:config(?max_num_splits, Ledger),
      NumSplits = blockchain_ledger_gateway_v2:num_splits(Gateway),
