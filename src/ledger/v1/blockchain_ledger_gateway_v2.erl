@@ -581,7 +581,7 @@ deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
     Gw1 =
         case size(Gw) of
-            %% pre-oui upgradeserialize
+            %% pre-oui upgrade
             13 ->
                 L = tuple_to_list(Gw),
                 %% add an undefined OUI slot

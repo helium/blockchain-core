@@ -23,6 +23,7 @@
          seller_signature/1,
          buyer_signature/1,
          amount_to_seller/1,
+         buyer_nonce/1,
          fee/2, fee/1,
          calculate_fee/2, calculate_fee/5,
          hash/1,
@@ -46,20 +47,22 @@
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
           Buyer :: libp2p_crypto:pubkey_bin(),
+          BuyerNonce :: non_neg_integer(),
           Percentage :: non_neg_integer()
          ) -> txn_split_rewards().
-new(Gateway, Seller, Buyer, Percentage) when is_integer(Percentage)
+new(Gateway, Seller, Buyer, BuyerNonce, Percentage) when is_integer(Percentage)
                                         andalso Percentage > 0
                                         andalso Percentage =< 100 ->
-    new(Gateway, Seller, Buyer, Percentage, 0).
+    new(Gateway, Seller, Buyer, BuyerNonce, Percentage, 0).
 
 %% @doc AmountToSeller should be given in Bones, not raw HNT
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
           Buyer :: libp2p_crypto:pubkey_bin(),
+          BuyerNonce :: non_neg_integer(),
           Percentage :: non_neg_integer(),
           AmountToSeller :: non_neg_integer()) -> txn_split_rewards().
-new(Gateway, Seller, Buyer, Percentage, AmountToSeller) when is_integer(AmountToSeller)
+new(Gateway, Seller, Buyer,  BuyerNonce, Percentage, AmountToSeller) when is_integer(AmountToSeller)
                                                         andalso AmountToSeller >= 0
                                                         andalso is_integer(Percentage)
                                                         andalso Percentage > 0
@@ -71,6 +74,7 @@ new(Gateway, Seller, Buyer, Percentage, AmountToSeller) when is_integer(AmountTo
        percentage=Percentage,
        seller_signature= <<>>,
        buyer_signature= <<>>,
+       buyer_nonce=BuyerNonce,
        amount_to_seller=AmountToSeller,
        fee=0
       }.
@@ -105,6 +109,10 @@ seller_signature(Txn) ->
 -spec buyer_signature(txn_split_rewards()) -> binary().
 buyer_signature(Txn) ->
     Txn#blockchain_txn_split_rewards_v1_pb.buyer_signature.
+
+-spec buyer_nonce(txn_split_rewards()) -> non_neg_integer().
+buyer_nonce(Txn) ->
+    Txn#blockchain_txn_split_rewards_v1_pb.buyer_nonce.
 
 -spec amount_to_seller(txn_split_rewards()) -> non_neg_integer().
 amount_to_seller(Txn) ->
@@ -218,6 +226,8 @@ is_valid(#blockchain_txn_split_rewards_v1_pb{seller=Seller,
                                           {error, invalid_percentage}},
                   {fun() -> seller_owns_gateway(Txn, Ledger) end,
                                           {error, gateway_not_owned_by_seller}},
+                  {fun() -> buyer_nonce_correct(Txn, Ledger) end,
+                                          {error, wrong_buyer_nonce}},
                   {fun() -> seller_has_percentage(Txn) end,
                                           {error, seller_insufficient_percentage}},
                   {fun() -> is_valid_num_splits(Txn, Ledger) end,
@@ -245,14 +255,14 @@ absorb(Txn, Chain) ->
     NewSellerPercentage = OldSellerPercentage - Percentage,
     NewBuyerPercentage = OldBuyerPercentage + Percentage,
     Fee = ?MODULE:fee(Txn),
+    BuyerNonce = ?MODULE:buyer_nonce(Txn),
     HNTToSeller = ?MODULE:amount_to_seller(Txn),
 
     %% fees here are in DC (and perhaps converted to HNT automagically)
     case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled) of
         {error, _Reason} = Error -> Error;
         ok ->
-          %% Not sure if nonce is necessary here
-            ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, Ledger),
+            ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller,BuyerNonce, Ledger),
             ok = blockchain_ledger_v1:credit_account(Seller, HNTToSeller, Ledger),
             ok = blockchain_ledger_v2:set_split(Gateway, Buyer, NewBuyerPercentage),
             ok = blockchain_ledger_v2:set_split(Gateway, Seller, NewSellerPercentage)
@@ -263,9 +273,9 @@ print(undefined) -> <<"type=transfer_hotspot, undefined">>;
 print(#blockchain_txn_split_rewards_v1_pb{
          gateway=GW, seller=Seller, buyer=Buyer,
          seller_signature=SS, buyer_signature=BS,
-         fee=Fee, amount_to_seller=HNT}) ->
-    io_lib:format("type=transfer_hotspot, gateway=~p, seller=~p, buyer=~p, seller_signature=~p, buyer_signature=~p, fee=~p (dc), amount_to_seller=~p",
-                  [?TO_ANIMAL_NAME(GW), ?TO_B58(Seller), ?TO_B58(Buyer), SS, BS, Fee, HNT]).
+         buyer_nonce=Nonce, fee=Fee, amount_to_seller=HNT}) ->
+    io_lib:format("type=transfer_hotspot, gateway=~p, seller=~p, buyer=~p, seller_signature=~p, buyer_signature=~p, buyer_nonce=~p, fee=~p (dc), amount_to_seller=~p",
+                  [?TO_ANIMAL_NAME(GW), ?TO_B58(Seller), ?TO_B58(Buyer), SS, BS, Nonce, Fee, HNT]).
 
 -spec to_json(txn_split_rewards(), blockchain_json:options()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
@@ -277,6 +287,7 @@ to_json(Txn, _Opts) ->
       buyer => ?BIN_TO_B58(buyer(Txn)),
       percentage => percentage(Txn),
       fee => fee(Txn),
+      buyer_nonce => buyer_nonce(Txn),
       amount_to_seller => amount_to_seller(Txn)
      }.
 
@@ -323,16 +334,15 @@ txn_fee_valid(#blockchain_txn_split_rewards_v1_pb{fee=Fee}=Txn, Chain, AreFeesEn
     ExpectedTxnFee = calculate_fee(Txn, Chain),
     ExpectedTxnFee =< Fee orelse not AreFeesEnabled.
 
+-spec buyer_nonce_correct(txn_split_rewards(), blockchain_ledger_v1:ledger()) -> boolean().
+buyer_nonce_correct(#blockchain_txn_transfer_hotspot_v1_pb{buyer_nonce=Nonce,
+                                                           buyer=Buyer}, Ledger) ->
+    case blockchain_ledger_v1:find_entry(Buyer, Ledger) of
+        {error, _} -> false;
+        {ok, Entry} ->
+            Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1
+    end.
 
-%% Not sure if I can delete this function and keep get_config_or_default
-%% -spec buyer_nonce_correct(txn_split_rewards(), blockchain_ledger_v1:ledger()) -> boolean().
-%% buyer_nonce_correct(#blockchain_txn_split_rewards_v1_pb{buyer_nonce=Nonce,
-%%                                                          buyer=Buyer}, Ledger) ->
-%%    case blockchain_ledger_v1:find_entry(Buyer, Ledger) of
-%%        {error, _} -> false;
-%%        {ok, Entry} ->
-%%            Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1
-%%    end.
 
 -spec get_config_or_default(txn_split_rewards(), blockchain_ledger_v1:ledger()) -> boolean().
 get_config_or_default(?transfer_hotspot_stale_poc_blocks=Config, Ledger) ->
@@ -349,6 +359,7 @@ new_4_test() ->
                                                 seller_signature = <<>>,
                                                 buyer= <<"buyer">>,
                                                 buyer_signature = <<>>,
+                                                buyer_nonce=1,
                                                 percentage = 50,
                                                 amount_to_seller=0,
                                                 fee=0},
@@ -360,6 +371,7 @@ new_5_test() ->
                                                 seller_signature = <<>>,
                                                 buyer= <<"buyer">>,
                                                 buyer_signature = <<>>,
+                                                buyer_nonce=1,
                                                 percentage = 100,
                                                 amount_to_seller=100,
                                                 fee=0},
@@ -411,7 +423,7 @@ to_json_test() ->
     Tx = new(<<"gateway">>, <<"seller">>, <<"buyer">>, 50, 100),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, gateway, seller, buyer, percentage, amount_to_seller, fee])).
+                      [type, hash, gateway, seller, buyer, buyer_nonce, percentage, amount_to_seller, fee])).
 
 
 -endif.
