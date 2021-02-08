@@ -349,9 +349,10 @@ new_4_test() ->
                                                 seller_signature = <<>>,
                                                 buyer= <<"buyer">>,
                                                 buyer_signature = <<>>,
+                                                percentage = 50,
                                                 amount_to_seller=0,
                                                 fee=0},
-    ?assertEqual(Tx, new(<<"gateway">>, <<"seller">>, <<"buyer">>, 1)).
+    ?assertEqual(Tx, new(<<"gateway">>, <<"seller">>, <<"buyer">>, 50)).
 
 new_5_test() ->
     Tx = #blockchain_txn_split_rewards_v1_pb{gateway= <<"gateway">>,
@@ -359,9 +360,10 @@ new_5_test() ->
                                                 seller_signature = <<>>,
                                                 buyer= <<"buyer">>,
                                                 buyer_signature = <<>>,
+                                                percentage = 100,
                                                 amount_to_seller=100,
                                                 fee=0},
-    ?assertEqual(Tx, new(<<"gateway">>, <<"seller">>, <<"buyer">>, 1, 100)).
+    ?assertEqual(Tx, new(<<"gateway">>, <<"seller">>, <<"buyer">>, 100, 100)).
 
 gateway_test() ->
     Tx = new(<<"gateway">>, <<"seller">>, <<"buyer">>, 1),
