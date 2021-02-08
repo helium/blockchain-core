@@ -117,6 +117,7 @@ init_per_testcase(TestCase, Config) ->
                     election_v5_test ->
                         #{election_version => 5,
                           validator_minimum_stake => 10000,
+                          validator_liveness_grace_period => 50,
                           validator_liveness_interval => 200,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};

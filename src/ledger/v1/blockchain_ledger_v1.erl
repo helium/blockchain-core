@@ -3122,7 +3122,7 @@ open_db(Dir) ->
 
     DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
                   "pocs", "securities", "routing", "subnets", "state_channels",
-                  "h3dex", "gw_denorm", "gw_denorm","validators",
+                  "h3dex", "gw_denorm", "validators",
                   "delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
