@@ -581,6 +581,7 @@ deserialize(<<1, Bin/binary>>) ->
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
+    OwnerAddress = blockchain_ledger_gateway_v2:owner_address(Gw),
     erlang:display(Gw),
     Gw1 =
         case size(Gw) of
@@ -611,7 +612,7 @@ deserialize(<<2, Bin/binary>>) ->
                 Witnesses
         end,
 
-    Gw2#gateway_v2{witnesses = Witnesses1}.
+    Gw2#gateway_v2{witnesses = Witnesses1,rewards_map=[OwnerAddress,100]}.
 
 %% OK to include here, v1 should now be immutable.
 -record(gateway_v1, {
