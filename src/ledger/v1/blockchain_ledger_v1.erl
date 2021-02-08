@@ -1433,16 +1433,19 @@ refresh_gateway_witnesses(Hash, Ledger) ->
 -spec find_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v2:pocs()} | {error, any()}.
 find_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
+    erlang:display("----- OnionKeyHash -----"),
     erlang:display(OnionKeyHash),
+    erlang:display("----- PoCsCf -----"),
     erlang:display(PoCsCF),
+    erlang:display("----- Ledger -----"),
     erlang:display(Ledger),
     case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
         {ok, BinPoCs} ->
-            erlang:display("Error code 1"),
+            erlang:display("----- Case 1 -----"),
             PoCs = erlang:binary_to_term(BinPoCs),
             {ok, lists:map(fun blockchain_ledger_poc_v2:deserialize/1, PoCs)};
         not_found ->
-            erlang:display("Error code 2"),
+            erlang:display("----- Case 2 -----"),
             {error, not_found};
         Error ->
             Error
