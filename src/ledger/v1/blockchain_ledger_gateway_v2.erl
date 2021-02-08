@@ -306,21 +306,21 @@ print(Address, Gateway, Ledger, Verbose) ->
         fun(undefined) -> "undefined";
            (I) -> Height - I
         end,
-    {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
     Scoring =
         case Verbose of
             true ->
-                [
-                 {alpha, alpha(Gateway)},
-                 {new_alpha, NewAlpha},
-                 {beta, beta(Gateway)},
-                 {new_beta, NewBeta},
-                 {delta, Height - delta(Gateway)}
+                {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
+                [ 
+                  {score, Score},
+                  {alpha, alpha(Gateway)},
+                  {new_alpha, NewAlpha},
+                  {beta, beta(Gateway)},
+                  {new_beta, NewBeta},
+                  {delta, Height - delta(Gateway)}
                 ];
             _ -> []
         end,
     [
-     {score, Score},
      {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
      {location, UndefinedHandleFunc(location(Gateway))},
      {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
