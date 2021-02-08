@@ -163,8 +163,6 @@ neighbors(Neighbors, Gateway) ->
 %% @end
 %%--------------------------------------------------------------------
 
-%% rewards map as a list
-
 -spec rewards_map(Gateway :: gateway()) -> rewards_map().
 rewards_map(Gateway) ->
     maps:from_list(Gateway#gateway_v2.rewards_map).
