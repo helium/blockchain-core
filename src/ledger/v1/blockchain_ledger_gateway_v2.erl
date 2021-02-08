@@ -13,7 +13,7 @@
     version/1, version/2,
     add_neighbor/2, remove_neighbor/2,
     neighbors/1, neighbors/2,
-    rewards_map/1,
+    rewards_map/1, rewards_map/2,
     get_split/2, get_splits/1,
     num_splits/1,
     get_owners/1,
@@ -168,6 +168,10 @@ neighbors(Neighbors, Gateway) ->
 -spec rewards_map(Gateway :: gateway()) -> rewards_map().
 rewards_map(Gateway) ->
     maps:from_list(Gateway#gateway_v2.rewards_map).
+
+-spec rewards_map(Gateway :: gateway(), RewardsMap :: rewards_map()) -> rewards_map().
+rewards_map(Gateway,RewardsMap) ->
+    Gateway#gateway_v2{rewards_map = RewardsMap}.
 
 -spec get_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> non_neg_integer().
 get_split(Gateway,OwnerAddress) ->
@@ -577,7 +581,7 @@ deserialize(<<1, Bin/binary>>) ->
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
-    erlang:display(size(Gw)),
+    OwnerAddress = blockchain_ledger_gateway_v2:owner_address(Gw),
     Gw1 =
         case size(Gw) of
             %% pre-oui upgrade
@@ -586,6 +590,7 @@ deserialize(<<2, Bin/binary>>) ->
                 %% add an undefined OUI slot
                 L1 = lists:append(L, [undefined]),
                 G1 = list_to_tuple(L1),
+                rewards_map(G1,[OwnerAddress,100]),
                 neighbors([], G1);
             14 ->
                 Gw
