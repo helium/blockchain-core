@@ -6,7 +6,7 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/1,
+    new/1, new_aux/1,
     mode/1, mode/2,
     dir/1,
 
@@ -205,7 +205,7 @@
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
     snapshots :: ets:tid(),
-    mode = active :: active | delayed,
+    mode = active :: mode(),
     active :: sub_ledger(),
     delayed :: sub_ledger(),
     snapshot :: undefined | rocksdb:snapshot_handle()
@@ -229,6 +229,7 @@
 }).
 
 -define(DB_FILE, "ledger.db").
+-define(AUX_DB_FILE, "aux_ledger.db").
 -define(CURRENT_HEIGHT, <<"current_height">>).
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
@@ -249,6 +250,7 @@
 -define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
 -define(DEFAULT_ORACLE_PRICE, 0).
 
+-type mode() :: active | delayed | aux.
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
@@ -266,7 +268,7 @@
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
-    {ok, DB, CFs} = open_db(Dir),
+    {ok, DB, CFs} = open_db(Dir, ?DB_FILE),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
@@ -306,11 +308,39 @@ new(Dir) ->
         }
     }.
 
--spec mode(ledger()) -> active | delayed.
+-spec new_aux(file:filename_all()) -> ledger().
+new_aux(Dir) ->
+    {ok, DB, CFs} = open_db(Dir, ?AUX_DB_FILE),
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, _DelayedDefaultCF, _DelayedAGwsCF, _DelayedEntriesCF,
+     __DelayedDCEntriesCF, _DelayedHTLCsCF, _DelayedPoCsCF, _DelayedSecuritiesCF,
+     _DelayedRoutingCF, _DelayedSubnetsCF, _DelayedSCsCF, _DelayedH3DexCF, _DelayedGwDenormCF] = CFs,
+    #ledger_v1{
+        dir=Dir,
+        db=DB,
+        mode=aux,
+        snapshots = ets:new(snapshot_cache, [set, public, {keypos, 1}]),
+        active= #sub_ledger_v1{
+            default=DefaultCF,
+            active_gateways=AGwsCF,
+            gw_denorm=GwDenormCF,
+            entries=EntriesCF,
+            dc_entries=DCEntriesCF,
+            htlcs=HTLCsCF,
+            pocs=PoCsCF,
+            securities=SecuritiesCF,
+            routing=RoutingCF,
+            subnets=SubnetsCF,
+            state_channels=SCsCF,
+            h3dex=H3DexCF
+        }
+    }.
+
+-spec mode(ledger()) -> mode().
 mode(Ledger) ->
     Ledger#ledger_v1.mode.
 
--spec mode(active | delayed, ledger()) -> ledger().
+-spec mode(mode(), ledger()) -> ledger().
 mode(Mode, Ledger) ->
     Ledger#ledger_v1{mode=Mode}.
 
@@ -3043,9 +3073,9 @@ process_fun(ToProcess, Cache, CF,
               end
       end, Acc, ToProcess).
 
--spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
-open_db(Dir) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
+-spec open_db(file:filename_all(), string()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(Dir, DBFile) ->
+    DBDir = filename:join(Dir, DBFile),
     ok = filelib:ensure_dir(DBDir),
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
