@@ -19,7 +19,7 @@
          gateway/1,
          seller/1,
          buyer/1,
-         rewards/1,
+         percentage/1,
          seller_signature/1,
          buyer_signature/1,
          amount_to_seller/1,
@@ -95,7 +95,7 @@ buyer(Txn) ->
     Txn#blockchain_txn_split_rewards_v1_pb.buyer.
 
 -spec percentage(txn_split_rewards()) -> libp2p_crypto:pubkey_bin().
-rewards(Txn) ->
+percentage(Txn) ->
   Txn#blockchain_txn_split_rewards_v1_pb.percentage.
 
 -spec seller_signature(txn_split_rewards()) -> binary().
