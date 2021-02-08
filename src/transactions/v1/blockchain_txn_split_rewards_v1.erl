@@ -94,9 +94,9 @@ seller(Txn) ->
 buyer(Txn) ->
     Txn#blockchain_txn_split_rewards_v1_pb.buyer.
 
--spec rewards(txn_split_rewards()) -> libp2p_crypto:pubkey_bin().
+-spec percentage(txn_split_rewards()) -> libp2p_crypto:pubkey_bin().
 rewards(Txn) ->
-  Txn#blockchain_txn_split_rewards_v1_pb.rewards.
+  Txn#blockchain_txn_split_rewards_v1_pb.percentage.
 
 -spec seller_signature(txn_split_rewards()) -> binary().
 seller_signature(Txn) ->
