@@ -1433,12 +1433,8 @@ refresh_gateway_witnesses(Hash, Ledger) ->
 -spec find_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v2:pocs()} | {error, any()}.
 find_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    erlang:display("----- OnionKeyHash find_poc-----"),
-    erlang:display(OnionKeyHash),
-    erlang:display("----- OnionKeyHash find_poc-----"),
     case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
         {ok, BinPoCs} ->
-            erlang:display("----- Case 1 -----"),
             PoCs = erlang:binary_to_term(BinPoCs),
             {ok, lists:map(fun blockchain_ledger_poc_v2:deserialize/1, PoCs)};
         not_found ->
@@ -1469,9 +1465,13 @@ request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger) ->
     end.
 
 request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs) ->
-    erlang:display("----- OnionKeyHash request_poc-----"),
+    erlang:display("----- OnionKeyHash request_poc 1-----"),
     erlang:display(OnionKeyHash),
-    erlang:display("----- OnionKeyHash request_poc-----"),
+    erlang:display("----- OnionKeyHash request_poc 1-----"),
+
+    erlang:display("----- blockchain_ledger_gateway_v2:last_poc_onion_key_hash-----"),
+    erlang:display(blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0)),
+    erlang:display("----- blockchain_ledger_gateway_v2:last_poc_onion_key_hash-----"),
 
     case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
@@ -1483,6 +1483,9 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
                 ok -> ok
             end
     end,
+    erlang:display("----- OnionKeyHash request_poc 2-----"),
+    erlang:display(OnionKeyHash),
+    erlang:display("----- OnionKeyHash request_poc 2-----"),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
@@ -1492,6 +1495,10 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
     BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)], [compressed]),
     PoCsCF = pocs_cf(Ledger),
+
+    erlang:display("----- OnionKeyHash request_poc 3-----"),
+    erlang:display(OnionKeyHash),
+    erlang:display("----- OnionKeyHash request_poc 3-----"),
     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
