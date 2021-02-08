@@ -581,10 +581,9 @@ deserialize(<<1, Bin/binary>>) ->
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
-    OwnerAddress = blockchain_ledger_gateway_v2:owner_address(Gw),
     Gw1 =
         case size(Gw) of
-            %% pre-oui upgrade
+            %% pre-oui upgradeserialize
             13 ->
                 L = tuple_to_list(Gw),
                 %% add an undefined OUI slot
@@ -611,7 +610,7 @@ deserialize(<<2, Bin/binary>>) ->
                 Witnesses
         end,
 
-    Gw2#gateway_v2{witnesses = Witnesses1,rewards_map=[OwnerAddress,100]}.
+    Gw2#gateway_v2{witnesses = Witnesses1,rewards_map=[owner_address,100]}.
 
 %% OK to include here, v1 should now be immutable.
 -record(gateway_v1, {
