@@ -24,7 +24,7 @@
     mismatch/0,
     signed_metadata_fun/0,
 
-    new_ledger/1,
+    new_ledger/1, new_aux_ledger/1,
 
     load/2,
 
@@ -144,6 +144,9 @@ sync_paused() ->
 
 new_ledger(Dir) ->
     gen_server:call(?SERVER, {new_ledger, Dir}, infinity).
+
+new_aux_ledger(Dir) ->
+    gen_server:call(?SERVER, {new_aux_ledger, Dir}, infinity).
 
 load(BaseDir, GenDir) ->
     gen_server:cast(?SERVER, {load, BaseDir, GenDir}).
@@ -341,6 +344,10 @@ handle_call({new_ledger, Dir}, _From, State) ->
     %% snapshot cache ETS table can be owned by an ephemeral process.
     Ledger1 = blockchain_ledger_v1:new(Dir),
     {reply, {ok, Ledger1}, State};
+handle_call({new_aux_ledger, Dir}, _From, State) ->
+    %% Allow creating a new auxiliary ledger
+    AuxLedger = blockchain_ledger_v1:new_aux(Dir),
+    {reply, {ok, AuxLedger}, State};
 
 handle_call({install_snapshot, Hash, Snapshot}, _From,
             #state{blockchain = Chain, mode = Mode, swarm = Swarm} = State) ->
