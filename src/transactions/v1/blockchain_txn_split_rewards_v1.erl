@@ -1,4 +1,4 @@
--module(blockchain_txn_reward_split_v1).
+-module(blockchain_txn_split_rewards_v1).
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
