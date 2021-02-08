@@ -577,6 +577,7 @@ deserialize(<<1, Bin/binary>>) ->
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
+    erlang:display(size(gw)),
     Gw1 =
         case size(Gw) of
             %% pre-oui upgrade
