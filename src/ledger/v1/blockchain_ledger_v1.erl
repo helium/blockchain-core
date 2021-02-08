@@ -444,6 +444,10 @@ context_cache(#ledger_v1{mode=active,
 context_cache(#ledger_v1{mode=delayed,
                          delayed=#sub_ledger_v1{cache=Cache,
                                                 gateway_cache=GwCache}}) ->
+    {Cache, GwCache};
+context_cache(#ledger_v1{mode=aux,
+                         active=#sub_ledger_v1{cache=Cache,
+                                               gateway_cache=GwCache}}) ->
     {Cache, GwCache}.
 
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
@@ -520,7 +524,8 @@ drop_snapshots(#ledger_v1{snapshots=Cache}) ->
 atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
         SL = case Mode of
                  active -> Ledger#ledger_v1.active;
-                 delayed -> Ledger#ledger_v1.delayed
+                 delayed -> Ledger#ledger_v1.delayed;
+                 aux -> Ledger#ledger_v1.active
              end,
         case Atom of
             default -> SL#sub_ledger_v1.default;
@@ -578,7 +583,9 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             active ->
                 Ledger#ledger_v1.active;
             delayed ->
-                Ledger#ledger_v1.delayed
+                Ledger#ledger_v1.delayed;
+            aux ->
+                Ledger#ledger_v1.active
         end,
         #sub_ledger_v1{
            default = DefaultCF,
@@ -2857,77 +2864,102 @@ var_name(Name) when is_binary(Name) ->
 context_cache(Cache, GwCache, #ledger_v1{mode=active, active=Active}=Ledger) ->
     Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}};
 context_cache(Cache, GwCache, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
-    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}}.
+    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}};
+context_cache(Cache, GwCache, #ledger_v1{mode=aux, active=Active}=Ledger) ->
+    Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}}.
 
 -spec default_cf(ledger()) -> rocksdb:cf_handle().
 default_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{default=DefaultCF}}) ->
     DefaultCF;
 default_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{default=DefaultCF}}) ->
+    DefaultCF;
+default_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{default=DefaultCF}}) ->
     DefaultCF.
 
 -spec active_gateways_cf(ledger()) -> rocksdb:cf_handle().
 active_gateways_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{active_gateways=AGCF}}) ->
     AGCF;
 active_gateways_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{active_gateways=AGCF}}) ->
+    AGCF;
+active_gateways_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{active_gateways=AGCF}}) ->
     AGCF.
 
 -spec gw_denorm_cf(ledger()) -> rocksdb:cf_handle().
 gw_denorm_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
     GwDenormCF;
 gw_denorm_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
+    GwDenormCF;
+gw_denorm_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
     GwDenormCF.
 
 -spec entries_cf(ledger()) -> rocksdb:cf_handle().
 entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF;
 entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=EntriesCF}}) ->
+    EntriesCF;
+entries_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF.
 
 -spec dc_entries_cf(ledger()) -> rocksdb:cf_handle().
 dc_entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
     EntriesCF;
 dc_entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
+    EntriesCF;
+dc_entries_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
     EntriesCF.
 
 -spec htlcs_cf(ledger()) -> rocksdb:cf_handle().
 htlcs_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
     HTLCsCF;
 htlcs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
+    HTLCsCF;
+htlcs_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
     HTLCsCF.
 
 -spec pocs_cf(ledger()) -> rocksdb:cf_handle().
 pocs_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{pocs=PoCsCF}}) ->
     PoCsCF;
 pocs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{pocs=PoCsCF}}) ->
+    PoCsCF;
+pocs_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{pocs=PoCsCF}}) ->
     PoCsCF.
 
 -spec securities_cf(ledger()) -> rocksdb:cf_handle().
 securities_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{securities=SecuritiesCF}}) ->
     SecuritiesCF;
 securities_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{securities=SecuritiesCF}}) ->
+    SecuritiesCF;
+securities_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{securities=SecuritiesCF}}) ->
     SecuritiesCF.
 
 -spec routing_cf(ledger()) -> rocksdb:cf_handle().
 routing_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{routing=RoutingCF}}) ->
     RoutingCF;
 routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) ->
+    RoutingCF;
+routing_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{routing=RoutingCF}}) ->
     RoutingCF.
 
 -spec subnets_cf(ledger()) -> rocksdb:cf_handle().
 subnets_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{subnets=SubnetsCF}}) ->
     SubnetsCF;
 subnets_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{subnets=SubnetsCF}}) ->
+    SubnetsCF;
+subnets_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{subnets=SubnetsCF}}) ->
     SubnetsCF.
 
 -spec state_channels_cf(ledger()) -> rocksdb:cf_handle().
 state_channels_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{state_channels=SCsCF}}) ->
     SCsCF;
 state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels=SCsCF}}) ->
+    SCsCF;
+state_channels_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{state_channels=SCsCF}}) ->
     SCsCF.
 
 -spec h3dex_cf(ledger()) -> rocksdb:cf_handle().
 h3dex_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF;
-h3dex_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF.
+h3dex_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF;
+h3dex_cf(#ledger_v1{mode=aux, active=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF.
 
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
