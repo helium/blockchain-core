@@ -581,7 +581,6 @@ deserialize(<<1, Bin/binary>>) ->
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
     Gw = erlang:binary_to_term(Bin),
-    erlang:display(size(Gw)),
     OwnerAddress = blockchain_ledger_gateway_v2:owner_address(Gw),
     Gw1 =
         case size(Gw) of
@@ -592,11 +591,12 @@ deserialize(<<2, Bin/binary>>) ->
                 L1 = lists:append(L, [undefined]),
                 G1 = list_to_tuple(L1),
                 rewards_map(G1,[OwnerAddress,100]),
-                neighbors([], G1);
+                neighbors([], G1),
+                erlang:display(Gw1);
             14 ->
                 Gw
         end,
-    erlang:display(Gw),
+
     Neighbors = neighbors(Gw1),
     Gw2 = neighbors(lists:usort(Neighbors), Gw1),
     Witnesses = Gw2#gateway_v2.witnesses,
