@@ -106,6 +106,7 @@
     close_state_channel/6,
     is_state_channel_overpaid/2,
     get_sc_mod/2,
+    state_channel_key/2,
 
     allocate_subnet/2,
 
@@ -2817,6 +2818,10 @@ compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
     compact_ledger(DB, Delayed),
     ok.
 
+-spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
+state_channel_key(ID, Owner) ->
+    <<Owner/binary, ID/binary>>.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -2838,10 +2843,6 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, Securities, undefined, undefined, []),
     rocksdb:compact_range(DB, Routing, undefined, undefined, []),
     ok.
-
--spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
-state_channel_key(ID, Owner) ->
-    <<Owner/binary, ID/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
