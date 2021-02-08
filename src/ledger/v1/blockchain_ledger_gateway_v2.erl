@@ -580,13 +580,13 @@ deserialize(<<2, Bin/binary>>) ->
     Gw1 =
         case size(Gw) of
             %% pre-oui upgrade
-            12 ->
+            13 ->
                 L = tuple_to_list(Gw),
                 %% add an undefined OUI slot
                 L1 = lists:append(L, [undefined]),
                 G1 = list_to_tuple(L1),
                 neighbors([], G1);
-            13 ->
+            14 ->
                 Gw
         end,
     Neighbors = neighbors(Gw1),
