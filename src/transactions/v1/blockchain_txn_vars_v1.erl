@@ -550,15 +550,29 @@ maybe_absorb(Txn, Ledger, _Chain) ->
     end.
 
 check_members(Members, Target, Ledger) ->
-    lists:all(fun(M) ->
-                      case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
-                          {ok, Gw} ->
-                              V = blockchain_ledger_gateway_v2:version(Gw),
+    case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 5 ->
+            lists:all(
+              fun(M) ->
+                      case blockchain_ledger_v1:get_validator(M, Ledger) of
+                          {ok, Val} ->
+                              V = blockchain_ledger_validator_v1:version(Val),
                               V >= Target;
                           _ -> false
                       end
               end,
-              Members).
+              Members);
+        _ ->
+            lists:all(fun(M) ->
+                              case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
+                                  {ok, Gw} ->
+                                      V = blockchain_ledger_gateway_v2:version(Gw),
+                                      V >= Target;
+                                  _ -> false
+                              end
+                      end,
+                      Members)
+    end.
 
 delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
