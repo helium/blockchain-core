@@ -527,6 +527,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                     true;
                 V ->
+                    lager:info("v = ~p", [V]),
                     {ok, Members} = blockchain_ledger_v1:consensus_members(Ledger),
                     %% TODO: combine these checks for efficiency?
                     case check_members(Members, V, Ledger) of
@@ -540,7 +541,8 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                                 Pct when Pct >= Threshold ->
                                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                                     true;
-                                _ ->
+                                _Pct ->
+                                    lager:info("fail = ~p", [_Pct]),
                                     false
                             end;
                         _ ->
@@ -562,16 +564,18 @@ check_members(Members, Target, Ledger) ->
                       end
               end,
               Members);
-        _ ->
-            lists:all(fun(M) ->
-                              case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
-                                  {ok, Gw} ->
-                                      V = blockchain_ledger_gateway_v2:version(Gw),
-                                      V >= Target;
-                                  _ -> false
-                              end
-                      end,
-                      Members)
+        _N ->
+            lager:info("election version = ~p", [_N]),
+            lists:all(
+              fun(M) ->
+                      case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
+                          {ok, Gw} ->
+                              V = blockchain_ledger_gateway_v2:version(Gw),
+                              V >= Target;
+                          _ -> false
+                      end
+              end,
+              Members)
     end.
 
 delayed_absorb(Txn, Ledger) ->
