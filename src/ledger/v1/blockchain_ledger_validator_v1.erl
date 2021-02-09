@@ -14,6 +14,7 @@
          last_heartbeat/1, last_heartbeat/2,
          status/1, status/2,
          nonce/1, nonce/2,
+         version/1, version/2,
          serialize/1, deserialize/1
         ]).
 
@@ -34,6 +35,7 @@
          description = <<>> :: string(),
          heartbeat = 1 :: pos_integer(),
          nonce = 1 :: pos_integer(),
+         version = 1 :: pos_integer(),
          status = staked :: staked | unstaked
         }).
 
@@ -80,6 +82,15 @@ stake(Validator) ->
             Validator :: validator()) -> validator().
 stake(Stake, Validator) ->
     Validator#validator_v1{stake = Stake}.
+
+-spec version(Validator :: validator()) -> pos_integer().
+version(Validator) ->
+    Validator#validator_v1.version.
+
+-spec version(Version :: pos_integer(),
+            Validator :: validator()) -> validator().
+version(Version, Validator) ->
+    Validator#validator_v1{version = Version}.
 
 -spec description(Validator :: validator()) -> string().
 description(Validator) ->

@@ -55,7 +55,7 @@
     add_gateway_witnesses/3,
     refresh_gateway_witnesses/2,
 
-    gateway_versions/1,
+    cg_versions/1,
 
     update_gateway_score/3, gateway_score/2,
     update_gateway_oui/4,
@@ -1261,6 +1261,45 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                 false ->
                     ok
             end
+    end.
+
+cg_versions(Ledger) ->
+    case config(?election_version, Ledger) of
+        N when N >= 5 ->
+            validator_versions(Ledger);
+        _ ->
+            gateway_versions(Ledger)
+    end.
+
+validator_versions(Ledger) ->
+    %% reuse this var despite the name
+    case config(?var_gw_inactivity_threshold, Ledger) of
+        {error, _} = Err ->
+            Err;
+        {ok, Threshold} ->
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            ValCF = validators_cf(Ledger),
+            Inc = fun(X) -> X + 1 end,
+            Versions =
+                cache_fold(
+                  Ledger, ValCF,
+                  fun({_Addr, BinVal}, Acc) ->
+                          Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+                          Last = blockchain_ledger_validator_v1:last_heartbeat(Val),
+                          Version = blockchain_ledger_validator_v1:version(Val),
+                          case (Height - Last) >= Threshold of
+                              true ->
+                                  Acc;
+                              false ->
+                                  maps:update_with(Version, Inc, 1, Acc)
+                          end
+                  end,
+                  #{}),
+            L = maps:to_list(Versions),
+            Tot = lists:sum([Ct || {_V, Ct} <- L]),
+
+            %% reformat counts as percentages
+            [{V, Ct / Tot} || {V, Ct} <- L]
     end.
 
 gateway_versions(Ledger) ->

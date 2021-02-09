@@ -15,11 +15,12 @@
 -include_lib("helium_proto/include/blockchain_txn_validator_heartbeat_v1_pb.hrl").
 
 -export([
-         new/2,
+         new/3,
          hash/1,
          addr/1,
          height/1,
          signature/1,
+         version/1,
          fee/1,
          sign/2,
          is_valid/2,
@@ -35,12 +36,13 @@
 -type txn_validator_heartbeat() :: #blockchain_txn_validator_heartbeat_v1_pb{}.
 -export_type([txn_validator_heartbeat/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer()) ->
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
           txn_validator_heartbeat().
-new(Address, Height) ->
+new(Address, Height, Version) ->
     #blockchain_txn_validator_heartbeat_v1_pb{
        addr = Address,
-       height = Height
+       height = Height,
+       version = Version
     }.
 
 -spec hash(txn_validator_heartbeat()) -> blockchain_txn:hash().
@@ -56,6 +58,10 @@ addr(Txn) ->
 -spec height(txn_validator_heartbeat()) -> pos_integer().
 height(Txn) ->
     Txn#blockchain_txn_validator_heartbeat_v1_pb.height.
+
+-spec version(txn_validator_heartbeat()) -> pos_integer().
+version(Txn) ->
+    Txn#blockchain_txn_validator_heartbeat_v1_pb.version.
 
 -spec signature(txn_validator_heartbeat()) -> binary().
 signature(Txn) ->
@@ -113,12 +119,14 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Validator = addr(Txn),
+    Version = version(Txn),
     TxnHeight = height(Txn),
 
     case blockchain_ledger_v1:get_validator(Validator, Ledger) of
         {ok, V} ->
             V1 = blockchain_ledger_validator_v1:last_heartbeat(TxnHeight, V),
-            blockchain_ledger_v1:update_validator(Validator, V1, Ledger);
+            V2 = blockchain_ledger_validator_v1:version(Version, V1),
+            blockchain_ledger_v1:update_validator(Validator, V2, Ledger);
         Err -> Err
     end.
 
@@ -147,7 +155,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, 20000),
+    Tx = new(<<"validator_address">>, 20000, 1),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).
