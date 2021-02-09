@@ -15,7 +15,7 @@
 -include_lib("helium_proto/include/blockchain_txn_validator_heartbeat_v1_pb.hrl").
 
 -export([
-         new/3,
+         new/2,
          hash/1,
          addr/1,
          height/1,
@@ -35,13 +35,12 @@
 -type txn_validator_heartbeat() :: #blockchain_txn_validator_heartbeat_v1_pb{}.
 -export_type([txn_validator_heartbeat/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), binary()) ->
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer()) ->
           txn_validator_heartbeat().
-new(Address, Height, Signature) ->
+new(Address, Height) ->
     #blockchain_txn_validator_heartbeat_v1_pb{
        addr = Address,
-       height = Height,
-       signature = Signature
+       height = Height
     }.
 
 -spec hash(txn_validator_heartbeat()) -> blockchain_txn:hash().
