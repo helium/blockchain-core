@@ -216,7 +216,7 @@ wrap_txn(#blockchain_txn_transfer_validator_stake_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_unstake_validator_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={unstake_validator, Txn}};
 wrap_txn(#blockchain_txn_validator_heartbeat_v1_pb{} = Txn) ->
-    #blockchain_txn_pb{txn={validator_heartbeat, Txn}}.
+    #blockchain_txn_pb{txn={val_heartbeat, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->

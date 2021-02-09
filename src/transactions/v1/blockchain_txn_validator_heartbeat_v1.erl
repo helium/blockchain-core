@@ -90,6 +90,7 @@ is_valid_sig(#blockchain_txn_validator_heartbeat_v1_pb{addr=PubKeyBin,
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Validator = addr(Txn),
+    Version = version(Txn),
     TxnHeight = height(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case is_valid_sig(Txn) of
@@ -102,18 +103,28 @@ is_valid(Txn, Chain) ->
                     {ok, V} ->
                         {ok, Interval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
                         HB = blockchain_ledger_validator_v1:last_heartbeat(V),
-                        case TxnHeight > (Interval + HB) andalso TxnHeight =< Height of
+                        case TxnHeight >= (Interval + HB) andalso TxnHeight =< Height of
                             true -> ok;
                             _ -> throw({bad_height, prev, HB, height, Height, got, TxnHeight})
                         end;
                     {error, not_found} -> throw(nonexistent_validator);
                     {error, Reason} -> throw({validator_fetch_error, Reason})
                 end,
+                case valid_version(Version)  of
+                    true -> ok;
+                    false -> throw({bad_version, Version})
+                end,
                 ok
             catch throw:Cause ->
                     {error, Cause}
             end
     end.
+
+%% oh dialyzer
+valid_version(V) when is_integer(V) andalso V > 0 ->
+    true;
+valid_version(_) ->
+    false.
 
 -spec absorb(txn_validator_heartbeat(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
