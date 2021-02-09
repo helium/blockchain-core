@@ -147,7 +147,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, 20000, <<"sdasdasdasd">>),
+    Tx = new(<<"validator_address">>, 20000),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).
