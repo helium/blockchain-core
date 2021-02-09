@@ -39,7 +39,7 @@
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           libp2p_crypto:pubkey_bin(),
-          pos_integer(), string(), binary(), binary()) ->
+          binary(), binary(), pos_integer(), pos_integer()) ->
           txn_transfer_validator_stake().
 new(OldValidatorAddress, NewValidatorAddress,
     OwnerAddress,

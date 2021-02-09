@@ -95,7 +95,7 @@ is_valid(Txn, Chain) ->
                 case blockchain_ledger_v1:get_validator(Validator, Ledger) of
                     {ok, V} ->
                         {ok, Interval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
-                        {ok, HB} = blockchain_ledger_validator_v1:last_heartbeat(V),
+                        HB = blockchain_ledger_validator_v1:last_heartbeat(V),
                         case TxnHeight > (Interval + HB) andalso TxnHeight =< Height of
                             true -> ok;
                             _ -> throw({bad_height, prev, HB, height, Height, got, TxnHeight})

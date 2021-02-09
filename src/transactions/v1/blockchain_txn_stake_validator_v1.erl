@@ -70,7 +70,7 @@ validator(Txn) ->
 
 -spec stake(txn_stake_validator()) -> pos_integer().
 stake(Txn) ->
-    Txn#blockchain_txn_stake_validator_v1_pb.owner.
+    Txn#blockchain_txn_stake_validator_v1_pb.stake.
 
 -spec description(txn_stake_validator()) -> string().
 description(Txn) ->

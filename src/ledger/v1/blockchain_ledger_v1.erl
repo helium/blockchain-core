@@ -3429,8 +3429,7 @@ add_validator(Address,
         {ok, _} ->
             {error, validator_already_added};
         _ ->
-            Val = blockchain_ledger_validator_v1:new(OwnerAddr, Stake, Description),
-
+            Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Stake, Description),
             update_validator(Address, Val, Ledger)
     end.
 

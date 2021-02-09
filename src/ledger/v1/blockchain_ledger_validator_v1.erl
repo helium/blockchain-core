@@ -6,7 +6,8 @@
 -module(blockchain_ledger_validator_v1).
 
 -export([
-         new/3,
+         new/4,
+         address/1, address/2,
          owner_address/1, owner_address/2,
          stake/1, stake/2,
          description/1, description/2,
@@ -29,7 +30,7 @@
         {
          address :: libp2p_crypto:pubkey_bin(),
          owner_address :: libp2p_crypto:pubkey_bin(),
-         stake :: non_neg_integer(),
+         stake = 0 :: non_neg_integer(),
          description = <<>> :: string(),
          heartbeat = 1 :: pos_integer(),
          nonce = 1 :: pos_integer(),
@@ -42,14 +43,25 @@
 
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           OwnerAddress :: libp2p_crypto:pubkey_bin(),
+          Description :: string(),
           Stake :: non_neg_integer()) ->
           validator().
-new(Address, OwnerAddress, Stake) ->
+new(Address, OwnerAddress, Description, Stake) ->
     #validator_v1{
        address = Address,
        owner_address = OwnerAddress,
+       description = Description,
        stake = Stake
       }.
+
+-spec address(Validator :: validator()) -> libp2p_crypto:pubkey_bin().
+address(Validator) ->
+    Validator#validator_v1.address.
+
+-spec address(Address :: libp2p_crypto:pubkey_bin(),
+              Validator :: validator()) -> validator().
+address(Address, Validator) ->
+    Validator#validator_v1{address = Address}.
 
 -spec owner_address(Validator :: validator()) -> libp2p_crypto:pubkey_bin().
 owner_address(Validator) ->
@@ -69,12 +81,12 @@ stake(Validator) ->
 stake(Stake, Validator) ->
     Validator#validator_v1{stake = Stake}.
 
--spec description(Validator :: validator()) -> non_neg_integer().
+-spec description(Validator :: validator()) -> string().
 description(Validator) ->
     Validator#validator_v1.description.
 
--spec description(Description :: non_neg_integer(),
-            Validator :: validator()) -> validator().
+-spec description(Description :: string(),
+                  Validator :: validator()) -> validator().
 description(Description, Validator) ->
     Validator#validator_v1{description = Description}.
 
