@@ -13,6 +13,7 @@
     height/1,
     sync_height/1,
     ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
+    ledger/3,
     dir/1,
 
     blocks/1, get_block/2, get_raw_block/2, save_block/2,
@@ -433,6 +434,13 @@ ledger(#blockchain{ledger=Ledger}) ->
 -spec ledger(blockchain_ledger_v1:ledger(), blockchain()) -> blockchain().
 ledger(Ledger, Chain) ->
     Chain#blockchain{ledger=Ledger}.
+
+-spec ledger(LedgerMode :: blockchain_ledger_v1:mode(),
+             Ledger :: blockchain_ledger_v1:ledger(),
+             Chain :: blockchain()) -> blockchain().
+ledger(LedgerMode, Ledger, Chain) ->
+    LedgerWithMode = blockchain_ledger_v1:mode(LedgerMode, Ledger),
+    Chain#blockchain{ledger=LedgerWithMode}.
 
 %%--------------------------------------------------------------------
 %% @doc Obtain a version of the ledger at a given height.

@@ -1,4 +1,3 @@
-
 %% @doc
 %% == Blockchain Ledger ==
 %% @end
