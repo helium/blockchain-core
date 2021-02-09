@@ -101,7 +101,7 @@
     get_routes/1,
     routing_cf/1,
 
-    find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
+    find_state_channel/3, find_state_channel_with_mod/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
     close_state_channel/6,
     is_state_channel_overpaid/2,
@@ -2522,6 +2522,25 @@ update_routing(OUI, Action, Nonce, Ledger) ->
             Error
     end.
 
+-spec find_state_channel_with_mod(ID :: binary(),
+                         Owner :: libp2p_crypto:pubkey_bin(),
+                         Ledger :: ledger()) ->
+    {ok, blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
+    | {ok, blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel()}
+    | {error, any()}.
+find_state_channel_with_mod(ID, Owner, Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    Key = state_channel_key(ID, Owner),
+    case cache_get(Ledger, SCsCF, Key, []) of
+        {ok, BinEntry} ->
+            {Mod, SC} = deserialize_state_channel(BinEntry),
+            {ok, Mod, SC};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 -spec find_state_channel(ID :: binary(),
                          Owner :: libp2p_crypto:pubkey_bin(),
                          Ledger :: ledger()) ->
@@ -2529,16 +2548,9 @@ update_routing(OUI, Action, Nonce, Ledger) ->
     | {ok, blockchain_ledger_state_channel_v2:state_channel()}
     | {error, any()}.
 find_state_channel(ID, Owner, Ledger) ->
-    SCsCF = state_channels_cf(Ledger),
-    Key = state_channel_key(ID, Owner),
-    case cache_get(Ledger, SCsCF, Key, []) of
-        {ok, BinEntry} ->
-            {_Mod, SC} = deserialize_state_channel(BinEntry),
-            {ok, SC};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+    case find_state_channel_with_mod(ID, Owner, Ledger) of
+        {ok, _Mod, SC} -> {ok, SC};
+        Error -> Error
     end.
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
