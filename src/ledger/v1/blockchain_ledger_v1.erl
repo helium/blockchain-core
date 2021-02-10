@@ -348,11 +348,16 @@ maybe_load_aux(Ledger) ->
                     lager:info("aux_ledger already exists in path: ~p", [Path]),
                     NewLedger;
                 false ->
-                    %% bootstrap from active ledger
-                    lager:info("bootstapping aux_ledger from active ledger in path: ~p", [Path]),
-                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
-                    blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
-                    NewLedger
+                    case blockchain_ledger_v1:current_height(blockchain:ledger()) of
+                        {ok, Height} when Height > 0 ->
+                            %% bootstrap from active ledger
+                            lager:info("bootstapping aux_ledger from active ledger in path: ~p", [Path]),
+                            {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
+                            blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
+                            NewLedger;
+                        _ ->
+                            NewLedger
+                    end
             end
     end.
 
@@ -2830,7 +2835,14 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
-    rocksdb:destroy(DBDir, []).
+    rocksdb:destroy(DBDir, []),
+    case has_aux(L) of
+        true ->
+            catch ok = rocksdb:close(L#ledger_v1.aux#aux_ledger_v1.db),
+            rocksdb:destroy(L#ledger_v1.aux#aux_ledger_v1.dir, []);
+        false ->
+            ok
+    end.
 
 close(#ledger_v1{db=DB}) ->
     rocksdb:close(DB).
