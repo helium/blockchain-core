@@ -345,9 +345,11 @@ maybe_load_aux(Ledger) ->
             case Exists of
                 true ->
                     %% assume no need to bootstrap
+                    lager:info("aux_ledger already exists in path: ~p", [Path]),
                     NewLedger;
                 false ->
-                    %% bootstrap from leading ledger
+                    %% bootstrap from active ledger
+                    lager:info("bootstapping aux_ledger from active ledger in path: ~p", [Path]),
                     {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
                     blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
                     NewLedger
