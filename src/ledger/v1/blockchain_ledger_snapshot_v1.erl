@@ -317,7 +317,7 @@ import(Chain, SHA,
             case blockchain_ledger_v1:has_aux(Ledger0) of
                 true ->
                     load_into_ledger(Snapshot, Ledger0, aux),
-                    load_blocks(blockchain_ledger_v1:mode(Ledger0, aux), Chain, Blocks);
+                    load_blocks(blockchain_ledger_v1:mode(aux, Ledger0), Chain, Blocks);
                 false ->
                     ok
             end,
