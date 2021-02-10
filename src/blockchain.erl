@@ -2268,7 +2268,7 @@ run_gc_hooks(Blockchain, Hash) ->
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
-        ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain),
+        ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain, Ledger),
 
         ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
 
