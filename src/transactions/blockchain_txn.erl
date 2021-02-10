@@ -383,7 +383,8 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
-                            absorb_delayed(Block, Chain0);
+                            absorb_delayed(Block, Chain0),
+                            absorb_aux(Block, Chain0);
                         Any ->
                             Any
                     end;
@@ -415,7 +416,8 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
-                            absorb_delayed(Block, Chain0);
+                            absorb_delayed(Block, Chain0),
+                            absorb_aux(Block, Chain0);
                         Any ->
                             Any
                     end;
@@ -731,6 +733,60 @@ absorb_delayed_(Block, Chain0) ->
             blockchain_ledger_v1:delete_context(Ledger),
             Error
     end.
+
+-spec absorb_aux(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb_aux(Block0, Chain0) ->
+    Ledger0 = blockchain:ledger(Chain0),
+    case blockchain_ledger_v1:has_aux(Ledger0) of
+        true ->
+            AuxLedger0 = blockchain_ledger_v1:mode(aux, Ledger0),
+            AuxLedger1 = blockchain_ledger_v1:new_context(AuxLedger0),
+            Chain1 = blockchain:ledger(AuxLedger1, Chain0),
+            case blockchain_ledger_v1:current_height(Ledger0) of
+                % This is so it absorbs genesis
+                {ok, H} when H < 2 ->
+                    absorb_aux_(Block0, Chain1),
+                    ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                {ok, CurrentHeight} ->
+                    {ok, AuxHeight} = blockchain_ledger_v1:current_height(AuxLedger1),
+                    Res = lists:foldl(fun(H, ok) ->
+                                              {ok, Block1} = blockchain:get_block(H, Chain0),
+                                              absorb_aux_(Block1, Chain1);
+                                         (_, Acc) ->
+                                              Acc
+                                      end,
+                                      ok,
+                                      lists:seq(AuxHeight+1, CurrentHeight)),
+                    case Res of
+                        ok ->
+                            ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                        Error ->
+                            Error
+                    end;
+                _Any ->
+                    _Any
+            end;
+        false ->
+            ok
+    end.
+
+absorb_aux_(Block, Chain0) ->
+    case ?MODULE:absorb_block(Block, Chain0) of
+        {ok, _} ->
+            Hash = blockchain_block:hash_block(Block),
+            Ledger0 = blockchain:ledger(Chain0),
+            ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
+            ok = blockchain_ledger_v1:maybe_gc_scs(Chain0),
+            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+            ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
+            ok;
+        Error ->
+            Ledger = blockchain:ledger(Chain0),
+            blockchain_ledger_v1:delete_context(Ledger),
+            Error
+    end.
+
+
 
 %%--------------------------------------------------------------------
 %% @doc
