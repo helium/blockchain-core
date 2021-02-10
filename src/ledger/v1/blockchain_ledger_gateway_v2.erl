@@ -14,6 +14,10 @@
     add_neighbor/2, remove_neighbor/2,
     neighbors/1, neighbors/2,
     rewards_map/1, rewards_map/2,
+    get_split/2, get_splits/1,
+    num_splits/1,
+    get_owners/1,
+    set_split/3,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -166,6 +170,26 @@ rewards_map(Gateway) ->
 -spec rewards_map(Gateway :: gateway(), RewardsMap :: rewards_map()) -> rewards_map().
 rewards_map(Gateway,RewardsMap) ->
     Gateway#gateway_v2{rewards_map = RewardsMap}.
+
+-spec get_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> non_neg_integer().
+get_split(Gateway,OwnerAddress) ->
+  maps:find(OwnerAddress,Gateway#gateway_v2.rewards_map).
+
+-spec get_splits(Gateway :: gateway()) -> [non_neg_integer()].
+get_splits(Gateway) ->
+  maps:values(Gateway#gateway_v2.rewards_map).
+
+-spec num_splits(Gateway :: gateway()) -> [non_neg_integer()].
+num_splits(Gateway) ->
+  maps:size(Gateway#gateway_v2.rewards_map).
+
+-spec get_owners(Gateway :: gateway()) -> [libp2p_crypto:pubkey_bin()].
+get_owners(Gateway) ->
+  maps:keys(Gateway#gateway_v2.rewards_map).
+
+-spec set_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin(), RewardSplit :: non_neg_integer()) -> boolean().
+set_split(Gateway, OwnerAddress, RewardSplit) ->
+  maps:put(OwnerAddress, RewardSplit, Gateway#gateway_v2.rewards_map).
 
 %%--------------------------------------------------------------------
 %% @doc The score corresponds to the P(claim_of_location).
