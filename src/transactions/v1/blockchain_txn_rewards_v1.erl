@@ -124,13 +124,45 @@ is_valid(Txn, Chain) ->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_rewards(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        false ->
+            %% only absorb in the main ledger
+            absorb_(Txn, Ledger);
+        true ->
+            %% absorb in the main ledger
+            absorb_(Txn, Ledger),
+            %% and also absorb in the aux ledger
+            AuxLedger = blockchain_ledger_v1:mode(aux, Ledger),
+            aux_absorb(Txn, AuxLedger, Chain)
+    end.
+
+-spec aux_absorb(Txn :: txn_rewards(),
+                 AuxLedger :: blockchain_ledger_v1:ledger(),
+                 Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+aux_absorb(Txn, AuxLedger, Chain) ->
+    Start = ?MODULE:start_epoch(Txn),
+    End = ?MODULE:end_epoch(Txn),
+    %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
+    %% and do 0 verification for absorption
+    case ?MODULE:calculate_rewards_(Start, End, AuxLedger, Chain) of
+        {error, _}=E -> E;
+        {ok, Rewards} -> absorb_rewards(Rewards, AuxLedger)
+    end.
+
+-spec absorb_(Txn :: txn_rewards(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+absorb_(Txn, Ledger) ->
     Rewards = ?MODULE:rewards(Txn),
+    absorb_rewards(Rewards, Ledger).
+
+-spec absorb_rewards(Rewards :: blockchain_txn_reward_v1:rewards(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+absorb_rewards(Rewards, Ledger) ->
     AccRewards = lists:foldl(
         fun(Reward, Acc) ->
             Account = blockchain_txn_reward_v1:account(Reward),
@@ -157,6 +189,14 @@ absorb(Txn, Chain) ->
     {ok, blockchain_txn_reward_v1:rewards()} | {error, any()}.
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
+    calculate_rewards_(Start, End, Ledger, Chain).
+
+-spec calculate_rewards_(
+        Start :: non_neg_integer(),
+        End :: non_neg_integer(),
+        Ledger :: blockchain_ledger_v1:ledger(),
+        Chain :: blockchain:blockchain()) -> {error, any()} | {ok, blockchain_txn_reward_v1:rewards()}.
+calculate_rewards_(Start, End, Ledger, Chain) ->
     Vars = get_reward_vars(Start, End, Ledger),
     %% Previously, if a state_channel closed in the grace blocks before an
     %% epoch ended, then it wouldn't ever get rewarded.
