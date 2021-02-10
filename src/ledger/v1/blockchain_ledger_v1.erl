@@ -453,7 +453,8 @@ reset_context(Ledger) ->
     end.
 
 -spec commit_context(ledger()) -> ok.
-commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
+commit_context(#ledger_v1{mode=Mode}=Ledger) ->
+    DB = db(Ledger),
     {Cache, GwCache} = ?MODULE:context_cache(Ledger),
     Context = batch_from_cache(Cache),
     {ok, Height} = current_height(Ledger),
@@ -559,6 +560,15 @@ subledger(Ledger = #ledger_v1{mode=Mode}, NewSubLedger) ->
         delayed -> Ledger#ledger_v1{delayed=NewSubLedger};
         aux -> Ledger#ledger_v1{aux=Ledger#ledger_v1.aux#aux_ledger_v1{aux=NewSubLedger}}
     end.
+
+-spec db(ledger()) -> rocksdb:db_handle().
+db(Ledger = #ledger_v1{mode=Mode}) ->
+    case Mode of
+        active -> Ledger#ledger_v1.db;
+        delayed -> Ledger#ledger_v1.db;
+        aux -> Ledger#ledger_v1.aux#aux_ledger_v1.db
+    end.
+
 
 atom_to_cf(Atom, Ledger) ->
     SL = subledger(Ledger),
@@ -2495,7 +2505,8 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 
 -spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
                                Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
-find_routing_via_devaddr(DevAddr0, Ledger=#ledger_v1{db=DB}) ->
+find_routing_via_devaddr(DevAddr0, Ledger) ->
+    DB = db(Ledger),
     DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
     case <<DevAddr0:32/integer-unsigned-little>> of
         <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
@@ -2673,7 +2684,8 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
     end.
 
 -spec allocate_subnet(pos_integer(), ledger()) -> {ok, <<_:48>>} | {error, any()}.
-allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
+allocate_subnet(Size, Ledger) ->
+    DB = db(Ledger),
     SubnetCF = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
     Result = allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, first), none),
@@ -2844,8 +2856,15 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
             ok
     end.
 
-close(#ledger_v1{db=DB}) ->
-    rocksdb:close(DB).
+close(#ledger_v1{db=DB}=L) ->
+    rocksdb:close(DB),
+    case has_aux(L) of
+        true ->
+            rocksdb:close(L#ledger_v1.aux#aux_ledger_v1.db);
+        false ->
+            ok
+    end.
+
 
 compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
     rocksdb:compact_range(DB, undefined, undefined, []),
@@ -2979,7 +2998,8 @@ gateway_cache_put(Addr, Gw, Ledger) ->
     end.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
-cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
+cache_get(Ledger, CF, Key, Options) ->
+    DB = db(Ledger),
     case context_cache(Ledger) of
         {undefined, undefined} ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
@@ -3034,7 +3054,8 @@ cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
             process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
     end.
 
-rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Opts0, Fun, Acc) ->
+rocks_fold(Ledger, CF, Opts0, Fun, Acc) ->
+    DB = db(Ledger),
     Start = proplists:get_value(start, Opts0, first),
     Opts = proplists:delete(start, Opts0),
     {ok, Itr} = rocksdb:iterator(DB, CF, maybe_use_snapshot(Ledger, Opts)),
