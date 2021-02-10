@@ -14,10 +14,6 @@
     add_neighbor/2, remove_neighbor/2,
     neighbors/1, neighbors/2,
     rewards_map/1, rewards_map/2,
-    get_split/2, get_splits/1,
-    num_splits/1,
-    get_owners/1,
-    set_split/3,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -58,7 +54,6 @@
 -record(gateway_v2, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
-    rewards_map :: rewards_map(),
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
     delta :: non_neg_integer(),
@@ -68,14 +63,15 @@
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
     witnesses = [] :: witnesses_int(),
-    oui = undefined :: undefined | pos_integer()
+    oui = undefined :: undefined | pos_integer(),
+    rewards_map = [] :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()}]
 }).
 
 -type gateway() :: #gateway_v2{}.
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
--type rewards_map() :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()}].
+-type rewards_map() :: {libp2p_crypto:pubkey_bin(),non_neg_integer()}.
 -type histogram() :: #{integer() => integer()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
@@ -88,8 +84,8 @@
 new(OwnerAddress, Location) ->
     #gateway_v2{
         owner_address=OwnerAddress,
-        location=Location,
-        rewards_map=[OwnerAddress,100],
+        rewards_map=[[OwnerAddress,100]],        
+	location=Location,
         delta=1
     }.
 
@@ -99,8 +95,8 @@ new(OwnerAddress, Location) ->
 new(OwnerAddress, Location, Nonce) ->
     #gateway_v2{
         owner_address=OwnerAddress,
-        location=Location,
-        rewards_map=[OwnerAddress,100],
+        rewards_map=[[OwnerAddress,100]],
+	location=Location,
         nonce=Nonce,
         delta=1
     }.
@@ -170,27 +166,6 @@ rewards_map(Gateway) ->
 -spec rewards_map(Gateway :: gateway(), RewardsMap :: rewards_map()) -> rewards_map().
 rewards_map(Gateway,RewardsMap) ->
     Gateway#gateway_v2{rewards_map = RewardsMap}.
-
--spec get_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> non_neg_integer().
-get_split(Gateway,OwnerAddress) ->
-  maps:find(OwnerAddress,Gateway#gateway_v2.rewards_map).
-
--spec get_splits(Gateway :: gateway()) -> [non_neg_integer()].
-get_splits(Gateway) ->
-  maps:values(Gateway#gateway_v2.rewards_map).
-
--spec num_splits(Gateway :: gateway()) -> [non_neg_integer()].
-num_splits(Gateway) ->
-  maps:size(Gateway#gateway_v2.rewards_map).
-
--spec get_owners(Gateway :: gateway()) -> [libp2p_crypto:pubkey_bin()].
-get_owners(Gateway) ->
-  maps:keys(Gateway#gateway_v2.rewards_map).
-
--spec set_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin(), RewardSplit :: non_neg_integer()) -> boolean().
-set_split(Gateway, OwnerAddress, RewardSplit) ->
-  maps:put(OwnerAddress, RewardSplit, Gateway#gateway_v2.rewards_map).
-
 
 %%--------------------------------------------------------------------
 %% @doc The score corresponds to the P(claim_of_location).
@@ -561,7 +536,7 @@ oui(OUI, Gateway) ->
 -spec serialize(Gateway :: gateway()) -> binary().
 serialize(Gw) ->
     Neighbors = neighbors(Gw),
-    Gw1 = neighbors(lists:usort(Neighbors), Gw),
+    Gw1 = neighbors(lists:usort(Neighbors), Gw),    
     BinGw = erlang:term_to_binary(Gw1, [compressed]),
     <<2, BinGw/binary>>.
 
@@ -592,6 +567,7 @@ deserialize(<<2, Bin/binary>>) ->
                 Gw
         end,
     Neighbors = neighbors(Gw1),
+%%    RewardsMap = rewards_map(Gw1),
     Gw2 = neighbors(lists:usort(Neighbors), Gw1),
     Witnesses = Gw2#gateway_v2.witnesses,
     Witnesses1 =
@@ -607,8 +583,7 @@ deserialize(<<2, Bin/binary>>) ->
             false ->
                 Witnesses
         end,
-
-    Gw2#gateway_v2{witnesses = Witnesses1,rewards_map=[owner_address,100]}.
+    Gw2#gateway_v2{witnesses = Witnesses1}. %%,rewards_map=RewardsMap}.
 
 %% OK to include here, v1 should now be immutable.
 -record(gateway_v1, {
@@ -636,7 +611,7 @@ convert(#gateway_v1{
     #gateway_v2{
        owner_address = Owner,
        location = Location,
-       rewards_map=[Owner,100],
+       rewards_map=[{Owner,100}],
        alpha = Alpha,
        beta = Beta,
        delta = Delta,
@@ -656,7 +631,7 @@ new_test() ->
     Gw = #gateway_v2{
         owner_address = <<"owner_address">>,
         location = 12,
-        rewards_map = [<<"owner_address">>,100],
+        rewards_map = [[<<"owner_address">>,100]],
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
         nonce = 0,
