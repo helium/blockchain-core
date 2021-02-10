@@ -8,7 +8,7 @@
 -export([
     new/1,
     mode/1, mode/2,
-    has_aux/1,
+    has_aux/1, set_aux_vars/2,
     dir/1,
     maybe_load_aux/1,
 
@@ -1017,6 +1017,19 @@ vars(Vars, Unset, Ledger) ->
       end,
       Unset),
     ok.
+
+-spec set_aux_vars(ExtraVars :: map(), AuxLedger :: ledger()) -> ok.
+set_aux_vars(ExtraVars, #ledger_v1{mode=aux}=AuxLedger) ->
+    CurrentVars = vars_atom_map(AuxLedger),
+    NewVars = maps:merge(CurrentVars, ExtraVars),
+    Ctx = ?MODULE:new_context(AuxLedger),
+    ?MODULE:vars(NewVars, [], Ctx),
+    ?MODULE:commit_context(Ctx);
+set_aux_vars(_ExtraVars, _Ledger) ->
+    error(cannot_set_vars_not_aux_ledger).
+
+vars_atom_map(Ledger) ->
+    blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(?MODULE:snapshot_vars(Ledger))).
 
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
