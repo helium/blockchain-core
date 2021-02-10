@@ -173,22 +173,27 @@ ledger_gateways_usage() ->
     ].
 
 ledger_gateways(_CmdBase, [], []) ->
-    Ledger = get_ledger(),
-    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-    R = [format_ledger_gateway_entry(G, Ledger, false) || G <- maps:to_list(Gateways)],
+    R = ledger_fold(false),
     [clique_status:table(R)];
 ledger_gateways(_CmdBase, [], [{verbose, _}]) ->
-    Ledger = get_ledger(),
-    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-    R = [format_ledger_gateway_entry(G, Ledger, true) || G <- maps:to_list(Gateways)],
+    R = ledger_fold(true),
     [clique_status:table(R)].
+
+ledger_fold(Verbose) ->
+    Ledger = get_ledger(),
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, Acc) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              [format_ledger_gateway_entry({Addr, Gw}, Ledger, Verbose) | Acc]
+      end,
+      [],
+      Ledger).
 
 format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger, Verbose) ->
     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(libp2p_crypto:bin_to_pubkey(GatewayAddr))),
-    {ok, Score} = blockchain_ledger_v1:gateway_score(GatewayAddr, Ledger),
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
-     {name, Name},
-     {effective_score, Score} |
+     {name, Name} |
      blockchain_ledger_gateway_v2:print(GatewayAddr, Gateway, Ledger, Verbose)].
 
 %% ledger variables
