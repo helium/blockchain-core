@@ -281,7 +281,7 @@ new(Dir) ->
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
-    #ledger_v1{
+    maybe_load_aux(#ledger_v1{
         dir=Dir,
         db=DB,
         mode=active,
@@ -314,7 +314,7 @@ new(Dir) ->
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF
         }
-    }.
+    }).
 
 maybe_load_aux(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
@@ -349,7 +349,7 @@ maybe_load_aux(Ledger) ->
                 false ->
                     %% bootstrap from leading ledger
                     {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
-                    blockchain_ledger_snapshot_v1:load_into_ledger(Snap, Ledger, aux),
+                    blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
                     NewLedger
             end
     end.
