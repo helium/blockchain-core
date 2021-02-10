@@ -348,7 +348,7 @@ maybe_load_aux(Ledger) ->
                     lager:info("aux_ledger already exists in path: ~p", [Path]),
                     NewLedger;
                 false ->
-                    case blockchain_ledger_v1:current_height(blockchain:ledger()) of
+                    case blockchain_ledger_v1:current_height(Ledger) of
                         {ok, Height} when Height > 0 ->
                             %% bootstrap from active ledger
                             lager:info("bootstapping aux_ledger from active ledger in path: ~p", [Path]),
