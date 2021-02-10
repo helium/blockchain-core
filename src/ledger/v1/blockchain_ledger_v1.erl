@@ -5,7 +5,7 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/1, new_aux/1,
+    new/1, new_aux_from_existing/2,
     mode/1, mode/2,
     dir/1,
 
@@ -307,31 +307,36 @@ new(Dir) ->
         }
     }.
 
--spec new_aux(file:filename_all()) -> ledger().
-new_aux(Dir) ->
-    {ok, DB, CFs} = open_db(Dir, ?AUX_DB_FILE),
-    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, _DelayedDefaultCF, _DelayedAGwsCF, _DelayedEntriesCF,
-     __DelayedDCEntriesCF, _DelayedHTLCsCF, _DelayedPoCsCF, _DelayedSecuritiesCF,
-     _DelayedRoutingCF, _DelayedSubnetsCF, _DelayedSCsCF, _DelayedH3DexCF, _DelayedGwDenormCF] = CFs,
+-spec new_aux_from_existing(Dir :: file:filename_all(),
+                            ExistingLedger :: ledger()) -> ledger().
+new_aux_from_existing(Dir, ExistingLedger) ->
+    %% NOTE: A new auxiliary ledger will not have delayed mode
+
+    {ok, DB, _CFs} = open_db(Dir, ?AUX_DB_FILE),
+
+    Active = ExistingLedger#ledger_v1.active,
+
     #ledger_v1{
         dir=Dir,
         db=DB,
         mode=aux,
-        snapshots = ets:new(snapshot_cache, [set, public, {keypos, 1}]),
+        snapshots= ExistingLedger#ledger_v1.snapshots,
+        snapshot= ExistingLedger#ledger_v1.snapshot,
         active= #sub_ledger_v1{
-            default=DefaultCF,
-            active_gateways=AGwsCF,
-            gw_denorm=GwDenormCF,
-            entries=EntriesCF,
-            dc_entries=DCEntriesCF,
-            htlcs=HTLCsCF,
-            pocs=PoCsCF,
-            securities=SecuritiesCF,
-            routing=RoutingCF,
-            subnets=SubnetsCF,
-            state_channels=SCsCF,
-            h3dex=H3DexCF
+            default=Active#sub_ledger_v1.default,
+            active_gateways=Active#sub_ledger_v1.active_gateways,
+            gw_denorm=Active#sub_ledger_v1.gw_denorm,
+            entries=Active#sub_ledger_v1.entries,
+            dc_entries=Active#sub_ledger_v1.dc_entries,
+            htlcs=Active#sub_ledger_v1.htlcs,
+            pocs=Active#sub_ledger_v1.pocs,
+            securities=Active#sub_ledger_v1.securities,
+            routing=Active#sub_ledger_v1.routing,
+            subnets=Active#sub_ledger_v1.subnets,
+            state_channels=Active#sub_ledger_v1.state_channels,
+            h3dex=Active#sub_ledger_v1.h3dex,
+            cache=Active#sub_ledger_v1.cache,
+            gateway_cache=Active#sub_ledger_v1.gateway_cache
         }
     }.
 

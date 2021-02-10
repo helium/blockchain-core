@@ -13,8 +13,9 @@
     height/1,
     sync_height/1,
     ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
-    ledger/3,
     dir/1,
+
+    set_aux/2,
 
     blocks/1, get_block/2, get_raw_block/2, save_block/2,
     has_block/2,
@@ -435,13 +436,6 @@ ledger(#blockchain{ledger=Ledger}) ->
 ledger(Ledger, Chain) ->
     Chain#blockchain{ledger=Ledger}.
 
--spec ledger(LedgerMode :: blockchain_ledger_v1:mode(),
-             Ledger :: blockchain_ledger_v1:ledger(),
-             Chain :: blockchain()) -> blockchain().
-ledger(LedgerMode, Ledger, Chain) ->
-    LedgerWithMode = blockchain_ledger_v1:mode(LedgerMode, Ledger),
-    Chain#blockchain{ledger=LedgerWithMode}.
-
 %%--------------------------------------------------------------------
 %% @doc Obtain a version of the ledger at a given height.
 %%
@@ -559,6 +553,18 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
 -spec dir(blockchain()) -> file:filename_all().
 dir(Blockchain) ->
     Blockchain#blockchain.dir.
+
+%%--------------------------------------------------------------------
+%% @doc Set an auxiliary ledger for the chain.
+%% Copy over existing stuff from the current ledger
+%% @end
+%%--------------------------------------------------------------------
+-spec set_aux(Dir :: file:filename_all(),
+              Chain :: blockchain()) -> blockchain().
+set_aux(Dir, Chain) ->
+    ExistingLedger = ?MODULE:ledger(Chain),
+    AuxLedger = blockchain_ledger_v1:new_aux_from_existing(Dir, ExistingLedger),
+    Chain#blockchain{ledger=AuxLedger}.
 
 %%--------------------------------------------------------------------
 %% @doc
