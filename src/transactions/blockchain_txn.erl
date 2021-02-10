@@ -756,7 +756,7 @@ absorb_aux(Block0, Chain0) ->
                                               Acc
                                       end,
                                       ok,
-                                      lists:seq(AuxHeight+1, CurrentHeight)),
+                                      lists:seq(AuxHeight+1, CurrentHeight - 1)),
                     case Res of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(AuxLedger1);
