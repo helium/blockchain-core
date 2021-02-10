@@ -8,7 +8,9 @@
 -export([
     new/1,
     mode/1, mode/2,
+    has_aux/1,
     dir/1,
+    maybe_load_aux/1,
 
     check_key/2, mark_key/2,
 
@@ -314,9 +316,51 @@ new(Dir) ->
         }
     }.
 
+maybe_load_aux(Ledger) ->
+    case application:get_env(blockchain, aux_ledger_dir, undefined) of
+        undefined ->
+            Ledger;
+        Path ->
+            Exists = filelib:is_dir(Path),
+            {ok, DB, CFs} = open_db(Path, false),
+            [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+             SubnetsCF, SCsCF, H3DexCF, GwDenormCF] = CFs,
+            NewLedger = Ledger#ledger_v1{aux=#aux_ledger_v1{
+               dir = Path,
+               db = DB,
+               aux = #sub_ledger_v1{
+               default=DefaultCF,
+               active_gateways=AGwsCF,
+               gw_denorm=GwDenormCF,
+               entries=EntriesCF,
+               dc_entries=DCEntriesCF,
+               htlcs=HTLCsCF,
+               pocs=PoCsCF,
+               securities=SecuritiesCF,
+               routing=RoutingCF,
+               subnets=SubnetsCF,
+               state_channels=SCsCF,
+               h3dex=H3DexCF}
+              }},
+            case Exists of
+                true ->
+                    %% assume no need to bootstrap
+                    NewLedger;
+                false ->
+                    %% bootstrap from leading ledger
+                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
+                    blockchain_ledger_snapshot_v1:load_into_ledger(Snap, Ledger, aux),
+                    NewLedger
+            end
+    end.
+
 -spec mode(ledger()) -> active | delayed | aux.
 mode(Ledger) ->
     Ledger#ledger_v1.mode.
+
+-spec has_aux(ledger()) -> boolean().
+has_aux(Ledger) ->
+    Ledger#ledger_v1.aux /= undefined.
 
 -spec mode(active | delayed | aux, ledger()) -> ledger().
 mode(aux, #ledger_v1{aux=undefined}) ->
@@ -2872,7 +2916,7 @@ htlcs_cf(Ledger) ->
     SL#sub_ledger_v1.htlcs.
 
 -spec pocs_cf(ledger()) -> rocksdb:cf_handle().
-pocs_cf(#ledger_v1{Ledger) ->
+pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     SL#sub_ledger_v1.pocs.
 
@@ -2883,7 +2927,7 @@ securities_cf(Ledger) ->
 
 
 -spec routing_cf(ledger()) -> rocksdb:cf_handle().
-routing_cf(Routing) ->
+routing_cf(Ledger) ->
     SL = subledger(Ledger),
     SL#sub_ledger_v1.routing.
 
@@ -3048,6 +3092,9 @@ process_fun(ToProcess, Cache, CF,
 
 -spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
 open_db(Dir) ->
+    open_db(Dir, true).
+
+open_db(Dir, Delayed) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
 
@@ -3059,11 +3106,16 @@ open_db(Dir) ->
 
     DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
                   "pocs", "securities", "routing", "subnets", "state_channels",
-                  "h3dex", "gw_denorm",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries",
+                  "h3dex", "gw_denorm"] ++
+    case Delayed of
+        true ->
+                  ["delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
-                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
+                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"];
+        false ->
+            []
+    end,
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
