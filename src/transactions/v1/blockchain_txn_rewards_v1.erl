@@ -150,7 +150,10 @@ aux_absorb(Txn, AuxLedger, Chain) ->
     %% and do 0 verification for absorption
     case calculate_rewards_(Start, End, AuxLedger, Chain) of
         {error, _}=E -> E;
-        {ok, Rewards} -> absorb_rewards(Rewards, AuxLedger, true)
+        {ok, AuxRewards} ->
+            absorb_rewards(AuxRewards, AuxLedger, true),
+            TxnRewards = rewards(Txn),
+            blockchain_ledger_v1:set_aux_rewards(End, TxnRewards, AuxRewards, AuxLedger)
     end.
 
 -spec absorb_(Txn :: txn_rewards(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
