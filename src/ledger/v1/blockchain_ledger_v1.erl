@@ -7,6 +7,7 @@
 
 -export([
     new/1,
+    bootstrap_aux/2,
     mode/1, mode/2,
     has_aux/1, set_aux_vars/2,
     dir/1,
@@ -316,48 +317,53 @@ new(Dir) ->
         }
     }).
 
+-spec maybe_load_aux(Ledger :: ledger()) -> ledger().
 maybe_load_aux(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
         undefined ->
             Ledger;
         Path ->
-            Exists = filelib:is_dir(Path),
-            {ok, DB, CFs} = open_db(Path, false),
-            [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-             SubnetsCF, SCsCF, H3DexCF, GwDenormCF] = CFs,
-            NewLedger = Ledger#ledger_v1{aux=#aux_ledger_v1{
-               dir = Path,
-               db = DB,
-               aux = #sub_ledger_v1{
-               default=DefaultCF,
-               active_gateways=AGwsCF,
-               gw_denorm=GwDenormCF,
-               entries=EntriesCF,
-               dc_entries=DCEntriesCF,
-               htlcs=HTLCsCF,
-               pocs=PoCsCF,
-               securities=SecuritiesCF,
-               routing=RoutingCF,
-               subnets=SubnetsCF,
-               state_channels=SCsCF,
-               h3dex=H3DexCF}
-              }},
-            case Exists of
-                true ->
-                    %% assume no need to bootstrap
-                    lager:info("aux_ledger already exists in path: ~p", [Path]),
+            bootstrap_aux(Path, Ledger)
+    end.
+
+-spec bootstrap_aux(Path :: file:filename_all(), Ledger :: ledger()) -> ledger().
+bootstrap_aux(Path, Ledger) ->
+    Exists = filelib:is_dir(Path),
+    {ok, DB, CFs} = open_db(Path, false),
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF] = CFs,
+    NewLedger = Ledger#ledger_v1{aux=#aux_ledger_v1{
+       dir = Path,
+       db = DB,
+       aux = #sub_ledger_v1{
+       default=DefaultCF,
+       active_gateways=AGwsCF,
+       gw_denorm=GwDenormCF,
+       entries=EntriesCF,
+       dc_entries=DCEntriesCF,
+       htlcs=HTLCsCF,
+       pocs=PoCsCF,
+       securities=SecuritiesCF,
+       routing=RoutingCF,
+       subnets=SubnetsCF,
+       state_channels=SCsCF,
+       h3dex=H3DexCF}
+      }},
+    case Exists of
+        true ->
+            %% assume no need to bootstrap
+            lager:info("aux_ledger already exists in path: ~p", [Path]),
+            NewLedger;
+        false ->
+            case blockchain_ledger_v1:current_height(Ledger) of
+                {ok, Height} when Height > 0 ->
+                    %% bootstrap from active ledger
+                    lager:info("bootstrapping aux_ledger from active ledger in path: ~p", [Path]),
+                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
+                    blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
                     NewLedger;
-                false ->
-                    case blockchain_ledger_v1:current_height(Ledger) of
-                        {ok, Height} when Height > 0 ->
-                            %% bootstrap from active ledger
-                            lager:info("bootstapping aux_ledger from active ledger in path: ~p", [Path]),
-                            {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
-                            blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
-                            NewLedger;
-                        _ ->
-                            NewLedger
-                    end
+                _ ->
+                    NewLedger
             end
     end.
 
@@ -1022,14 +1028,15 @@ vars(Vars, Unset, Ledger) ->
 set_aux_vars(ExtraVars, #ledger_v1{mode=aux}=AuxLedger) ->
     CurrentVars = vars_atom_map(AuxLedger),
     NewVars = maps:merge(CurrentVars, ExtraVars),
-    Ctx = ?MODULE:new_context(AuxLedger),
-    ?MODULE:vars(NewVars, [], Ctx),
-    ?MODULE:commit_context(Ctx);
+    Ctx = new_context(AuxLedger),
+    ok = vars(NewVars, [], Ctx),
+    ok = commit_context(Ctx),
+    ok;
 set_aux_vars(_ExtraVars, _Ledger) ->
     error(cannot_set_vars_not_aux_ledger).
 
 vars_atom_map(Ledger) ->
-    blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(?MODULE:snapshot_vars(Ledger))).
+    blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(snapshot_vars(Ledger))).
 
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
