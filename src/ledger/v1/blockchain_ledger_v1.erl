@@ -1024,19 +1024,14 @@ vars(Vars, Unset, Ledger) ->
       Unset),
     ok.
 
--spec set_aux_vars(ExtraVars :: map(), AuxLedger :: ledger()) -> ok.
-set_aux_vars(ExtraVars, #ledger_v1{mode=aux}=AuxLedger) ->
-    CurrentVars = vars_atom_map(AuxLedger),
-    NewVars = maps:merge(CurrentVars, ExtraVars),
+-spec set_aux_vars(AuxVars :: map(), AuxLedger :: ledger()) -> ok.
+set_aux_vars(AuxVars, #ledger_v1{mode=aux}=AuxLedger) ->
     Ctx = new_context(AuxLedger),
-    ok = vars(NewVars, [], Ctx),
+    ok = vars(AuxVars, [], Ctx),
     ok = commit_context(Ctx),
     ok;
 set_aux_vars(_ExtraVars, _Ledger) ->
     error(cannot_set_vars_not_aux_ledger).
-
-vars_atom_map(Ledger) ->
-    blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(snapshot_vars(Ledger))).
 
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
