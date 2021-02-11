@@ -3161,9 +3161,9 @@ open_db(aux, Dir, false) ->
     DefaultCFs = default_cfs() ++ aux_cfs(),
     open_db_(DBDir, DBOptions, DefaultCFs, CFOpts);
 open_db(active, _Dir, false) ->
-    error(not_opening_active_without_delayed);
+    {error, not_opening_active_without_delayed};
 open_db(aux, _Dir, true) ->
-    error(not_opening_aux_with_delayed).
+    {error, not_opening_aux_with_delayed}.
 
 open_db_(DBDir, DBOptions, DefaultCFs, CFOpts) ->
     ExistingCFs =
