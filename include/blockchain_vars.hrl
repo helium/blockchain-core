@@ -149,6 +149,9 @@
 %% during targeting
 -define(poc_witness_consideration_limit, poc_witness_consideration_limit).
 
+%% define loss factor for SNR curve, floating point number
+-define(fspl_loss, fspl_loss).
+
 %%%
 %%% score vars
 %%%
