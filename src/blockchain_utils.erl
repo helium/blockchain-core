@@ -296,7 +296,7 @@ free_space_path_loss(Loc1, Loc2, Frequency, Gt, Gl) ->
     (10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
 
 %% Subtract FSPL from our transmit power to get the expected minimum received signal.
--spec min_rcv_sig(float(), float()) -> float().
+-spec min_rcv_sig(float(), number()) -> float().
 min_rcv_sig(Fspl, TxGain) ->
    TxGain - Fspl.
 min_rcv_sig(Fspl) ->
