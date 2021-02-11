@@ -818,8 +818,8 @@ block_name(Block) ->
 cd_block_name(Block) ->
     <<"$cd_block_", (integer_to_binary(Block))/binary>>.
 
-owner_name(Block) ->
-    <<"$owner_", (integer_to_binary(Block))/binary>>.
+owner_name(Owner) ->
+    <<"$owner_", Owner/binary>>.
 
 -spec save_threshold_txn(blockchain_txn_vars_v1:txn_vars(), ledger()) ->  ok | {error, any()}.
 save_threshold_txn(Txn, Ledger) ->
@@ -3468,7 +3468,7 @@ add_validator(Address,
         {ok, _} ->
             {error, validator_already_added};
         _ ->
-            Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Stake, Description),
+            Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Description, Stake),
             update_validator(Address, Val, Ledger)
     end.
 

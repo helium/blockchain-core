@@ -314,6 +314,7 @@ get_pubkeybin_sigfun(Swarm) ->
 -spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
+    lager:info("sum ~p norm ~p", [Sum, normalize_float(Rnd * Sum)]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
 
 -spec find_txn(Block :: blockchain_block:block(),

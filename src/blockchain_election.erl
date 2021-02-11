@@ -186,14 +186,18 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
+
+    lager:info("validators ~p", [Validators1]),
     
     %% replace select with iterative icdf
     New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
+    lager:info("validators new ~p", [New]),
     
     NewLen = min(Remove, length(New)),
     ToRem = 
         case have_gateways(OldGroup0, Ledger) of 
             [] ->
+                lager:info("no gateways ~p", [OldGroupAdjusted]),
                 icdf_select(lists:keysort(1, OldGroupAdjusted), NewLen, []);
             Gateways ->
                 %% just sort and remove the first removal amount rather than selecting, leaving
@@ -207,10 +211,10 @@ icdf_select(_List, 0, Acc) ->
     Acc;
 icdf_select(List, ToSelect, _Acc) when ToSelect > length(List) ->
     {error, not_enough_elements};
-icdf_select(List, ToRemove, Acc) ->
-    ct:pal("remove ~p", [ToRemove]),
+icdf_select(List, ToSelect, Acc) ->
+    lager:info("remove ~p", [ToSelect]),
     {ok, Elt} = blockchain_utils:icdf_select(List, rand:uniform()),
-    icdf_select(lists:delete(Elt, List), ToRemove - 1, [Elt | Acc]).
+    icdf_select(lists:delete(Elt, List), ToSelect - 1, [Elt | Acc]).
 
 have_gateways(List, Ledger) ->
     lists:filter(
@@ -315,7 +319,8 @@ adjust_old_group(Group, Ledger) ->
          (#val_v1{prob = Prob, addr = Addr}) ->
               Index = maps:get(Addr, Addrs),
               Penalty = maps:get(Index, Penalties, 0.0),
-              {Addr, max(normalize_float(Prob - Penalty), 0.001)}
+              %% penalties are positive in icdf
+              {Addr, normalize_float(Prob + Penalty)}
       end,
       Group).
 

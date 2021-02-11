@@ -610,6 +610,8 @@ type(#blockchain_txn_stake_validator_v1_pb{}) ->
      blockchain_txn_stake_validator_v1;
 type(#blockchain_txn_unstake_validator_v1_pb{}) ->
     blockchain_txn_unstake_validator_v1;
+type(#blockchain_txn_change_validator_description_v1_pb{}) ->
+    blockchain_txn_change_validator_description_v1;
 type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
     blockchain_txn_transfer_validator_stake_v1;
 type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->

@@ -15,7 +15,7 @@
 -include_lib("helium_proto/include/blockchain_txn_change_validator_description_v1_pb.hrl").
 
 -export([
-         new/6,
+         new/5,
          hash/1,
          addr/1,
          owner/1,
@@ -38,15 +38,14 @@
 -export_type([txn_change_validator_description/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          binary(), binary(), pos_integer(), pos_integer()) ->
+          binary(), pos_integer(), pos_integer()) ->
           txn_change_validator_description().
 new(ValidatorAddress, OwnerAddress,
-    Description, OwnerSignature, Fee, Nonce) ->
+    Description, Nonce, Fee) ->
     #blockchain_txn_change_validator_description_v1_pb{
        addr = ValidatorAddress,
        owner = OwnerAddress,
        description = Description,
-       owner_signature = OwnerSignature,
        fee = Fee,
        nonce = Nonce
     }.
@@ -81,10 +80,10 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_change_validator_description(), blockchain_ledger_v1:ledger(),
                     pos_integer(), pos_integer(), boolean()) ->
           non_neg_integer().
-calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
+calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, _) ->
     ?calculate_fee(Txn#blockchain_txn_change_validator_description_v1_pb{fee=0,
-                                                              owner_signature = <<0:512>>},
-    Ledger, DCPayloadSize, TxnFeeMultiplier).
+                                                                         owner_signature = <<0:512>>},
+                   Ledger, DCPayloadSize, TxnFeeMultiplier).
 
 -spec owner_signature(txn_change_validator_description()) -> binary().
 owner_signature(Txn) ->
@@ -205,7 +204,7 @@ to_json(Txn, _Opts) ->
 
 to_json_test() ->
     Tx = new(<<"validator_address">>, <<"owner_address">>,
-             <<"some description">>, <<"sdasdasdasd">>, 10, 10),
+             <<"some description">>, 10, 10),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_change_validator_description_v1_pb))).

@@ -15,7 +15,7 @@
 -include_lib("helium_proto/include/blockchain_txn_stake_validator_v1_pb.hrl").
 
 -export([
-         new/7,
+         new/5,
          hash/1,
          validator/1,
          owner/1,
@@ -24,7 +24,7 @@
          validator_signature/1,
          owner_signature/1,
          fee/1, calculate_fee/2, calculate_fee/5,
-         sign/2,
+         sign/2, validator_sign/2,
          is_valid/2,
          absorb/2,
          print/1,
@@ -39,18 +39,15 @@
 -export_type([txn_stake_validator/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          pos_integer(), string(), binary(), binary(), pos_integer()) ->
+          pos_integer(), string(), pos_integer()) ->
           txn_stake_validator().
 new(ValidatorAddress, OwnerAddress,
-    Stake, Description,
-    ValidatorSignature, OwnerSignature, Fee) ->
+    Stake, Description, Fee) ->
     #blockchain_txn_stake_validator_v1_pb{
        validator = ValidatorAddress,
        owner = OwnerAddress,
        stake = Stake,
        description = Description,
-       validator_signature = ValidatorSignature,
-       owner_signature = OwnerSignature,
        fee = Fee
     }.
 
@@ -88,7 +85,7 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_stake_validator(), blockchain_ledger_v1:ledger(),
                     pos_integer(), pos_integer(), boolean()) ->
           non_neg_integer().
-calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
+calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, _) ->
     ?calculate_fee(Txn#blockchain_txn_stake_validator_v1_pb{fee=0,
                                                             validator_signature = <<0:512>>,
                                                             owner_signature = <<0:512>>},
@@ -110,6 +107,12 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_stake_validator_v1_pb:encode_msg(BaseTxn),
     Txn#blockchain_txn_stake_validator_v1_pb{owner_signature=SigFun(EncodedTxn)}.
 
+-spec validator_sign(txn_stake_validator(), libp2p_crypto:sig_fun()) -> txn_stake_validator().
+validator_sign(Txn, SigFun) ->
+    BaseTxn = Txn#blockchain_txn_stake_validator_v1_pb{owner_signature= <<>>,
+                                                       validator_signature= <<>>},
+    EncodedTxn = blockchain_txn_stake_validator_v1_pb:encode_msg(BaseTxn),
+    Txn#blockchain_txn_stake_validator_v1_pb{validator_signature=SigFun(EncodedTxn)}.
 
 -spec is_valid_validator(txn_stake_validator()) -> boolean().
 is_valid_validator(#blockchain_txn_stake_validator_v1_pb{validator=PubKeyBin,
@@ -236,8 +239,8 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, <<"owner_address">>, 1000, <<"some random description">>,
-             <<"sdasdasdasd">>, <<"asdasdasda">>, 20),
+    Tx = new(<<"validator_address">>, <<"owner_address">>, 1000,
+             <<"some random description">>, 20),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_stake_validator_v1_pb))).

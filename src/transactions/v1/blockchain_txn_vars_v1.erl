@@ -534,11 +534,14 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                         true ->
                             {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
                             Versions = blockchain_ledger_v1:cg_versions(Ledger),
+                            lager:info("threshold ~p version ~p", [Threshold, Versions]),
                             case sum_higher(V, Versions) of
                                 Pct when Pct >= Threshold andalso Delay =:= 0 ->
+                                    lager:info("succeed = ~p", [Pct]),
                                     delayed_absorb(Txn, Ledger),
                                     true;
                                 Pct when Pct >= Threshold ->
+                                    lager:info("succeed delay = ~p", [Pct]),
                                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                                     true;
                                 _Pct ->
@@ -546,12 +549,14 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                                     false
                             end;
                         _ ->
+                            lager:info("bad members"),
                             false
                     end
             end
     end.
 
 check_members(Members, Target, Ledger) ->
+    lager:info("members ~p", [Members]),
     case blockchain_ledger_v1:config(?election_version, Ledger) of
         {ok, N} when N >= 5 ->
             lists:all(
@@ -559,8 +564,9 @@ check_members(Members, Target, Ledger) ->
                       case blockchain_ledger_v1:get_validator(M, Ledger) of
                           {ok, Val} ->
                               V = blockchain_ledger_validator_v1:version(Val),
+                              lager:info("val ~p target ~p vers ~p", [Val, Target, V]),
                               V >= Target;
-                          _ -> false
+                          _Err -> lager:info("err ~p", [_Err]), false
                       end
               end,
               Members);
@@ -1134,7 +1140,8 @@ validate_var(?validator_liveness_grace_period, Value) ->
 validate_var(?validator_description_max_len, Value) ->
     validate_int(Value, "validator_minimum_stake", 64, 1024, false);
 validate_var(?stake_withdrawl_cooldown, Value) ->
-    validate_int(Value, "stake_withdrawl_cooldown", 50000, 1000000, false);
+    %% maybe set this in the test
+    validate_int(Value, "stake_withdrawl_cooldown", 5, 1000000, false);
 %% validate_var(?maximum_overstake, Value) ->
 %%     validate_float(Value, "maximum_overstake", 0.0, 10.0);
 
