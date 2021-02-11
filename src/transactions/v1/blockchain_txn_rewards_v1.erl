@@ -131,16 +131,13 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
 
-    case blockchain_ledger_v1:has_aux(Ledger) of
+    case blockchain_ledger_v1:mode(Ledger) == aux of
         false ->
             %% only absorb in the main ledger
             absorb_(Txn, Ledger);
         true ->
-            %% absorb in the main ledger
-            absorb_(Txn, Ledger),
-            %% and also absorb in the aux ledger
-            AuxLedger = blockchain_ledger_v1:mode(aux, Ledger),
-            aux_absorb(Txn, AuxLedger, Chain)
+            %% absorb in the aux ledger
+            aux_absorb(Txn, Ledger, Chain)
     end.
 
 -spec aux_absorb(Txn :: txn_rewards(),
