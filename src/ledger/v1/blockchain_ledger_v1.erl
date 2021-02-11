@@ -9,9 +9,12 @@
     new/1,
     bootstrap_aux/2,
     mode/1, mode/2,
-    has_aux/1, set_aux_vars/2,
+    has_aux/1,
     dir/1,
     maybe_load_aux/1,
+
+    get_aux_rewards/2,
+    set_aux_vars/2, set_aux_rewards/4,
 
     check_key/2, mark_key/2,
 
@@ -235,7 +238,8 @@
 -record(aux_ledger_v1, {
           dir :: file:filename_all(),
           db :: rocksdb:db_handle(),
-          aux :: sub_ledger()
+          aux :: sub_ledger(),
+          aux_heights :: rocksdb:cf_handle()
          }).
 
 -define(DB_FILE, "ledger.db").
@@ -332,10 +336,11 @@ bootstrap_aux(Path, Ledger) ->
     Exists = filelib:is_dir(Path),
     {ok, DB, CFs} = open_db(aux, Path, false),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF] = CFs,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, AuxHeightsCF] = CFs,
     NewLedger = Ledger#ledger_v1{aux=#aux_ledger_v1{
        dir = Path,
        db = DB,
+       aux_heights = AuxHeightsCF,
        aux = #sub_ledger_v1{
        default=DefaultCF,
        active_gateways=AGwsCF,
@@ -2995,6 +3000,59 @@ h3dex_cf(Ledger) ->
     SL = subledger(Ledger),
     SL#sub_ledger_v1.h3dex.
 
+-spec aux_heights_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights
+    end.
+
+-spec aux_db(ledger()) -> undefined | rocksdb:db_handle().
+aux_db(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.db
+    end.
+
+-spec set_aux_rewards(Height :: non_neg_integer(),
+                      Rewards :: blockchain_txn_reward_v1:rewards(),
+                      AuxRewards :: blockchain_txn_reward_v1:rewards(),
+                      Ledger :: ledger()) -> ok | {error, any()}.
+set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
+    case has_aux(Ledger) of
+        false -> {error, not_aux_ledger};
+        true ->
+            AuxDB = aux_db(Ledger),
+            AuxHeightsCF = aux_heights_cf(Ledger),
+            Key = <<"aux_height_", (integer_to_binary(Height))/binary>>,
+            case rocksdb:get(AuxDB, AuxHeightsCF, Key, []) of
+                {ok, _} ->
+                    %% already exists, don't do anything
+                    ok;
+                not_found ->
+                    Value = term_to_binary({Rewards, AuxRewards}),
+                    rocksdb:put(AuxDB, AuxHeightsCF, Key, Value, []);
+                Error ->
+                    Error
+            end
+    end.
+
+-spec get_aux_rewards(Height :: non_neg_integer(), Ledger :: ledger()) ->
+    {ok, blockchain_txn_reward_v1:rewards(), blockchain_txn_reward_v1:rewards()} | {error, any()}.
+get_aux_rewards(Height, Ledger) ->
+    case has_aux(Ledger) of
+        false -> {error, not_aux_ledger};
+        true ->
+            AuxDB = aux_db(Ledger),
+            AuxHeightsCF = aux_heights_cf(Ledger),
+            Key = <<"aux_height_", (integer_to_binary(Height))/binary>>,
+            case rocksdb:get(AuxDB, AuxHeightsCF, Key, []) of
+                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
+                not_found -> {error, not_found};
+                Error -> Error
+            end
+    end.
+
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
@@ -3199,7 +3257,7 @@ delayed_cfs() ->
 
 -spec aux_cfs() -> list().
 aux_cfs() ->
-    [].
+    ["aux_heights"].
 
 -spec maybe_use_snapshot(ledger(), list()) -> list().
 maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->

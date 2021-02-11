@@ -9,13 +9,15 @@
 
 -export([
     bootstrap_test/1,
-    alter_var_test/1
+    alter_var_test/1,
+    aux_rewards_test/1
 ]).
 
 all() ->
     [
         bootstrap_test,
-        alter_var_test
+        alter_var_test,
+        aux_rewards_test
     ].
 
 %%--------------------------------------------------------------------
@@ -96,8 +98,6 @@ bootstrap_test(Config) ->
 
     aux = blockchain_ledger_v1:mode(AuxLedger),
 
-    ct:pal("AuxLedger: ~p", [AuxLedger]),
-
     Entries = blockchain_ledger_v1:entries(Ledger),
     AuxEntries = blockchain_ledger_v1:entries(AuxLedger),
 
@@ -117,8 +117,6 @@ alter_var_test(Config) ->
 
     aux = blockchain_ledger_v1:mode(AuxLedger),
 
-    ct:pal("AuxLedger: ~p", [AuxLedger]),
-
     Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
     AuxVars = blockchain_ledger_v1:snapshot_vars(AuxLedger),
 
@@ -135,12 +133,29 @@ alter_var_test(Config) ->
 
     {ok, AuxMonthlyReward} = blockchain_ledger_v1:config(?monthly_reward, AuxLedger),
 
-    ct:pal("MonthlyReward: ~p, AlteredMonthlyReward: ~p, AuxMonthlyReward: ~p", [
-        MonthlyReward,
-        AlteredMonthlyReward,
-        AuxMonthlyReward
-    ]),
-
     true = AuxMonthlyReward == AlteredMonthlyReward,
+
+    ok.
+
+aux_rewards_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    Ledger = ?config(ledger, Config),
+    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+        filename:join([BaseDir, "bootstrap_test.db"]),
+        Ledger
+    ),
+    AuxLedger = blockchain_ledger_v1:mode(aux, AuxLedger0),
+
+    %% construct some yolo rewards, two versions, real and aux
+    Reward = 1000000000,
+    Height = 10,
+    Rewards = [blockchain_txn_reward_v1:new(<<"owner">>, <<"gateway">>, Reward, securities)],
+    AuxRewards = [blockchain_txn_reward_v1:new(<<"owner">>, <<"gateway">>, Reward * 100, securities)],
+
+    %% set both sets of rewards for aux ledger
+    ok = blockchain_ledger_v1:set_aux_rewards(Height, Rewards, AuxRewards, AuxLedger),
+
+    %% compare
+    {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards(Height, AuxLedger),
 
     ok.
