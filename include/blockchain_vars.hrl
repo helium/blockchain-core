@@ -152,6 +152,12 @@
 
 
 -define(poc_addr_hash_byte_count, poc_addr_hash_byte_count).
+
+%% define loss factor for SNR curve, floating point number
+-define(fspl_loss, fspl_loss).
+-define(poc_distance_limit, poc_distance_limit).
+-define(check_snr, check_snr).
+
 %%%
 %%% score vars
 %%%
@@ -186,6 +192,7 @@
 -define(poc_reward_decay_rate, poc_reward_decay_rate).
 -define(rewards_txn_version, rewards_txn_version).
 -define(hip15_tx_reward_unit_cap, hip15_tx_reward_unit_cap).
+-define(witness_reward_decay_rate, witness_reward_decay_rate).
 
 %%%
 %%% bundle txn vars

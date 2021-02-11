@@ -1150,8 +1150,15 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
+            TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
+                         {ok, L} ->
+                             D = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                             D > L;
+                         _ ->
+                             false
+                     end,
             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
-                true ->
+                Dist when Dist >= ExclusionCells andalso not TooFar ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
@@ -1168,6 +1175,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                         true ->
                             case blockchain:config(?data_aggregation_version, Ledger) of
                                 {ok, 2} ->
+
                                     {LowerBound, _} = calculate_rssi_bounds_from_snr(SNR),
                                     case RSSI >= LowerBound of
                                         true ->
@@ -1186,10 +1194,10 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                             end;
                                         false ->
                                             lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
-                                                          [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
-                                                           ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                           element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                           RSSI, LowerBound, SNR]),
+                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
+                                                         ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                         RSSI, LowerBound, SNR]),
                                             undefined
                                     end;
                                 _ ->
@@ -1197,8 +1205,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                     Receipt
                             end
                     end;
-                false ->
-                    %% too close
+                _ ->
+                    %% too close or too far
                     undefined
             catch
                 _:_ ->
@@ -1223,13 +1231,19 @@ valid_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
-                             true ->
+                         TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
+                                      {ok, L} ->
+                                          D = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                                          D > L;
+                                      _ ->
+                                          false
+                                  end,
+                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                             Dist when Dist >= ExclusionCells andalso not TooFar ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
                                  MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
-
                                  case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness
@@ -1271,8 +1285,8 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                  true
                                          end
                                  end;
-                             false ->
-                                 %% too close
+                             _ ->
+                                 %% too close or too far
                                  false
                          catch _:_ ->
                                    %% pentagonal distortion
@@ -1299,13 +1313,19 @@ tagged_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
-                             true ->
+                         TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
+                                      {ok, L} ->
+                                          D = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                                          D > L;
+                                      _ ->
+                                          false
+                                  end,
+                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                             Dist when Dist >= ExclusionCells andalso not TooFar ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
                                  MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
-
                                  case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness
@@ -1347,8 +1367,8 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                  [{true, <<"insufficient_data">>, Witness} | Acc]
                                          end
                                  end;
-                             false ->
-                                 %% too close
+                             _ ->
+                                 %% too close or too far
                                  [{false, <<"witness_too_close">>, Witness} | Acc]
                          catch _:_ ->
                                    %% pentagonal distortion
@@ -1363,14 +1383,14 @@ scale_unknown_snr(UnknownSNR) ->
     {Low + (Low * ScaleFactor), High + (High * ScaleFactor)}.
 
 calculate_rssi_bounds_from_snr(SNR) ->
-    %% keef says rounding up hurts the least
-    CeilSNR = ceil(SNR),
-    case maps:get(CeilSNR, ?SNR_CURVE, undefined) of
-        undefined ->
-            scale_unknown_snr(CeilSNR);
-        V ->
-            V
-    end.
+        %% keef says rounding up hurts the least
+        CeilSNR = ceil(SNR),
+        case maps:get(CeilSNR, ?SNR_CURVE, undefined) of
+            undefined ->
+                scale_unknown_snr(CeilSNR);
+            V ->
+                V
+        end.
 
 -spec get_channels(Txn :: txn_poc_receipts(),
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
