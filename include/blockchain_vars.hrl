@@ -152,6 +152,10 @@
 
 
 -define(poc_addr_hash_byte_count, poc_addr_hash_byte_count).
+
+%% define loss factor for SNR curve, floating point number
+-define(fspl_loss, fspl_loss).
+
 %%%
 %%% score vars
 %%%
