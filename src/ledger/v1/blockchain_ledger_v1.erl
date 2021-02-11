@@ -3195,10 +3195,7 @@ default_cfs() ->
 
 -spec delayed_cfs() -> list().
 delayed_cfs() ->
-    ["delayed_default", "delayed_active_gateways", "delayed_entries",
-     "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
-     "delayed_securities", "delayed_routing", "delayed_subnets",
-     "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"].
+    ["delayed_" ++ I || I <- default_cfs()].
 
 -spec aux_cfs() -> list().
 aux_cfs() ->
