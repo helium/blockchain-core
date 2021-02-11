@@ -150,16 +150,18 @@ aux_absorb(Txn, AuxLedger, Chain) ->
     %% and do 0 verification for absorption
     case calculate_rewards_(Start, End, AuxLedger, Chain) of
         {error, _}=E -> E;
-        {ok, Rewards} -> absorb_rewards(Rewards, AuxLedger)
+        {ok, Rewards} -> absorb_rewards(Rewards, AuxLedger, true)
     end.
 
 -spec absorb_(Txn :: txn_rewards(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 absorb_(Txn, Ledger) ->
     Rewards = ?MODULE:rewards(Txn),
-    absorb_rewards(Rewards, Ledger).
+    absorb_rewards(Rewards, Ledger, false).
 
--spec absorb_rewards(Rewards :: blockchain_txn_reward_v1:rewards(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
-absorb_rewards(Rewards, Ledger) ->
+-spec absorb_rewards(Rewards :: blockchain_txn_reward_v1:rewards(),
+                     Ledger :: blockchain_ledger_v1:ledger(),
+                     StoreRewards :: boolean()) -> ok.
+absorb_rewards(Rewards, Ledger, _StoreRewards) ->
     AccRewards = lists:foldl(
         fun(Reward, Acc) ->
             Account = blockchain_txn_reward_v1:account(Reward),

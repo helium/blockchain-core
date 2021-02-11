@@ -208,7 +208,7 @@
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
     snapshots :: ets:tid(),
-    mode = active :: active | delayed | aux,
+    mode = active :: mode(),
     active :: sub_ledger(),
     delayed :: sub_ledger(),
     aux :: undefined | aux_ledger(),
@@ -259,6 +259,7 @@
 -define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
 -define(DEFAULT_ORACLE_PRICE, 0).
 
+-type mode() :: active | delayed | aux.
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type aux_ledger() :: #aux_ledger_v1{}.
@@ -277,7 +278,7 @@
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
-    {ok, DB, CFs} = open_db(Dir),
+    {ok, DB, CFs} = open_db(active, Dir, true),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
@@ -329,7 +330,7 @@ maybe_load_aux(Ledger) ->
 -spec bootstrap_aux(Path :: file:filename_all(), Ledger :: ledger()) -> ledger().
 bootstrap_aux(Path, Ledger) ->
     Exists = filelib:is_dir(Path),
-    {ok, DB, CFs} = open_db(Path, false),
+    {ok, DB, CFs} = open_db(aux, Path, false),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF] = CFs,
     NewLedger = Ledger#ledger_v1{aux=#aux_ledger_v1{
@@ -3140,32 +3141,31 @@ process_fun(ToProcess, Cache, CF,
               end
       end, Acc, ToProcess).
 
--spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
-open_db(Dir) ->
-    open_db(Dir, true).
-
-open_db(Dir, Delayed) ->
+-spec open_db(Mode :: mode(),
+              Dir :: file:filename_all(),
+              HasDelayed :: boolean()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(active, Dir, true) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
-
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
-
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-
     CFOpts = GlobalOpts,
+    DefaultCFs = default_cfs() ++ delayed_cfs(),
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts);
+open_db(aux, Dir, false) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = filelib:ensure_dir(DBDir),
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
+    CFOpts = GlobalOpts,
+    DefaultCFs = default_cfs() ++ aux_cfs(),
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts);
+open_db(active, _Dir, false) ->
+    error(not_opening_active_without_delayed);
+open_db(aux, _Dir, true) ->
+    error(not_opening_aux_with_delayed).
 
-    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
-                  "pocs", "securities", "routing", "subnets", "state_channels",
-                  "h3dex", "gw_denorm"] ++
-    case Delayed of
-        true ->
-                  ["delayed_default", "delayed_active_gateways", "delayed_entries",
-                  "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
-                  "delayed_securities", "delayed_routing", "delayed_subnets",
-                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"];
-        false ->
-            []
-    end,
+open_db_(DBDir, DBOptions, DefaultCFs, CFOpts) ->
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3186,6 +3186,23 @@ open_db(Dir, Delayed) ->
     ),
     L3 = L1 ++ L2,
     {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
+
+-spec default_cfs() -> list().
+default_cfs() ->
+    ["default", "active_gateways", "entries", "dc_entries", "htlcs",
+     "pocs", "securities", "routing", "subnets", "state_channels",
+     "h3dex", "gw_denorm"].
+
+-spec delayed_cfs() -> list().
+delayed_cfs() ->
+    ["delayed_default", "delayed_active_gateways", "delayed_entries",
+     "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
+     "delayed_securities", "delayed_routing", "delayed_subnets",
+     "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"].
+
+-spec aux_cfs() -> list().
+aux_cfs() ->
+    [].
 
 -spec maybe_use_snapshot(ledger(), list()) -> list().
 maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
