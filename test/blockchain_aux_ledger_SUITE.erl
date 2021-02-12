@@ -149,23 +149,33 @@ aux_rewards_test(Config) ->
     %% construct some yolo rewards, two versions, real and aux
     Reward = 1000000000,
     Height = 10,
-    Rewards = [blockchain_txn_reward_v1:new(<<"owner">>, <<"gateway">>, Reward, securities)],
-    AuxRewards = [blockchain_txn_reward_v1:new(<<"owner">>, <<"gateway">>, Reward * 100, securities)],
+    AuxReward = Reward * 100,
+    Owner = <<"owner">>,
+    GW = <<"gateway">>,
+    Rewards = [
+        blockchain_txn_reward_v1:new(Owner, GW, Reward, securities),
+        blockchain_txn_reward_v1:new(Owner, GW, Reward, consensus)
+    ],
+    AuxRewards = [
+        blockchain_txn_reward_v1:new(Owner, GW, AuxReward, securities),
+        blockchain_txn_reward_v1:new(Owner, GW, AuxReward, consensus)
+    ],
 
     %% set both sets of rewards for aux ledger
     ok = blockchain_ledger_v1:set_aux_rewards(Height, Rewards, AuxRewards, AuxLedger),
 
-    %% compare
+    %% check that we get the correct sets of rewards
     {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards_at(Height, AuxLedger),
 
-
-    %% get all aux rewards
-
+    %% check that all the aux rewards are as expected
     ExpectedAuxRewards = #{Height => {Rewards, AuxRewards}},
-
     AllAuxRewards = blockchain_ledger_v1:get_aux_rewards(AuxLedger),
-    ct:pal("AllAuxRewards: ~p", [AllAuxRewards]),
-
     true = lists:sort(maps:to_list(ExpectedAuxRewards)) == lists:sort(maps:to_list(AllAuxRewards)),
+
+    %% check that the diff has the right rewards
+    Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
+    {R1, R2} = maps:get(Height, Diff),
+    true = Reward * 2 == maps:get(Owner, R1),
+    true = AuxReward * 2 == maps:get(Owner, R2),
 
     ok.

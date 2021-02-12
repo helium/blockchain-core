@@ -14,8 +14,9 @@
     maybe_load_aux/1,
 
     set_aux_vars/2,
-    get_aux_rewards/1,
     get_aux_rewards_at/2, set_aux_rewards/4,
+    get_aux_rewards/1,
+    diff_aux_rewards_for/2, diff_aux_rewards/1,
 
     check_key/2, mark_key/2,
 
@@ -257,6 +258,7 @@
 -define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
 -define(hex_list, <<"$hex_list">>).
 -define(hex_prefix, "$hex_").
+-define(aux_height_prefix, "aux_height_").
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
@@ -279,6 +281,8 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
+-type reward_diff() :: {ActualRewards :: blockchain_txn_reward_v1:rewards(), AuxRewards :: blockchain_txn_reward_v1:rewards()}.
+-type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -3021,11 +3025,11 @@ aux_db(Ledger) ->
                       Ledger :: ledger()) -> ok | {error, any()}.
 set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
     case has_aux(Ledger) of
-        false -> {error, not_aux_ledger};
+        false -> {error, no_aux_ledger};
         true ->
             AuxDB = aux_db(Ledger),
             AuxHeightsCF = aux_heights_cf(Ledger),
-            Key = <<"aux_height_", (integer_to_binary(Height))/binary>>,
+            Key = aux_height(Height),
             case rocksdb:get(AuxDB, AuxHeightsCF, Key, []) of
                 {ok, _} ->
                     %% already exists, don't do anything
@@ -3038,15 +3042,48 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
             end
     end.
 
+
+-spec diff_aux_rewards_for(
+    Account :: libp2p_crypto:pubkey_bin(),
+    Ledger :: ledger()
+) -> map().
+diff_aux_rewards_for(Account, Ledger) ->
+    Diff = diff_aux_rewards(Ledger),
+    maps:map(fun(_Height, {R1, R2}) -> {maps:get(Account, R1), maps:get(Account, R2)} end, Diff).
+
+-spec diff_aux_rewards(Ledger :: ledger()) -> map().
+diff_aux_rewards(Ledger) ->
+    case has_aux(Ledger) of
+        false -> #{};
+        true ->
+            OverallAuxRewards = get_aux_rewards(Ledger),
+
+            %% tally the account amounts for all rewards
+            TallyFun = fun(Reward, Acc) ->
+                               Account = blockchain_txn_reward_v1:account(Reward),
+                               Amount = blockchain_txn_reward_v1:amount(Reward),
+                               maps:update_with(Account, fun(V) -> V + Amount end, Amount, Acc)
+                       end,
+
+            DiffFun = fun(Height, {ActualRewards, AuxRewards}, Acc) ->
+                              ActualAccountBalances = lists:foldl(TallyFun, #{}, ActualRewards),
+                              AuxAccountBalances = lists:foldl(TallyFun, #{}, AuxRewards),
+                              maps:put(Height, {ActualAccountBalances, AuxAccountBalances}, Acc)
+                      end,
+
+            maps:fold(DiffFun, #{}, OverallAuxRewards)
+
+    end.
+
 -spec get_aux_rewards_at(Height :: non_neg_integer(), Ledger :: ledger()) ->
     {ok, blockchain_txn_reward_v1:rewards(), blockchain_txn_reward_v1:rewards()} | {error, any()}.
 get_aux_rewards_at(Height, Ledger) ->
     case has_aux(Ledger) of
-        false -> {error, not_aux_ledger};
+        false -> {error, no_aux_ledger};
         true ->
             AuxDB = aux_db(Ledger),
             AuxHeightsCF = aux_heights_cf(Ledger),
-            Key = <<"aux_height_", (integer_to_binary(Height))/binary>>,
+            Key = aux_height(Height),
             case rocksdb:get(AuxDB, AuxHeightsCF, Key, []) of
                 {ok, BinRes} -> {ok, binary_to_term(BinRes)};
                 not_found -> {error, not_found};
@@ -3054,10 +3091,10 @@ get_aux_rewards_at(Height, Ledger) ->
             end
     end.
 
--spec get_aux_rewards(Ledger :: ledger()) -> list().
+-spec get_aux_rewards(Ledger :: ledger()) -> aux_rewards().
 get_aux_rewards(Ledger) ->
     case has_aux(Ledger) of
-        false -> [];
+        false -> #{};
         true -> get_aux_rewards_(Ledger)
     end.
 
@@ -3347,6 +3384,9 @@ delete_hex(Hex, Ledger) ->
 
 hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
+
+aux_height(Height) ->
+    <<?aux_height_prefix, (integer_to_binary(Height))/binary>>.
 
 add_to_hex(Hex, Gateway, Ledger) ->
     Hexes = case get_hexes(Ledger) of
