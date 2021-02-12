@@ -3042,14 +3042,18 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
             end
     end.
 
-
 -spec diff_aux_rewards_for(
     Account :: libp2p_crypto:pubkey_bin(),
     Ledger :: ledger()
 ) -> map().
 diff_aux_rewards_for(Account, Ledger) ->
     Diff = diff_aux_rewards(Ledger),
-    maps:map(fun(_Height, {R1, R2}) -> {maps:get(Account, R1), maps:get(Account, R2)} end, Diff).
+    maps:map(
+        fun(_Height, {R1, R2}) ->
+            {maps:get(Account, R1, undefined), maps:get(Account, R2, undefined)}
+        end,
+        Diff
+    ).
 
 -spec diff_aux_rewards(Ledger :: ledger()) -> map().
 diff_aux_rewards(Ledger) ->
