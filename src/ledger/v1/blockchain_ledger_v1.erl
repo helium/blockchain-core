@@ -13,8 +13,9 @@
     dir/1,
     maybe_load_aux/1,
 
-    get_aux_rewards/2,
-    set_aux_vars/2, set_aux_rewards/4,
+    set_aux_vars/2,
+    get_aux_rewards/1,
+    get_aux_rewards_at/2, set_aux_rewards/4,
 
     check_key/2, mark_key/2,
 
@@ -3037,9 +3038,9 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
             end
     end.
 
--spec get_aux_rewards(Height :: non_neg_integer(), Ledger :: ledger()) ->
+-spec get_aux_rewards_at(Height :: non_neg_integer(), Ledger :: ledger()) ->
     {ok, blockchain_txn_reward_v1:rewards(), blockchain_txn_reward_v1:rewards()} | {error, any()}.
-get_aux_rewards(Height, Ledger) ->
+get_aux_rewards_at(Height, Ledger) ->
     case has_aux(Ledger) of
         false -> {error, not_aux_ledger};
         true ->
@@ -3052,6 +3053,38 @@ get_aux_rewards(Height, Ledger) ->
                 Error -> Error
             end
     end.
+
+-spec get_aux_rewards(Ledger :: ledger()) -> list().
+get_aux_rewards(Ledger) ->
+    case has_aux(Ledger) of
+        false -> [];
+        true -> get_aux_rewards_(Ledger)
+    end.
+
+get_aux_rewards_(Ledger) ->
+    {ok, Itr} = rocksdb:iterator(aux_db(Ledger), aux_heights_cf(Ledger), []),
+    Res = get_aux_rewards_(Itr, rocksdb:iterator_move(Itr, first), #{}),
+    catch rocksdb:iterator_close(Itr),
+    Res.
+
+get_aux_rewards_(_Itr, {error, _}, Acc) ->
+    Acc;
+get_aux_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
+    NewAcc =
+        try binary_to_term(BinRes) of
+            {R1, R2} ->
+                <<"aux_height_", Height/binary>> = Key,
+                maps:put(binary_to_integer(Height), {R1, R2}, Acc)
+        catch
+            What:Why ->
+                lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
+                    Key,
+                    What,
+                    Why
+                ]),
+                Acc
+        end,
+    get_aux_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->

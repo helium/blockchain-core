@@ -156,6 +156,16 @@ aux_rewards_test(Config) ->
     ok = blockchain_ledger_v1:set_aux_rewards(Height, Rewards, AuxRewards, AuxLedger),
 
     %% compare
-    {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards(Height, AuxLedger),
+    {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards_at(Height, AuxLedger),
+
+
+    %% get all aux rewards
+
+    ExpectedAuxRewards = #{Height => {Rewards, AuxRewards}},
+
+    AllAuxRewards = blockchain_ledger_v1:get_aux_rewards(AuxLedger),
+    ct:pal("AllAuxRewards: ~p", [AllAuxRewards]),
+
+    true = lists:sort(maps:to_list(ExpectedAuxRewards)) == lists:sort(maps:to_list(AllAuxRewards)),
 
     ok.
