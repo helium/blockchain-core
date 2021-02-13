@@ -1139,8 +1139,15 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
+            TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
+                         {ok, L} ->
+                             D = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                             D > L;
+                         _ ->
+                             false
+                     end,
             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
-                true ->
+                Dist when Dist >= ExclusionCells andalso not TooFar ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
@@ -1193,8 +1200,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                     Receipt
                             end
                     end;
-                false ->
-                    %% too close
+                _ ->
+                    %% too close or too far
                     undefined
             catch
                 _:_ ->
@@ -1219,8 +1226,15 @@ valid_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
-                             true ->
+                         TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
+                                      {ok, L} ->
+                                          D = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                                          D > L;
+                                      _ ->
+                                          false
+                                  end,
+                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                             Dist when Dist >= ExclusionCells andalso not TooFar ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
@@ -1273,8 +1287,8 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                  true
                                          end
                                  end;
-                             false ->
-                                 %% too close
+                             _ ->
+                                 %% too close or too far
                                  false
                          catch _:_ ->
                                    %% pentagonal distortion
@@ -1301,8 +1315,15 @@ tagged_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
-                             true ->
+                         TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
+                                      {ok, L} ->
+                                          D = blockchain_utils:distance(SourceLoc, DestinationLoc),
+                                          D > L;
+                                      _ ->
+                                          false
+                                  end,
+                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                             Dist when Dist >= ExclusionCells andalso not TooFar ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
@@ -1355,8 +1376,8 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                  [{true, <<"insufficient_data">>, Witness} | Acc]
                                          end
                                  end;
-                             false ->
-                                 %% too close
+                             _ ->
+                                 %% too close or too far
                                  [{false, <<"witness_too_close">>, Witness} | Acc]
                          catch _:_ ->
                                    %% pentagonal distortion
