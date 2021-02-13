@@ -3049,8 +3049,8 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
 diff_aux_rewards_for(Account, Ledger) ->
     Diff = diff_aux_rewards(Ledger),
     maps:map(
-        fun(_Height, {R1, R2}) ->
-            {maps:get(Account, R1, undefined), maps:get(Account, R2, undefined)}
+        fun(_Height, Res) ->
+            maps:get(Account, Res, undefined)
         end,
         Diff
     ).
@@ -3072,7 +3072,24 @@ diff_aux_rewards(Ledger) ->
             DiffFun = fun(Height, {ActualRewards, AuxRewards}, Acc) ->
                               ActualAccountBalances = lists:foldl(TallyFun, #{}, ActualRewards),
                               AuxAccountBalances = lists:foldl(TallyFun, #{}, AuxRewards),
-                              maps:put(Height, {ActualAccountBalances, AuxAccountBalances}, Acc)
+                              Combined = maps:merge(AuxAccountBalances, ActualAccountBalances),
+                              Res = maps:fold(fun(K, V, Acc2) ->
+                                               V2 = maps:get(K, AuxAccountBalances, 0),
+                                               case V == V2 of
+                                                   true ->
+                                                       %% check this is not missing in actual balances
+                                                       case maps:is_key(K, ActualAccountBalances) of
+                                                           false ->
+                                                               maps:put(K, {0, V}, Acc2);
+                                                           true ->
+                                                               %% no difference
+                                                               Acc2
+                                                       end;
+                                                   false ->
+                                                       maps:put(K, {V, V2}, Acc2)
+                                               end
+                                        end, #{}, Combined),
+                              maps:put(Height, Res, Acc)
                       end,
 
             maps:fold(DiffFun, #{}, OverallAuxRewards)
