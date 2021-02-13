@@ -1222,7 +1222,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                           false
                                   end,
                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
-                             Dist when Dist > ExclusionCells andalso not TooFar ->
+                             Dist when Dist >= ExclusionCells andalso not TooFar ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
