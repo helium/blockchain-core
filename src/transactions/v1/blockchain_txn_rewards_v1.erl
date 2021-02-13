@@ -409,6 +409,11 @@ get_reward_vars(Start, End, Ledger) ->
                         _ -> undefined
                     end,
 
+    WitnessRewardDecayRate = case blockchain:config(?witness_reward_decay_rate, Ledger) of
+                        {ok, DR} -> DR;
+                        _ -> 0
+                    end,
+
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -427,7 +432,8 @@ get_reward_vars(Start, End, Ledger) ->
         reward_version => RewardVersion,
         witness_redundancy => WitnessRedundancy,
         poc_reward_decay_rate => DecayRate,
-        density_tgt_res => DensityTgtRes
+        density_tgt_res => DensityTgtRes,
+        witness_reward_decay_rate => WitnessRewardDecayRate
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -834,7 +840,7 @@ poc_witnesses_rewards(Transactions,
                                                             fun(WitnessRecord, Acc2) ->
                                                                     Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                                     {C, I} = maps:get(Witness, Acc2, {0, 0}),
-                                                                    maps:put(Witness, {C+1, I+(ToAdd * witness_decay(C, Ledger))}, Acc2)
+                                                                    maps:put(Witness, {C+1, I+(ToAdd * witness_decay(C, Vars))}, Acc2)
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
@@ -857,7 +863,7 @@ poc_witnesses_rewards(Transactions,
                                                                                                    Ledger)),
                                                                     Value = blockchain_utils:normalize_float(ToAdd * RxScale),
                                                                     {C, I} = maps:get(Witness, Acc2, {0, 0}),
-                                                                    maps:put(Witness, {C+1, I+(Value * witness_decay(C, Ledger))}, Acc2)
+                                                                    maps:put(Witness, {C+1, I+(Value * witness_decay(C, Vars))}, Acc2)
                                                             end,
                                                             Acc1,
                                                             ValidWitnesses
@@ -884,7 +890,7 @@ poc_witnesses_rewards(Transactions,
                                                 fun(WitnessRecord, Map) ->
                                                         Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                         {C, I} = maps:get(Witness, Map, {0, 0}),
-                                                        maps:put(Witness, {C+1, I+(1 * witness_decay(C, Ledger))}, Map)
+                                                        maps:put(Witness, {C+1, I+(1 * witness_decay(C, Vars))}, Map)
                                                 end,
                                                 Acc1,
                                                 GoodQualityWitnesses
@@ -901,7 +907,7 @@ poc_witnesses_rewards(Transactions,
                                         fun(WitnessRecord, Map) ->
                                                 Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                 {C, I} = maps:get(Witness, Map, {0, 0}),
-                                                maps:put(Witness, {C+1, I+(1 * witness_decay(C, Ledger))}, Map)
+                                                maps:put(Witness, {C+1, I+(1 * witness_decay(C, Vars))}, Map)
                                         end,
                                         Acc1,
                                         blockchain_poc_path_element_v1:witnesses(Elem)
@@ -917,11 +923,13 @@ poc_witnesses_rewards(Transactions,
         Transactions
     ).
 
-witness_decay(Count, Ledger) ->
+witness_decay(Count, Vars) ->
 
-    case blockchain:config(?witness_reward_decay_rate, Ledger) of
+    case maps:find(witness_reward_decay_rate, Vars) of
         {ok, DecayRate} ->
-            math:exp(Count * -1 * DecayRate);
+            Scale = math:exp(Count * -1 * DecayRate),
+            lager:info("scaling witness reward by ~p", [Scale]),
+            Scale;
         _ ->
             1
     end.
