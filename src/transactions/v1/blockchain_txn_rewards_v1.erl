@@ -396,7 +396,7 @@ get_reward_vars(Start, End, Ledger) ->
 
     WitnessRewardDecayRate = case blockchain:config(?witness_reward_decay_rate, Ledger) of
                         {ok, DR} -> DR;
-                        _ -> undefined
+                        _ -> 0
                     end,
 
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
