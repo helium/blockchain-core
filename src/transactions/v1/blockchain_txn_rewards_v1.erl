@@ -905,7 +905,9 @@ witness_decay(Count, Vars) ->
 
     case maps:find(witness_reward_decay_rate, Vars) of
         {ok, DecayRate} ->
-            math:exp(Count * -1 * DecayRate);
+            Scale = math:exp(Count * -1 * DecayRate),
+            lager:info("scaling witness reward by ~p", [Scale]),
+            Scale;
         _ ->
             1
     end.
