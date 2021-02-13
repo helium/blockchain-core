@@ -191,6 +191,7 @@
 -define(poc_reward_decay_rate, poc_reward_decay_rate).
 -define(rewards_txn_version, rewards_txn_version).
 -define(hip15_tx_reward_unit_cap, hip15_tx_reward_unit_cap).
+-define(witness_reward_decay_rate, witness_reward_decay_rate).
 
 %%%
 %%% bundle txn vars
