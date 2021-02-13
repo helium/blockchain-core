@@ -3664,6 +3664,7 @@ diff_aux_rewards_for(Key, Ledger) ->
         fun(_Height, Res) ->
             maps:get(Key, Res, undefined)
         end,
+        #{},
         Diff
     ).
 
