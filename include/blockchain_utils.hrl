@@ -173,6 +173,7 @@
                           -129 => -12.8,
                           -130 => -13.5,
                           -131 => -14.2
+                          -132 => -14.0 % guess
                         }).
 
 %% See https://gist.github.com/JayKickliter/dfc44797afca5e2811627d107322b6ad
