@@ -3500,17 +3500,22 @@ invoke_commit_hooks(Changes, Filters) ->
               maps:map(
                 fun(CF, HookList) ->
                         HookAtom = maps:get(CF, FiltersMap),
-                        HookChanges = maps:get(HookAtom, Groups),
-                        lists:foreach(
-                          fun(#hook{hook_inc_fun = HookFun, predicate = undefined}) ->
-                                  HookFun(HookChanges);
-                             (#hook{hook_inc_fun = HookFun, predicate = Pred}) ->
-                                  FilteredHookChanges =
-                                      lists:filter(fun({_, _, K, V}) ->
-                                                           Pred(K, V)
-                                                   end, HookChanges),
-                                  HookFun(FilteredHookChanges)
-                          end, HookList)
+                        case maps:get(HookAtom, Groups, undefined) of
+                            undefined ->
+                                %% if there are no changes for this CF, do nothing
+                                noop;
+                            HookChanges ->
+                                lists:foreach(
+                                  fun(#hook{hook_inc_fun = HookFun, predicate = undefined}) ->
+                                          HookFun(HookChanges);
+                                     (#hook{hook_inc_fun = HookFun, predicate = Pred}) ->
+                                          FilteredHookChanges =
+                                              lists:filter(fun({_, _, K, V}) ->
+                                                                   Pred(K, V)
+                                                           end, HookChanges),
+                                          HookFun(FilteredHookChanges)
+                                  end, HookList)
+                        end
                 end,
                 Filters),
 
