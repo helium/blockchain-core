@@ -152,13 +152,16 @@ print(undefined) ->
 print(#blockchain_poc_witness_v1_pb{
          gateway=Gateway,
          timestamp=TS,
-         signal=Signal
+         signal=Signal,
+         frequency=Freq,
+         snr=SNR
         }) ->
-    io_lib:format("type=witness gateway: ~p timestamp: ~p signal: ~p",
+    io_lib:format("type=witness gateway: ~p timestamp: ~p signal: ~p snr: ~p freq ~p",
                   [
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
-                   Signal
+                   Signal,
+                   Freq, SNR
                   ]).
 
 -spec to_json(poc_witness(), blockchain_json:opts()) -> blockchain_json:json_object().

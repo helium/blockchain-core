@@ -188,13 +188,17 @@ print(#blockchain_poc_receipt_v1_pb{
          gateway=Gateway,
          timestamp=TS,
          signal=Signal,
+         frequency=Freq,
+         snr=SNR,
          origin=Origin
         }) ->
-    io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b origin: ~p",
+    io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b snr: ~p freq: ~p origin: ~p",
                   [
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
                    Signal,
+                   SNR,
+                   Freq,
                    Origin
                   ]).
 
