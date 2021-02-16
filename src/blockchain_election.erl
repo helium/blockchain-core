@@ -3,7 +3,8 @@
 -export([
          new_group/4,
          has_new_group/1,
-         election_info/2
+         election_info/2,
+         icdf_select/3
         ]).
 
 -include("blockchain_vars.hrl").
@@ -161,7 +162,7 @@ new_group_v4(Ledger, Hash, Size, Delay) ->
     Rem ++ New.
 
 new_group_v5(Ledger, Hash, Size, Delay) ->
-    %% some complications here in the transfer. 
+    %% some complications here in the transfer.
 
     %% we don't want to clutter this code with a bunch of gateway crap.  so we have a special,
     %% simple code path just for the transitional time, and then a clean path for afterwards
@@ -178,24 +179,24 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
 
     %% remove dupes, sort
     {OldGroupDeduped, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
-    
+
     %% adjust for bbas and seen votes
     OldGroupAdjusted = adjust_old_group(OldGroupDeduped, Ledger),
-    
+
     %% random shuffle of all validators
-    
+
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
     lager:info("validators ~p", [Validators1]),
-    
+
     %% replace select with iterative icdf
     New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
     lager:info("validators new ~p", [New]),
-    
+
     NewLen = min(Remove, length(New)),
-    ToRem = 
-        case have_gateways(OldGroup0, Ledger) of 
+    ToRem =
+        case have_gateways(OldGroup0, Ledger) of
             [] ->
                 lager:info("no gateways ~p", [OldGroupAdjusted]),
                 icdf_select(lists:keysort(1, OldGroupAdjusted), NewLen, []);
@@ -220,7 +221,7 @@ have_gateways(List, Ledger) ->
     lists:filter(
       fun(X) ->
               case blockchain_ledger_v1:get_validator(X, Ledger) of
-                  {ok, _} -> 
+                  {ok, _} ->
                       false;
                   {error, not_found} ->
                       true
