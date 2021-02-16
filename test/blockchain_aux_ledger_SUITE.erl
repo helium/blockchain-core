@@ -174,8 +174,9 @@ aux_rewards_test(Config) ->
 
     %% check that the diff has the right rewards
     Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
-    {R1, R2} = maps:get(Height, Diff),
-    true = Reward * 2 == maps:get(Owner, R1),
-    true = AuxReward * 2 == maps:get(Owner, R2),
+    {R1, R2} = maps:get(Owner, maps:get(Height, Diff)),
+    %% two times because we gave two types of rewards above
+    true = Reward * 2 == R1,
+    true = AuxReward * 2 == R2,
 
     ok.
