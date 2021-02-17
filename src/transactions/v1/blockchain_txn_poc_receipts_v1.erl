@@ -1401,9 +1401,9 @@ check_rssi_snr(Ledger, RSSI, SNR, Freq) ->
         {ok, POCVersion} when POCVersion >= 11 ->
             MaxSNR = case Freq > 900 of
                          true ->
-                             maps:get(RSSI, ?SNR_CURVE_915);
+                             maps:get(?SNR_CURVE_915_CLAMP(RSSI), ?SNR_CURVE_915);
                          false ->
-                             maps:get(RSSI, ?SNR_CURVE_868)
+                             maps:get(?SNR_CURVE_868_CLAMP(RSSI), ?SNR_CURVE_868)
                      end,
             case SNR =< MaxSNR of
                 true ->
