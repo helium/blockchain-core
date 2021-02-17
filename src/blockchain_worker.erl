@@ -373,20 +373,20 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
                     blockchain_ledger_v1:commit_context(NewLedger1)
             end,
             remove_handlers(Swarm),
-            notify({new_chain, Chain1}),
-            {ok, GossipRef} = add_handlers(Swarm, Chain1),
+            NewChain = blockchain:delete_temp_blocks(Chain1),
+            notify({new_chain, NewChain}),
+            {ok, GossipRef} = add_handlers(Swarm, NewChain),
             {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),
-            {ok, ChainHeight} = blockchain:height(Chain1),
-            blockchain:delete_temp_blocks(Chain1),
+            {ok, ChainHeight} = blockchain:height(NewChain),
             case LedgerHeight >= ChainHeight of
                 true -> ok;
                 false ->
                     %% we likely retain some old blocks, and we should absorb them
-                    set_resyncing(ChainHeight, LedgerHeight, Chain1)
+                    set_resyncing(ChainHeight, LedgerHeight, NewChain)
             end,
             blockchain_lock:release(),
             {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
-                                               blockchain = Chain1, gossip_ref = GossipRef})};
+                                               blockchain = NewChain, gossip_ref = GossipRef})};
         true ->
             %% if we don't want to auto-clean the ledger, stop
             {stop, shutdown, State}
