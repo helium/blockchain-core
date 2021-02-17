@@ -176,6 +176,9 @@
                           -132 => -14.0 % guess
                         }).
 
+-define(SNR_CURVE_915_CLAMP(Val), min(max(Val, lists:max(maps:keys(?SNR_CURVE_915))), lists:min(maps:keys(?SNR_CURVE_915)))).
+
+
 %% See https://gist.github.com/JayKickliter/dfc44797afca5e2811627d107322b6ad
 %%                     RSSIS => SNR
 -define(SNR_CURVE_868, #{ -7 => 7.6,
@@ -313,5 +316,6 @@
                           -139 => -22.0,
                           -140 => -22.9
                         }).
+-define(SNR_CURVE_868_CLAMP(Val), min(max(Val, lists:max(maps:keys(?SNR_CURVE_868))), lists:min(maps:keys(?SNR_CURVE_868)))).
 
 -define(MAX_UNIQ_CLIENTS, 1100).
