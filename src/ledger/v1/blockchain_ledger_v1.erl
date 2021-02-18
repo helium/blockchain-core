@@ -3057,15 +3057,16 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
             end
     end.
 
+%% @doc Get aux reward diff for Account | Gateway (Key)
 -spec diff_aux_rewards_for(
-    Account :: libp2p_crypto:pubkey_bin(),
+    Key :: libp2p_crypto:pubkey_bin(),
     Ledger :: ledger()
 ) -> map().
-diff_aux_rewards_for(Account, Ledger) ->
+diff_aux_rewards_for(Key, Ledger) ->
     Diff = diff_aux_rewards(Ledger),
     maps:map(
         fun(_Height, Res) ->
-            maps:get(Account, Res, undefined)
+            maps:get(Key, Res, undefined)
         end,
         Diff
     ).
@@ -3078,9 +3079,15 @@ diff_aux_rewards(Ledger) ->
             OverallAuxRewards = get_aux_rewards(Ledger),
 
             %% tally the account amounts for all rewards
-            TallyFun = fun(Reward, Acc) ->
+            TallyFun = fun(Reward, Acc0) ->
                                Account = blockchain_txn_reward_v1:account(Reward),
                                Amount = blockchain_txn_reward_v1:amount(Reward),
+                               Acc = case blockchain_txn_reward_v1:gateway(Reward) of
+                                         undefined ->
+                                             Acc0;
+                                         Gateway ->
+                                             maps:update_with(Gateway, fun(V) -> V + Amount end, Amount, Acc0)
+                                     end,
                                maps:update_with(Account, fun(V) -> V + Amount end, Amount, Acc)
                        end,
 

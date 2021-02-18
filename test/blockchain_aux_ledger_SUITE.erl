@@ -150,15 +150,26 @@ aux_rewards_test(Config) ->
     Reward = 1000000000,
     Height = 10,
     AuxReward = Reward * 100,
-    Owner = <<"owner">>,
-    GW = <<"gateway">>,
+    Owner = <<"o1">>,
+
+    GW1 = <<"g1">>,
+    GW2 = <<"g2">>,
+
     Rewards = [
-        blockchain_txn_reward_v1:new(Owner, GW, Reward, securities),
-        blockchain_txn_reward_v1:new(Owner, GW, Reward, consensus)
+        blockchain_txn_reward_v1:new(Owner, undefined, Reward, securities),
+        blockchain_txn_reward_v1:new(Owner, GW1, Reward, consensus),
+        blockchain_txn_reward_v1:new(Owner, GW2, Reward, consensus),
+        blockchain_txn_reward_v1:new(Owner, GW1, Reward, poc_challengees),
+        blockchain_txn_reward_v1:new(Owner, GW2, Reward, poc_witnesses),
+        blockchain_txn_reward_v1:new(Owner, GW2, Reward, poc_challengers)
     ],
     AuxRewards = [
-        blockchain_txn_reward_v1:new(Owner, GW, AuxReward, securities),
-        blockchain_txn_reward_v1:new(Owner, GW, AuxReward, consensus)
+        blockchain_txn_reward_v1:new(Owner, undefined, AuxReward, securities),
+        blockchain_txn_reward_v1:new(Owner, GW1, AuxReward, consensus),
+        blockchain_txn_reward_v1:new(Owner, GW2, AuxReward, consensus),
+        blockchain_txn_reward_v1:new(Owner, GW1, AuxReward, poc_challengees),
+        blockchain_txn_reward_v1:new(Owner, GW2, AuxReward, poc_witnesses),
+        blockchain_txn_reward_v1:new(Owner, GW2, AuxReward, poc_challengers)
     ],
 
     %% set both sets of rewards for aux ledger
@@ -172,11 +183,24 @@ aux_rewards_test(Config) ->
     AllAuxRewards = blockchain_ledger_v1:get_aux_rewards(AuxLedger),
     true = lists:sort(maps:to_list(ExpectedAuxRewards)) == lists:sort(maps:to_list(AllAuxRewards)),
 
-    %% check that the diff has the right rewards
+    %% check that the diff has the right account rewards
     Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
-    {R1, R2} = maps:get(Owner, maps:get(Height, Diff)),
-    %% two times because we gave two types of rewards above
-    true = Reward * 2 == R1,
-    true = AuxReward * 2 == R2,
+    {AR1, AR2} = maps:get(Owner, maps:get(Height, Diff)),
+
+    %% account gets 6 rewards
+    true = Reward * 6 == AR1,
+    true = AuxReward * 6 == AR2,
+
+    %% check that the diff has the right gateway rewards
+    {G1R, G1AuxR} = maps:get(GW1, maps:get(Height, Diff)),
+    {G2R, G2AuxR} = maps:get(GW2, maps:get(Height, Diff)),
+
+    %% GW1 gets: consensus + poc_challengees
+    true = Reward * 2 == G1R,
+    true = AuxReward * 2 == G1AuxR,
+
+    %% GW2 gets: consensus + poc_witnesses + poc_challengers
+    true = Reward * 3 == G2R,
+    true = AuxReward * 3 == G2AuxR,
 
     ok.
