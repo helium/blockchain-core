@@ -156,6 +156,7 @@
 %% define loss factor for SNR curve, floating point number
 -define(fspl_loss, fspl_loss).
 -define(poc_distance_limit, poc_distance_limit).
+-define(check_snr, check_snr).
 
 %%%
 %%% score vars
