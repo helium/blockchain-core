@@ -44,6 +44,7 @@
     find_gateway_location/2,
     find_gateway_owner/2,
     find_gateway_last_challenge/2,
+    find_gateway_rewards_map/2,
     %% todo add more here
 
     gateway_cache_get/2,
@@ -67,9 +68,7 @@
     maybe_gc_scs/1,
 
     find_entry/2,
-    credit_account/3,
-    debit_account/3, debit_account/4,
-    debit_fee_from_account/3,
+    credit_account/3, debit_account/4, debit_fee_from_account/3,
     check_balance/3,
 
     dc_entries/1,
@@ -848,10 +847,12 @@ load_gateways(Gws, Ledger) ->
               Location = blockchain_ledger_gateway_v2:location(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+              RewardsMap = blockchain_ledger_gateway_v2:rewards_map(Gw),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-rewardsmap">>, term_to_binary(RewardsMap)),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
@@ -1046,6 +1047,25 @@ find_gateway_last_challenge(Address, Ledger) ->
             end
     end.
 
+find_gateway_rewards_map(Address,  Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-rewardsmap">>, []) of
+        {ok, RewardsMap} ->
+            {ok, binary_to_term(RewardsMap)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    RewardsMap = blockchain_ledger_gateway_v2:rewards_map(Gw),
+                    {ok, RewardsMap};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
 -spec gateway_cache_get(libp2p_crypto:pubkey_bin(), ledger()) ->
                                {ok, blockchain_ledger_gateway_v2:gateway()} |
                                spillover |
@@ -1162,10 +1182,12 @@ update_gateway(Gw, GwAddr, Ledger) ->
     Location = blockchain_ledger_gateway_v2:location(Gw),
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
     Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+    RewardsMap = blockchain_ledger_gateway_v2:rewards_map(Gw),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
               term_to_binary(LastChallenge)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-rewardsmap">>, term_to_binary(RewardsMap)).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -2013,27 +2035,6 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
             end
-    end.
-
--spec debit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
-debit_account(Address, Amount, Ledger) ->
-    case ?MODULE:find_entry(Address, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Entry} ->
-              Balance = blockchain_ledger_entry_v1:balance(Entry),
-              case (Balance - Amount) >= 0 of
-                  true ->
-                      Entry1 = blockchain_ledger_entry_v1:new(
-                          blockchain_ledger_entry_v1:nonce(Entry),
-                          (Balance - Amount)
-                      ),
-                      Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                      EntriesCF = entries_cf(Ledger),
-                      cache_put(Ledger, EntriesCF, Address, Bin);
-                  false ->
-                      {error, {insufficient_balance, {Amount, Balance}}}
-              end
     end.
 
 -spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
@@ -3364,10 +3365,14 @@ bootstrap_gw_denorm(Ledger) ->
               Location = blockchain_ledger_gateway_v2:location(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+              RewardsMap = blockchain_ledger_gateway_v2:rewards_map(Gw),
+
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-rewardsmap">>, term_to_binary(RewardsMap))
+
       end,
       ignore).
 

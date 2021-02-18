@@ -14,10 +14,9 @@
     add_neighbor/2, remove_neighbor/2,
     neighbors/1, neighbors/2,
     rewards_map/1, rewards_map/2,
-    get_split/2, get_splits/1,
-    num_splits/1,
-    get_owners/1,
-    set_split/3,
+    get_splits/1, get_split/2,
+    num_splits/1, set_split/3,
+    get_owners/1, get_owner_split/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -47,12 +46,12 @@
 -endif.
 
 -record(witness, {
-          nonce :: non_neg_integer(),
-          count :: non_neg_integer(),
-          hist = erlang:error(no_histogram) :: [{integer(), integer()}], %% sampled rssi histogram
-          first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
-          recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
-          time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
+         nonce :: non_neg_integer(),
+         count :: non_neg_integer(),
+         hist = erlang:error(no_histogram) :: [{integer(), integer()}], %% sampled rssi histogram
+         first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
+         recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
+         time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
          }).
 
 -record(gateway_v2, {
@@ -68,14 +67,14 @@
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
     witnesses = [] :: witnesses_int(),
     oui = undefined :: undefined | pos_integer(),
-    rewards_map = [] :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()}]
+    rewards_map = [] :: [rewards_map()]
 }).
 
 -type gateway() :: #gateway_v2{}.
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
--type rewards_map() :: {libp2p_crypto:pubkey_bin(),non_neg_integer()}.
+-type rewards_map() :: {libp2p_crypto:pubkey_bin(), non_neg_integer()}.
 -type histogram() :: #{integer() => integer()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
@@ -87,10 +86,10 @@
           Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
     #gateway_v2{
-        owner_address=OwnerAddress,
-        rewards_map=[[OwnerAddress,100]],        
-	location=Location,
-        delta=1
+        owner_address = OwnerAddress,
+        rewards_map = [{OwnerAddress, 100}],
+        location = Location,
+        delta = 1
     }.
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -98,12 +97,12 @@ new(OwnerAddress, Location) ->
           Nonce :: non_neg_integer()) -> gateway().
 new(OwnerAddress, Location, Nonce) ->
     #gateway_v2{
-        owner_address=OwnerAddress,
-        rewards_map=[[OwnerAddress,100]],
-	location=Location,
-        nonce=Nonce,
-        delta=1
-    }.
+        owner_address = OwnerAddress,
+        rewards_map = [{OwnerAddress, 100}],
+        location = Location,
+        nonce = Nonce,
+        delta = 1
+  }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -126,7 +125,7 @@ owner_address(OwnerAddress, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(Gateway :: gateway()) ->  undefined | pos_integer().
+-spec location(Gateway :: gateway()) -> undefined | pos_integer().
 location(Gateway) ->
     Gateway#gateway_v2.location.
 
@@ -163,33 +162,44 @@ neighbors(Neighbors, Gateway) ->
 %% @end
 %%--------------------------------------------------------------------
 
--spec rewards_map(Gateway :: gateway()) -> rewards_map().
+-spec rewards_map(Gateway :: gateway()) -> [rewards_map()].
 rewards_map(Gateway) ->
-    maps:from_list(Gateway#gateway_v2.rewards_map).
+    Gateway#gateway_v2.rewards_map.
 
--spec rewards_map(Gateway :: gateway(), RewardsMap :: rewards_map()) -> rewards_map().
+-spec rewards_map(Gateway :: gateway(), RewardsMap :: [rewards_map()]) -> gateway().
 rewards_map(Gateway,RewardsMap) ->
     Gateway#gateway_v2{rewards_map = RewardsMap}.
 
 -spec get_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> non_neg_integer().
-get_split(Gateway,OwnerAddress) ->
-  maps:find(OwnerAddress,Gateway#gateway_v2.rewards_map).
+get_split(Gateway, OwnerAddress) ->
+    case lists:keysearch(OwnerAddress,1,Gateway#gateway_v2.rewards_map) of
+        false -> 0;
+        {_,{_,Percentage}} -> Percentage
+    end.
 
 -spec get_splits(Gateway :: gateway()) -> [non_neg_integer()].
 get_splits(Gateway) ->
-  maps:values(Gateway#gateway_v2.rewards_map).
+    {_, Splits} = lists:unzip(Gateway#gateway_v2.rewards_map),
+     Splits.
 
--spec num_splits(Gateway :: gateway()) -> [non_neg_integer()].
+-spec set_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin(), RewardSplit :: non_neg_integer()) -> gateway().
+set_split(Gateway, OwnerAddress, RewardSplit) ->
+    RewardsMap = lists:keysort(2,lists:keyreplace(OwnerAddress,1,rewards_map(Gateway),{OwnerAddress,RewardSplit})),
+    Gateway#gateway_v2{rewards_map = RewardsMap}.
+
+-spec num_splits(Gateway :: gateway()) -> non_neg_integer().
 num_splits(Gateway) ->
-  maps:size(Gateway#gateway_v2.rewards_map).
+    length(Gateway#gateway_v2.rewards_map).
 
 -spec get_owners(Gateway :: gateway()) -> [libp2p_crypto:pubkey_bin()].
 get_owners(Gateway) ->
-  maps:keys(Gateway#gateway_v2.rewards_map).
+    {Owners, _} = lists:unzip(Gateway#gateway_v2.rewards_map),
+     Owners.
 
--spec set_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin(), RewardSplit :: non_neg_integer()) -> boolean().
-set_split(Gateway, OwnerAddress, RewardSplit) ->
-  maps:put(OwnerAddress, RewardSplit, Gateway#gateway_v2.rewards_map).
+-spec get_owner_split(Gateway :: gateway(), OwnerAddress :: libp2p_crypto:pubkey_bin()) -> rewards_map() | undefined.
+get_owner_split(Gateway, OwnerAddress) ->
+    lists:keyfind(OwnerAddress,1,Gateway#gateway_v2.rewards_map).
+
 
 %%--------------------------------------------------------------------
 %% @doc The score corresponds to the P(claim_of_location).
@@ -243,8 +253,8 @@ decay(_, _, _) ->
 -spec scale_shape_param(float()) -> float().
 scale_shape_param(ShapeParam) ->
     case ShapeParam =< 1.0 of
-        true -> 1.0;
-        false -> ShapeParam
+      true -> 1.0;
+      false -> ShapeParam
     end.
 
 %%--------------------------------------------------------------------
@@ -277,15 +287,15 @@ delta(Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v2{alpha=normalize_float(scale_shape_param(Alpha)),
-                       beta=normalize_float(scale_shape_param(Beta)),
-                       delta=Delta}.
+    Gateway#gateway_v2{alpha = normalize_float(scale_shape_param(Alpha)),
+                       beta = normalize_float(scale_shape_param(Beta)),
+                       delta = Delta}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
+-spec last_poc_challenge(Gateway :: gateway()) -> undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
     Gateway#gateway_v2.last_poc_challenge.
 
@@ -301,7 +311,7 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
+-spec last_poc_onion_key_hash(Gateway :: gateway()) -> undefined | binary().
 last_poc_onion_key_hash(Gateway) ->
     Gateway#gateway_v2.last_poc_onion_key_hash.
 
@@ -347,21 +357,21 @@ print(Address, Gateway, Ledger, Verbose) ->
         fun(undefined) -> "undefined";
            (I) -> Height - I
         end,
-    {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
     Scoring =
         case Verbose of
             true ->
+                {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
                 [
-                 {alpha, alpha(Gateway)},
-                 {new_alpha, NewAlpha},
-                 {beta, beta(Gateway)},
-                 {new_beta, NewBeta},
-                 {delta, Height - delta(Gateway)}
+                  {score, Score},
+                  {alpha, alpha(Gateway)},
+                  {new_alpha, NewAlpha},
+                  {beta, beta(Gateway)},
+                  {new_beta, NewBeta},
+                  {delta, Height - delta(Gateway)}
                 ];
             _ -> []
         end,
     [
-     {score, Score},
      {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
      {location, UndefinedHandleFunc(location(Gateway))},
      {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
@@ -472,29 +482,30 @@ add_witness(WitnessAddress,
                                                      | Witnesses])}
     end.
 
-create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
-                 #gateway_v2{location=GatewayLoc}=_Gateway,
-                 Freq) ->
-    %% Get the free space path loss
-    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc, Freq),
-    MinRcvSig = blockchain_utils:min_rcv_sig(FreeSpacePathLoss),
-    %% Maximum number of bins in the histogram
-    NumBins = 10,
-    %% Spacing between histogram keys (x axis)
-    StepSize = ((-132 + abs(MinRcvSig))/(NumBins - 1)),
-    %% Construct a custom histogram around the expected path loss
-    lists:sort([ {28, 0} | [ {trunc(MinRcvSig + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
+create_histogram(#gateway_v2{location = WitnessLoc} = _WitnessGW,
+    #gateway_v2{location = GatewayLoc} = _Gateway,
+    Freq) ->
+  %% Get the free space path loss
+  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc, Freq),
+  MinRcvSig = blockchain_utils:min_rcv_sig(FreeSpacePathLoss),
+  %% Maximum number of bins in the histogram
+  NumBins = 10,
+  %% Spacing between histogram keys (x axis)
+  StepSize = ((-132 + abs(MinRcvSig)) / (NumBins - 1)),
+  %% Construct a custom histogram around the expected path loss
+  lists:sort([{28, 0} | [{trunc(MinRcvSig + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
 
-create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
-                 #gateway_v2{location=GatewayLoc}=_Gateway) ->
-    %% Get the free space path loss
-    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc),
-    %% Maximum number of bins in the histogram
-    NumBins = 10,
-    %% Spacing between histogram keys (x axis)
-    StepSize = ((-132 + abs(FreeSpacePathLoss))/(NumBins - 1)),
-    %% Construct a custom histogram around the expected path loss
-    lists:sort([ {28, 0} | [ {trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
+create_histogram(#gateway_v2{location = WitnessLoc} = _WitnessGW,
+    #gateway_v2{location = GatewayLoc} = _Gateway) ->
+  %% Get the free space path loss
+  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc),
+  %% Maximum number of bins in the histogram
+  NumBins = 10,
+  %% Spacing between histogram keys (x axis)
+  StepSize = ((-132 + abs(FreeSpacePathLoss)) / (NumBins - 1)),
+  %% Construct a custom histogram around the expected path loss
+  lists:sort([{28, 0} | [{trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
+
 
 update_histogram(Val, Histogram0) ->
     Keys = lists:reverse(lists:sort(element(1, lists:unzip(Histogram0)))),
@@ -511,46 +522,46 @@ update_histogram_(Val, [_ | Tail], Histogram) ->
 
 -spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
-    Gateway#gateway_v2{witnesses=[]}.
+  Gateway#gateway_v2{witnesses = []}.
 
 -spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
 remove_witness(Gateway, WitnessAddr) ->
-    Gateway#gateway_v2{witnesses=lists:keydelete(WitnessAddr, 1, Gateway#gateway_v2.witnesses)}.
+  Gateway#gateway_v2{witnesses = lists:keydelete(WitnessAddr, 1, Gateway#gateway_v2.witnesses)}.
 
 -spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
-has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
-    case lists:keyfind(WitnessAddr, 1, Witnesses) of
-        false -> false;
-        _ -> true
-    end.
+has_witness(#gateway_v2{witnesses = Witnesses}, WitnessAddr) ->
+  case lists:keyfind(WitnessAddr, 1, Witnesses) of
+    false -> false;
+    _ -> true
+  end.
 
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
-    maps:from_list(Gateway#gateway_v2.witnesses).
+  maps:from_list(Gateway#gateway_v2.witnesses).
 
 -spec witnesses_plain(gateway()) -> [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 witnesses_plain(Gateway) ->
-    Gateway#gateway_v2.witnesses.
+  Gateway#gateway_v2.witnesses.
 
 -spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | histogram().
 witness_hist(Witness) ->
-    maps:from_list(Witness#witness.hist).
+  maps:from_list(Witness#witness.hist).
 
 -spec witness_recent_time(gateway_witness()) -> undefined | non_neg_integer().
 witness_recent_time(Witness) ->
-    Witness#witness.recent_time.
+  Witness#witness.recent_time.
 
 -spec witness_first_time(gateway_witness()) -> undefined | non_neg_integer().
 witness_first_time(Witness) ->
-    Witness#witness.first_time.
+  Witness#witness.first_time.
 
 -spec oui(gateway()) -> undefined | pos_integer().
 oui(Gateway) ->
-    Gateway#gateway_v2.oui.
+  Gateway#gateway_v2.oui.
 
 -spec oui(pos_integer() | undefined, gateway()) -> gateway().
 oui(OUI, Gateway) ->
-    Gateway#gateway_v2{oui=OUI}.
+  Gateway#gateway_v2{oui = OUI}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -559,92 +570,115 @@ oui(OUI, Gateway) ->
 %%--------------------------------------------------------------------
 -spec serialize(Gateway :: gateway()) -> binary().
 serialize(Gw) ->
-    Neighbors = neighbors(Gw),
-    Gw1 = neighbors(lists:usort(Neighbors), Gw),    
-    BinGw = erlang:term_to_binary(Gw1, [compressed]),
-    <<2, BinGw/binary>>.
+  Neighbors = neighbors(Gw),
+  Gw1 = neighbors(lists:usort(Neighbors), Gw),
+  BinGw = erlang:term_to_binary(Gw1, [compressed]),
+  <<2, BinGw/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -dialyzer([
-    {nowarn_function, deserialize/1}
+  {nowarn_function, deserialize/1}
 ]).
 
 -spec deserialize(binary()) -> gateway().
 deserialize(<<1, Bin/binary>>) ->
-    V1 = erlang:binary_to_term(Bin),
-    convert(V1);
+  V1 = erlang:binary_to_term(Bin),
+  convert(V1);
 deserialize(<<2, Bin/binary>>) ->
-    Gw = erlang:binary_to_term(Bin),
-    Gw1 =
-        case size(Gw) of
-            %% pre-oui upgrade
-            13 ->
-                L = tuple_to_list(Gw),
-                %% add an undefined OUI slot
-                L1 = lists:append(L, [undefined]),
-                G1 = list_to_tuple(L1),
-                neighbors([], G1);
-            14 ->
-                Gw
+  Gw = erlang:binary_to_term(Bin),
+  Gw1 =
+    case size(Gw) of
+      %% pre-oui upgrade
+      13 ->
+        L = tuple_to_list(Gw),
+        %% add an undefined OUI slot
+        L1 = lists:append(L, [undefined]),
+        G1 = list_to_tuple(L1),
+        neighbors([], G1);
+      14 ->
+        Gw
+    end,
+  Neighbors = neighbors(Gw1),
+  Gw2 = neighbors(lists:usort(Neighbors), Gw1),
+  Witnesses = Gw2#gateway_v2.witnesses,
+  Witnesses1 =
+    case is_map(Witnesses) of
+      true ->
+        lists:sort(
+          maps:to_list(
+            maps:map(
+              fun(_K, #witness{hist = Hist} = W) ->
+                W#witness{hist = lists:sort(maps:to_list(Hist))}
+              end,
+              Witnesses)));
+      false ->
+        Witnesses
+    end,
+
+  OwnerAddress = owner_address(Gw1),
+  RewardsMap =
+        case rewards_map(Gw1) of
+            undefined -> [{OwnerAddress,100}];
+            [] -> [{OwnerAddress,100}];
+            R -> R
         end,
-    Neighbors = neighbors(Gw1),
-%%    RewardsMap = rewards_map(Gw1),
-    Gw2 = neighbors(lists:usort(Neighbors), Gw1),
-    Witnesses = Gw2#gateway_v2.witnesses,
-    Witnesses1 =
-        case is_map(Witnesses) of
-            true ->
-                lists:sort(
-                  maps:to_list(
-                    maps:map(
-                      fun(_K, #witness{hist = Hist} = W) ->
-                              W#witness{hist = lists:sort(maps:to_list(Hist))}
-                      end,
-                      Witnesses)));
-            false ->
-                Witnesses
+
+  RewardsFinal = lists:foldl(
+        fun(Reward,RewardsList) ->
+                case is_list(Reward) of
+                    false ->
+                        RewardsList;
+                    true ->
+                        OwnerAddress = lists:sublist(Reward,length(Reward)-1),
+                        Percentage = lists:last(Reward),
+                        RewardsList ++ {OwnerAddress,Percentage}
+                end
         end,
-    Gw2#gateway_v2{witnesses = Witnesses1}. %%,rewards_map=RewardsMap}.
+        [],
+        RewardsMap
+  ),
+  Gw2#gateway_v2{witnesses = Witnesses1,
+                 rewards_map = RewardsFinal}.
 
 %% OK to include here, v1 should now be immutable.
 -record(gateway_v1, {
-    owner_address :: libp2p_crypto:pubkey_bin(),
-    location :: undefined | pos_integer(),
-    alpha = 1.0 :: float(),
-    beta = 1.0 :: float(),
-    delta :: non_neg_integer(),
-    last_poc_challenge :: undefined | non_neg_integer(),
-    last_poc_onion_key_hash :: undefined | binary(),
-    nonce = 0 :: non_neg_integer(),
-    version = 0 :: non_neg_integer()
+  owner_address :: libp2p_crypto:pubkey_bin(),
+  location :: undefined | pos_integer(),
+  alpha = 1.0 :: float(),
+  beta = 1.0 :: float(),
+  delta :: non_neg_integer(),
+  last_poc_challenge :: undefined | non_neg_integer(),
+  last_poc_onion_key_hash :: undefined | binary(),
+  nonce = 0 :: non_neg_integer(),
+  version = 0 :: non_neg_integer()
 }).
 
 convert(#gateway_v1{
-          owner_address = Owner,
-          location = Location,
-          alpha = Alpha,
-          beta = Beta,
-          delta = Delta,
-          last_poc_challenge = LastPoC,
-          last_poc_onion_key_hash = LastHash,
-          nonce = Nonce,
-          version = Version}) ->
-    #gateway_v2{
-       owner_address = Owner,
-       location = Location,
-       rewards_map=[{Owner,100}],
-       alpha = Alpha,
-       beta = Beta,
-       delta = Delta,
-       last_poc_challenge = LastPoC,
-       last_poc_onion_key_hash = LastHash,
-       nonce = Nonce,
-       version = Version,
-       %% this gets set in the upgrade path
-       neighbors = []}.
+  owner_address = Owner,
+  location = Location,
+  alpha = Alpha,
+  beta = Beta,
+  delta = Delta,
+  last_poc_challenge = LastPoC,
+  last_poc_onion_key_hash = LastHash,
+  nonce = Nonce,
+  version = Version}) ->
+  #gateway_v2{
+    owner_address = Owner,
+    location = Location,
+    rewards_map = [{Owner, 100}],
+    alpha = Alpha,
+    beta = Beta,
+    delta = Delta,
+    last_poc_challenge = LastPoC,
+    last_poc_onion_key_hash = LastHash,
+    nonce = Nonce,
+    version = Version,
+    %% this gets set in the upgrade path
+    neighbors = []}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -652,16 +686,85 @@ convert(#gateway_v1{
 -ifdef(TEST).
 
 new_test() ->
-    Gw = #gateway_v2{
-        owner_address = <<"owner_address">>,
-        location = 12,
-        rewards_map = [[<<"owner_address">>,100]],
-        last_poc_challenge = undefined,
-        last_poc_onion_key_hash = undefined,
-        nonce = 0,
-        delta=1
-    },
-    ?assertEqual(Gw, new(<<"owner_address">>, 12)).
+  Gw = #gateway_v2{
+    owner_address = <<"owner_address">>,
+    location = 12,
+    rewards_map = [{<<"owner_address">>, 100}],
+    last_poc_challenge = undefined,
+    last_poc_onion_key_hash = undefined,
+    nonce = 0,
+    delta = 1
+  },
+  ?assertEqual(Gw, new(<<"owner_address">>, 12)).
+
+owners_test() ->
+  Gw = #gateway_v2{
+    owner_address = <<"owner_address">>,
+    location = 12,
+    rewards_map = [{<<"owner_address">>, 60}, {<<"owner_address2">>, 40}],
+    last_poc_challenge = undefined,
+    last_poc_onion_key_hash = undefined,
+    nonce = 0,
+    delta = 1
+  },
+  ?assertEqual(get_owners(Gw),[<<"owner_address">>,<<"owner_address2">>]),
+  ?assertEqual(get_owner_split(Gw,<<"owner_address">>),{<<"owner_address">>,60}).
+
+
+num_splits_test() ->
+  Gw = #gateway_v2{
+    owner_address = <<"owner_address">>,
+    location = 15,
+    rewards_map = [{<<"owner_address">>, 60}, {<<"owner_address2">>, 40}],
+    last_poc_challenge = undefined,
+    last_poc_onion_key_hash = undefined,
+    nonce = 0,
+    delta = 2
+  },
+  ?assertEqual(num_splits(Gw),2).
+
+get_split_test() ->
+  Gw = #gateway_v2{
+    owner_address = <<"owner_address">>,
+    location = 15,
+    rewards_map = [{<<"owner_address">>, 40}, {<<"owner_address2">>, 60}],
+    last_poc_challenge = undefined,
+    last_poc_onion_key_hash = undefined,
+    nonce = 0,
+    delta = 2
+  },
+  ?assertEqual(get_split(Gw, <<"owner_address">>), 40),
+  ?assertEqual(get_split(Gw, <<"owner_address2">>), 60).
+
+
+get_splits_test() ->
+  Gw = #gateway_v2{
+    owner_address = <<"owner_address">>,
+    location = 15,
+    rewards_map = [{<<"owner_address">>, 20}, {<<"owner_address2">>, 80}],
+    last_poc_challenge = undefined,
+    last_poc_onion_key_hash = undefined,
+    nonce = 0,
+    delta = 2
+  },
+  ?assertEqual(get_splits(Gw),[20,80]).
+
+
+
+set_split_test() ->
+  Gw = #gateway_v2{
+    owner_address = <<"owner_address">>,
+    location = 15,
+    rewards_map = [{<<"owner_address">>, 20}, {<<"owner_address2">>, 80}],
+    last_poc_challenge = undefined,
+    last_poc_onion_key_hash = undefined,
+    nonce = 0,
+    delta = 2
+  },
+  Gw2 = set_split(Gw,<<"owner_address">>,90),
+  Gw3 = set_split(Gw,<<"owner_address2">>,10),
+  ?assertEqual(get_split(Gw2,<<"owner_address">>),90),
+  ?assertEqual(get_split(Gw3,<<"owner_address2">>),10).
 
 owner_address_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -669,67 +772,67 @@ owner_address_test() ->
     ?assertEqual(<<"owner_address2">>, owner_address(owner_address(<<"owner_address2">>, Gw))).
 
 location_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(12, location(Gw)),
-    ?assertEqual(13, location(location(13, Gw))).
+  Gw = new(<<"owner_address">>, 12),
+  ?assertEqual(12, location(Gw)),
+  ?assertEqual(13, location(location(13, Gw))).
 
 score_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    fake_config(),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
-    blockchain_score_cache:stop().
+  Gw = new(<<"owner_address">>, 12),
+  fake_config(),
+  ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+  blockchain_score_cache:stop().
 
 score_decay_test() ->
-    Gw0 = new(<<"owner_address">>, 1),
-    Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
-    fake_config(),
-    {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
-    ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
-    blockchain_score_cache:stop().
+  Gw0 = new(<<"owner_address">>, 1),
+  Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
+  fake_config(),
+  {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
+  ?assertEqual(normalize_float(A), A),
+  ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+  blockchain_score_cache:stop().
 
 score_decay2_test() ->
-    Gw0 = new(<<"owner_address">>, 1),
-    Gw1 = set_alpha_beta_delta(1.1, 10.0, 300, Gw0),
-    fake_config(),
-    {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
-    ?assertEqual(1.0, Alpha),
-    ?assert(Beta < 10.0),
-    ?assert(Score < 0.25),
-    blockchain_score_cache:stop().
+  Gw0 = new(<<"owner_address">>, 1),
+  Gw1 = set_alpha_beta_delta(1.1, 10.0, 300, Gw0),
+  fake_config(),
+  {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
+  ?assertEqual(1.0, Alpha),
+  ?assert(Beta < 10.0),
+  ?assert(Score < 0.25),
+  blockchain_score_cache:stop().
 
 last_poc_challenge_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(undefined, last_poc_challenge(Gw)),
-    ?assertEqual(123, last_poc_challenge(last_poc_challenge(123, Gw))).
+  Gw = new(<<"owner_address">>, 12),
+  ?assertEqual(undefined, last_poc_challenge(Gw)),
+  ?assertEqual(123, last_poc_challenge(last_poc_challenge(123, Gw))).
 
 last_poc_onion_key_hash_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(undefined, last_poc_onion_key_hash(Gw)),
-    ?assertEqual(<<"onion_key_hash">>, last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))).
+  Gw = new(<<"owner_address">>, 12),
+  ?assertEqual(undefined, last_poc_onion_key_hash(Gw)),
+  ?assertEqual(<<"onion_key_hash">>, last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))).
 
 nonce_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0, nonce(Gw)),
-    ?assertEqual(1, nonce(nonce(1, Gw))).
+  Gw = new(<<"owner_address">>, 12),
+  ?assertEqual(0, nonce(Gw)),
+  ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
-    meck:expect(blockchain_event,
-                add_handler,
-                fun(_) -> ok end),
-    meck:expect(blockchain_worker,
-                blockchain,
-                fun() -> undefined end),
-    {ok, Pid} = blockchain_score_cache:start_link(),
-    meck:expect(blockchain,
-                config,
-                fun(alpha_decay, _) ->
-                        {ok, 0.007};
-                   (beta_decay, _) ->
-                        {ok, 0.0005};
-                   (max_staleness, _) ->
-                        {ok, 100000}
-                end),
-    Pid.
+  meck:expect(blockchain_event,
+    add_handler,
+    fun(_) -> ok end),
+  meck:expect(blockchain_worker,
+    blockchain,
+    fun() -> undefined end),
+  {ok, Pid} = blockchain_score_cache:start_link(),
+  meck:expect(blockchain,
+    config,
+    fun(alpha_decay, _) ->
+      {ok, 0.007};
+      (beta_decay, _) ->
+        {ok, 0.0005};
+      (max_staleness, _) ->
+        {ok, 100000}
+    end),
+  Pid.
 
 -endif.
