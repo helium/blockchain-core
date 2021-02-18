@@ -7,6 +7,7 @@
 
 -export([
     new/1,
+    new_aux/1,
     bootstrap_aux/2,
     mode/1, mode/2,
     has_aux/1,
@@ -184,7 +185,7 @@
     load_oracle_price/2,
     load_oracle_price_list/2,
 
-    clean/1, close/1,
+    clean/1, clean_aux/1, close/1,
     compact/1,
 
     txn_fees_active/1,
@@ -327,22 +328,19 @@ new(Dir) ->
         }
     }).
 
--spec maybe_load_aux(Ledger :: ledger()) -> ledger().
-maybe_load_aux(Ledger) ->
+new_aux(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
         undefined ->
             Ledger;
         Path ->
-            bootstrap_aux(Path, Ledger)
+            new_aux(Path, Ledger)
     end.
 
--spec bootstrap_aux(Path :: file:filename_all(), Ledger :: ledger()) -> ledger().
-bootstrap_aux(Path, Ledger) ->
-    Exists = filelib:is_dir(Path),
+new_aux(Path, Ledger) ->
     {ok, DB, CFs} = open_db(aux, Path, false),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, AuxHeightsCF] = CFs,
-    NewLedger = Ledger#ledger_v1{aux=#aux_ledger_v1{
+    Ledger#ledger_v1{aux=#aux_ledger_v1{
        dir = Path,
        db = DB,
        aux_heights = AuxHeightsCF,
@@ -359,7 +357,21 @@ bootstrap_aux(Path, Ledger) ->
        subnets=SubnetsCF,
        state_channels=SCsCF,
        h3dex=H3DexCF}
-      }},
+      }}.
+
+-spec maybe_load_aux(Ledger :: ledger()) -> ledger().
+maybe_load_aux(Ledger) ->
+    case application:get_env(blockchain, aux_ledger_dir, undefined) of
+        undefined ->
+            Ledger;
+        Path ->
+            bootstrap_aux(Path, Ledger)
+    end.
+
+-spec bootstrap_aux(Path :: file:filename_all(), Ledger :: ledger()) -> ledger().
+bootstrap_aux(Path, Ledger) ->
+    Exists = filelib:is_dir(Path),
+    NewLedger = new_aux(Path, Ledger),
     case Exists of
         true ->
             %% assume no need to bootstrap
@@ -2874,6 +2886,9 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []),
+    clean_aux(L).
+
+clean_aux(L) ->
     case has_aux(L) of
         true ->
             catch ok = rocksdb:close(L#ledger_v1.aux#aux_ledger_v1.db),
