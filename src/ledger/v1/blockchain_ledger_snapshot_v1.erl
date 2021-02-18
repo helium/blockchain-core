@@ -11,6 +11,7 @@
          snapshot/3,
          import/3,
          load_into_ledger/3,
+         load_blocks/3,
 
          get_blocks/1,
 
@@ -409,7 +410,8 @@ load_into_ledger(#{
 
     blockchain_ledger_v1:commit_context(Ledger).
 
-
+load_blocks(Ledger, Chain, #{blocks:=Blocks}) ->
+    load_blocks(Ledger, Chain, Blocks);
 load_blocks(Ledger0, Chain, Blocks) ->
     Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger2, Chain),
