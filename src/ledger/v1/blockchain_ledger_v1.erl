@@ -18,6 +18,7 @@
     get_aux_rewards_at/2, set_aux_rewards/4,
     get_aux_rewards/1,
     diff_aux_rewards_for/2, diff_aux_rewards/1,
+    diff_aux_reward_sums/1,
 
     check_key/2, mark_key/2,
 
@@ -3071,6 +3072,20 @@ diff_aux_rewards_for(Key, Ledger) ->
         Diff
     ).
 
+diff_aux_reward_sums(Ledger) ->
+    maps:fold(fun(_Key, Value, Acc) ->
+                      maps:fold(fun(Gw, {AmountBefore, AmountAfter}, Acc2) ->
+                                        {AB, AF} = maps:get(Gw, Acc, {#{}, #{}}),
+                                        maps:put(Gw, {maps_sum(AB, AmountBefore), maps_sum(AF, AmountAfter)}, Acc2)
+                                end, Acc, Value)
+              end, #{}, diff_aux_rewards(Ledger)).
+
+maps_sum(A, B) ->
+    Keys = lists:usort(maps:keys(A) ++ maps:keys(B)),
+    lists:foldl(fun(K, Acc) ->
+                        Acc#{K => maps:get(K, A, 0) + maps:get(K, B, 0)}
+                end, #{}, Keys).
+
 -spec diff_aux_rewards(Ledger :: ledger()) -> map().
 diff_aux_rewards(Ledger) ->
     case has_aux(Ledger) of
@@ -3082,13 +3097,14 @@ diff_aux_rewards(Ledger) ->
             TallyFun = fun(Reward, Acc0) ->
                                Account = blockchain_txn_reward_v1:account(Reward),
                                Amount = blockchain_txn_reward_v1:amount(Reward),
+                               Type = blockchain_txn_reward_v1:type(Reward),
                                Acc = case blockchain_txn_reward_v1:gateway(Reward) of
                                          undefined ->
                                              Acc0;
                                          Gateway ->
-                                             maps:update_with(Gateway, fun(V) -> V + Amount end, Amount, Acc0)
+                                             maps:update_with(Gateway, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}  end, #{amount => Amount, Type => 1}, Acc0)
                                      end,
-                               maps:update_with(Account, fun(V) -> V + Amount end, Amount, Acc)
+                               maps:update_with(Account, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1} end, #{amount => Amount, Type => 1}, Acc)
                        end,
 
             DiffFun = fun(Height, {ActualRewards, AuxRewards}, Acc) ->
@@ -3096,13 +3112,13 @@ diff_aux_rewards(Ledger) ->
                               AuxAccountBalances = lists:foldl(TallyFun, #{}, AuxRewards),
                               Combined = maps:merge(AuxAccountBalances, ActualAccountBalances),
                               Res = maps:fold(fun(K, V, Acc2) ->
-                                               V2 = maps:get(K, AuxAccountBalances, 0),
+                                               V2 = maps:get(K, AuxAccountBalances, #{amount => 0}),
                                                case V == V2 of
                                                    true ->
                                                        %% check this is not missing in actual balances
                                                        case maps:is_key(K, ActualAccountBalances) of
                                                            false ->
-                                                               maps:put(K, {0, V}, Acc2);
+                                                               maps:put(K, {#{amount => 0}, V}, Acc2);
                                                            true ->
                                                                %% no difference
                                                                Acc2
