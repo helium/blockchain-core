@@ -1397,8 +1397,8 @@ scale_unknown_snr(UnknownSNR) ->
     {Low + (Low * ScaleFactor), High + (High * ScaleFactor)}.
 
 check_rssi_snr(Ledger, RSSI, SNR, Freq) ->
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, POCVersion} when POCVersion >= 11 ->
+    case {blockchain:config(?poc_version, Ledger), blockchain:config(?check_snr, Ledger)} of
+        {{ok, POCVersion}, {ok, true}} when POCVersion >= 11 ->
             MaxSNR = case Freq > 900 of
                          true ->
                              maps:get(?SNR_CURVE_915_CLAMP(RSSI), ?SNR_CURVE_915);
@@ -1411,6 +1411,9 @@ check_rssi_snr(Ledger, RSSI, SNR, Freq) ->
                 false ->
                     {rssi_snr, MaxSNR}
             end;
+        {{ok, POCVersion}, _} when POCVersion >= 11 ->
+            %% skip checking SNR
+            true;
         _ ->
             {LowerBound, _} = calculate_rssi_bounds_from_snr(SNR),
             case RSSI >= LowerBound of
