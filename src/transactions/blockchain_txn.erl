@@ -749,6 +749,8 @@ absorb_aux(Block0, Chain0) ->
                     ok = blockchain_ledger_v1:commit_context(AuxLedger1);
                 {ok, CurrentHeight} ->
                     {ok, AuxHeight} = blockchain_ledger_v1:current_height(AuxLedger1),
+                    %% don't do too many blocks at once do we don't get timeout killed
+                    End = min(AuxHeight + 100, CurrentHeight - 1),
                     Res = lists:foldl(fun(H, ok) ->
                                               {ok, Block1} = blockchain:get_block(H, Chain0),
                                               absorb_aux_(Block1, Chain1);
@@ -756,7 +758,7 @@ absorb_aux(Block0, Chain0) ->
                                               Acc
                                       end,
                                       ok,
-                                      lists:seq(AuxHeight+1, CurrentHeight - 1)),
+                                      lists:seq(AuxHeight+1, End)),
                     case Res of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(AuxLedger1);
