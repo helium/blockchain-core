@@ -761,6 +761,7 @@ absorb_aux(Block0, Chain0) ->
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(AuxLedger1);
                         Error ->
+                            lager:info("AUX absorb failed ~p", [Error]),
                             Error
                     end;
                 _Any ->
