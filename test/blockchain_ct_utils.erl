@@ -426,7 +426,7 @@ join_payload(AppKey, DevNonce) ->
     AppEUI = reverse_bin(?APPEUI),
     DevEUI = reverse_bin(?DEVEUI),
     Payload0 = <<MType:3, MHDRRFU:3, Major:2, AppEUI:8/binary, DevEUI:8/binary, DevNonce:2/binary>>,
-    MIC = crypto:cmac(aes_cbc128, AppKey, Payload0, 4),
+    MIC = crypto:macN(cmac, aes_128_cbc, AppKey, Payload0, 4),
     <<Payload0/binary, MIC:4/binary>>.
 
 reverse_bin(Bin) -> reverse_bin(Bin, <<>>).
