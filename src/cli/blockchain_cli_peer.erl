@@ -28,6 +28,7 @@ register_all_usage() ->
                   peer_gossip_peers_usage(),
                   peer_gossip_peers_usage(),
                   peer_refresh_usage(),
+                  peer_relay_reset_usage(),
                   peer_usage()
                  ]).
 
@@ -46,6 +47,7 @@ register_all_cmds() ->
                   peer_gossip_peers_cmd(),
                   peer_gossip_peers_cmd(),
                   peer_refresh_cmd(),
+                  peer_relay_reset_cmd(),
                   peer_cmd()
                  ]).
 %%
@@ -64,6 +66,7 @@ peer_usage() ->
       "  peer book              - Display information from the peerbook of this node.\n"
       "  peer gossip_peers      - Display gossip peers of this node.\n"
       "  peer refresh           - Request an updated peerbook for this peer from our gossip peers.\n"
+      "  peer relay_reset       - Stop the current libp2p relay swarm and retry.\n"
      ]
     ].
 
@@ -342,6 +345,27 @@ peer_refresh(["peer", "refresh", Addr], [], []) ->
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     TrimmedAddr = string:trim(Addr),
     libp2p_peerbook:refresh(Peerbook, libp2p_crypto:p2p_to_pubkey_bin(TrimmedAddr)),
+    [clique_status:text("ok")].
+
+%%
+%% peer relay_reset
+%%
+peer_relay_reset_cmd() ->
+    [
+     [["peer", "relay_reset"], [], [], fun peer_relay_reset/3]
+    ].
+
+peer_relay_reset_usage() ->
+    [["peer" "relay_reset"],
+     ["peer relay_reset\n\n",
+      " Stop the current relay swarm handler and retry with a new one.\n\n"
+     ]
+    ].
+
+peer_relay_reset(["peer", "relay_reset"], [], []) ->
+    gen_server:cast(libp2p_relay_server_blockchain_swarm, stop_relay),
+    timer:sleep(500),
+    libp2p_relay_server_blockchain_swarm ! retry,
     [clique_status:text("ok")].
 
 %%
