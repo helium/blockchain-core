@@ -72,7 +72,7 @@ update(NumDCs, NumPackets, Summary) ->
     Summary#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs, num_packets=NumPackets}.
 
 validate(Summary) ->
-    try libp2p_crypto:bin_to_pubkey(client_pubkeybin(Summary)) of
+    try blockchain_utils:bin_to_pubkey(client_pubkeybin(Summary)) of
         _ ->
             case num_dcs(Summary) >= num_packets(Summary) of
                 true ->

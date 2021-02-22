@@ -27,6 +27,10 @@
     find_txn/2,
     map_to_bitvector/1,
     bitvector_to_map/2,
+    bin_to_pubkey/1,
+    pubkey_to_bin/1,
+    get_network/1,
+    set_network/1,
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
     keys_list_to_bin/1,
@@ -60,6 +64,7 @@
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+-type network() :: mainnet | testnet.
 
 -export_type([gateway_score_map/0, zone_map/0]).
 
@@ -305,10 +310,30 @@ vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
     maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
 
+%% Convert a pubkey_bin to a pubkey while asserting the currently known network
+%% stored in a known persistent term
+-spec bin_to_pubkey(libp2p_crypto:pubkey_bin()) -> libp2p_crypto:pubkey().
+bin_to_pubkey(PubKeyBin) ->
+    libp2p_crypto:bin_to_pubkey(get_network(mainnet), PubKeyBin).
+
+%% Convert a pubkey to a pubkey binary setting the network to the current network,
+%% or mainnet if not found
+-spec pubkey_to_bin(libp2p_crypto:pubkey()) -> libp2p_crypto:pubkey_bin().
+pubkey_to_bin(PubKey) ->
+    blockchain_utils:pubkey_to_bin(get_network(mainnet), PubKey).
+
+-spec get_network(Default :: network()) -> network().
+get_network(Default) ->
+    persistent_term:get(?network, Default).
+
+-spec set_network(network()) -> ok.
+set_network(Network) ->
+    persistent_term:put(?network, Network).
+
 -spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), function()}.
 get_pubkeybin_sigfun(Swarm) ->
     {ok, PubKey, SigFun, _} = libp2p_swarm:keys(Swarm),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     {PubKeyBin, SigFun}.
 
 -spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
@@ -454,7 +479,7 @@ find_key(_, _, []) ->
     undefined;
 find_key(Proof, Artifact, [Key|Keys]) ->
     case libp2p_crypto:verify(Artifact, Proof,
-                              libp2p_crypto:bin_to_pubkey(Key)) of
+                              ?MODULE:bin_to_pubkey(Key)) of
         true ->
             %% return early
             Key;
@@ -514,7 +539,7 @@ get_pubkeybin_sigfun_test() ->
     BaseDir = test_utils:tmp_dir("get_pubkeybin_sigfun_test"),
     {ok, Swarm} = start_swarm(get_pubkeybin_sigfun_test, BaseDir),
     {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     ?assertEqual({PubKeyBin, PayerSigFun}, get_pubkeybin_sigfun(Swarm)),
     libp2p_swarm:stop(Swarm),
     ok.
@@ -547,12 +572,12 @@ bitvector_roundtrip_test() ->
 oracle_keys_test() ->
     #{ public := RawEccPK } = libp2p_crypto:generate_keys(ecc_compact),
     #{ public := RawEdPK } = libp2p_crypto:generate_keys(ed25519),
-    EccPK = libp2p_crypto:pubkey_to_bin(RawEccPK),
-    EdPK = libp2p_crypto:pubkey_to_bin(RawEdPK),
+    EccPK = blockchain_utils:pubkey_to_bin(RawEccPK),
+    EdPK = blockchain_utils:pubkey_to_bin(RawEdPK),
     TestOracleKeys = keys_list_to_bin([EccPK, EdPK]),
     Results = bin_keys_to_list(TestOracleKeys),
     ?assertEqual([EccPK, EdPK], Results),
-    Results1 = [ libp2p_crypto:bin_to_pubkey(K) || K <- Results ],
+    Results1 = [ ?MODULE:bin_to_pubkey(K) || K <- Results ],
     ?assertEqual([RawEccPK, RawEdPK], Results1).
 
 calculate_dc_amount_test() ->
@@ -581,7 +606,7 @@ count_votes_test() ->
     #{ public := PubKey3, secret := SecKey3} = libp2p_crypto:generate_keys(ecc_compact),
     #{ public := PubKey4, secret := SecKey4} = libp2p_crypto:generate_keys(ecc_compact),
 
-    PKeys = [libp2p_crypto:pubkey_to_bin(PK) || PK <- [PubKey1, PubKey2, PubKey3, PubKey4]],
+    PKeys = [blockchain_utils:pubkey_to_bin(PK) || PK <- [PubKey1, PubKey2, PubKey3, PubKey4]],
 
     Artifact = crypto:strong_rand_bytes(10),
 
@@ -602,7 +627,7 @@ count_votes_test() ->
     ?assertEqual(4, count_votes(Artifact, PKeys, Sigs ++ [ExtraSig])),
 
     %% check adding the unknown key to the list does work
-    ?assertEqual(5, count_votes(Artifact, PKeys ++ [libp2p_crypto:pubkey_to_bin(PubKey5)], Sigs ++ [ExtraSig])),
+    ?assertEqual(5, count_votes(Artifact, PKeys ++ [blockchain_utils:pubkey_to_bin(PubKey5)], Sigs ++ [ExtraSig])),
     ok.
 
 fold_condition_checks_good_test() ->

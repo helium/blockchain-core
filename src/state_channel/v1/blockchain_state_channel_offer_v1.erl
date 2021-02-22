@@ -89,7 +89,7 @@ validate(Offer) ->
     EncodedOffer = ?MODULE:encode(BaseOffer),
     Signature = ?MODULE:signature(Offer),
     PubKeyBin = ?MODULE:hotspot(Offer),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     case libp2p_crypto:verify(EncodedOffer, Signature, PubKey) of
         false -> {error, bad_signature};
         true -> true

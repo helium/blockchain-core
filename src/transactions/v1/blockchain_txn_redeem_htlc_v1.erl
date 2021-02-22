@@ -114,7 +114,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Redeemer = ?MODULE:payee(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Redeemer),
+    PubKey = blockchain_utils:bin_to_pubkey(Redeemer),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
     FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
@@ -298,7 +298,7 @@ is_valid_with_extended_validation_test_() ->
 
              #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
              SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-             Payee = libp2p_crypto:pubkey_to_bin(PubKey),
+             Payee = blockchain_utils:pubkey_to_bin(PubKey),
 
              %% We don't check for {invalid_address, payee} because that blows up on line#117
              %% regardless (that's a pubkey check)
@@ -308,7 +308,7 @@ is_valid_with_extended_validation_test_() ->
              ?assertEqual({error, {invalid_address, address}}, is_valid(Tx1, Chain)),
 
              #{public := PubKey2, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-             Address = libp2p_crypto:pubkey_to_bin(PubKey2),
+             Address = blockchain_utils:pubkey_to_bin(PubKey2),
 
              %% valid payee, valid address
              Tx2 = sign(new(Payee, Address, crypto:strong_rand_bytes(32)), SigFun),

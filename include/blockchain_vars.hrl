@@ -82,6 +82,11 @@
 -define(predicate_callback_mod, predicate_callback_mod). %% Currently set to: miner
 -define(predicate_callback_fun, predicate_callback_fun). %% Currently set to: version
 
+%% The network this blockchain operations on. This variable is used to initialize
+%%  the chain to mainnet or testnet. The chain defaults to mainnet unless
+%% this variable is set to something else (i.e. testnet)
+-define(network, network).
+
 %%%
 %%% miner vars
 %%%

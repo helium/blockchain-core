@@ -1080,9 +1080,9 @@ unknown_owner_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
-    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RouterPubkeyBin = blockchain_utils:pubkey_to_bin(RouterPubkey),
     {ok, PayerPubkey, _, _} = ct_rpc:call(PayerNode, blockchain_swarm, keys, []),
-    PayerPubkeyBin = libp2p_crypto:pubkey_to_bin(PayerPubkey),
+    PayerPubkeyBin = blockchain_utils:pubkey_to_bin(PayerPubkey),
 
     %% Create OUI txn
     SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
@@ -1969,20 +1969,20 @@ get_consensus_members(Config, ConsensusAddrs) ->
 
 create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
-    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RouterPubkeyBin = blockchain_utils:pubkey_to_bin(RouterPubkey),
     {Filter, _} = xor16:to_bin(xor16:new([ <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>> || {DevEUI, AppEUI} <- EUIs], fun xxhash:hash64/1)),
     OUITxn = blockchain_txn_oui_v1:new(OUI, RouterPubkeyBin, [RouterPubkeyBin], Filter, SubnetSize),
     blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun).
 
 create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
-    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RouterPubkeyBin = blockchain_utils:pubkey_to_bin(RouterPubkey),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 20),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
 create_update_gateway_oui_txn(GatewayNode, OUI, Nonce, OwnerSigFun, RouterSigFun) ->
     {ok, GatewayPubkey, _, _} = ct_rpc:call(GatewayNode, blockchain_swarm, keys, []),
-    GatewayPubkeyBin = libp2p_crypto:pubkey_to_bin(GatewayPubkey),
+    GatewayPubkeyBin = blockchain_utils:pubkey_to_bin(GatewayPubkey),
     UpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:new(GatewayPubkeyBin, OUI, Nonce),
 
     STx0 = blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGatewayOUITxn, OwnerSigFun),

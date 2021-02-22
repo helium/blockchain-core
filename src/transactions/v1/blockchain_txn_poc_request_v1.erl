@@ -143,7 +143,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     ChallengerSignature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
+    PubKey = blockchain_utils:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
 

@@ -1800,7 +1800,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     Txn0 = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer),
     Txn = blockchain_txn_add_gateway_v1:staking_fee(blockchain_txn_add_gateway_v1:fee(Txn0, Fee), StakingFee),
     SignedTxn = blockchain_txn_add_gateway_v1:sign_request(Txn, SigFun),
@@ -1810,7 +1810,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 %% the gateway, and the given owner and payer
 %%
 %% NOTE: This is an alternative add_gateway creation that calculates the fee and
-%% staking fee from the current live blockchain. 
+%% staking fee from the current live blockchain.
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58) ->
@@ -1822,7 +1822,7 @@ add_gateway_txn(OwnerB58, PayerB58) ->
             end,
     Chain = blockchain_worker:blockchain(),
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     Txn0 = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer),
     StakingFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(Txn0, Chain),
     Txn1 = blockchain_txn_add_gateway_v1:staking_fee(Txn0, StakingFee),
@@ -1857,7 +1857,7 @@ assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce, StakingFee, Fee) ->
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     Txn0 = blockchain_txn_assert_location_v1:new(PubKeyBin, Owner, Payer, H3Index, Nonce),
     Txn = blockchain_txn_assert_location_v1:staking_fee(blockchain_txn_assert_location_v1:fee(Txn0, Fee), StakingFee),
     SignedTxn = blockchain_txn_assert_location_v1:sign_request(Txn, SigFun),
@@ -1882,7 +1882,7 @@ assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce) ->
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     Chain = blockchain_worker:blockchain(),
     Txn0 = blockchain_txn_assert_location_v1:new(PubKeyBin, Owner, Payer, H3Index, Nonce),
     StakingFee = blockchain_txn_assert_location_v1:calculate_staking_fee(Txn0, Chain),
@@ -2372,7 +2372,7 @@ blocks_test_() ->
              {ok, Pid} = blockchain_lock:start_link(),
 
              #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
-             BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+             BinPub = blockchain_utils:pubkey_to_bin(Pub),
 
              Vars = #{chain_vars_version => 2},
              Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),
@@ -2447,7 +2447,7 @@ get_block_test_() ->
              {ok, Pid} = blockchain_lock:start_link(),
 
              #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
-             BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+             BinPub = blockchain_utils:pubkey_to_bin(Pub),
 
              Vars = #{chain_vars_version => 2},
              Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),

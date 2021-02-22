@@ -115,14 +115,14 @@ oui_owner_sign(Txn, SigFun) ->
 is_valid_gateway_owner(GatewayOwner, #blockchain_txn_update_gateway_oui_v1_pb{gateway_owner_signature=Signature}=Txn) ->
     BaseTxn = Txn#blockchain_txn_update_gateway_oui_v1_pb{gateway_owner_signature= <<>>, oui_owner_signature= <<>>},
     EncodedTxn = blockchain_txn_update_gateway_oui_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(GatewayOwner),
+    PubKey = blockchain_utils:bin_to_pubkey(GatewayOwner),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid_oui_owner(libp2p_crypto:pubkey_bin(), txn_update_gateway_oui()) -> boolean().
 is_valid_oui_owner(OUIOwner, #blockchain_txn_update_gateway_oui_v1_pb{oui_owner_signature=Signature}=Txn) ->
     BaseTxn = Txn#blockchain_txn_update_gateway_oui_v1_pb{gateway_owner_signature= <<>>, oui_owner_signature= <<>>},
     EncodedTxn = blockchain_txn_update_gateway_oui_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(OUIOwner),
+    PubKey = blockchain_utils:bin_to_pubkey(OUIOwner),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -287,7 +287,7 @@ oui_owner_signature_test() ->
 
 is_valid_gateway_owner_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Update0 = new(<<"gateway">>, 1, 0),
     Update1 = gateway_owner_sign(Update0, SigFun),
@@ -295,7 +295,7 @@ is_valid_gateway_owner_test() ->
 
 is_valid_oui_owner_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Update0 = new(<<"gateway">>, 1, 0),
     Update1 = oui_owner_sign(Update0, SigFun),

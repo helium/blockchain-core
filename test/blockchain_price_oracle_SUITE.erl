@@ -325,7 +325,7 @@ submit_bad_public_key(Config) ->
     ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, [BadTxn])),
 
     %% check that a bad signature is invalid
-    RawTxn = blockchain_txn_price_oracle_v1:new( libp2p_crypto:pubkey_to_bin(maps:get(public, hd(OracleKeys))), 50, 50),
+    RawTxn = blockchain_txn_price_oracle_v1:new( blockchain_utils:pubkey_to_bin(maps:get(public, hd(OracleKeys))), 50, 50),
     SignFun = libp2p_crypto:mk_sig_fun(maps:get(secret, BadKey)),
     BadlySignedTxn = blockchain_txn_price_oracle_v1:sign(RawTxn, SignFun),
     ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, [BadlySignedTxn])),
@@ -595,7 +595,7 @@ txn_fees_pay_with_dc(Config) ->
     %%
 
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     %% base txn
@@ -724,7 +724,7 @@ txn_fees_pay_with_dc(Config) ->
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     % Create a Payee
     #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
+    Payee = blockchain_utils:pubkey_to_bin(PayeePubKey),
 
     %% base txn
     CreateHTLCTx0 = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 2),
@@ -856,7 +856,7 @@ txn_fees_pay_with_dc(Config) ->
     %%
 
     #{public := RouterPubKey, secret := RouterPrivKey} = libp2p_crypto:generate_keys(ed25519),
-    RouterPubKeyBin = libp2p_crypto:pubkey_to_bin(RouterPubKey),
+    RouterPubKeyBin = blockchain_utils:pubkey_to_bin(RouterPubKey),
     RouterAddresses1 = [RouterPubKeyBin],
     RouterSigFun = libp2p_crypto:mk_sig_fun(RouterPrivKey),
 
@@ -1179,7 +1179,7 @@ staking_key_add_gateway(Config) ->
     %%
 
     #{public := StakingPub, secret := StakingPrivKey} = ?config(staking_key, Config),
-    Staker = libp2p_crypto:pubkey_to_bin(StakingPub),
+    Staker = blockchain_utils:pubkey_to_bin(StakingPub),
     StakerSigFun = libp2p_crypto:mk_sig_fun(StakingPrivKey),
     %% base txn
     PaymentTx0 = blockchain_txn_payment_v1:new(Payer, Staker, 2500 * ?BONES_PER_HNT, 1),
@@ -1209,11 +1209,11 @@ staking_key_add_gateway(Config) ->
     blockchain:add_block(PaymentBlock, Chain),
 
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Owner = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    Owner = blockchain_utils:pubkey_to_bin(OwnerPubKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
     %% base txn
@@ -1288,11 +1288,11 @@ make_oracle_txns(N, Keys, BlockHeight) ->
 
 make_and_sign_txn(#{public := PubKey, secret := SecretKey}, Price, BlockHeight) ->
     SignFun = libp2p_crypto:mk_sig_fun(SecretKey),
-    RawTxn = blockchain_txn_price_oracle_v1:new(libp2p_crypto:pubkey_to_bin(PubKey), Price, BlockHeight),
+    RawTxn = blockchain_txn_price_oracle_v1:new(blockchain_utils:pubkey_to_bin(PubKey), Price, BlockHeight),
     blockchain_txn_price_oracle_v1:sign(RawTxn, SignFun).
 
 prep_public_key(#{public := K}) ->
-    BinPK = libp2p_crypto:pubkey_to_bin(K),
+    BinPK = blockchain_utils:pubkey_to_bin(K),
     <<(byte_size(BinPK)):8/unsigned-integer, BinPK/binary>>.
 
 make_encoded_oracle_keys(Keys) ->

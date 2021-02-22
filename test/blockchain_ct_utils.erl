@@ -312,7 +312,7 @@ create_vars(Vars) ->
     Vars1 = raw_vars(Vars),
     ct:pal("vars ~p", [Vars1]),
 
-    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+    BinPub = blockchain_utils:pubkey_to_bin(Pub),
 
     Txn = blockchain_txn_vars_v1:new(Vars1, 2, #{master_key => BinPub}),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),

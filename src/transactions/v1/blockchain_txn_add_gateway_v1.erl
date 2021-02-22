@@ -246,7 +246,7 @@ is_valid_gateway(#blockchain_txn_add_gateway_v1_pb{gateway=PubKeyBin,
                                                    gateway_signature= <<>>,
                                                    payer_signature= <<>>},
     EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -260,7 +260,7 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
                                                    gateway_signature= <<>>,
                                                    payer_signature= <<>>},
     EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -280,7 +280,7 @@ is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
                                                     gateway_signature= <<>>,
                                                     payer_signature= <<>>},
     EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid_staking_key(txn_add_gateway(), blockchain_ledger_v1:ledger())-> boolean().
@@ -396,7 +396,7 @@ missing_payer_signature_new() ->
         gateway= <<"gateway_address">>,
         owner_signature= <<>>,
         gateway_signature = <<>>,
-        payer= libp2p_crypto:pubkey_to_bin(PubKey),
+        payer= blockchain_utils:pubkey_to_bin(PubKey),
         payer_signature = <<>>,
         staking_fee = 1,
         fee = 1

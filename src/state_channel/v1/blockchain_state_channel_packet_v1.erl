@@ -58,7 +58,7 @@ validate(Packet, Offer) ->
     EncodedPacket = ?MODULE:encode(BasePacket),
     Signature = ?MODULE:signature(Packet),
     PubKeyBin = ?MODULE:hotspot(Packet),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     case libp2p_crypto:verify(EncodedPacket, Signature, PubKey) of
         false -> {error, bad_signature};
         true ->
@@ -120,7 +120,7 @@ sign_test() ->
 
 validate_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     P = blockchain_helium_packet_v1:new({devaddr, 1234}, <<"hello">>),
     Packet0 = new(P, PubKeyBin, 'US915'),

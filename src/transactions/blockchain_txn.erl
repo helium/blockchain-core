@@ -605,7 +605,7 @@ validate_fields([{{Name, Field}, {binary, Min, Max}}|Tail]) when is_binary(Field
             {error, {field_wrong_size, {Name, {Min, Max}, byte_size(Field)}}}
     end;
 validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field) ->
-    try libp2p_crypto:bin_to_pubkey(Field) of
+    try blockchain_utils:bin_to_pubkey(Field) of
         _ ->
             validate_fields(Tail)
     catch
@@ -916,11 +916,11 @@ depends_on(ThisTxn, CachedTxns) ->
 
 depends_on_test() ->
     #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey1),
+    Payer = blockchain_utils:pubkey_to_bin(PubKey1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey1),
 
     #{secret := _PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
-    Recipient = libp2p_crypto:pubkey_to_bin(PubKey2),
+    Recipient = blockchain_utils:pubkey_to_bin(PubKey2),
     Txns = lists:map(fun(Nonce) ->
                       case rand:uniform(2) of
                           1 ->
@@ -987,14 +987,14 @@ nonce_check(Txns) ->
 gen_pubkeys(Count) ->
     lists:foldl(fun(_, Acc) ->
                         #{secret := _, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-                        Addr = libp2p_crypto:pubkey_to_bin(PubKey),
+                        Addr = blockchain_utils:pubkey_to_bin(PubKey),
                         [Addr | Acc]
                 end, [], lists:seq(1, Count)).
 
 gen_payers(Count) ->
     lists:foldl(fun(_, Acc) ->
                         #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-                        PubkeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+                        PubkeyBin = blockchain_utils:pubkey_to_bin(PubKey),
                         SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
                         [{PubkeyBin, SigFun} | Acc]
                 end, [], lists:seq(1, Count)).
@@ -1034,10 +1034,10 @@ txn_fees_payment_v2_test() ->
 txn_fees_add_gateway_v1_test() ->
     [{Payer, PayerSigFun}] = gen_payers(1),
     #{public := GWPubKey, secret := GWPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    GWPubkeyBin = libp2p_crypto:pubkey_to_bin(GWPubKey),
+    GWPubkeyBin = blockchain_utils:pubkey_to_bin(GWPubKey),
     GWSigFun = libp2p_crypto:mk_sig_fun(GWPrivKey),
     #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    OwnerPubkeyBin = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerPubkeyBin = blockchain_utils:pubkey_to_bin(OwnerPubKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
     %% create new txn, and confirm expected txn and staking fee
@@ -1066,10 +1066,10 @@ txn_fees_add_gateway_v1_test() ->
 txn_fees_assert_location_v1_test() ->
     [{Payer, PayerSigFun}] = gen_payers(1),
     #{public := GWPubKey, secret := GWPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    GWPubkeyBin = libp2p_crypto:pubkey_to_bin(GWPubKey),
+    GWPubkeyBin = blockchain_utils:pubkey_to_bin(GWPubKey),
     GWSigFun = libp2p_crypto:mk_sig_fun(GWPrivKey),
     #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    OwnerPubkeyBin = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerPubkeyBin = blockchain_utils:pubkey_to_bin(OwnerPubKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
     %% create new txn, and confirm expected txn and staking fee
@@ -1130,7 +1130,7 @@ txn_fees_oui_test() ->
     OUI = 1,
     [{Payer, PayerSigFun}] = gen_payers(1),
     #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    OwnerPubkeyBin = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerPubkeyBin = blockchain_utils:pubkey_to_bin(OwnerPubKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
 

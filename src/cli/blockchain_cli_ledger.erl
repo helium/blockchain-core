@@ -191,7 +191,7 @@ ledger_fold(Verbose) ->
       Ledger).
 
 format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger, Verbose) ->
-    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(libp2p_crypto:bin_to_pubkey(GatewayAddr))),
+    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(blockchain_utils:bin_to_pubkey(GatewayAddr))),
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
      {name, Name} |
      blockchain_ledger_gateway_v2:print(GatewayAddr, Gateway, Ledger, Verbose)].

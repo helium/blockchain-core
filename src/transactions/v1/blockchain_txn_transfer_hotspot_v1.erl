@@ -151,7 +151,7 @@ is_valid_seller(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
     BaseTxn = Txn#blockchain_txn_transfer_hotspot_v1_pb{buyer_signature= <<>>,
                                                         seller_signature= <<>>},
     EncodedTxn = blockchain_txn_transfer_hotspot_v1_pb:encode_msg(BaseTxn),
-    Pubkey = libp2p_crypto:bin_to_pubkey(Seller),
+    Pubkey = blockchain_utils:bin_to_pubkey(Seller),
     libp2p_crypto:verify(EncodedTxn, SellerSig, Pubkey).
 
 -spec is_valid_buyer(txn_transfer_hotspot()) -> boolean().
@@ -160,7 +160,7 @@ is_valid_buyer(#blockchain_txn_transfer_hotspot_v1_pb{buyer=Buyer,
     BaseTxn = Txn#blockchain_txn_transfer_hotspot_v1_pb{buyer_signature= <<>>,
                                                         seller_signature= <<>>},
     EncodedTxn = blockchain_txn_transfer_hotspot_v1_pb:encode_msg(BaseTxn),
-    Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
+    Pubkey = blockchain_utils:bin_to_pubkey(Buyer),
     libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
 -spec is_valid(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -345,14 +345,14 @@ fee_test() ->
 
 sign_seller_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx = new(<<"gateway">>, libp2p_crypto:pubkey_to_bin(PubKey), <<"buyer">>, 1),
+    Tx = new(<<"gateway">>, blockchain_utils:pubkey_to_bin(PubKey), <<"buyer">>, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = sign(Tx, SigFun),
     ?assert(is_valid_seller(Tx0)).
 
 sign_buyer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx = new(<<"gateway">>, <<"seller">>, libp2p_crypto:pubkey_to_bin(PubKey), 1),
+    Tx = new(<<"gateway">>, <<"seller">>, blockchain_utils:pubkey_to_bin(PubKey), 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = sign_buyer(Tx, SigFun),
     ?assert(is_valid_buyer(Tx0)).

@@ -129,7 +129,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 is_valid(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+    PubKey = blockchain_utils:bin_to_pubkey(Owner),
     BaseTxn = Txn#blockchain_txn_state_channel_open_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(BaseTxn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of

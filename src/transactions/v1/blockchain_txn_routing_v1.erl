@@ -210,7 +210,7 @@ is_valid(Txn, Chain) ->
                             {error, {bad_nonce, {routing, Nonce, LedgerNonce}}};
                         true ->
                             Signature = ?MODULE:signature(Txn),
-                            PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+                            PubKey = blockchain_utils:bin_to_pubkey(Owner),
                             BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
                             EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
 

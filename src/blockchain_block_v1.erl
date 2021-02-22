@@ -295,7 +295,7 @@ verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
           fun({Addr, Sig}) ->
                   case
                       lists:member(Addr, ConsensusMembers)
-                      andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
+                      andalso libp2p_crypto:verify(Artifact, Sig, blockchain_utils:bin_to_pubkey(Addr))
                   of
                       true -> {Addr, Sig};
                       false ->
@@ -334,7 +334,7 @@ verify_rescue_signature(EncodedBlock, RescueSigs, Keys) when is_list(Keys) ->
             false
     end;
 verify_rescue_signature(EncodedBlock, RescueSig, Key) ->
-    case libp2p_crypto:verify(EncodedBlock, RescueSig, libp2p_crypto:bin_to_pubkey(Key)) of
+    case libp2p_crypto:verify(EncodedBlock, RescueSig, blockchain_utils:bin_to_pubkey(Key)) of
         true ->
             {true, RescueSig, true};
         false ->
@@ -503,7 +503,7 @@ generate_keys(N) ->
         fun(_, Acc) ->
             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+            [{blockchain_utils:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end,
         [],
         lists:seq(1, N)

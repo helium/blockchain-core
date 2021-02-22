@@ -128,7 +128,7 @@ is_valid(Txn, Chain) ->
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     Closer = ?MODULE:closer(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Closer),
+    PubKey = blockchain_utils:bin_to_pubkey(Closer),
     BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     SC = ?MODULE:state_channel(Txn),
@@ -393,7 +393,7 @@ signature_test() ->
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
-    Closer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Closer = blockchain_utils:pubkey_to_bin(PubKey),
     Tx0 = new(SC, Closer),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),

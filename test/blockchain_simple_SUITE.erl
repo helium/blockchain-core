@@ -349,10 +349,10 @@ htlc_payee_redeem_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Create a Payer
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Payer = blockchain_utils:pubkey_to_bin(PubKey),
     % Create a Payee
     #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
+    Payee = blockchain_utils:pubkey_to_bin(PayeePubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
@@ -425,7 +425,7 @@ htlc_payer_redeem_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Create a Payer
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Payer = blockchain_utils:pubkey_to_bin(PubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
@@ -492,7 +492,7 @@ poc_request_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     PubKey = ?config(pubkey, Config),
     PrivKey = ?config(privkey, Config),
-    Owner = libp2p_crypto:pubkey_to_bin(PubKey),
+    Owner = blockchain_utils:pubkey_to_bin(PubKey),
     Chain = ?config(chain, Config),
     Balance = ?config(balance, Config),
 
@@ -548,7 +548,7 @@ poc_request_test(Config) ->
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
 
@@ -587,7 +587,7 @@ poc_request_test(Config) ->
     Secret0 = libp2p_crypto:keys_to_bin(Keys0),
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
-    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
+    OnionKeyHash0 = crypto:hash(sha256, blockchain_utils:pubkey_to_bin(OnionCompactKey0)),
     PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
     {ok, Block26} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
@@ -636,7 +636,7 @@ poc_request_test(Config) ->
     Secret1 = libp2p_crypto:keys_to_bin(Keys1),
     #{public := OnionCompactKey1} = Keys1,
     SecretHash1 = crypto:hash(sha256, Secret1),
-    OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
+    OnionKeyHash1 = crypto:hash(sha256, blockchain_utils:pubkey_to_bin(OnionCompactKey1)),
     PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block62), 1),
     SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:sign(PoCReqTxn1, GatewaySigFun),
     {ok, Block63} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
@@ -732,7 +732,7 @@ export_test(Config) ->
 
     ?assertEqual({ok, OP}, blockchain_ledger_v1:current_oracle_price(Ledger)),
 
-    Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
+    Owner = blockchain_utils:pubkey_to_bin(PayerPubKey1),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
 
     % Step 2: Token burn txn should pass now
@@ -752,7 +752,7 @@ export_test(Config) ->
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     % Add a Gateway
@@ -1030,7 +1030,7 @@ routing_test(Config) ->
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
-    Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
+    Addresses1 = [blockchain_utils:pubkey_to_bin(NewPubKey)],
     OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
@@ -1174,7 +1174,7 @@ routing_test(Config) ->
 
     %% Negative test
     #{secret := NegPivKey, public := NegPubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    NegPubKeyBin = libp2p_crypto:pubkey_to_bin(NegPubKey),
+    NegPubKeyBin = blockchain_utils:pubkey_to_bin(NegPubKey),
     NegSigFun = libp2p_crypto:mk_sig_fun(NegPivKey),
     {FilterZ, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
     OUITxn04 = blockchain_txn_routing_v1:new_xor(OUI2, NegPubKeyBin, FilterZ, 3),
@@ -1223,7 +1223,7 @@ max_subnet_test(Config) ->
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
-    Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
+    Addresses1 = [blockchain_utils:pubkey_to_bin(NewPubKey)],
     OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
@@ -2061,7 +2061,7 @@ payer_test(Config) ->
 
 
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer),
@@ -2130,7 +2130,7 @@ poc_sync_interval_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     PubKey = ?config(pubkey, Config),
     PrivKey = ?config(privkey, Config),
-    Owner = libp2p_crypto:pubkey_to_bin(PubKey),
+    Owner = blockchain_utils:pubkey_to_bin(PubKey),
     Chain = ?config(chain, Config),
     Balance = ?config(balance, Config),
     Ledger = blockchain:ledger(Chain),
@@ -2292,10 +2292,10 @@ zero_amt_htlc_create_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Create a Payer
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Payer = blockchain_utils:pubkey_to_bin(PubKey),
     % Create a Payee
     #{public := PayeePubKey, secret := _PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
+    Payee = blockchain_utils:pubkey_to_bin(PayeePubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
@@ -2315,10 +2315,10 @@ negative_amt_htlc_create_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Create a Payer
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Payer = blockchain_utils:pubkey_to_bin(PubKey),
     % Create a Payee
     #{public := PayeePubKey, secret := _PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
+    Payee = blockchain_utils:pubkey_to_bin(PayeePubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
@@ -2369,7 +2369,7 @@ update_gateway_oui_test(Config) ->
 
     % Step 3: Create a Gateway and OUI
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     AddGatewayTxn = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTxn = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, OwnerSigFun),
@@ -2548,7 +2548,7 @@ failed_txn_error_handling(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     PubKey = ?config(pubkey, Config),
     PrivKey = ?config(privkey, Config),
-    Owner = libp2p_crypto:pubkey_to_bin(PubKey),
+    Owner = blockchain_utils:pubkey_to_bin(PubKey),
     Chain = ?config(chain, Config),
     Balance = ?config(balance, Config),
 
@@ -2610,7 +2610,7 @@ failed_txn_error_handling(Config) ->
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     % Add a Gateway
@@ -2648,7 +2648,7 @@ failed_txn_error_handling(Config) ->
     Secret0 = libp2p_crypto:keys_to_bin(Keys0),
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
-    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
+    OnionKeyHash0 = crypto:hash(sha256, blockchain_utils:pubkey_to_bin(OnionCompactKey0)),
     PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
 
@@ -2693,7 +2693,7 @@ failed_txn_error_handling(Config) ->
 
 create_gateway() ->
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     {Gateway, GatewaySigFun}.
 
@@ -2727,6 +2727,6 @@ fake_poc_request(Gateway, GatewaySigFun, BlockHash) ->
     Secret0 = libp2p_crypto:keys_to_bin(Keys0),
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
-    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
+    OnionKeyHash0 = crypto:hash(sha256, blockchain_utils:pubkey_to_bin(OnionCompactKey0)),
     PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, BlockHash, 1),
     blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun).

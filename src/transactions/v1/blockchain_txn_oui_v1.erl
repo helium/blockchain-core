@@ -161,7 +161,7 @@ is_valid_owner(#blockchain_txn_oui_v1_pb{owner=PubKeyBin,
                                          owner_signature=Signature}=Txn) ->
     BaseTxn = Txn#blockchain_txn_oui_v1_pb{owner_signature= <<>>, payer_signature= <<>>},
     EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid_payer(txn_oui()) -> boolean().
@@ -175,7 +175,7 @@ is_valid_payer(#blockchain_txn_oui_v1_pb{payer=PubKeyBin,
                                          payer_signature=Signature}=Txn) ->
     BaseTxn = Txn#blockchain_txn_oui_v1_pb{owner_signature= <<>>, payer_signature= <<>>},
     EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -413,7 +413,7 @@ missing_payer_signature_new() ->
        oui = 1,
        owner= <<"owner">>,
        addresses = [?KEY1],
-       payer= libp2p_crypto:pubkey_to_bin(PubKey),
+       payer= blockchain_utils:pubkey_to_bin(PubKey),
        payer_signature= <<>>,
        staking_fee=?LEGACY_STAKING_FEE,
        fee=?LEGACY_TXN_FEE,

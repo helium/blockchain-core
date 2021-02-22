@@ -138,7 +138,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    PubKey = blockchain_utils:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_token_burn_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_token_burn_v1_pb:encode_msg(BaseTxn),
     case blockchain_txn:validate_fields([{{payee, ?MODULE:payee(Txn)}, {address, libp2p}}]) of

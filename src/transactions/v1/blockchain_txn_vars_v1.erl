@@ -656,7 +656,7 @@ create_artifact(Txn) ->
 verify_key(_Artifact, _Key, <<>>) ->
     throw({error, no_proof});
 verify_key(Artifact, Key, Proof) ->
-    libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
+    libp2p_crypto:verify(Artifact, Proof, blockchain_utils:bin_to_pubkey(Key)).
 
 validate_int(Value, Name, Min, Max, InfOK) ->
     case is_integer(Value) of
@@ -693,7 +693,7 @@ validate_oracle_public_keys_format(Str) when is_binary(Str) ->
 validate_oracle_keys([]) -> ok;
 validate_oracle_keys([H|T]) ->
     try
-        _ = libp2p_crypto:bin_to_pubkey(H),
+        _ = blockchain_utils:bin_to_pubkey(H),
         validate_oracle_keys(T)
     catch
         _C:_E:_St ->
@@ -707,7 +707,7 @@ validate_staking_keys_format(Str) when is_binary(Str) ->
 validate_staking_keys([]) -> ok;
 validate_staking_keys([H|T]) ->
     try
-        _ = libp2p_crypto:bin_to_pubkey(H),
+        _ = blockchain_utils:bin_to_pubkey(H),
         validate_staking_keys(T)
     catch
         _C:_E:_St ->
@@ -754,6 +754,13 @@ validate_var(?witness_refresh_rand_n, Value) ->
     validate_int(Value, "witness_refresh_rand_n", 50, 1000, false);
 
 %% meta vars
+validate_var(?network, Value) ->
+    case Value of
+        mainnet -> ok;
+        testnet -> ok;
+        _ ->
+            throw({error, {invalid_network, Value}})
+    end;
 validate_var(?vars_commit_delay, Value) ->
     validate_int(Value, "vars_commit_delay", 1, 60, false);
 validate_var(?chain_vars_version, Value) ->
@@ -1190,7 +1197,7 @@ invalid_var(Var, Value) ->
 key_test() ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
-    BPub = libp2p_crypto:pubkey_to_bin(Pub),
+    BPub = blockchain_utils:pubkey_to_bin(Pub),
     Vars = #{a => 1,
              b => 2000,
              c => 2.5,
@@ -1211,7 +1218,7 @@ key_test() ->
 legacy_key_test() ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
-    BPub = libp2p_crypto:pubkey_to_bin(Pub),
+    BPub = blockchain_utils:pubkey_to_bin(Pub),
     Vars = #{a => 1,
              b => 2000,
              c => 2.5,
@@ -1226,7 +1233,7 @@ legacy_key_test() ->
 to_json_test() ->
     #{secret := _Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
-    BPub = libp2p_crypto:pubkey_to_bin(Pub),
+    BPub = blockchain_utils:pubkey_to_bin(Pub),
     Vars = #{a => 1,
              b => 2000,
              c => 2.5,

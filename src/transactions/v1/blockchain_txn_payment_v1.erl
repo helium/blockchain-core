@@ -118,7 +118,7 @@ is_valid(Txn, Chain) ->
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    PubKey = blockchain_utils:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
     case blockchain:config(?deprecate_payment_v1, Ledger) of
@@ -291,7 +291,7 @@ is_valid_with_extended_validation_test() ->
 
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Payer = blockchain_utils:pubkey_to_bin(PubKey),
     Tx = sign(new(Payer, <<"payee">>, 666, 1), SigFun),
     ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx, Chain)),
 
@@ -299,7 +299,7 @@ is_valid_with_extended_validation_test() ->
     ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx1, Chain)),
 
     #{public := PayeePubkey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    ValidPayee = libp2p_crypto:pubkey_to_bin(PayeePubkey),
+    ValidPayee = blockchain_utils:pubkey_to_bin(PayeePubkey),
     Tx2 = sign(new(Payer, ValidPayee, 666, 1), SigFun),
     %% This check can be improved but whatever (it fails on fee)
     ?assertNotEqual({error, {invalid_address, payee}}, is_valid(Tx2, Chain)),

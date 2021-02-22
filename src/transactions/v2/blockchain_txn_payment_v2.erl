@@ -198,7 +198,7 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     Payments = ?MODULE:payments(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    PubKey = blockchain_utils:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v2_pb:encode_msg(BaseTxn),
 

@@ -230,7 +230,7 @@ validate(SC) ->
     EncodedSC = ?MODULE:encode(BaseSC),
     Signature = ?MODULE:signature(SC),
     Owner = ?MODULE:owner(SC),
-    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+    PubKey = blockchain_utils:bin_to_pubkey(Owner),
     case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
         false -> {error, bad_signature};
         true -> validate_summaries(summaries(SC))
@@ -252,7 +252,7 @@ quick_validate(SC, PubkeyBin) ->
     EncodedSC = ?MODULE:encode(BaseSC),
     Signature = ?MODULE:signature(SC),
     Owner = ?MODULE:owner(SC),
-    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+    PubKey = blockchain_utils:bin_to_pubkey(Owner),
     case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
         false -> {error, bad_signature};
         true ->
@@ -603,7 +603,7 @@ nonce_test() ->
 
 summaries_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual([], summaries(SC)),
     Summary = blockchain_state_channel_summary_v1:new(PubKeyBin),
@@ -614,13 +614,13 @@ summaries_test() ->
 
 summaries_not_found_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual({error, not_found}, get_summary(PubKeyBin, SC)).
 
 update_summaries_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>, 0),
     io:format("Summaries0: ~p~n", [summaries(SC)]),
     ?assertEqual([], summaries(SC)),
@@ -653,9 +653,9 @@ normalize_test() ->
     InitDCs = 20,
     SC = new(<<"1">>, <<"owner">>, InitDCs),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    PubKeyBin1 = blockchain_utils:pubkey_to_bin(PubKey1),
     #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin2 = libp2p_crypto:pubkey_to_bin(PubKey2),
+    PubKeyBin2 = blockchain_utils:pubkey_to_bin(PubKey2),
     Summary1 = blockchain_state_channel_summary_v1:num_packets(30, blockchain_state_channel_summary_v1:num_dcs(30, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
     Summary2 = blockchain_state_channel_summary_v1:num_packets(40, blockchain_state_channel_summary_v1:num_dcs(40, blockchain_state_channel_summary_v1:new(PubKeyBin2))),
     SC1 = summaries([Summary1, Summary2], SC),
@@ -675,9 +675,9 @@ encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(SC0, decode(encode(SC0))),
     #{public := PubKey0} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
+    PubKeyBin0 = blockchain_utils:pubkey_to_bin(PubKey0),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    PubKeyBin1 = blockchain_utils:pubkey_to_bin(PubKey1),
     Summary0 = blockchain_state_channel_summary_v1:new(PubKeyBin0),
     Summary1 = blockchain_state_channel_summary_v1:new(PubKeyBin1),
     SC1 = summaries([Summary1, Summary0], SC0),
@@ -687,9 +687,9 @@ encode_decode_test() ->
 
 causality_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    PubKeyBin = blockchain_utils:pubkey_to_bin(PubKey),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    PubKeyBin1 = blockchain_utils:pubkey_to_bin(PubKey1),
     Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(PubKeyBin))),
     Summary2 = blockchain_state_channel_summary_v1:num_packets(4, blockchain_state_channel_summary_v1:num_dcs(4, blockchain_state_channel_summary_v1:new(PubKeyBin))),
     Summary3 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(PubKeyBin1))),

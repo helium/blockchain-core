@@ -153,7 +153,7 @@ generate_plain_keys(N, Type) ->
     lists:foldl(
         fun(_, Acc) ->
             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), PubKey, PrivKey}|Acc]
+            [{blockchain_utils:pubkey_to_bin(PubKey), PubKey, PrivKey}|Acc]
         end
         ,[]
         ,lists:seq(1, N)
@@ -167,7 +167,7 @@ generate_keys(N, Type) ->
         fun(_, Acc) ->
             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+            [{blockchain_utils:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end
         ,[]
         ,lists:seq(1, N)

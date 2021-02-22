@@ -143,7 +143,7 @@ sign(Receipt, SigFun) ->
 
 -spec is_valid(Receipt :: poc_receipt()) -> boolean().
 is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature}) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
+    PubKey = blockchain_utils:bin_to_pubkey(Gateway),
     BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
@@ -222,7 +222,7 @@ signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(PubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(PubKey),
     Receipt0 = new(Gateway, 1, 12, <<"data">>, p2p),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),

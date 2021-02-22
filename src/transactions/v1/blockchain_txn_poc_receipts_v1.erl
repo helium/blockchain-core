@@ -159,7 +159,7 @@ sign(Txn, SigFun) ->
 is_valid(Txn, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
+    PubKey = blockchain_utils:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
 
@@ -310,7 +310,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                    end,
                                             N = erlang:length(Path),
                                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+                                            OnionList = lists:zip([blockchain_utils:bin_to_pubkey(P) || P <- Path], LayerData),
                                             {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
                                                                    {ok, true} ->
                                                                        blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
@@ -671,10 +671,10 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                     _ ->
                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                 end,
-        
+
                                 FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
                                 TaggedWitnesses = tagged_witnesses(Element, WitnessChannel, Ledger),
-        
+
                                 Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
         {error, request_block_hash_not_found} -> []
@@ -1439,7 +1439,7 @@ signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
+    Challenger = blockchain_utils:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = new(Challenger,  <<"secret">>, <<"onion">>, []),
     Tx1 = sign(Tx0, SigFun),

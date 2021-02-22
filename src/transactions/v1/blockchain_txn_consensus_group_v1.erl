@@ -257,7 +257,7 @@ verify_proof(Proof, Members, Hash, Delay, OldLedger) ->
             case lists:all(fun({Addr, Sig}) ->
                                    lists:member(Addr, Members) andalso
                                        libp2p_crypto:verify(Artifact, Sig,
-                                                            libp2p_crypto:bin_to_pubkey(Addr))
+                                                            blockchain_utils:bin_to_pubkey(Addr))
 
                            end, Proof) andalso
                 lists:all(fun(M) ->

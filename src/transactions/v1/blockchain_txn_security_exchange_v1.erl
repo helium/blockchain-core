@@ -179,7 +179,7 @@ is_valid(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     TxnFee = ?MODULE:fee(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    PubKey = blockchain_utils:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_security_exchange_v1_pb:encode_msg(BaseTxn),
     case blockchain_txn:validate_fields([{{payee, Payee}, {address, libp2p}}]) of

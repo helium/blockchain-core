@@ -240,7 +240,7 @@ is_valid_gateway(#blockchain_txn_assert_location_v1_pb{gateway=PubKeyBin,
                                                        gateway_signature= <<>>,
                                                        payer_signature= <<>>},
     EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -254,7 +254,7 @@ is_valid_owner(#blockchain_txn_assert_location_v1_pb{owner=PubKeyBin,
                                                        gateway_signature= <<>>,
                                                        payer_signature= <<>>},
     EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid_location(txn_assert_location(), pos_integer()) -> boolean().
@@ -280,7 +280,7 @@ is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin,
                                                        gateway_signature= <<>>,
                                                        payer_signature= <<>>},
     EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
-    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    PubKey = blockchain_utils:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -512,7 +512,7 @@ missing_payer_signature_new() ->
     #blockchain_txn_assert_location_v1_pb{
        gateway= <<"gateway_address">>,
        owner= <<"owner_address">>,
-       payer= libp2p_crypto:pubkey_to_bin(PubKey),
+       payer= blockchain_utils:pubkey_to_bin(PubKey),
        payer_signature = <<>>,
        gateway_signature= <<>>,
        owner_signature= << >>,

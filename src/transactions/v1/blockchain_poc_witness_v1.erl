@@ -131,7 +131,7 @@ sign(Witness, SigFun) ->
 
 -spec is_valid(Witness :: poc_witness()) -> boolean().
 is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signature}) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
+    PubKey = blockchain_utils:bin_to_pubkey(Gateway),
     BaseWitness = Witness#blockchain_poc_witness_v1_pb{signature = <<>>},
     EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
     libp2p_crypto:verify(EncodedWitness, Signature, PubKey).
@@ -209,7 +209,7 @@ signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(PubKey),
+    Gateway = blockchain_utils:pubkey_to_bin(PubKey),
     Witness0 = new(Gateway, 1, 12, <<"hash">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Witness1 = sign(Witness0, SigFun),

@@ -35,6 +35,8 @@
     vars/3,
     config/2,  % no version with default, use the set value or fail
 
+    network/1,
+
     vars_nonce/1, vars_nonce/2,
     save_threshold_txn/2,
 
@@ -271,7 +273,7 @@ new(Dir) ->
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
-    #ledger_v1{
+    Ledger = #ledger_v1{
         dir=Dir,
         db=DB,
         mode=active,
@@ -304,7 +306,10 @@ new(Dir) ->
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF
         }
-    }.
+    },
+    {ok, Network} = network(Ledger),
+    blockchain_utils:set_network(Network),
+    Ledger.
 
 -spec mode(ledger()) -> active | delayed.
 mode(Ledger) ->
@@ -953,6 +958,13 @@ config(ConfigName, Ledger) ->
             {error, not_found};
         Error ->
             Error
+    end.
+
+network(Ledger) ->
+    case config(?network, Ledger) of
+        {ok, Network} -> {ok, Network};
+        {error, not_found} -> {ok, mainnet};
+        Error -> Error
     end.
 
 vars_nonce(Ledger) ->

@@ -54,7 +54,7 @@
 %% If the decryption fails, return `error'.
 -spec decrypt(Packet :: binary(), ECDHFun :: libp2p_crypto:ecdh_fun(), BlockHash :: binary(), Ledger :: blockchain_ledger_v1:ledger()) -> error | {Payload :: binary(), NextLayer :: binary()}.
 decrypt(<<IV0:16/integer-unsigned-little, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun, BlockHash, Ledger) ->
-    try libp2p_crypto:bin_to_pubkey(OnionCompactKey) of
+    try blockchain_utils:bin_to_pubkey(OnionCompactKey) of
         PubKey ->
             SecretKey = ECDHFun(PubKey),
             IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
@@ -85,7 +85,7 @@ decrypt(<<IV0:16/integer-unsigned-little, OnionCompactKey:33/binary, Tag:4/binar
             Ledger :: blockchain_ledger_v1:ledger()) -> {OuterLayer :: binary(), Layers :: [binary()]}.
 build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, BlockHash, Ledger) ->
     ECDHFun = libp2p_crypto:mk_ecdh_fun(OnionPrivKey),
-    OnionCompactKey = libp2p_crypto:pubkey_to_bin(OnionPubKey),
+    OnionCompactKey = blockchain_utils:pubkey_to_bin(OnionPubKey),
     N = length(PubKeysAndData),
 
     {Keys, Data} = lists:unzip(PubKeysAndData),
@@ -306,7 +306,7 @@ encrypt_decrypt_single_layer(Ledger) ->
     ?assertEqual(SecretKey1, SecretKey2),
     {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1), BlockHash, Ledger),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK), BlockHash, Ledger) || PK <- PrivKeys -- [PrivKey1]])),
-    OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
+    OnionCompactKey = blockchain_utils:pubkey_to_bin(PubOnionKey),
     %ExpectedIV = IV+1,
     <<_IV:16/integer-unsigned-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
     %% check all packets are the same length
@@ -346,7 +346,7 @@ encrypt_decrypt_double_layer(Ledger) ->
     ?assertEqual(SecretKey1, SecretKey2),
     {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1), BlockHash, Ledger),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK), BlockHash, Ledger) || PK <- PrivKeys -- [PrivKey1]])),
-    OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
+    OnionCompactKey = blockchain_utils:pubkey_to_bin(PubOnionKey),
     %ExpectedIV = IV+1,
     <<_IV:16/integer-unsigned-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
     {<<"def">>, Remainder2} = decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PrivKey2), BlockHash, Ledger),
@@ -394,7 +394,7 @@ encrypt_decrypt(Ledger) ->
     ?assertEqual(SecretKey1, SecretKey2),
     {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1), BlockHash, Ledger),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK), BlockHash, Ledger) || PK <- PrivKeys -- [PrivKey1]])),
-    OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
+    OnionCompactKey = blockchain_utils:pubkey_to_bin(PubOnionKey),
     %ExpectedIV = IV+1,
     <<_IV:16/integer-unsigned-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
     {<<"def">>, Remainder2} = decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PrivKey2), BlockHash, Ledger),

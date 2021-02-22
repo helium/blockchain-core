@@ -151,7 +151,7 @@ is_valid(Txn, Chain) ->
     Price = ?MODULE:price(Txn),
     Signature = ?MODULE:signature(Txn),
     RawTxnPK = ?MODULE:public_key(Txn),
-    TxnPK = libp2p_crypto:bin_to_pubkey(RawTxnPK),
+    TxnPK = blockchain_utils:bin_to_pubkey(RawTxnPK),
     BlockHeight = ?MODULE:block_height(Txn),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
