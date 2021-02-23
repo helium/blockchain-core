@@ -960,7 +960,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                %% check the receipt
                                                case
                                                    Receipt == undefined orelse
-                                                   (blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                                                   (blockchain_poc_receipt_v1:is_valid(Receipt, OldLedger) andalso
                                                     blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
                                                     blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
                                                     blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin)
@@ -1475,7 +1475,7 @@ delta_test() ->
                                    [{blockchain_poc_path_element_v1_pb,<<"first">>,
                                                                        {blockchain_poc_receipt_v1_pb,<<"d">>,
                                                                                                      123,0,<<"e">>,p2p,
-                                                                                                     <<"f">>, 10.1, 912.4},
+                                                                                                     <<"f">>, 10.1, 912.4, undefined},
                                                                        [{blockchain_poc_witness_v1_pb,<<"g">>,
                                                                                                       456,-100,
                                                                                                       <<"h">>,
@@ -1511,7 +1511,8 @@ delta_test() ->
                                       10.1,
                                       912.4,
                                       1,
-                                      <<"dr">>
+                                      <<"dr">>,
+                                      undefined
                                      },
                                      []},
                                     {blockchain_poc_path_element_v1_pb,<<"c">>,
@@ -1536,7 +1537,7 @@ duplicate_delta_test() ->
                                    [{blockchain_poc_path_element_v1_pb,<<"first">>,
                                                                        {blockchain_poc_receipt_v1_pb,<<"a">>,
                                                                                                      1559953989978238892,0,<<"§Úi½">>,p2p,
-                                                                                                     <<"b">>, 10.1, 912.4},
+                                                                                                     <<"b">>, 10.1, 912.4, undefined},
                                                                        []},
                                     {blockchain_poc_path_element_v1_pb,<<"second">>,
                                                                        undefined,
@@ -1576,7 +1577,7 @@ to_json_test() ->
            [{blockchain_poc_path_element_v1_pb,<<"first">>,
              {blockchain_poc_receipt_v1_pb,<<"d">>,
               123,0,<<"e">>,p2p,
-              <<"f">>, 10.1, 912.4, 1, <<"dr">>},
+              <<"f">>, 10.1, 912.4, 1, <<"dr">>, undefined},
              [{blockchain_poc_witness_v1_pb,<<"g">>,
                456,-100,
                <<"h">>,

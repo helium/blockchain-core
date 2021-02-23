@@ -7,6 +7,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 
+-include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
@@ -22,8 +23,10 @@
     frequency/1,
     channel/1,
     datarate/1,
+    addr_hash/1,
+    addr_hash/2,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     print/1,
     to_json/2
 ]).
@@ -131,6 +134,15 @@ frequency(Receipt) ->
 datarate(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.datarate.
 
+-spec addr_hash(Receipt :: poc_receipt()) -> 'undefined' | binary().
+addr_hash(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.addr_hash.
+
+-spec addr_hash(Receipt :: poc_receipt(), Hash :: binary()) -> poc_receipt().
+addr_hash(Receipt, Hash) when is_binary(Hash), byte_size(Hash) =< 32 ->
+    Receipt#blockchain_poc_receipt_v1_pb{addr_hash = Hash}.
+
+
 -spec channel(Receipt :: poc_receipt()) -> non_neg_integer().
 channel(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.channel.
@@ -141,12 +153,24 @@ sign(Receipt, SigFun) ->
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     Receipt#blockchain_poc_receipt_v1_pb{signature=SigFun(EncodedReceipt)}.
 
--spec is_valid(Receipt :: poc_receipt()) -> boolean().
-is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature}) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
-    BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
-    EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
-    libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
+-spec is_valid(Receipt :: poc_receipt(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH}, Ledger) ->
+    ValidHash = case blockchain_ledger_v1:config(?poc_addr_hash_byte_count, Ledger) of
+                    {ok, Bytes} when is_integer(Bytes), Bytes > 0 ->
+                        AH == undefined orelse AH == <<>> orelse
+                        (is_binary(AH) andalso byte_size(AH) == Bytes);
+                    _ ->
+                        AH == undefined orelse AH == <<>>
+                end,
+    case ValidHash of
+        false ->
+            false;
+        true ->
+            PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
+            BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>, addr_hash=undefined},
+            EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
+            libp2p_crypto:verify(EncodedReceipt, Signature, PubKey)
+    end.
 
 print(undefined) ->
     <<"type=receipt undefined">>;
