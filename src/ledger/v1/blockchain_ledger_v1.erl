@@ -59,6 +59,7 @@
 
     update_gateway_score/3, gateway_score/2,
     update_gateway_oui/4,
+    gateway_count/1,
 
     find_poc/2,
     request_poc/5,
@@ -811,6 +812,20 @@ active_gateways(Ledger) ->
       end,
       #{}
      ).
+
+-spec gateway_count(ledger()) -> non_neg_integer().
+gateway_count(Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    cache_fold(
+      Ledger,
+      AGwsCF,
+      fun({_Address, _Binary}, Acc) ->
+              %% TODO perhaps we want to filter inactive GWs here?
+              Acc + 1
+      end,
+      0
+     ).
+
 
 %% note that instead of calling lists:sort(maps:to_list(active_gateways())) here
 %% we construct the list in the same order without an intermediate map to make less
