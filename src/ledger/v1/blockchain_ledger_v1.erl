@@ -2402,8 +2402,7 @@ add_oui(Owner, Addresses, Filter, Subnet, Ledger) ->
             ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>)
     end.
 
--spec get_routes(ledger()) -> {ok, [blockchain_ledger_routing_v1:routing()]}
-                                                   | {error, any()}.
+-spec get_routes(ledger()) -> {ok, [blockchain_ledger_routing_v1:routing()]}.
 get_routes(Ledger) ->
     RoutingCF = routing_cf(Ledger),
     {ok, cache_fold(Ledger, RoutingCF,
