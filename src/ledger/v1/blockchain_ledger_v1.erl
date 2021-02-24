@@ -95,13 +95,18 @@
 
     find_routing/2, find_routing_for_packet/2,
     find_router_ouis/2,
+    find_routing_via_eui/3,
+    find_routing_via_devaddr/2,
     update_routing/4,
+    get_routes/1,
+    routing_cf/1,
 
-    find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
+    find_state_channel/3, find_state_channel_with_mod/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
     close_state_channel/6,
     is_state_channel_overpaid/2,
     get_sc_mod/2,
+    state_channel_key/2,
 
     allocate_subnet/2,
 
@@ -132,6 +137,8 @@
     lookup_gateways_from_hex/2,
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
+    add_commit_hook/4, add_commit_hook/5,
+    remove_commit_hook/2,
 
     %% snapshot save/restore stuff
 
@@ -201,6 +208,15 @@
 -export([median/1]).
 -endif.
 
+-record(hook,
+        {
+         cf :: atom(),
+         predicate :: undefined | fun(),
+         hook_inc_fun :: fun(),  %% fun called for each incremental/partial update for the relevant CF
+         hook_end_fun :: fun(),  %% fun called after all incremental/partial updates are complete for the relevant cf
+         ref :: undefined | reference()
+        }).
+
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
@@ -208,7 +224,8 @@
     mode = active :: active | delayed,
     active :: sub_ledger(),
     delayed :: sub_ledger(),
-    snapshot :: undefined | rocksdb:snapshot_handle()
+    snapshot :: undefined | rocksdb:snapshot_handle(),
+    commit_hooks :: [#hook{}]
 }).
 
 -record(sub_ledger_v1, {
@@ -267,6 +284,11 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
+    %% allow config-set commit hooks in case we're worried about something being racy
+    Hooks =
+        [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
+         || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
+
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
@@ -303,7 +325,8 @@ new(Dir) ->
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF
-        }
+        },
+       commit_hooks = Hooks
     }.
 
 -spec mode(ledger()) -> active | delayed.
@@ -394,11 +417,12 @@ reset_context(Ledger) ->
 -spec commit_context(ledger()) -> ok.
 commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     {Cache, GwCache} = ?MODULE:context_cache(Ledger),
-    Context = batch_from_cache(Cache),
+    {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
     {ok, Height} = current_height(Ledger),
     prewarm_gateways(Mode, Height, Ledger, GwCache),
-    ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
-    rocksdb:release_batch(Context),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    rocksdb:release_batch(Batch),
+    Callbacks(),
     delete_context(Ledger),
     ok.
 
@@ -2378,6 +2402,17 @@ add_oui(Owner, Addresses, Filter, Subnet, Ledger) ->
             ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>)
     end.
 
+-spec get_routes(ledger()) -> {ok, [blockchain_ledger_routing_v1:routing()]}.
+get_routes(Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    {ok, cache_fold(Ledger, RoutingCF,
+                     fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
+                             Route = blockchain_ledger_routing_v1:deserialize(V),
+                             [Route | Acc];
+                        ({_K, _V}, Acc) ->
+                             Acc
+                     end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}])}.
+
 -spec find_routing(non_neg_integer(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
                                                    | {error, any()}.
 find_routing(OUI, Ledger) ->
@@ -2486,6 +2521,25 @@ update_routing(OUI, Action, Nonce, Ledger) ->
             Error
     end.
 
+-spec find_state_channel_with_mod(ID :: binary(),
+                         Owner :: libp2p_crypto:pubkey_bin(),
+                         Ledger :: ledger()) ->
+    {ok, blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
+    | {ok, blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel()}
+    | {error, any()}.
+find_state_channel_with_mod(ID, Owner, Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    Key = state_channel_key(ID, Owner),
+    case cache_get(Ledger, SCsCF, Key, []) of
+        {ok, BinEntry} ->
+            {Mod, SC} = deserialize_state_channel(BinEntry),
+            {ok, Mod, SC};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 -spec find_state_channel(ID :: binary(),
                          Owner :: libp2p_crypto:pubkey_bin(),
                          Ledger :: ledger()) ->
@@ -2493,16 +2547,9 @@ update_routing(OUI, Action, Nonce, Ledger) ->
     | {ok, blockchain_ledger_state_channel_v2:state_channel()}
     | {error, any()}.
 find_state_channel(ID, Owner, Ledger) ->
-    SCsCF = state_channels_cf(Ledger),
-    Key = state_channel_key(ID, Owner),
-    case cache_get(Ledger, SCsCF, Key, []) of
-        {ok, BinEntry} ->
-            {_Mod, SC} = deserialize_state_channel(BinEntry),
-            {ok, SC};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+    case find_state_channel_with_mod(ID, Owner, Ledger) of
+        {ok, _Mod, SC} -> {ok, SC};
+        Error -> Error
     end.
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
@@ -2782,6 +2829,10 @@ compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
     compact_ledger(DB, Delayed),
     ok.
 
+-spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
+state_channel_key(ID, Owner) ->
+    <<Owner/binary, ID/binary>>.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -2803,10 +2854,6 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, Securities, undefined, undefined, []),
     rocksdb:compact_range(DB, Routing, undefined, undefined, []),
     ok.
-
--spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
-state_channel_key(ID, Owner) ->
-    <<Owner/binary, ID/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -3198,7 +3245,6 @@ clean_all_hexes(Ledger) ->
         _ -> ok
     end.
 
-
 -spec bootstrap_h3dex(ledger()) -> ok.
 bootstrap_h3dex(Ledger) ->
     ok = delete_h3dex(Ledger),
@@ -3348,15 +3394,143 @@ bootstrap_gw_denorm(Ledger) ->
       end,
       ignore).
 
-batch_from_cache(ETS) ->
+%% do not call this except via the blockchain_worker wrapper
+add_commit_hook(CF, HookIncFun, HookEndFun, Ledger) ->
+    add_commit_hook(CF, HookIncFun, HookEndFun, undefined, Ledger).
+
+add_commit_hook(CF, HookIncFun, HookEndFun, Pred, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
+    Ref = make_ref(),
+    NewHook = #hook{cf = CF,
+                    predicate = Pred,
+                    hook_inc_fun = HookIncFun,
+                    hook_end_fun = HookEndFun,
+                    ref = Ref},
+    Hooks1 = [NewHook | Hooks],
+    {Ref, Ledger#ledger_v1{commit_hooks = Hooks1}}.
+
+%% do not call this either except via the blockchain_worker wrapper
+remove_commit_hook(Ref, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_reference(Ref) ->
+    Hooks1 = lists:keydelete(Ref, #hook.ref, Hooks),
+    Ledger#ledger_v1{commit_hooks = Hooks1};
+remove_commit_hook(Atom, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_atom(Atom) ->
+    Hooks1 = lists:keydelete(Atom, #hook.cf, Hooks),
+    Ledger#ledger_v1{commit_hooks = Hooks1}.
+
+batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
     {ok, Batch} = rocksdb:batch(),
-    ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, Acc) ->
-                      rocksdb:batch_delete(Acc, CF, Key),
-                      Acc;
-                 ({{CF, Key}, Value}, Acc) ->
-                      rocksdb:batch_put(Acc, CF, Key, Value),
-                      Acc
-              end, Batch, ETS).
+    Filters =
+        lists:foldl(
+          fun(#hook{cf = C} = H, A) ->
+                  K = atom_to_cf(C, Ledger),
+                  maps:update_with(K, fun(L) -> [H | L] end, [H], A)
+          end,
+          #{},
+          Hooks),
+    {Batch, FilteredChanges} =
+        ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
+                          rocksdb:batch_delete(B, CF, Key),
+                          Changes1 = case maps:is_key(CF, Filters) of
+                                         true ->
+                                             case apply_filters(CF, Filters, Key, deleted) of
+                                                 true ->
+                                                     [{CF, delete, Key} | Changes];
+                                                 false ->
+                                                     Changes
+                                             end;
+                                         false ->
+                                             Changes
+                                     end,
+                          {B, Changes1};
+                     ({{CF, Key}, Value}, {B, Changes}) ->
+                          rocksdb:batch_put(B, CF, Key, Value),
+                          Changes1 = case maps:is_key(CF, Filters) of
+                                         true ->
+                                             case apply_filters(CF, Filters, Key, Value) of
+                                                 true ->
+                                                     [{CF, put, Key, Value} | Changes];
+                                                 false ->
+                                                     Changes
+                                             end;
+                                         false ->
+                                             Changes
+                                     end,
+                          {B, Changes1}
+                  end, {Batch, []}, ETS),
+    %% we don't actually want to invoke this here, but passing back the arguments is kind of clunky
+    {fun() -> invoke_commit_hooks(FilteredChanges, Filters) end, Batch}.
+
+apply_filters(CF, Filters, Key, Value) ->
+    %% pre-tested for existence
+    Preds0 = [Pred || #hook{predicate = Pred} <- maps:get(CF, Filters)],
+    Preds = lists:filter(fun(V) -> V /= undefined end, Preds0),
+    case Preds of
+        %% if we don't define any predicates, just send all the updates
+        [] ->
+            true;
+        _ ->
+            %% note that predicates can take an atom 'delete' instead of a value
+            lists:any(fun(P) -> P(Key, Value) end, Preds)
+    end.
+
+invoke_commit_hooks([] = _Changes, _Filters) ->
+    %% if no changes then do nothing
+    ok;
+invoke_commit_hooks(Changes, Filters) ->
+    %% best effort async delivery
+    FiltersMap = maps:fold(fun(CF, HookList, Acc) ->
+                                   #hook{cf = CFAtom} = hd(HookList),
+                                   Acc#{CF => CFAtom}
+                          end,
+                          #{},
+                          Filters),
+    spawn(
+      fun() ->
+              %% process the changes into CF groups
+              Groups = lists:foldl(
+                         fun(Change, Grps) ->
+                                 CF = element(1, Change),
+                                 Atom = maps:get(CF, FiltersMap),
+                                 maps:update_with(Atom, fun(L) -> [Change | L] end,
+                                                  [Change], Grps)
+                         end,
+                         #{},
+                         Changes),
+              %% call each incremental hook on each group
+              maps:map(
+                fun(CF, HookList) ->
+                        HookAtom = maps:get(CF, FiltersMap),
+                        case maps:get(HookAtom, Groups, undefined) of
+                            undefined ->
+                                %% if there are no changes for this CF, do nothing
+                                noop;
+                            HookChanges ->
+                                lists:foreach(
+                                  fun(#hook{hook_inc_fun = HookFun, predicate = undefined}) ->
+                                          HookFun(HookChanges);
+                                     (#hook{hook_inc_fun = HookFun, predicate = Pred}) ->
+                                          FilteredHookChanges =
+                                              lists:filter(fun({_, _, K, V}) ->
+                                                                   Pred(K, V)
+                                                           end, HookChanges),
+                                          HookFun(FilteredHookChanges)
+                                  end, HookList)
+                        end
+                end,
+                Filters),
+
+                %% call the end hook on each group now that all incremental updates are applied
+              maps:map(
+                fun(CF, HookList) ->
+                        CFAtom = maps:get(CF, FiltersMap),
+                        lists:foreach(
+                          fun(#hook{hook_end_fun = HookFun}) ->
+                                  HookFun(CFAtom)
+                          end, HookList)
+                end,
+                Filters)
+
+
+      end).
 
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
@@ -4313,5 +4487,80 @@ dc_to_hnt_test() ->
     ?assertEqual({ok, (1 * ?BONES_PER_HNT) + 1} , dc_to_hnt(30000, trunc(0.3 * ?ORACLE_PRICE_SCALING_FACTOR))),
     ok.
 
+commit_hooks_test() ->
+    BaseDir = test_utils:tmp_dir("commit_hooks_test"),
+    Me = self(),
+    %% check that config-set hooks work
+    %% {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
+    application:set_env(blockchain, commit_hook_callbacks,
+                        [{active_gateways,
+                            undefined,
+                            fun(Changes) -> Me ! {hook1, Changes} end,
+                            fun(_CF) -> Me ! {hook1, changes_complete} end
+                        }]),
+
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    ok = add_gateway(<<"owner_address 1">>, <<"gw_address">>, Ledger1),
+    ok = commit_context(Ledger1),
+
+    receive
+        {hook1, _} -> ok
+    after 200 ->
+            error(hook1_timeout)
+    end,
+
+    receive
+        {hook1, changes_complete} -> ok
+    after 200 ->
+            error(config_set_timeout)
+    end,
+
+    %% check that multiple hooks fire
+    {_Ref, Ledger2} = add_commit_hook(entries,
+                                        fun(Changes) -> Me ! {hook2, Changes} end,
+                                        fun(_CF) -> Me ! {hook2, changes_complete} end,
+                                        fun(K, _) -> K == <<"my_address">> end, Ledger1),
+    Ledger3 = new_context(Ledger2),
+    ok = add_gateway(<<"owner_address 2">>, <<"gw_address 2">>, Ledger3),
+    ok = credit_account(<<"your_address">>, 4000, Ledger3),
+    ok = credit_account(<<"my_address">>, 4000, Ledger3),
+
+    ok = commit_context(Ledger3),
+
+    %% confirm we get two msgs from the 1st active gateways CF hook
+    receive
+        {hook1, _} -> ok
+    after 200 ->
+            error(hook1_timeout)
+    end,
+
+    receive
+        {hook1, changes_complete} -> ok
+    after 200 ->
+            error(hook1_timeout)
+    end,
+
+    %% confirm we get expected msgs from the 2nd hook
+    receive
+        {hook2, Changes} ->
+            ?assertMatch([{_, put, <<"my_address">>, _}],
+                         Changes)
+    after 200 ->
+            error(hook2_timeout)
+    end,
+
+    receive
+        {hook2, changes_complete} -> ok
+    after 200 ->
+            error(hook2_timeout)
+    end,
+
+
+    %% check that multiple hooks for multiple CFs work
+
+    %% check that removal works
+
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 -endif.
