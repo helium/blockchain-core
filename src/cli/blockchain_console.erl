@@ -4,4 +4,22 @@
 
 -spec command([string()]) -> ok.
 command(Cmd) ->
-    clique:run(Cmd).
+    %% this is the contents of clique:run but
+    %% we want to figure out if the command worked
+    %% or not
+    M0 = clique_command:match(Cmd),
+    M1 = clique_parser:parse(M0),
+    M2 = clique_parser:extract_global_flags(M1),
+    M3 = clique_parser:validate(M2),
+    M4 = clique_command:run(M3),
+    clique:print(M4, Cmd),
+    case M4 of
+        usage ->
+            {rpc_error, 1};
+        {error, _} ->
+            {rpc_error, 2};
+        {_Status, ExitCode, _} when ExitCode == 0 ->
+            rpc_ok;
+        {_Status, ExitCode, _} ->
+            {rpc_error, ExitCode}
+    end.
