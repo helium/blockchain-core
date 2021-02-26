@@ -571,11 +571,13 @@ handle_cast(_Msg, State) ->
 
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
-handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
+handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
             #state{sync_ref = SyncRef, blockchain = Chain, mode = Mode} = State0) ->
     State = State0#state{sync_pid = undefined},
     %% TODO: this sometimes we're gonna have a failed snapshot sync
     %% and we need to handle that here somehow.
+
+    lager:info("sync down reason ~p", [Reason]),
 
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
@@ -588,7 +590,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
             %% if blocktimes are in the future, we're confused about
             %% the time, proceed as if we're synced.
             {noreply, schedule_sync(State)};
-        N when N < 60 * 60 ->
+        N when N < 30 * 60 andalso Reason == normal ->
             %% relatively recent
             {noreply, schedule_sync(State)};
         _ when Mode == snapshot ->
@@ -747,20 +749,23 @@ start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = Sta
             schedule_sync(State);
         RandomPeer ->
             {Pid, Ref} = start_block_sync(Swarm, Chain, RandomPeer),
-            lager:info("new block sync starting with Pid: ~p, Ref: ~p", [Pid, Ref]),
+            lager:info("new block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
+                       [Pid, Ref, RandomPeer]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
 get_peer(SwarmTID) ->
-    %% figure out who we're connected to
-    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(SwarmTID)),
-    %% Get the p2p addresses of our peers, so we will connect on existing sessions
-    lists:filter(fun(E) ->
-                         case libp2p_transport_p2p:p2p_addr(E) of
-                             {ok, _} -> true;
-                             _       -> false
-                         end
-                 end, Peers0).
+    Peerbook = libp2p_swarm:peerbook(SwarmTID),
+    %% limit peers to random connections with public addresses
+    F = fun(Peer) ->
+                lists:any(fun libp2p_transport_tcp:is_public/1,
+                          libp2p_peer:listen_addrs(Peer))
+        end,
+    case libp2p_peerbook:random(Peerbook, [], F, 100) of
+        false -> [];
+        {Addr, _Peer} ->
+            ["/p2p/" ++ libp2p_crypto:bin_to_b58(Addr)]
+    end.
 
 get_random_peer(SwarmTID) ->
     case get_peer(SwarmTID) of
@@ -791,10 +796,6 @@ pause_sync(State) ->
     State1 = cancel_sync(State, false),
     State1#state{sync_paused = true}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec add_handlers(ets:tab(), blockchain:blockchain()) -> {ok, reference()}.
 add_handlers(SwarmTID, Blockchain) ->
     GossipPid = libp2p_swarm:gossip_group(SwarmTID),
@@ -842,17 +843,13 @@ remove_handlers(SwarmTID) ->
     libp2p_swarm:remove_stream_handler(SwarmTID, ?SNAPSHOT_PROTOCOL),
     libp2p_swarm:remove_stream_handler(SwarmTID, ?STATE_CHANNEL_PROTOCOL_V1).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec start_block_sync(Swarm::pid(), Chain::blockchain:blockchain(),
                        Peer::libp2p_crypto:pubkey_bin()) ->
                               {pid(), reference()} | ok.
 start_block_sync(Swarm, Chain, Peer) ->
     DialFun =
         fun() ->
-            case blockchain_sync_handler:dial(Swarm, Chain, Peer) of
+                case blockchain_sync_handler:dial(Swarm, Chain, Peer) of
                     {ok, Stream} ->
                         {ok, HeadHash} = blockchain:sync_hash(Chain),
                         Stream ! {hash, HeadHash},
@@ -860,17 +857,21 @@ start_block_sync(Swarm, Chain, Peer) ->
                         receive
                             cancel ->
                                 libp2p_framed_stream:close(Stream);
-                            {'DOWN', Ref1, process, Stream, _Reason} ->
+                            {'DOWN', Ref1, process, Stream, normal} ->
                                 %% we're done, nothing to do here.
-                                ok
-                        after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 10)) ->
+                                ok;
+                            {'DOWN', Ref1, process, Stream, Reason} ->
+                                lager:info("block sync failed with error ~p", [Reason]),
+                                error({down, Reason})
+                        after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 5)) ->
                                 libp2p_framed_stream:close(Stream),
-                                ok
+                                lager:info("block sync timed out"),
+                                error(timeout)
                         end;
                     {error, _Reason} ->
                         lager:debug("dialing sync stream failed: ~p",[_Reason]),
-                        ok
-            end
+                        error(dial)
+                end
         end,
     spawn_monitor(fun() -> DialFun() end).
 
