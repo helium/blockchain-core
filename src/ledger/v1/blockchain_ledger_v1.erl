@@ -3518,18 +3518,27 @@ invoke_commit_hooks(Changes, Filters) ->
                 end,
                 Filters),
 
-                %% call the end hook on each group now that all incremental updates are applied
+              %% accumulate a list of all CFs which have updates
+              %% and for each updated CF accumulate a list of keys which have been modified
+              %% call the end funs for each CF with the CF atom and the list of modified keys
               maps:map(
                 fun(CF, HookList) ->
                         CFAtom = maps:get(CF, FiltersMap),
-                        lists:foreach(
-                          fun(#hook{hook_end_fun = HookFun}) ->
-                                  HookFun(CFAtom)
-                          end, HookList)
+                        %% check if any changes for each CF, if true fire the end fun, it false do nothing
+                        case maps:get(CFAtom, Groups, undefined) of
+                            undefined ->
+                                noop;
+                            CFChanges ->
+                                %% iterate over the changes for this group and collect the keys which have been modified
+                                CFChangedKeys = [{Action, Key} || {_CF, Action, Key, _Value} <- CFChanges],
+                                lists:foreach(
+                                  fun(#hook{hook_end_fun = HookFun}) ->
+                                          %% call the end fun, pass it the updated CF and the list of modified keys
+                                          HookFun(CFAtom, CFChangedKeys)
+                                  end, HookList)
+                        end
                 end,
                 Filters)
-
-
       end).
 
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
@@ -4496,7 +4505,7 @@ commit_hooks_test() ->
                         [{active_gateways,
                             undefined,
                             fun(Changes) -> Me ! {hook1, Changes} end,
-                            fun(_CF) -> Me ! {hook1, changes_complete} end
+                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end
                         }]),
 
     Ledger = new(BaseDir),
@@ -4511,7 +4520,7 @@ commit_hooks_test() ->
     end,
 
     receive
-        {hook1, changes_complete} -> ok
+        {hook1, changes_complete, _ReceivedChangedKeys1} -> ok
     after 200 ->
             error(config_set_timeout)
     end,
@@ -4519,7 +4528,7 @@ commit_hooks_test() ->
     %% check that multiple hooks fire
     {_Ref, Ledger2} = add_commit_hook(entries,
                                         fun(Changes) -> Me ! {hook2, Changes} end,
-                                        fun(_CF) -> Me ! {hook2, changes_complete} end,
+                                        fun(_CF, ChangedKeys) -> Me ! {hook2, changes_complete, ChangedKeys} end,
                                         fun(K, _) -> K == <<"my_address">> end, Ledger1),
     Ledger3 = new_context(Ledger2),
     ok = add_gateway(<<"owner_address 2">>, <<"gw_address 2">>, Ledger3),
@@ -4536,7 +4545,7 @@ commit_hooks_test() ->
     end,
 
     receive
-        {hook1, changes_complete} -> ok
+        {hook1, changes_complete, _ReceivedChangedKeys2} -> ok
     after 200 ->
             error(hook1_timeout)
     end,
@@ -4551,7 +4560,7 @@ commit_hooks_test() ->
     end,
 
     receive
-        {hook2, changes_complete} -> ok
+        {hook2, changes_complete, _ReceivedChangedKeys3} -> ok
     after 200 ->
             error(hook2_timeout)
     end,
