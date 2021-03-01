@@ -1956,6 +1956,7 @@ select_prices_by_time(Start, End, Entry, Acc) ->
         true -> Acc
     end.
 
+median([P]) -> P; %% if there's only 1 entry, use it
 median(L) ->
     Sorted = lists:sort(L),
     Len = length(L),
