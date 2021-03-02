@@ -19,9 +19,12 @@
 -export([
          init_gossip_data/1,
          handle_gossip_data/3,
-         add_block/4,
          gossip_data/2
         ]).
+
+-ifdef(TEST).
+-export([add_block/4]).
+-endif.
 
 init_gossip_data([SwarmTID, Blockchain]) ->
     lager:debug("gossiping init"),
@@ -66,39 +69,44 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
 
 add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
-    %% try to acquire the lock with a timeout, will crash this process if we can't get the lock
-    ok = blockchain_lock:acquire(5000),
-    case blockchain:add_block(Block, Chain) of
+    %% try to acquire the lock with a timeout
+    case blockchain_lock:acquire(5000) of
+        error ->
+            %% fail quietly
+            ok;
         ok ->
-            lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
-            %% pass it along
-            regossip_block(Block, SwarmTID),
-            ok;
-        plausible ->
-            lager:warning("plausuble gossipped block doesn't fit with our chain, will start sync if not already active"),
-            blockchain_worker:maybe_sync(),
-            %% pass it along
-            regossip_block(Block, SwarmTID),
-            ok;
-        exists ->
-            ok;
-        {error, disjoint_chain} ->
-            lager:warning("gossipped block ~p doesn't fit with our chain,"
-                          " will start sync if not already active", [blockchain_block:height(Block)]),
-            blockchain_worker:maybe_sync(),
-            ok;
-        {error, disjoint_assumed_valid_block} ->
-            %% harmless
-            ok;
-        {error, block_higher_than_assumed_valid_height} ->
-            %% harmless
-            ok;
-        {error, no_ledger} ->
-            %% just ignore this, we don't care right now
-            ok;
-        Error ->
-            %% Uhm what is this?
-            lager:error("Something bad happened: ~p", [Error])
+            case blockchain:add_block(Block, Chain) of
+                ok ->
+                    lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
+                    %% pass it along
+                    regossip_block(Block, SwarmTID),
+                    ok;
+                plausible ->
+                    lager:warning("plausuble gossipped block doesn't fit with our chain, will start sync if not already active"),
+                    blockchain_worker:maybe_sync(),
+                    %% pass it along
+                    regossip_block(Block, SwarmTID),
+                    ok;
+                exists ->
+                    ok;
+                {error, disjoint_chain} ->
+                    lager:warning("gossipped block ~p doesn't fit with our chain,"
+                                " will start sync if not already active", [blockchain_block:height(Block)]),
+                    blockchain_worker:maybe_sync(),
+                    ok;
+                {error, disjoint_assumed_valid_block} ->
+                    %% harmless
+                    ok;
+                {error, block_higher_than_assumed_valid_height} ->
+                    %% harmless
+                    ok;
+                {error, no_ledger} ->
+                    %% just ignore this, we don't care right now
+                    ok;
+                Error ->
+                    %% Uhm what is this?
+                    lager:error("Something bad happened: ~p", [Error])
+            end
     end.
 
 -spec gossip_data(libp2p_swarm:swarm(), blockchain_block:block()) -> binary().
