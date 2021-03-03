@@ -59,13 +59,14 @@ all() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
-init_per_testcase(basic_test, Config) ->
-    BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
-    [{base_dir, BaseDir} |Config];
 init_per_testcase(Test, Config) ->
     application:ensure_all_started(throttle),
     application:ensure_all_started(lager),
+    init_per_testcase_selectively(Test, Config).
 
+init_per_testcase_selectively(basic_test, Config) ->
+    Config;
+init_per_testcase_selectively(Test, Config) ->
     InitConfig0 = blockchain_ct_utils:init_base_dir_config(?MODULE, Test, Config),
     InitConfig = blockchain_ct_utils:init_per_testcase(Test, InitConfig0),
 
@@ -140,10 +141,8 @@ end_per_testcase(Test, Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-basic_test(Config) ->
-    application:ensure_all_started(throttle),
-    application:ensure_all_started(lager),
-    BaseDir = ?config(base_dir, Config),
+basic_test(_Config) ->
+    BaseDir = "data/blockchain_state_channel_SUITE/basic_test",
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
         {base_dir, BaseDir}
