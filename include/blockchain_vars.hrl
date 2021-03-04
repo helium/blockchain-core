@@ -149,6 +149,8 @@
 %% during targeting
 -define(poc_witness_consideration_limit, poc_witness_consideration_limit).
 
+
+-define(poc_addr_hash_byte_count, poc_addr_hash_byte_count).
 %%%
 %%% score vars
 %%%

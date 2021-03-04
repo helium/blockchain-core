@@ -893,6 +893,8 @@ validate_var(?poc_max_hop_cells, Value) ->
     validate_int(Value, "poc_max_hop_cells", 100, 4000, false);
 validate_var(?poc_per_hop_max_witnesses, Value) ->
     validate_int(Value, "poc_per_hop_max_witnesses", 5, 50, false);
+validate_var(?poc_addr_hash_byte_count, Value) ->
+    validate_int(Value, "poc_addr_hash_byte_count", 4, 32, false);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
