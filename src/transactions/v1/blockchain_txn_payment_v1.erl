@@ -195,8 +195,8 @@ absorb(Txn, Chain) ->
 print(undefined) -> <<"type=payment, undefined">>;
 print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,
                                     fee=Fee, nonce=Nonce, signature = S }) ->
-    io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~p",
-                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, S]).
+    io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~s",
+                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, ?TO_B58(S)]).
 
 
 -spec to_json(txn_payment(), blockchain_json:opts()) -> blockchain_json:json_object().
