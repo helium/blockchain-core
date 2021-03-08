@@ -1420,7 +1420,7 @@ epoch_reward_test(Config) ->
 
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, find_gateway_info, fun(Address, _Ledger) ->
-        {ok, blockchain_ledger_gateway_v2:new(Address, 12)}
+        {ok, blockchain_ledger_gateway_v2:new(Address, 12, full)}
     end),
 
     % Add few empty blocks to fake epoch

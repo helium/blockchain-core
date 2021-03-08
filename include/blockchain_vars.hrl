@@ -358,6 +358,8 @@
 -define(staking_fee_txn_oui_v1_per_address, staking_fee_txn_oui_v1_per_address).
 %% the staking fee in DC for adding a gateway
 -define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
+%% the staking fee in DC for adding a light gateway
+-define(staking_fee_txn_add_light_gateway_v1, staking_fee_txn_add_light_gateway_v1).
 %% the staking fee in DC for asserting a location
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
 %% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful

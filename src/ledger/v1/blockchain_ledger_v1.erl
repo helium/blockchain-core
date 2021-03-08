@@ -57,7 +57,7 @@
     %% todo add more here
 
     gateway_cache_get/2,
-    add_gateway/3, add_gateway/5,
+    add_gateway/3, add_gateway/4, add_gateway/6,
     update_gateway/3,
     fixup_neighbors/4,
     add_gateway_location/4,
@@ -203,6 +203,7 @@
     staking_fee_txn_oui_v1/1,
     staking_fee_txn_oui_v1_per_address/1,
     staking_fee_txn_add_gateway_v1/1,
+    staking_fee_txn_add_light_gateway_v1/1,
     staking_fee_txn_assert_location_v1/1,
     staking_keys/1,
     txn_fee_multiplier/1,
@@ -1226,11 +1227,15 @@ gateway_cache_get(Address, Ledger) ->
 
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
+    add_gateway(OwnerAddr, GatewayAddress, full, Ledger).
+
+-spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:mode(), ledger()) -> ok | {error, gateway_already_active}.
+add_gateway(OwnerAddr, GatewayAddress, Mode, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
-            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined),
+            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined, Mode),
             update_gateway(Gateway, GatewayAddress, Ledger)
     end.
 
@@ -1241,19 +1246,20 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
                   GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
                   Nonce :: non_neg_integer(),
+                  Mode :: blockchain_ledger_gateway_v2:mode(),
                   Ledger :: ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
             Nonce,
+            Mode,
             Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
             {ok, Height} = ?MODULE:current_height(Ledger),
-            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, Location, Nonce),
-
+            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, Location, Mode, Nonce),
             NewGw0 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
 
             NewGw =
@@ -1976,6 +1982,18 @@ staking_fee_txn_oui_v1_per_address(Ledger)->
 -spec staking_fee_txn_add_gateway_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_add_gateway_v1(Ledger)->
     case blockchain:config(?staking_fee_txn_add_gateway_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for add light gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_add_light_gateway_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_add_light_gateway_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_add_light_gateway_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -4590,8 +4608,8 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, L),
-            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, L),
+            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, full, L),
+            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, full, L),
             ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, L)
         end,
         Ledger
