@@ -4,18 +4,13 @@
          new_group/4,
          has_new_group/1,
          election_info/2,
-         icdf_select/3
+         icdf_select/3,
+         adjust_old_group/2
         ]).
 
 -include("blockchain_vars.hrl").
 
 -import(blockchain_utils, [normalize_float/1]).
-
--ifdef(TEST).
--export([
-         adjust_old_group/2
-        ]).
--endif.
 
 -record(val_v1,
         {
