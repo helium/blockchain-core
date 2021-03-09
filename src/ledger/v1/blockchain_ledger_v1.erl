@@ -145,6 +145,7 @@
     activate_validator/2,
     deactivate_validator/2,
     update_validator/3,
+    fold_validators/3,
 
     cooldown_stake/4,
     cancel_cooldown_stake/2,
@@ -3730,25 +3731,30 @@ query_circulating_hnt(Ledger) ->
 query_staked_hnt(Ledger) ->
     query_hnt_by_status(staked, Ledger).
 
-query_hnt_by_status(Status, Ledger) ->
+-spec query_cooldown_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_cooldown_hnt(Ledger) ->
+    query_hnt_by_status(cooldown, Ledger).
+
+fold_validators(Fun, InitAcc, Ledger) ->
     cache_fold(
       Ledger,
       validators_cf(Ledger),
       fun({_Addr, BinVal}, Acc) ->
               Val = blockchain_ledger_validator_v1:deserialize(BinVal),
-              case blockchain_ledger_validator_v1:status(Val) of
-                  Status ->
-                      Acc + blockchain_ledger_validator_v1:stake(Val);
-                  _ ->
-                      Acc
-              end
+              Fun(Val, Acc)
       end,
-      0
+      InitAcc
      ).
 
--spec query_cooldown_hnt(Ledger :: ledger()) -> non_neg_integer().
-query_cooldown_hnt(Ledger) ->
-    query_hnt_by_status(cooldown, Ledger).
+query_hnt_by_status(Status, Ledger) ->
+    fold_validators(fun(Val, Acc) ->
+        case blockchain_ledger_validator_v1:status(Val) of
+            Status ->
+                Acc + blockchain_ledger_validator_v1:stake(Val);
+            _ ->
+                Acc
+        end
+    end, 0, Ledger).
 
 batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
     {ok, Batch} = rocksdb:batch(),
