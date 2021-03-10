@@ -1137,6 +1137,12 @@ validate_var(?max_antenna_gain, Value) ->
     %% Initially set to 150 to imply 15 dBi
     validate_int(Value, "max_antenna_gain", 10, 200, false);
 
+validate_var(?light_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a light gateway - using a 16bit mask.
+    %% see blockchain.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "light_gateway_capabilities_mask", 0, 65536, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

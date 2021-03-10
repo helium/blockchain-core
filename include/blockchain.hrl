@@ -28,3 +28,15 @@
 -define(BC_UPGRADE_NAMES, [<<"gateway_v2">>, <<"hex_targets">>, <<"gateway_oui">>,
                            <<"h3dex">>, <<"h3dex2">>,
                            <<"gateway_lg">>]).
+-define(BC_UPGRADE_NAMES, [<<"gateway_v2">>, <<"hex_targets">>, <<"gateway_oui">>, <<"h3dex">>, <<"h3dex2">>]).
+
+%% gateway capabilities, managed via a bitmask
+-define(GW_CAPABILITY_ROUTE_PACKETS, 16#01).                               %% determines if a GW can route packets
+-define(GW_CAPABILITY_POC_CHALLENGER, 16#02).                              %% determines if a GW can issue POC Challenges
+-define(GW_CAPABILITY_POC_CHALLENGEE, 16#04).                              %% determines if a GW can accept POC Challenges
+-define(GW_CAPABILITY_POC_WITNESS, 16#08).                                 %% determines if a GW can witness challenges
+-define(GW_CAPABILITY_CONSENSUS_GROUP, 16#016).                            %% determines if a GW can participate in consensus group
+
+-define(GW_CAPABILITIES_SET(Capabilities), lists:foldl(fun(Capability, Acc) -> Acc bor Capability end, 0,Capabilities)).
+-define(GW_CAPABILITY_QUERY(Mask, Capability), (Mask band Capability) == Capability).
+

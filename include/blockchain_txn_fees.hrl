@@ -1,6 +1,3 @@
-
-
-
 -define(DC_TO_USD, 0.00001).
 -define(USD_TO_DC, 100000).
 -define(BONES_PER_HNT, 100000000).

@@ -76,7 +76,7 @@
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 -type histogram() :: #{integer() => integer()}.
--type mode() :: light | full.
+-type mode() :: light | non_consensus | full.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0, mode/0]).
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -582,7 +582,7 @@ deserialize(<<2, Bin/binary>>) ->
             14 ->
                 Gw;
             16 ->
-                Gw;
+                Gw
         end,
     Neighbors = neighbors(Gw1),
     Gw2 = neighbors(lists:usort(Neighbors), Gw1),
@@ -679,6 +679,11 @@ mode_light_test() ->
     Gw = new(<<"owner_address">>, 12, light),
     ?assertEqual(light, mode(Gw)),
     ?assertEqual(light, mode(mode(light, Gw))).
+
+mode_non_consensus_test() ->
+    Gw = new(<<"owner_address">>, 12, non_consensus),
+    ?assertEqual(non_consensus, mode(Gw)),
+    ?assertEqual(non_consensus, mode(mode(non_consensus, Gw))).
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12, full),

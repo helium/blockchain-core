@@ -362,13 +362,14 @@ absorb(Txn, Chain) ->
 
 -spec gateway_mode(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin())-> blockchain_ledger_v1:mode().
 gateway_mode(Ledger, Payer) ->
-    case blockchain_ledger_v1:staking_keys(Ledger) of
+    case blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger) of
         not_found ->
                 full;
-        Keys ->
-            case lists:member(Payer, Keys) of
-                true -> full;
-                false -> light
+        P when is_list(P) ->
+            %% check if there is an entry for the payer key, if not default to light gw
+            case proplists:get_value(Payer, P, not_found) of
+                not_found -> light;
+                GWMode -> GWMode
             end
     end.
 
