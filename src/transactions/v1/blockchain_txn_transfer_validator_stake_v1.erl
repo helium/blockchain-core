@@ -168,7 +168,11 @@ is_valid(Txn, Chain) ->
                     true ->
                         case is_valid_new_owner(Txn) of
                             true ->
-                                ok;
+                                %% make sure that no one is re-using miner keys
+                                case blockchain_ledger_v1:find_gateway_info(NewValidator, Ledger) of
+                                    {ok, _} -> throw(reused_miner_key);
+                                    {error, not_found} -> ok
+                                end;
                             false ->
                                 throw(bad_new_owner_signature)
                         end;
@@ -210,16 +214,21 @@ is_valid(Txn, Chain) ->
                 %% make sure that existing validator exists and is staked
                 case blockchain_ledger_v1:get_validator(OldValidator, Ledger) of
                     {ok, OV} ->
-                        %% check staked status
-                        case blockchain_ledger_validator_v1:status(OV) of
-                            staked -> ok;
-                            %% can be either unstaked or cooldown
-                            _ -> throw(cant_transfer_unstaked_validator)
-                        end,
-                        %% check stake is not 0
-                        case blockchain_ledger_validator_v1:stake(OV) of
-                            0 -> throw(cant_transfer_zero_stake);
-                            _ -> ok
+                        OldOwner = old_owner(Txn),
+                        case blockchain_ledger_validator_v1:owner_address(OV) of
+                            OldOwner ->
+                                %% check staked status
+                                case blockchain_ledger_validator_v1:status(OV) of
+                                    staked -> ok;
+                                    %% can be either unstaked or cooldown
+                                    _ -> throw(cant_transfer_unstaked_validator)
+                                end,
+                                %% check stake is not 0
+                                case blockchain_ledger_validator_v1:stake(OV) of
+                                    0 -> throw(cant_transfer_zero_stake);
+                                    _ -> ok
+                                end;
+                            _ -> throw(bad_owner)
                         end;
                     {error, not_found} -> throw(old_validator_non_existant);
                     {error, Reason1} -> throw({validator_fetch_error, Reason1})
