@@ -175,10 +175,10 @@ txn_assert_location_cmd() ->
 txn_assert_location_usage() ->
     [["txn", "assert_location"],
      ["txn assert_location owner=<owner> location=<location> [--payer <payer>] [--nonce <nonce]\n\n",
-      "  Creates a signed location assertion required to declare the location of a n Gateway on the Helium network.\n"
-      "  Requires a location (in lat/lon or h3 form), an owner address, and a nonce to use \n"
-      "  Optionally takes a payer address if the payer of the cost and fee is not the same as the owner.\n\n"
-      "  Optionally takes a payer address if the payer of the cost is not the same as the owner.\n\n"
+      "  Creates a signed location assertion required to declare the location of a Gateway on the Helium network.\n"
+      "  Requires an owner address and location (in lat,lon or h3 form).\n"
+      "  Optionally takes a payer address if the payer of the cost and fee is not the same as the owner.\n"
+      "  Optionally takes a nonce.\n\n"
       "  Returns a Base64 encoded transaction to be used as an input to either the\n"
       "  Helium mobile application or the wallet CLI for signing by the owner, and payer if provided, and \n"
       "  final submission to the blockchain.\n\n"
