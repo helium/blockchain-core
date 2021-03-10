@@ -5,7 +5,8 @@
          has_new_group/1,
          election_info/2,
          icdf_select/3,
-         adjust_old_group/2
+         adjust_old_group/2,
+         adjust_old_group_v2/2
         ]).
 
 -include("blockchain_vars.hrl").
@@ -168,7 +169,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
     OldLen = length(OldGroup0),
-    {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
+    {Remove, Replace} = determine_sizes_v2(Size, OldLen, Delay, Ledger),
 
     Validators0 = validators_filter(Ledger),
 
@@ -176,10 +177,9 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     {OldGroupDeduped, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
 
     %% adjust for bbas and seen votes
-    OldGroupAdjusted = adjust_old_group(OldGroupDeduped, Ledger),
+    OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
 
     %% random shuffle of all validators
-
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
@@ -210,7 +210,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                 %% validators in to make up the number on the last round if needed.
                 lists:sublist(lists:sort(Gateways), 1, NewLen)
         end,
-
+    lager:debug("to rem ~p", [an(ToRem)]),
     (OldGroup0 -- ToRem) ++ New.
 
 an(M) ->
@@ -246,10 +246,6 @@ have_gateways(List, Ledger) ->
 %% to the nodes that have not been seen or that are failing to drive
 %% their BBA executions to completion.
 adjust_old_group(Group, Ledger) ->
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
-
-    Sz = length(Group),
     %% ideally would not have to do this but don't want to change the
     %% interface.
     Chain = blockchain_worker:blockchain(),
@@ -267,6 +263,57 @@ adjust_old_group(Group, Ledger) ->
 
     Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
               || Ht <- lists:seq(Start + 1, End)],
+
+    Penalties = get_penalties(Blocks, length(Group), Ledger),
+    lager:debug("penalties ~p", [Penalties]),
+
+    %% now that we've accumulated all of the penalties, apply them to
+    %% adjust the score for this group generation
+    lists:map(
+      fun({Score, Loc, Addr}) ->
+              Index = maps:get(Addr, Addrs),
+              Penalty = maps:get(Index, Penalties, 0.0),
+              lager:debug("~s ~p ~p", [blockchain_utils:addr2name(Addr), Score, Penalty]),
+              {normalize_float(Score - Penalty), Loc, Addr}
+      end,
+      Group).
+
+adjust_old_group_v2(Group, Ledger) ->
+    %% ideally would not have to do this but don't want to change the
+    %% interface.
+    Chain = blockchain_worker:blockchain(),
+    #{start_height := Start,
+      curr_height := End} = election_info(Ledger, Chain),
+    %% annotate the ledger group (which is ordered properly), with each one's index.
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    {_, Addrs} =
+        lists:foldl(
+          fun(Addr, {Index, Acc}) ->
+                  {Index + 1, Acc#{Addr => Index}}
+          end,
+          {1, #{}},
+          OldGroup),
+
+    Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
+              || Ht <- lists:seq(Start + 2, End)],
+
+    Penalties = get_penalties(Blocks, length(Group), Ledger),
+    lager:debug("penalties ~p", [Penalties]),
+
+    %% now that we've accumulated all of the penalties, apply them to
+    %% adjust the score for this group generation
+    lists:map(
+      fun(#val_v1{prob = Prob, addr = Addr}) ->
+              Index = maps:get(Addr, Addrs),
+              Penalty = maps:get(Index, Penalties, 0.0),
+              %% penalties are positive in icdf
+              {Addr, normalize_float(Prob + Penalty)}
+      end,
+      Group).
+
+get_penalties(Blocks, Sz, Ledger) ->
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
 
     BBAs = [begin
                 BBA0 = blockchain_block_v1:bba_completion(Block),
@@ -301,39 +348,19 @@ adjust_old_group(Group, Ledger) ->
 
     lager:debug("penalties0 ~p", [Penalties0]),
 
-    Penalties =
-        lists:foldl(
-          fun(Seen, Acc) ->
-                  maps:fold(
-                    fun(Idx, false, A) ->
-                            maps:update_with(Idx, fun(X) -> X + SeenPenalty end,
-                                             SeenPenalty, A);
-                       (_, _, A) ->
-                            A
-                    end,
-                    Acc, Seen)
-          end,
-          Penalties0,
-          Seens),
-    %% now that we've accumulated all of the penalties, apply them to
-    %% adjust the score for this group generation
-
-    lager:debug("penalties ~p", [Penalties]),
-
-    lists:map(
-      fun({Score, Loc, Addr}) ->
-              Index = maps:get(Addr, Addrs),
-              Penalty = maps:get(Index, Penalties, 0.0),
-              lager:debug("~s ~p ~p", [blockchain_utils:addr2name(Addr), Score, Penalty]),
-              {normalize_float(Score - Penalty), Loc, Addr};
-         %% validators v1
-         (#val_v1{prob = Prob, addr = Addr}) ->
-              Index = maps:get(Addr, Addrs),
-              Penalty = maps:get(Index, Penalties, 0.0),
-              %% penalties are positive in icdf
-              {Addr, normalize_float(Prob + Penalty)}
+    lists:foldl(
+      fun(Seen, Acc) ->
+              maps:fold(
+                fun(Idx, false, A) ->
+                        maps:update_with(Idx, fun(X) -> X + SeenPenalty end,
+                                         SeenPenalty, A);
+                   (_, _, A) ->
+                        A
+                end,
+                Acc, Seen)
       end,
-      Group).
+      Penalties0,
+      Seens).
 
 condense_votes(Sz, Seen0) ->
     SeenMaps = [blockchain_utils:bitvector_to_map(Sz, S)
@@ -393,6 +420,37 @@ determine_sizes(Size, OldLen, Delay, Ledger) ->
         false when Size > OldLen ->
             Remove = 0,
             Replace = Size - OldLen;
+        %% shrinking
+        false ->
+            Remove = OldLen - Size,
+            Replace = 0
+    end,
+    {Remove, Replace}.
+
+determine_sizes_v2(Size, OldLen, Delay, Ledger) ->
+    {ok, ReplacementFactor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
+    %% increase this to make removal more gradual, decrease to make it less so
+    {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
+    {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
+    case Size == OldLen of
+        true ->
+            %% lower the replacement ceiling because in big groups, bigger is much much harder
+            MinSize = (2 * ((OldLen - 1) div 3)), % smallest remainder we will allow
+            BaseRemove = floor(Size/ReplacementFactor), % initial remove size
+            Removable = OldLen - MinSize - BaseRemove,
+            %% use tanh to get a gradually increasing (but still clamped to 1) value for
+            %% scaling the size of removal as delay increases
+            %% vihu argues for the logistic function here, for better
+            %% control, but tanh is simple
+            AdditionalRemove = floor(Removable * math:tanh((Delay/Interval) / ReplacementSlope)),
+
+            Remove = Replace = BaseRemove + AdditionalRemove;
+        %% growing
+        false when Size > OldLen ->
+            BaseRemove = floor(Size/ReplacementFactor),
+            Replace = Size - OldLen,
+            %% by removing a few, this allows us to grow even when there are dead nodes in the group
+            Remove = max(0, BaseRemove - Replace);
         %% shrinking
         false ->
             Remove = OldLen - Size,
@@ -651,31 +709,45 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
-    maps:fold(
-      fun(Addr, Val = #val_v1{heartbeat = Last}, {Old, Candidates} = Acc) ->
-              Offline = (Height - Last) > (HBInterval + HBGrace),
-              case lists:member(Addr, OldGroup0) of
-                  true ->
-                      lager:debug("name ~p in off ~p", [blockchain_utils:addr2name(Addr), Offline]),
-                      OldGw =
+    {Group, Pool} =
+        maps:fold(
+          fun(Addr, Val = #val_v1{heartbeat = Last}, {Old, Candidates} = Acc) ->
+                  Offline = (Height - Last) > (HBInterval + HBGrace),
+                  case lists:member(Addr, OldGroup0) of
+                      true ->
+                          lager:debug("name ~p in off ~p", [blockchain_utils:addr2name(Addr), Offline]),
+                          OldGw =
+                              case Offline of
+                                  true ->
+                                      %% try and make sure offline nodes are selected
+                                      Val#val_v1{prob = 100.0};
+                                  _ ->
+                                      Val
+                              end,
+                          {[OldGw | Old], Candidates};
+                      _ ->
+                          lager:debug("name ~p out off ~p", [blockchain_utils:addr2name(Addr), Offline]),
                           case Offline of
+                              %% don't bother to add to the candidate list
                               true ->
-                                  %% try and make sure offline nodes are selected
-                                  Val#val_v1{prob = 20.0};
+                                  Acc;
                               _ ->
-                                  Val
-                          end,
-                      {[OldGw | Old], Candidates};
-                  _ ->
-                      lager:debug("name ~p out off ~p", [blockchain_utils:addr2name(Addr), Offline]),
-                      case Offline of
-                          %% don't bother to add to the candidate list
-                          true ->
-                              Acc;
-                          _ ->
-                              {Old, [Val | Candidates]}
-                      end
-              end
-      end,
-      {[], []},
-      Validators0).
+                                  {Old, [Val | Candidates]}
+                          end
+                  end
+          end,
+          {[], []},
+          Validators0),
+
+    %% there have been buggy cases where an unstaked validator has somehow made it into the
+    %% group. when this happens, it won't make it into the group, because it has been filtered out
+    %% of the broader pool.  in this case, make a new record for it with an extreme chance of being removed.
+    case length(Group) < length(OldGroup0) of
+        false -> {Group, Pool};
+        true ->
+            Missing = lists:filter(fun(A) ->
+                                           not lists:keymember(A, #val_v1.addr, Group)
+                                   end, OldGroup0),
+            {Group ++ [#val_v1{prob = 200.0, addr = MAddr} || MAddr <- Missing],
+             Pool}
+    end.

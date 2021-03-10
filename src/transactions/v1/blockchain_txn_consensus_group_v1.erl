@@ -199,8 +199,10 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Height = ?MODULE:height(Txn),
     Ledger = blockchain:ledger(Chain),
+    Members = ?MODULE:members(Txn),
+    EHT = blockchain_ledger_v1:election_height(Ledger),
     Check =
-        case blockchain_ledger_v1:election_height(Ledger) of
+        case EHT of
             %% no chain, genesis block
             {error, not_found} ->
                 ok;
@@ -209,21 +211,32 @@ absorb(Txn, Chain) ->
             {ok, BaseHeight} ->
                 {error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}}
         end,
-    case Check of
-        ok ->
-            Members = ?MODULE:members(Txn),
-            {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
-            ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
-            ok = blockchain_ledger_v1:consensus_members(Members, Ledger),
-            ok = blockchain_ledger_v1:election_height(Height, Ledger);
-        {error, _} = Err ->
-            Err
+    try
+        %% if we're on validators make sure that everyone is staked
+        case blockchain_ledger_v1:config(?election_version, Ledger) of
+            {ok, N} when N >= 5 andalso EHT /= {error, not_found} ->
+                case lists:all(fun(M) ->
+                                       {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
+                                       blockchain_ledger_validator_v1:status(V) == staked end,
+                               Members) of
+                    false -> throw({error, not_all_validators_staked});
+                    _ -> ok
+            end;
+            _ -> ok
+        end,
+        case Check of
+            ok ->
+                {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
+                ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
+                ok = blockchain_ledger_v1:consensus_members(Members, Ledger),
+                ok = blockchain_ledger_v1:election_height(Height, Ledger);
+            {error, _} = Err ->
+                Err
+        end
+    catch throw:Err2 ->
+            Err2
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec print(txn_consensus_group()) -> iodata().
 print(undefined) -> <<"type=group, undefined">>;
 print(#blockchain_txn_consensus_group_v1_pb{height = Height,
