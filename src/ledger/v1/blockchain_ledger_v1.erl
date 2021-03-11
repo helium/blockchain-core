@@ -1551,6 +1551,7 @@ delete_pocs(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
+% TODO Why do we need to pass Ledger? Can't we get it from Chain?
 maybe_gc_pocs(Chain, Ledger) ->
     {ok, Height} = current_height(Ledger),
     Version = case ?MODULE:config(?poc_version, Ledger) of

@@ -558,6 +558,7 @@ dir(Blockchain) ->
 %%--------------------------------------------------------------------
 -spec blocks(blockchain()) -> #{blockchain_block:hash() => blockchain_block:block()}.
 blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
+    % WARN: rocksdb:fold is deprecated - should use iterators now.
     rocksdb:fold(
         DB,
         BlocksCF,
@@ -573,7 +574,9 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
+-spec get_block(blockchain_block:hash() | integer(), blockchain()) ->
+      {ok, blockchain_block:block()}
+    | {error, any()}.
 get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
     case rocksdb:get(DB, BlocksCF, Hash, []) of
         {ok, BinBlock} ->
@@ -2263,19 +2266,22 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
              end,
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
+-spec run_gc_hooks(blockchain(), blockchain_block:hash()) ->
+    ok | {error, gc_hooks_failed}.
 run_gc_hooks(Blockchain, Hash) ->
     Ledger = blockchain:ledger(Blockchain),
     try
+        % TODO Does order of the following calls matter?
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
-
         ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain),
-
         ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
-
         ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
     catch What:Why:Stack ->
-            lager:warning("hooks failed ~p ~p ~s", [What, Why, lager:pr_stacktrace(Stack, {What, Why})]),
-            {error, gc_hooks_failed}
+        lager:warning(
+            "hooks failed ~p ~p ~s",
+            [What, Why, lager:pr_stacktrace(Stack, {What, Why})]
+         ),
+        {error, gc_hooks_failed}
     end.
 
 run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
