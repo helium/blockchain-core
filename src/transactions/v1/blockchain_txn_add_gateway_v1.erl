@@ -189,7 +189,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 calculate_staking_fee(Txn, Chain) ->
     calculate_staking_fee(Txn, Chain, full).
 
--spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), blockchain_ledger_v1:mode()) -> non_neg_integer().
+-spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), blockchain_ledger_gateway_v2:mode()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain, GWMode) ->
     Ledger = blockchain:ledger(Chain),
     Fee = staking_fee_for_gw_mode(GWMode, Ledger),
@@ -360,7 +360,7 @@ absorb(Txn, Chain) ->
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, GatewayMode, Ledger)
     end.
 
--spec gateway_mode(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin())-> blockchain_ledger_v1:mode().
+-spec gateway_mode(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin())-> blockchain_ledger_gateway_v2:mode().
 gateway_mode(Ledger, Payer) ->
     case blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger) of
         not_found ->
@@ -369,7 +369,7 @@ gateway_mode(Ledger, Payer) ->
             %% check if there is an entry for the payer key, if not default to light gw
             case proplists:get_value(Payer, P, not_found) of
                 not_found -> light;
-                GWMode -> GWMode
+                GWMode -> binary_to_atom(GWMode, utf8)
             end
     end.
 
@@ -401,7 +401,7 @@ to_json(Txn, _Opts) ->
       fee => fee(Txn)
      }.
 
--spec staking_fee_for_gw_mode(blockchain_ledger_v1:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+-spec staking_fee_for_gw_mode(blockchain_ledger_gateway_v2:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
 staking_fee_for_gw_mode(light, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_light_gateway_v1(Ledger);
 staking_fee_for_gw_mode(_, Ledger)->

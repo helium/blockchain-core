@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_ledger_gateway_v2).
 
+-include("blockchain_caps.hrl").
+
 -export([
     new/2, new/3, new/4,
     owner_address/1, owner_address/2,
@@ -32,7 +34,9 @@
     witnesses/1,
     witnesses_plain/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
-    oui/1, oui/2
+    oui/1, oui/2,
+    mask/2,
+    is_valid_capability/3
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -76,7 +80,7 @@
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 -type histogram() :: #{integer() => integer()}.
--type mode() :: light | non_consensus | full.
+-type mode() :: light | nonconsensus | full.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0, mode/0]).
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -312,6 +316,15 @@ nonce(Gateway) ->
 -spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
     Gateway#gateway_v2{nonce=Nonce}.
+
+-spec mask(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger())-> non_neg_integer().
+mask(Gateway, Ledger)->
+    mask_for_gateway_type(Gateway, Ledger).
+
+-spec is_valid_capability(Gateway :: gateway(), non_neg_integer(), Ledger :: blockchain_ledger_v1:ledger())-> non_neg_integer().
+is_valid_capability(Gateway, Capability, Ledger)->
+    Mask = mask_for_gateway_type(Gateway, Ledger),
+    (Mask band Capability) == Capability.
 
 -spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
             Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -638,6 +651,24 @@ convert(#gateway_v1{
        %% this gets set in the upgrade path
        neighbors = []}.
 
+-spec mask_for_gateway_type(Mode :: blockchain_ledger_gateway_v2:mode(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+mask_for_gateway_type(#gateway_v2{mode = light}, Ledger)->
+    case blockchain:config(?light_gateway_capabilities_mask, Ledger) of
+        {error, not_found} ->
+            ?GW_CAPABILITIES_LIGHT_GATEWAY;
+        {ok, V} ->
+            V
+    end;
+mask_for_gateway_type(#gateway_v2{mode = nonconsensus}, Ledger)->
+    case blockchain:config(?non_consensus_gateway_capabilities_mask, Ledger) of
+        {error, not_found} -> ?GW_CAPABILITIES_NON_CONSENSUS_GATEWAY;
+        {ok, V} -> V
+    end;
+mask_for_gateway_type(#gateway_v2{mode = full}, Ledger)->
+    case blockchain:config(?full_gateway_capabilities_mask, Ledger) of
+        {error, not_found} -> ?GW_CAPABILITIES_FULL_GATEWAY;
+        {ok, V} -> V
+    end.
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -681,9 +712,9 @@ mode_light_test() ->
     ?assertEqual(light, mode(mode(light, Gw))).
 
 mode_non_consensus_test() ->
-    Gw = new(<<"owner_address">>, 12, non_consensus),
-    ?assertEqual(non_consensus, mode(Gw)),
-    ?assertEqual(non_consensus, mode(mode(non_consensus, Gw))).
+    Gw = new(<<"owner_address">>, 12, nonconsensus),
+    ?assertEqual(nonconsensus, mode(Gw)),
+    ?assertEqual(nonconsensus, mode(mode(nonconsensus, Gw))).
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12, full),

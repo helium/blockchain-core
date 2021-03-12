@@ -6,7 +6,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
@@ -169,7 +169,18 @@ is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signat
             PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
             BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>, addr_hash=undefined},
             EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
-            libp2p_crypto:verify(EncodedReceipt, Signature, PubKey)
+            case libp2p_crypto:verify(EncodedReceipt, Signature, PubKey) of
+                false -> false;
+                true ->
+                    %% TODO: sure capability check is required here ?
+                    case blockchain_gateway_cache:get(Gateway, Ledger) of
+                        {error, _Reason} ->
+                            false;
+                        {ok, GWInfo} ->
+                            %% check this challenger is allowed to issue challenges
+                            blockchain_ledger_gateway_v2:is_valid_capability(GWInfo, ?GW_CAPABILITY_POC_RECEIPT, Ledger)
+                    end
+            end
     end.
 
 print(undefined) ->

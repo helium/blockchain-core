@@ -208,8 +208,6 @@
     staking_keys/1,
     staking_keys_to_mode_mappings/1,
     txn_fee_multiplier/1,
-    light_gateway_capabilities_mask/1,
-    non_consensus_gateway_capabilities_mask/1,
 
     dc_to_hnt/2,
     hnt_to_dc/2
@@ -2035,30 +2033,7 @@ staking_keys_to_mode_mappings(Ledger)->
         {error, not_found} -> not_found;
         {ok, V} -> blockchain_utils:bin_keys_to_list(V) %% TODO: add new list type
     end.
-%%--------------------------------------------------------------------
-%% @doc  get bitmask chain var value for light gateway
-%% or return default
-%% @end
-%%--------------------------------------------------------------------
--spec light_gateway_capabilities_mask(Ledger :: ledger()) -> pos_integer().
-light_gateway_capabilities_mask(Ledger)->
-    case blockchain:config(?light_gateway_capabilities_mask, Ledger) of
-        {error, not_found} ->
-            ?GW_CAPABILITIES_SET([?GW_CAPABILITY_ROUTE_PACKETS]);
-        {ok, V} ->
-            V
-    end.
-%%--------------------------------------------------------------------
-%% @doc  get bitmask chain var value for a non consensus type gateway
-%% or return default
-%% @end
-%%--------------------------------------------------------------------
--spec non_consensus_gateway_capabilities_mask(Ledger :: ledger()) -> pos_integer().
-non_consensus_gateway_capabilities_mask(Ledger)->
-    case blockchain:config(?non_consensus_gateway_capabilities_mask, Ledger) of
-        {error, not_found} -> ?GW_CAPABILITIES_SET([?GW_CAPABILITY_ROUTE_PACKETS]);
-        {ok, V} -> V
-    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% converts DC to HNT bones
