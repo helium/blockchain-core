@@ -2031,7 +2031,7 @@ staking_fee_txn_assert_location_v1(Ledger)->
 staking_keys_to_mode_mappings(Ledger)->
     case blockchain:config(?staking_keys_to_mode_mappings, Ledger) of
         {error, not_found} -> not_found;
-        {ok, V} -> blockchain_utils:bin_keys_to_list(V) %% TODO: add new list type
+        {ok, V} -> blockchain_utils:bin_to_prop(V)
     end.
 
 %%--------------------------------------------------------------------
