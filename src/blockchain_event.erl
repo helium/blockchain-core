@@ -8,7 +8,7 @@
 -behaviour(gen_event).
 
 %% ------------------------------------------------------------------
-%% API Function Exports
+%% API
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
@@ -30,6 +30,13 @@
 ]).
 
 -include("blockchain.hrl").
+
+% TODO Discuss moving all event definitions here
+% TODO Discuss converting event definitions from tuples to records
+%      Advantages:
+%      - all events defined in one convenient place: blockchain_event.hrl
+%      - no need to send as {?MODULE, ...}, because already prefixed
+%      - named fields - easier to remember which is which
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
