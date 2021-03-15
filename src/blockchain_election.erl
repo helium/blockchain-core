@@ -448,9 +448,10 @@ determine_sizes_v2(Size, OldLen, Delay, Ledger) ->
         %% growing
         false when Size > OldLen ->
             BaseRemove = floor(Size/ReplacementFactor),
-            Replace = Size - OldLen,
+            Replace0 = Size - OldLen,
+            Remove = max(0, BaseRemove - Replace0),
             %% by removing a few, this allows us to grow even when there are dead nodes in the group
-            Remove = max(0, BaseRemove - Replace);
+            Replace = Replace0 + Remove;
         %% shrinking
         false ->
             Remove = OldLen - Size,
