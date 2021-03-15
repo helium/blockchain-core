@@ -1001,6 +1001,7 @@ vars_nonce(Ledger) ->
             {ok, binary_to_term(Nonce)};
         not_found ->
             {error, not_found};
+        % TODO: Do we expect {error, _} tuple? If so than match it.
         Error ->
             Error
     end.
@@ -3617,6 +3618,7 @@ load_vars(Vars, Ledger) ->
     vars(maps:from_list(Vars), [], Ledger),
     ok.
 
+-spec snapshot_delayed_vars(ledger()) -> term(). % TODO: Define term
 snapshot_delayed_vars(Ledger) ->
     CF = default_cf(Ledger),
     {ok, Height} = current_height(Ledger),
