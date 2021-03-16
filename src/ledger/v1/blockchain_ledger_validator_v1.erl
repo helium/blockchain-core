@@ -11,9 +11,9 @@
          owner_address/1, owner_address/2,
          stake/1, stake/2,
          last_heartbeat/1, last_heartbeat/2,
-         add_recent_election/3,
-         recent_elections/1,
-         add_recent_failure/3,
+         %% add_recent_election/3,
+         %% recent_elections/1,
+         add_recent_failure/4,
          recent_failures/1,
          status/1, status/2,
          nonce/1, nonce/2,
@@ -123,38 +123,39 @@ status(Validator) ->
 status(Status, Validator) ->
     Validator#validator_v1{status = Status}.
 
--spec add_recent_election(Validator :: validator(),
-                          Height :: pos_integer(),
-                          Chain :: blockchain:blockchain()) ->
-          validator().
-add_recent_election(Validator, Height, Chain) ->
-    Recent = Validator#validator_v1.recent_elections,
-    ElectionChain = get_election_chain(Height, Recent, Chain, []),
-    Validator#validator_v1{recent_elections = ElectionChain}.
+%% -spec add_recent_election(Validator :: validator(),
+%%                           Height :: pos_integer(),
+%%                           Chain :: blockchain:blockchain()) ->
+%%           validator().
+%% add_recent_election(Validator, HeightDelay, Chain) ->
+%%     Recent = Validator#validator_v1.recent_elections,
+%%     ElectionChain = get_election_chain(HeightDelay, Recent, Chain, []),
+%%     Validator#validator_v1{recent_elections = ElectionChain}.
 
-get_election_chain(Height, Recent, Chain, Acc) ->
-    #{start_height := Start} = blockchain_election:election_info(Height, Chain),
-    case Recent of
-        %% unbroken chain of elections so far, go one link back
-        [Start | Tail] ->
-            get_election_chain(Start, Tail, Chain, [Height | Acc]);
-        _ ->
-            lists:reverse([Height | Acc])
-    end.
+%% get_election_chain(HeightDelay, Recent, Chain, Acc) ->
+%%     #{start_height := Start} = blockchain_election:election_info(Height, Chain),
+%%     case Recent of
+%%         %% unbroken chain of elections so far, go one link back
+%%         [Start | Tail] ->
+%%             get_election_chain(Start, Tail, Chain, [Height | Acc]);
+%%         _ ->
+%%             lists:reverse([Height | Acc])
+%%     end.
 
--spec recent_elections(Validator :: validator()) -> [pos_integer()].
-recent_elections(Validator) ->
-    Validator#validator_v1.recent_elections.
+%% -spec recent_elections(Validator :: validator()) -> [pos_integer()].
+%% recent_elections(Validator) ->
+%%     Validator#validator_v1.recent_elections.
 
-%% todo this is not working currently, I just want tenure to compile
 -spec add_recent_failure(Validator :: validator(),
                          Height :: pos_integer(),
-                         Chain :: blockchain:blockchain()) ->
+                         Delay :: pos_integer(),
+                         Ledger :: blockchain:ledger()) ->
           validator().
-add_recent_failure(Validator, Height, Chain) ->
-    Recent = Validator#validator_v1.recent_elections,
-    ElectionChain = get_election_chain(Height, Recent, Chain, []),
-    Validator#validator_v1{recent_elections = ElectionChain}.
+add_recent_failure(Validator, Height, Delay, Ledger) ->
+    Recent0 = Validator#validator_v1.recent_failures,
+    {ok, Limit} = blockchain_ledger_v1:config(?dkg_penalty_history_limit, Ledger),
+    Recent = lists:filter(fun({H, _D}) -> (Height - H) =< Limit end, Recent0),
+    Validator#validator_v1{recent_failures = lists:sort([{Height, Delay} | Recent])}.
 
 -spec recent_failures(Validator :: validator()) -> [pos_integer()].
 recent_failures(Validator) ->

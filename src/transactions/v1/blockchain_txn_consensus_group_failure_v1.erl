@@ -164,8 +164,28 @@ verify_proof(Txn, Hash, OldLedger) ->
     end.
 
 -spec absorb(txn_consensus_group_failure(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-absorb(_Txn, _Chain) ->
-    %% TODO apply penalties
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    FailedMembers = ?MODULE:failed_members(Txn),
+    Delay = ?MODULE:delay(Txn),
+    Height = ?MODULE:height(Txn),
+
+    %% TODO: recheck replay protection here for races
+
+    try
+        lists:foreach(
+          fun(M) ->
+                  case blockchain_ledger_v1:get_validator(M, Ledger) of
+                      {ok, V} ->
+                          V1 = blockchain_ledger_validator_v1:add_recent_failure(V, Height, Delay, Ledger),
+                          blockchain_ledger_v1:update_validator(M, V1, Ledger);
+                      GetErr ->
+                          throw({bad_validator, GetErr})
+                  end
+          end, FailedMembers)
+    catch _:Err ->
+            {error, Err}
+    end,
     ok.
 
 -spec print(txn_consensus_group_failure()) -> iodata().

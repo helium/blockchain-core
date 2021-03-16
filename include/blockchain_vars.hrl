@@ -411,3 +411,5 @@
 -define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
 -define(stake_withdrawl_cooldown, stake_withdrawl_cooldown). % blocks
 %% -define(maximum_overstake, maximum_overstake). % float multiple of min stake
+
+-define(dkg_penalty_history_limit, dkg_penalty_history_limit). % blocks
