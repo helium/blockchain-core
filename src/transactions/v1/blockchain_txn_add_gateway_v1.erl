@@ -34,7 +34,7 @@
     is_valid_staking_key/2,
     is_valid/2,
     absorb/2,
-    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/3, calculate_staking_fee/5,
+    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
     to_json/2
 ]).
@@ -187,11 +187,14 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 %%--------------------------------------------------------------------
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
-    calculate_staking_fee(Txn, Chain, full).
-
--spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), blockchain_ledger_gateway_v2:mode()) -> non_neg_integer().
-calculate_staking_fee(Txn, Chain, GWMode) ->
     Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    Owner = ?MODULE:owner(Txn),
+    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+        true -> Owner;
+        false -> Payer
+    end,
+    GWMode = gateway_mode(Ledger, ActualPayer),
     Fee = staking_fee_for_gw_mode(GWMode, Ledger),
     calculate_staking_fee(Txn, Ledger, Fee, [], blockchain_ledger_v1:txn_fees_active(Ledger)).
 
@@ -320,9 +323,8 @@ is_valid(Txn, Chain) ->
                 true -> Owner;
                 false -> Payer
             end,
-            GatewayMode = gateway_mode(Ledger, ActualPayer),
             StakingFee = ?MODULE:staking_fee(Txn),
-            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain, GatewayMode),
+            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
             TxnFee = ?MODULE:fee(Txn),
             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
             case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
@@ -365,10 +367,11 @@ gateway_mode(Ledger, Payer) ->
     case blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger) of
         not_found ->
                 full;
-        P when is_list(P) ->
-            %% check if there is an entry for the payer key, if not default to light gw
-            case proplists:get_value(Payer, P, not_found) of
-                not_found -> light;
+        Mappings when is_list(Mappings) ->
+            %% check if there is an entry for the payer key, if not default to full gw
+            %% if a GW needs to be non full, its payer MUST have an entry in the staking key mappings table
+            case proplists:get_value(Payer, Mappings, not_found) of
+                not_found -> full;
                 GWMode -> binary_to_atom(GWMode, utf8)
             end
     end.

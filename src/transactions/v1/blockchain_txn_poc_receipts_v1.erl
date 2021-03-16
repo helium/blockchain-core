@@ -171,7 +171,7 @@ is_valid(Txn, Chain) ->
                 {error, _Reason}=Error ->
                     Error;
                 {ok, ChallengerGWInfo} ->
-                    %% check this challenger is allowed to issue challenges
+                    %% check this gateway is allowed to issue receipts
                     case blockchain_ledger_gateway_v2:is_valid_capability(ChallengerGWInfo, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
                         false -> {error, challenger_bad_capabilities};
                         true ->

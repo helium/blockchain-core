@@ -31,8 +31,8 @@
     approx_blocks_in_week/1,
     keys_list_to_bin/1,
     bin_keys_to_list/1,
-    prop_to_bin/1,
-    bin_to_prop/1,
+    prop_to_bin/1, prop_to_bin/2,
+    bin_to_prop/1, bin_to_prop/2,
     calculate_dc_amount/2, calculate_dc_amount/3,
     do_calculate_dc_amount/2,
     deterministic_subset/3,
@@ -382,6 +382,7 @@ approx_blocks_in_week(Ledger) ->
             10000
     end.
 
+
 -spec bin_keys_to_list( Data :: binary() ) -> [ binary() ].
 %% @doc Price oracle public keys and also staking keys are encoded like this
 %% <code>
@@ -404,9 +405,6 @@ bin_keys_to_list(Data) when is_binary(Data) ->
 keys_list_to_bin(Keys) ->
     << <<(byte_size(Key)):8/integer, Key/binary>> || Key <- Keys >>.
 
-
-
-
 -spec bin_to_prop( Data :: binary() ) -> [ {binary(), binary()} ].
 %% @doc staking key mode mappings are encoded like this
 %% <code>
@@ -416,7 +414,10 @@ keys_list_to_bin(Keys) ->
 %% and returns a binary keyed proplist
 %% @end
 bin_to_prop(Data) when is_binary(Data) ->
-    [ {Key, Value} || << KeyLen:8/unsigned-integer, Key:KeyLen/binary, ValueLen:8/unsigned-integer, Value:ValueLen/binary >> <= Data ].
+    bin_to_prop(Data, 8).
+
+bin_to_prop(Data, Size) when is_binary(Data) ->
+    [ {Key, Value} || << KeyLen:Size/unsigned-integer, Key:KeyLen/binary, ValueLen:Size/unsigned-integer, Value:ValueLen/binary >> <= Data ].
 
 -spec prop_to_bin( [{binary(), binary()}] ) -> binary().
 %% @doc staking key mode mappings are encoded like this
@@ -427,7 +428,10 @@ bin_to_prop(Data) when is_binary(Data) ->
 %% and returns a list of binary keys
 %% @end
 prop_to_bin(Keys) ->
-    << <<(byte_size(Key)):8/integer, Key/binary, (byte_size(Value)):8/integer, Value/binary>> || {Key, Value} <- Keys >>.
+    prop_to_bin(Keys, 8).
+
+prop_to_bin(Keys, Size) ->
+    << <<(byte_size(Key)):Size/unsigned-integer, Key/binary, (byte_size(Value)):Size/unsigned-integer, Value/binary>> || {Key, Value} <- Keys >>.
 
 %%--------------------------------------------------------------------
 %% @doc deterministic random subset from a random seed

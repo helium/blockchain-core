@@ -141,7 +141,7 @@ is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signat
                 {error, _Reason} ->
                     false;
                 {ok, GWInfo} ->
-                    %% check this challenger is allowed to issue challenges
+                    %% check this gateway is allowed to witness
                     blockchain_ledger_gateway_v2:is_valid_capability(GWInfo, ?GW_CAPABILITY_POC_WITNESS, Ledger)
             end
     end.
