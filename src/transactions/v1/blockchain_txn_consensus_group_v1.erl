@@ -198,6 +198,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Height = ?MODULE:height(Txn),
+    Delay = delay(Txn),
     Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
     Check =
@@ -212,6 +213,20 @@ absorb(Txn, Chain) ->
         end,
     case Check of
         ok ->
+            %% record stuff for tenuring
+            case blockchain_ledger_v1:config(?election_version, Ledger) of
+                {ok, N} when N >= 5 ->
+                    lists:foreach(
+                      fun(M) ->
+                              case blockchain_ledger_v1:get_validator(M, Ledger) of
+                                  {ok, V} ->
+                                      V1 = blockchain_ledger_validator_v1:add_recent_election(V, {Height, Delay}, Chain),
+                                      blockchain_ledger_v1:update_validator(V1, Ledger)
+                              end
+                      end,
+                      Members);
+                _ -> ok
+            end,
             {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
             ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
             ok = blockchain_ledger_v1:consensus_members(Members, Ledger),

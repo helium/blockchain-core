@@ -300,14 +300,20 @@ adjust_old_group_v2(Group, Ledger) ->
     Penalties = get_penalties(Blocks, length(Group), Ledger),
     lager:debug("penalties ~p", [Penalties]),
 
+    {ok, Factor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
     lists:map(
       fun(#val_v1{prob = Prob, addr = Addr}) ->
               Index = maps:get(Addr, Addrs),
               Penalty = maps:get(Index, Penalties, 0.0),
+
+              %% calculate tenuring penalty
+              {ok, Val} = blockchain_ledger_v1:get_validator(Addr, Ledger),
+              Recent = length(blockchain_ledger_validator_v1:recent_elections(Val)),
+              TenurePenalty = max(0.0, 1.0 * (Recent - Factor)),
               %% penalties are positive in icdf
-              {Addr, normalize_float(Prob + Penalty)}
+              {Addr, normalize_float(Prob + Penalty + TenurePenalty)}
       end,
       Group).
 
@@ -643,9 +649,7 @@ has_new_group(Txns) ->
             false
     end.
 
-election_info(Ledger, Chain) ->
-    %% grab the current height and get the block.
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+election_info(Height, Chain) when is_integer(Height) ->
     {ok, Block} = blockchain:get_block(Height, Chain),
 
     %% get the election info
@@ -670,7 +674,11 @@ election_info(Ledger, Chain) ->
       start_height => StartHeight,
       election_height => ElectionHeight,
       election_delay => ElectionDelay
-     }.
+     };
+election_info(Ledger, Chain) ->
+    %% grab the current height and get the block.
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    election_info(Height, Chain).
 
 get_election_txn(Block) ->
     Txns = blockchain_block:transactions(Block),

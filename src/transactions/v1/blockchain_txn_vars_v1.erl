@@ -1134,8 +1134,8 @@ validate_var(?validator_liveness_grace_period, Value) ->
 validate_var(?stake_withdrawl_cooldown, Value) ->
     %% maybe set this in the test
     validate_int(Value, "stake_withdrawl_cooldown", 5, 1000000, false);
- validate_var(testnet_oops, Value) ->
-     validate_int(Value, "testnet_oops", 1, 3, false);
+validate_var(dkg_penalties_version, Value) ->
+    validate_int(Value, "testnet_oops", 1, 2, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
