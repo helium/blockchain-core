@@ -14,7 +14,7 @@
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_failure_v1_pb.hrl").
 
--export([new/3, hash/1, failed_members/1, members/1, height/1, delay/1, signatures/1, fee/1, sign/2, is_valid/2, absorb/2, print/1, to_json/2]).
+-export([new/3, hash/1, failed_members/1, members/1, height/1, delay/1, signatures/1, fee/1, sign/2, verify_signature/3, set_signatures/2, is_valid/2, absorb/2, print/1, to_json/2]).
 
 -type txn_consensus_group_failure() :: #blockchain_txn_consensus_group_failure_v1_pb{}.
 -export_type([txn_consensus_group_failure/0]).
@@ -58,6 +58,17 @@ fee(_Txn) ->
 sign(Txn, SigFun) ->
     Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(Txn#blockchain_txn_consensus_group_failure_v1_pb{members=[], signatures=[]}),
     SigFun(Artifact).
+
+-spec verify_signature(txn_consensus_group_failure(), libp2p_crypto:pubkey_bin(), binary()) -> boolean().
+verify_signature(Txn, Address, Signature) ->
+    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(Txn#blockchain_txn_consensus_group_failure_v1_pb{members=[], signatures=[]}),
+    libp2p_crypto:verify(Artifact, Signature,
+                         libp2p_crypto:bin_to_pubkey(Address)).
+
+-spec set_signatures(txn_consensus_group_failure(), [{libp2p_crypto:pubkey_bin(), binary()}]) -> txn_consensus_group_failure().
+set_signatures(Txn, AddrsAndSignatures) ->
+    {Members, Signatures} = lists:unzip(AddrsAndSignatures),
+    Txn#blockchain_txn_consensus_group_failure_v1_pb{members=Members, signatures=Signatures}.
 
 -spec is_valid(txn_consensus_group_failure(), blockchain:blockchain()) -> {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
