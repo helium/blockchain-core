@@ -177,12 +177,12 @@ deserialize(<<1, Bin/binary>>) ->
 print(Validator, Height, Verbose) ->
     case Verbose of
         true ->
-            [{validator_address, libp2p_crypto:pubkey_bin_to_b58(address(Validator))},
+            [{validator_address, libp2p_crypto:bin_to_b58(address(Validator))},
              {nonce, nonce(Validator)}];
         false -> []
     end ++
         [
-         {owner_address, libp2p_crypto:pubkey_bin_to_b58(owner_address(Validator))},
+         {owner_address, libp2p_crypto:bin_to_b58(owner_address(Validator))},
          {last_heartbeat, Height - last_heartbeat(Validator)},
          {stake, stake(Validator)},
          {status, status(Validator)},
