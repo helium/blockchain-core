@@ -138,7 +138,7 @@ is_valid(Txn, Chain) ->
                     _ -> ok
                 end;
             %% too far, we've elected since
-            {ok, _} ->
+            _ ->
                 throw(too_old)
         end
     catch throw:E ->

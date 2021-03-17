@@ -174,13 +174,18 @@ deserialize(<<1, Bin/binary>>) ->
 -spec print(Validator :: validator(),
             Height :: pos_integer(),
             Verbose :: boolean()) -> list().
-print(Validator, Height, _Verbose) ->
-    [
-     {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Validator))},
-     {last_heartbeat, Height - last_heartbeat(Validator)},
-     {stake, stake(Validator)},
-     {status, status(Validator)},
-     {version, version(Validator)},
-     {failures, length(recent_failures(Validator))},
-     {nonce, nonce(Validator)}
-    ].
+print(Validator, Height, Verbose) ->
+    case Verbose of
+        true ->
+            [{validator_address, libp2p_crypto:pubkey_bin_to_b58(address(Validator))},
+             {nonce, nonce(Validator)}];
+        false -> []
+    end ++
+        [
+         {owner_address, libp2p_crypto:pubkey_bin_to_b58(owner_address(Validator))},
+         {last_heartbeat, Height - last_heartbeat(Validator)},
+         {stake, stake(Validator)},
+         {status, status(Validator)},
+         {version, version(Validator)},
+         {failures, length(recent_failures(Validator))}
+        ].

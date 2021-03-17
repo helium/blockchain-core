@@ -778,7 +778,12 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                                   Acc;
                               _ ->
                                   DKGPenalty = calc_dkg_penalty(DKGPenaltyAmt, DKGPenaltyLimit, Height, Failures),
-                                  {Old, [Val#val_v1{prob = max(0.0, Prob - DKGPenalty)} | Candidates]}
+                                  case max(0.0, Prob - DKGPenalty) of
+                                      %% don't even consider until some of these failures have aged out
+                                      0.0 -> Acc;
+                                      NewProb ->
+                                          {Old, [Val#val_v1{prob = NewProb} | Candidates]}
+                                  end
                           end
                   end
           end,
