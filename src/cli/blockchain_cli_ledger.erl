@@ -23,6 +23,7 @@ register_all_usage() ->
                    ledger_balance_usage(),
                    ledger_export_usage(),
                    ledger_gateways_usage(),
+                   ledger_validators_usage(),
                    ledger_variables_usage(),
                    ledger_usage()
                   ]).
@@ -35,6 +36,7 @@ register_all_cmds() ->
                    ledger_balance_cmd(),
                    ledger_export_cmd(),
                    ledger_gateways_cmd(),
+                   ledger_validators_cmd(),
                    ledger_variables_cmd(),
                    ledger_cmd()
                   ]).
@@ -173,13 +175,13 @@ ledger_gateways_usage() ->
     ].
 
 ledger_gateways(_CmdBase, [], []) ->
-    R = ledger_fold(false),
+    R = ledger_gw_fold(false),
     [clique_status:table(R)];
 ledger_gateways(_CmdBase, [], [{verbose, _}]) ->
-    R = ledger_fold(true),
+    R = ledger_gw_fold(true),
     [clique_status:table(R)].
 
-ledger_fold(Verbose) ->
+ledger_gw_fold(Verbose) ->
     Ledger = get_ledger(),
     blockchain_ledger_v1:cf_fold(
       active_gateways,
@@ -190,11 +192,51 @@ ledger_fold(Verbose) ->
       [],
       Ledger).
 
+ledger_validators_cmd() ->
+    [
+     [["ledger", "validators"], [], [], fun ledger_validators/3],
+     [["ledger", "validators"], [],
+      [{verbose, [{shortname, "v"},
+                  {longname, "verbose"}]}],
+      fun ledger_validators/3]
+    ].
+
+ledger_validators_usage() ->
+    [["ledger", "validators"],
+     ["ledger validators\n\n",
+      "  Retrieve all validators and a table of information about them.\n"
+     ]
+    ].
+
+ledger_validators(_CmdBase, [], []) ->
+    R = ledger_val_fold(false),
+    [clique_status:table(R)];
+ledger_validators(_CmdBase, [], [{verbose, _}]) ->
+    R = ledger_val_fold(true),
+    [clique_status:table(R)].
+
+ledger_val_fold(Verbose) ->
+    Ledger = get_ledger(),
+    blockchain_ledger_v1:cf_fold(
+      validators,
+      fun({Addr, BinVal}, Acc) ->
+              Val = blockchain_ledger_gateway_v1:deserialize(BinVal),
+              [format_ledger_validator(Addr, Val, Ledger, Verbose) | Acc]
+      end,
+      [],
+      Ledger).
+
 format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger, Verbose) ->
     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(libp2p_crypto:bin_to_pubkey(GatewayAddr))),
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
      {name, Name} |
      blockchain_ledger_gateway_v2:print(GatewayAddr, Gateway, Ledger, Verbose)].
+
+format_ledger_validator(ValAddr, Validator, Ledger, Verbose) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(ValAddr)},
+     {name, blockchain_utils:addr2name(ValAddr)} |
+     blockchain_ledger_validator_v1:print(Validator, Height, Verbose)].
 
 %% ledger variables
 

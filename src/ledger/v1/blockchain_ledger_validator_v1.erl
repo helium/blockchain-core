@@ -18,7 +18,8 @@
          status/1, status/2,
          nonce/1, nonce/2,
          version/1, version/2,
-         serialize/1, deserialize/1
+         serialize/1, deserialize/1,
+         print/3
         ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -169,3 +170,17 @@ serialize(Validator) ->
 -spec deserialize(binary()) -> validator().
 deserialize(<<1, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+-spec print(Validator :: validator(),
+            Height :: pos_integer(),
+            Verbose :: boolean()) -> list().
+print(Validator, Height, _Verbose) ->
+    [
+     {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Validator))},
+     {last_heartbeat, Height - last_heartbeat(Validator)},
+     {stake, stake(Validator)},
+     {status, status(Validator)},
+     {version, version(Validator)},
+     {failures, length(recent_failures(Validator))},
+     {nonce, nonce(Validator)}
+    ].
