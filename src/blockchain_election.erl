@@ -212,7 +212,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                 lists:sublist(lists:sort(Gateways), 1, NewLen)
         end,
     lager:debug("to rem ~p", [an(ToRem)]),
-    (OldGroup0 -- ToRem) ++ New.
+    blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
 
 an(M) ->
     lists:map(fun blockchain_utils:addr2name/1, M).
