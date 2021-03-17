@@ -17,6 +17,7 @@
         {
          prob :: float(),
          heartbeat :: pos_integer(),
+         failures :: [{pos_integer(), pos_integer()}],
          addr :: libp2p_crypto:pubkey_bin()
         }).
 
@@ -300,7 +301,10 @@ adjust_old_group_v2(Group, Ledger) ->
     Penalties = get_penalties(Blocks, length(Group), Ledger),
     lager:debug("penalties ~p", [Penalties]),
 
-    {ok, Factor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
+    %% {ok, Factor} = blockchain_cledger_v1:config(?election_replacement_factor, Ledger),
+    {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
+    {ok, DKGPenaltyLimit} = blockchain_ledger_v1:config(?dkg_penalty_history_limit, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
     lists:map(
@@ -310,12 +314,25 @@ adjust_old_group_v2(Group, Ledger) ->
 
               %% calculate tenuring penalty
               {ok, Val} = blockchain_ledger_v1:get_validator(Addr, Ledger),
-              Recent = length(blockchain_ledger_validator_v1:recent_elections(Val)),
-              TenurePenalty = max(0.0, 1.0 * (Recent - Factor)),
+              %% Recent = length(blockchain_ledger_validator_v1:recent_elections(Val)),
+
+              RecentFailures = blockchain_ledger_validator_v1:recent_failures(Val),
+              DKGPenalty = calc_dkg_penalty(DKGPenaltyAmt, DKGPenaltyLimit, Height, RecentFailures),
+              %% TenurePenalty = max(0.0, 1.0 * (Recent - Factor)),
               %% penalties are positive in icdf
-              {Addr, normalize_float(Prob + Penalty + TenurePenalty)}
+              {Addr, normalize_float(Prob + Penalty + DKGPenalty)} % + TenurePenalty)}
       end,
       Group).
+
+calc_dkg_penalty(Amt, Limit, Height, Failures) ->
+    Tot =
+        lists:foldl(
+          fun({H, D}, Acc) ->
+                  Acc + (Amt * max(1, (1 - (Height - (H+D))/Limit)))
+          end,
+          0.0,
+          Failures),
+    blockchain_utils:normalize_float(Tot).
 
 get_penalties(Blocks, Sz, Ledger) ->
     {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
@@ -694,18 +711,32 @@ get_election_txn(Block) ->
 
 validators_filter(Ledger) ->
     {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+    {LimitVersion, AllowedVersion} =
+        case blockchain:config(?election_allowed_version, Ledger) of
+            {ok, Vers} ->
+                {true, Vers};
+            _ ->
+                {false, undefined}
+        end,
     blockchain_ledger_v1:cf_fold(
       validators,
       fun({Addr, BinVal}, Acc) ->
               Val = blockchain_ledger_validator_v1:deserialize(BinVal),
               Stake = blockchain_ledger_validator_v1:stake(Val),
               Status = blockchain_ledger_validator_v1:status(Val),
+              Version = blockchain_ledger_validator_v1:version(Val),
               HB = blockchain_ledger_validator_v1:last_heartbeat(Val),
+              Failures = blockchain_ledger_validator_v1:recent_failures(Val),
               case Stake >= MinStake andalso Status == staked of
                   true ->
-                      maps:put(Addr, #val_v1{addr = Addr,
-                                             heartbeat = HB,
-                                             prob = 1.0}, Acc);
+                      case LimitVersion == false orelse Version == AllowedVersion of
+                          true ->
+                              maps:put(Addr, #val_v1{addr = Addr,
+                                                     heartbeat = HB,
+                                                     failures = Failures,
+                                                     prob = 1.0}, Acc);
+                          _ -> Acc
+                      end;
                   _ -> Acc
               end
       end,
@@ -716,11 +747,16 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
     {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
     {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
+
+    {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
+    {ok, DKGPenaltyLimit} = blockchain_ledger_v1:config(?dkg_penalty_history_limit, Ledger),
+
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {Group, Pool} =
         maps:fold(
-          fun(Addr, Val = #val_v1{heartbeat = Last}, {Old, Candidates} = Acc) ->
+          fun(Addr, Val = #val_v1{heartbeat = Last, prob = Prob, failures = Failures},
+              {Old, Candidates} = Acc) ->
                   Offline = (Height - Last) > (HBInterval + HBGrace),
                   case lists:member(Addr, OldGroup0) of
                       true ->
@@ -741,7 +777,8 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                               true ->
                                   Acc;
                               _ ->
-                                  {Old, [Val | Candidates]}
+                                  DKGPenalty = calc_dkg_penalty(DKGPenaltyAmt, DKGPenaltyLimit, Height, Failures),
+                                  {Old, [Val#val_v1{prob = max(0.0, Prob - DKGPenalty)} | Candidates]}
                           end
                   end
           end,

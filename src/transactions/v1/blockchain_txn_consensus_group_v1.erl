@@ -198,7 +198,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Height = ?MODULE:height(Txn),
-    Delay = delay(Txn),
+    %% Delay = delay(Txn),
     Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
     Check =

@@ -413,3 +413,6 @@
 %% -define(maximum_overstake, maximum_overstake). % float multiple of min stake
 
 -define(dkg_penalty_history_limit, dkg_penalty_history_limit). % blocks
+-define(dkg_penalty, dkg_penalty). % float
+
+-define(election_allowed_version, election_allowed_version). % int

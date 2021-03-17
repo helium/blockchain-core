@@ -1137,6 +1137,11 @@ validate_var(?stake_withdrawl_cooldown, Value) ->
 validate_var(dkg_penalties_version, Value) ->
     validate_int(Value, "testnet_oops", 1, 2, false);
 
+validate_var(?dkg_penalty, Value) ->
+    validate_float(Value, "dkg_penalty", 0.0, 5.0);
+validate_var(?dkg_penalty_history_limit, Value) ->
+    validate_int(Value, "dkg_penalty_history_limit", 90, 100000, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

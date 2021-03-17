@@ -75,62 +75,74 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     FailedMembers = ?MODULE:failed_members(Txn),
     Delay = ?MODULE:delay(Txn),
-    try
-        case FailedMembers of
-            [] ->
-                throw({error, no_members});
-            _ ->
-                ok
-        end,
-        TxnHeight = ?MODULE:height(Txn),
-        case blockchain_ledger_v1:current_height(Ledger) of
-            %% no chain, genesis block
-            {ok, 0} ->
-                throw({error, invalid_in_genesis_block});
-            {ok, CurrHeight} ->
-                {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+    TxnHeight = ?MODULE:height(Txn),
+    ReportHeight = TxnHeight + Delay,
+    {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
+    #{election_height := ElectionHeight,
+      election_delay := ElectionDelay} = blockchain_election:election_info(CurrHeight, Chain),
 
-                case blockchain_ledger_v1:election_height(Ledger) of
-                    %% no chain, genesis block
-                    {error, not_found} ->
-                        throw({error, invalid_in_genesis_block});
-                    {ok, BaseHeight} when TxnHeight > BaseHeight ->
-                        ok;
-                    {ok, BaseHeight} ->
-                        throw({error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}})
-                end,
-                %% TODO check for replays here
-                %% TODO sanity check these validity criteria
-                {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
-                {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
-                %% The next election should be at least ElectionInterval blocks past the last election
-                %% This check prevents elections ahead of schedule
-                case TxnHeight >= LastElectionHeight + ElectionInterval of
-                    true ->
-                        EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
-                        {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                        {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
-                        %% The next election should occur within RestartInterval blocks of when the election started
-                        NextRestart = LastElectionHeight + ElectionInterval + Delay + RestartInterval,
-                        case CurrHeight > NextRestart of
-                            true ->
-                                throw({error, {txn_too_old, {CurrHeight, NextRestart}}});
-                            _ ->
-                                ok
-                        end,
-                        Hash = blockchain_block:hash_block(Block),
-                        {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
-                        case verify_proof(Txn, Hash, OldLedger) of
-                            ok -> ok;
-                            {error, _} = VerifyErr -> throw(VerifyErr)
-                        end;
-                    _ ->
-                        throw({error, {election_too_early, {TxnHeight,
-                                       LastElectionHeight + ElectionInterval}}})
-                end
+    try
+        case blockchain_ledger_v1:config(?election_version, Ledger) of
+            {ok, N} when N >= 5 -> ok;
+            _ -> throw(no_validators)
+        end,
+        case FailedMembers of
+            [] -> throw(no_members);
+            _ -> ok
+        end,
+        case CurrHeight of
+            %% no chain, genesis block
+            0 -> throw(invalid_in_genesis_block);
+            _ -> ok
+        end,
+
+        %% is the proof reasonable?
+        {ok, OldLedger} = blockchain:ledger_at(ReportHeight, Chain),
+        {ok, Block} = blockchain:get_block(ReportHeight, Chain),
+        Hash = blockchain_block:hash_block(Block),
+        case verify_proof(Txn, Hash, OldLedger) of
+            ok -> ok;
+            {error, VerifyErr} -> throw(VerifyErr)
+        end,
+
+        %% has there already been a report about this dkg
+        lists:foreach(
+          fun(M) ->
+                  case blockchain_ledger_v1:get_validator(M, Ledger) of
+                      {ok, V} ->
+                          Failures = blockchain_ledger_validator_v1:recent_failures(V),
+                          lists:any(fun({H, D}) ->
+                                            H == TxnHeight andalso D == Delay
+                                    end, Failures);
+                      GetErr ->
+                          throw({bad_validator, GetErr})
+                  end
+          end, FailedMembers),
+
+        %% {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+
+        {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+        case Delay rem ElectionInterval of
+            0 -> ok;
+            _ -> throw(not_an_election)
+        end,
+        case ElectionHeight of
+            %% before a successful election
+            BaseHeight when TxnHeight < BaseHeight ->
+                %% need more here?  I'm not sure what else to check
+                ok;
+            %% after a successful election
+            BaseHeight when TxnHeight == BaseHeight->
+                case Delay == ElectionDelay of
+                    true -> throw(successful_election);
+                    _ -> ok
+                end;
+            %% too far, we've elected since
+            {ok, _} ->
+                throw(too_old)
         end
     catch throw:E ->
-            E
+            {error, E}
     end.
 
 verify_proof(Txn, Hash, OldLedger) ->
