@@ -168,7 +168,7 @@ verify_proof(Txn, Hash, OldLedger) ->
          %% check the members and the failed members have no overlap
          not lists:any(fun(Addr) -> lists:member(Addr, members(Txn)) end, failed_members(Txn)) andalso
          %% verify we have enough signatures
-         length(members(Txn)) >= (3*F)+1 of
+         length(members(Txn)) >= (2*F)+1 of
         true ->
             ok;
         _ ->
