@@ -287,7 +287,7 @@ absorb(Txn, Chain) ->
                                     {error, _Reason} = Err ->
                                         Err;
                                     ok ->
-                                    blockchain_ledger_v1:credit_account(OldOwner, Amount, Ledger)
+                                        blockchain_ledger_v1:credit_account(OldOwner, Amount, Ledger)
                                 end;
                             false ->
                                 ok
