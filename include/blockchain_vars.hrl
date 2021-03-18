@@ -36,6 +36,7 @@
 
 %% number of blocks before a running dkg is canceled and a new one is initiated
 -define(election_restart_interval, election_restart_interval).
+-define(election_restart_interval_range, election_restart_interval_range).
 
 %% per-block penalty for consensus nodes that don't finish a
 %% particular bba for a round.

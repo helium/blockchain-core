@@ -151,8 +151,14 @@ is_valid(Txn, Chain) ->
                         EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                         {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
+                        IntervalRange =
+                            case blockchain:config(?election_restart_interval_range, Ledger) of
+                                {ok, IR} -> IR;
+                                _ -> 1
+                            end,
                         %% The next election should occur within RestartInterval blocks of when the election started
-                        NextRestart = LastElectionHeight + ElectionInterval + Delay + RestartInterval,
+                        NextRestart = LastElectionHeight + ElectionInterval + Delay +
+                            (RestartInterval * IntervalRange),
                         case CurrHeight > NextRestart of
                             true ->
                                 throw({error, {txn_too_old, {CurrHeight, NextRestart}}});

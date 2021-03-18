@@ -740,6 +740,8 @@ validate_var(?election_interval, Value) ->
     validate_int(Value, "election_interval", 5, 100, true);
 validate_var(?election_restart_interval, Value) ->
     validate_int(Value, "election_restart_interval", 5, 100, false);
+validate_var(?election_restart_interval_range, Value) ->
+    validate_int(Value, "election_restart_interval_range", 1, 5, false);
 validate_var(?election_bba_penalty, Value) ->
     validate_float(Value, "election_bba_penalty", 0.001, 0.5);
 validate_var(?election_seen_penalty, Value) ->
