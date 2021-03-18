@@ -123,6 +123,8 @@ is_valid(Txn, Chain) ->
 
         {ok, ElectionInterval} = blockchain:config(?election_interval, OldLedger),
         {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, OldLedger),
+        %% clean up ledger context
+        blockchain_ledger_v1:delete_context(OldLedger),
         case Delay rem ElectionRestartInterval of
             0 -> ok;
             _ -> throw(bad_restart_height)
@@ -154,9 +156,6 @@ verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list
     {ok, L} = blockchain:config(?num_consensus_members, OldLedger),
     Members = blockchain_election:new_group(OldLedger, Hash, L, delay(Txn)),
-    %% clean up ledger context
-    blockchain_ledger_v1:delete_context(OldLedger),
-
     F = floor((length(Members) - 1) / 3),
     Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(Txn#blockchain_txn_consensus_group_failure_v1_pb{members=[], signatures=[]}),
 
