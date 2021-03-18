@@ -11,10 +11,15 @@
          owner_address/1, owner_address/2,
          stake/1, stake/2,
          last_heartbeat/1, last_heartbeat/2,
+         %% add_recent_election/3,
+         %% recent_elections/1,
+         add_recent_failure/4,
+         recent_failures/1,
          status/1, status/2,
          nonce/1, nonce/2,
          version/1, version/2,
-         serialize/1, deserialize/1
+         serialize/1, deserialize/1,
+         print/3
         ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -34,7 +39,9 @@
          heartbeat = 1 :: pos_integer(),
          nonce = 1 :: pos_integer(),
          version = 1 :: pos_integer(),
-         status = staked :: status()
+         status = staked :: status(),
+         recent_elections = [] :: [pos_integer()],
+         recent_failures = [] :: [pos_integer()]
         }).
 
 -type status() :: staked | unstaked | cooldown.
@@ -117,6 +124,44 @@ status(Validator) ->
 status(Status, Validator) ->
     Validator#validator_v1{status = Status}.
 
+%% -spec add_recent_election(Validator :: validator(),
+%%                           Height :: pos_integer(),
+%%                           Chain :: blockchain:blockchain()) ->
+%%           validator().
+%% add_recent_election(Validator, HeightDelay, Chain) ->
+%%     Recent = Validator#validator_v1.recent_elections,
+%%     ElectionChain = get_election_chain(HeightDelay, Recent, Chain, []),
+%%     Validator#validator_v1{recent_elections = ElectionChain}.
+
+%% get_election_chain(HeightDelay, Recent, Chain, Acc) ->
+%%     #{start_height := Start} = blockchain_election:election_info(Height, Chain),
+%%     case Recent of
+%%         %% unbroken chain of elections so far, go one link back
+%%         [Start | Tail] ->
+%%             get_election_chain(Start, Tail, Chain, [Height | Acc]);
+%%         _ ->
+%%             lists:reverse([Height | Acc])
+%%     end.
+
+%% -spec recent_elections(Validator :: validator()) -> [pos_integer()].
+%% recent_elections(Validator) ->
+%%     Validator#validator_v1.recent_elections.
+
+-spec add_recent_failure(Validator :: validator(),
+                         Height :: pos_integer(),
+                         Delay :: pos_integer(),
+                         Ledger :: blockchain:ledger()) ->
+          validator().
+add_recent_failure(Validator, Height, Delay, Ledger) ->
+    Recent0 = Validator#validator_v1.recent_failures,
+    {ok, Limit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    Recent = lists:filter(fun({H, _D}) -> (Height - H) =< Limit end, Recent0),
+    Validator#validator_v1{recent_failures = lists:sort([{Height, Delay} | Recent])}.
+
+-spec recent_failures(Validator :: validator()) -> [pos_integer()].
+recent_failures(Validator) ->
+    Validator#validator_v1.recent_failures.
+
 -spec serialize(Validator :: validator()) -> binary().
 serialize(Validator) ->
     BinVal = erlang:term_to_binary(Validator, [compressed]),
@@ -125,3 +170,22 @@ serialize(Validator) ->
 -spec deserialize(binary()) -> validator().
 deserialize(<<1, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+-spec print(Validator :: validator(),
+            Height :: pos_integer(),
+            Verbose :: boolean()) -> list().
+print(Validator, Height, Verbose) ->
+    case Verbose of
+        true ->
+            [{validator_address, libp2p_crypto:bin_to_b58(address(Validator))},
+             {nonce, nonce(Validator)}];
+        false -> []
+    end ++
+        [
+         {owner_address, libp2p_crypto:bin_to_b58(owner_address(Validator))},
+         {last_heartbeat, Height - last_heartbeat(Validator)},
+         {stake, stake(Validator)},
+         {status, status(Validator)},
+         {version, version(Validator)},
+         {failures, length(recent_failures(Validator))}
+        ].

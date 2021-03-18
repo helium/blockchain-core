@@ -16,6 +16,7 @@
              | blockchain_txn_coinbase_v1:txn_coinbase()
              | blockchain_txn_security_coinbase_v1:txn_security_coinbase()
              | blockchain_txn_consensus_group_v1:txn_consensus_group()
+             | blockchain_txn_consensus_group_failure_v1:txn_consensus_group()
              | blockchain_txn_gen_gateway_v1:txn_genesis_gateway()
              | blockchain_txn_payment_v1:txn_payment()
              | blockchain_txn_security_exchange_v1:txn_security_exchange()
@@ -124,7 +125,8 @@
     {blockchain_txn_transfer_validator_stake_v1, 29},
     {blockchain_txn_unstake_validator_v1, 30},
     {blockchain_txn_validator_heartbeat_v1, 31},
-    {blockchain_txn_gen_price_oracle_v1, 32}
+    {blockchain_txn_gen_price_oracle_v1, 32},
+    {blockchain_txn_consensus_group_failure_v1, 33}
 ]).
 
 block_delay() ->
@@ -213,7 +215,9 @@ wrap_txn(#blockchain_txn_transfer_validator_stake_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_unstake_validator_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={unstake_validator, Txn}};
 wrap_txn(#blockchain_txn_validator_heartbeat_v1_pb{} = Txn) ->
-    #blockchain_txn_pb{txn={val_heartbeat, Txn}}.
+    #blockchain_txn_pb{txn={val_heartbeat, Txn}};
+wrap_txn(#blockchain_txn_consensus_group_failure_v1_pb{} = Txn) ->
+    #blockchain_txn_pb{txn={consensus_group_failure, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -565,6 +569,8 @@ type(#blockchain_txn_security_coinbase_v1_pb{}) ->
     blockchain_txn_security_coinbase_v1;
 type(#blockchain_txn_consensus_group_v1_pb{}) ->
     blockchain_txn_consensus_group_v1;
+type(#blockchain_txn_consensus_group_failure_v1_pb{}) ->
+    blockchain_txn_consensus_group_failure_v1;
 type(#blockchain_txn_poc_request_v1_pb{}) ->
     blockchain_txn_poc_request_v1;
 type(#blockchain_txn_poc_receipts_v1_pb{}) ->

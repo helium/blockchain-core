@@ -17,6 +17,7 @@
         {
          prob :: float(),
          heartbeat :: pos_integer(),
+         failures :: [{pos_integer(), pos_integer()}],
          addr :: libp2p_crypto:pubkey_bin()
         }).
 
@@ -211,7 +212,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                 lists:sublist(lists:sort(Gateways), 1, NewLen)
         end,
     lager:debug("to rem ~p", [an(ToRem)]),
-    (OldGroup0 -- ToRem) ++ New.
+    blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
 
 an(M) ->
     lists:map(fun blockchain_utils:addr2name/1, M).
@@ -297,19 +298,44 @@ adjust_old_group_v2(Group, Ledger) ->
     Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
               || Ht <- lists:seq(Start + 2, End)],
 
-    Penalties = get_penalties(Blocks, length(Group), Ledger),
-    lager:debug("penalties ~p", [Penalties]),
+    Penalties = get_penalties_v2(Blocks, length(Group), Ledger),
+    lager:info("penalties ~p", [Penalties]),
 
+    %% {ok, Factor} = blockchain_cledger_v1:config(?election_replacement_factor, Ledger),
+    {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
     lists:map(
       fun(#val_v1{prob = Prob, addr = Addr}) ->
               Index = maps:get(Addr, Addrs),
               Penalty = maps:get(Index, Penalties, 0.0),
+
+              %% calculate tenuring penalty
+              {ok, Val} = blockchain_ledger_v1:get_validator(Addr, Ledger),
+              %% Recent = length(blockchain_ledger_validator_v1:recent_elections(Val)),
+
+              RecentFailures = blockchain_ledger_validator_v1:recent_failures(Val),
+              DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
+                                                     lists:map(fun({H, D}) -> H+D end, RecentFailures)),
+              %% TenurePenalty = max(0.0, 1.0 * (Recent - Factor)),
               %% penalties are positive in icdf
-              {Addr, normalize_float(Prob + Penalty)}
+              {Addr, normalize_float(Prob + Penalty + DKGPenalty)} % + TenurePenalty)}
       end,
       Group).
+
+calc_age_weighted_penalty(Amt, Limit, Height, Instances) ->
+    Tot =
+        lists:foldl(
+          fun(H, Acc) ->
+                  BlocksAgo = Height - H,
+                  %% 1 - ago/limit = linear inverse weighting for recency
+                  Acc + (Amt * (1 - (BlocksAgo/Limit)))
+          end,
+          0.0,
+          Instances),
+    blockchain_utils:normalize_float(Tot).
 
 get_penalties(Blocks, Sz, Ledger) ->
     {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
@@ -361,6 +387,76 @@ get_penalties(Blocks, Sz, Ledger) ->
       end,
       Penalties0,
       Seens).
+
+get_penalties_v2(Blocks, Sz, Ledger) ->
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    BBAs = [begin
+                BBA0 = blockchain_block_v1:bba_completion(Block),
+                Ht = blockchain_block_v1:height(Block),
+                {Ht, blockchain_utils:bitvector_to_map(Sz, BBA0)}
+            end || Block <- Blocks],
+
+    BBAPenalties =
+        lists:foldl(
+          fun({Ht, BBA}, Acc) ->
+                  %% we want to generate a list for each idx where we have a height entry for each place
+                  %% where the BBA map is false for that index
+                  maps:fold(
+                    fun(Idx, false, A) ->
+                            maps:update_with(Idx, fun(X) -> [Ht | X]  end, A);
+                       (_, _, A) -> A
+                    end, Acc, BBA)
+          end,
+          maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
+          BBAs),
+
+    lager:info("bba pens ~p", [BBAPenalties]),
+
+    Penalties0 =
+        maps:map(
+          fun(_Idx, HtList) ->
+                  calc_age_weighted_penalty(BBAPenalty, PenaltyLimit, Height, HtList)
+          end,
+          BBAPenalties),
+
+    Seens = [begin
+                 Seen0 = blockchain_block_v1:seen_votes(Block),
+                 Ht = blockchain_block_v1:height(Block),
+                 %% votes here are lists of per-participant seen
+                 %% information. condense here summarizes them, and a
+                 %% node is only voted against if there are 2f+1
+                 %% votes against it.
+                 {Ht, condense_votes(Sz, Seen0)}
+             end || Block <- Blocks],
+
+    SeenPenalties =
+        lists:foldl(
+          fun({Ht, Seen}, Acc) ->
+                  %% we want to generate a list for each idx where we have a height entry for each place
+                  %% where the BBA map is false for that index
+                  maps:fold(
+                    fun(Idx, false, A) ->
+                            maps:update_with(Idx, fun(X) -> [Ht | X]  end, A);
+                       (_, _, A) -> A
+                    end, Acc, Seen)
+          end,
+          maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
+          Seens),
+
+    lager:debug("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
+    lager:info("penalties0 ~p", [Penalties0]),
+
+    maps:fold(
+      fun(Idx, HtList, Acc) ->
+              SeenPen = calc_age_weighted_penalty(SeenPenalty, PenaltyLimit, Height, HtList),
+              maps:update_with(Idx, fun(X) -> SeenPen + X end, Acc)
+      end,
+      Penalties0,
+      SeenPenalties).
 
 condense_votes(Sz, Seen0) ->
     SeenMaps = [blockchain_utils:bitvector_to_map(Sz, S)
@@ -643,9 +739,7 @@ has_new_group(Txns) ->
             false
     end.
 
-election_info(Ledger, Chain) ->
-    %% grab the current height and get the block.
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+election_info(Height, Chain) when is_integer(Height) ->
     {ok, Block} = blockchain:get_block(Height, Chain),
 
     %% get the election info
@@ -670,7 +764,11 @@ election_info(Ledger, Chain) ->
       start_height => StartHeight,
       election_height => ElectionHeight,
       election_delay => ElectionDelay
-     }.
+     };
+election_info(Ledger, Chain) ->
+    %% grab the current height and get the block.
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    election_info(Height, Chain).
 
 get_election_txn(Block) ->
     Txns = blockchain_block:transactions(Block),
@@ -686,18 +784,32 @@ get_election_txn(Block) ->
 
 validators_filter(Ledger) ->
     {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+    {LimitVersion, AllowedVersion} =
+        case blockchain:config(?election_allowed_version, Ledger) of
+            {ok, Vers} ->
+                {true, Vers};
+            _ ->
+                {false, undefined}
+        end,
     blockchain_ledger_v1:cf_fold(
       validators,
       fun({Addr, BinVal}, Acc) ->
               Val = blockchain_ledger_validator_v1:deserialize(BinVal),
               Stake = blockchain_ledger_validator_v1:stake(Val),
               Status = blockchain_ledger_validator_v1:status(Val),
+              Version = blockchain_ledger_validator_v1:version(Val),
               HB = blockchain_ledger_validator_v1:last_heartbeat(Val),
+              Failures = blockchain_ledger_validator_v1:recent_failures(Val),
               case Stake >= MinStake andalso Status == staked of
                   true ->
-                      maps:put(Addr, #val_v1{addr = Addr,
-                                             heartbeat = HB,
-                                             prob = 1.0}, Acc);
+                      case LimitVersion == false orelse Version == AllowedVersion of
+                          true ->
+                              maps:put(Addr, #val_v1{addr = Addr,
+                                                     heartbeat = HB,
+                                                     failures = Failures,
+                                                     prob = 1.0}, Acc);
+                          _ -> Acc
+                      end;
                   _ -> Acc
               end
       end,
@@ -708,11 +820,16 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
     {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
     {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
+
+    {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {Group, Pool} =
         maps:fold(
-          fun(Addr, Val = #val_v1{heartbeat = Last}, {Old, Candidates} = Acc) ->
+          fun(Addr, Val = #val_v1{heartbeat = Last, prob = Prob, failures = Failures},
+              {Old, Candidates} = Acc) ->
                   Offline = (Height - Last) > (HBInterval + HBGrace),
                   case lists:member(Addr, OldGroup0) of
                       true ->
@@ -733,7 +850,14 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                               true ->
                                   Acc;
                               _ ->
-                                  {Old, [Val | Candidates]}
+                                  DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
+                                                                         lists:map(fun({H , D}) -> H+D end, Failures)),
+                                  case max(0.0, Prob - DKGPenalty) of
+                                      %% don't even consider until some of these failures have aged out
+                                      0.0 -> Acc;
+                                      NewProb ->
+                                          {Old, [Val#val_v1{prob = NewProb} | Candidates]}
+                                  end
                           end
                   end
           end,

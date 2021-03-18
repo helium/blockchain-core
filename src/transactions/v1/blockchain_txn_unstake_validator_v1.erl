@@ -15,10 +15,11 @@
 -include_lib("helium_proto/include/blockchain_txn_unstake_validator_v1_pb.hrl").
 
 -export([
-         new/2,
+         new/3,
          hash/1,
          address/1,
          owner/1,
+         stake_amount/1,
          owner_signature/1,
          fee/1, calculate_fee/2, calculate_fee/5,
          sign/2,
@@ -35,12 +36,13 @@
 -type txn_unstake_validator() :: #blockchain_txn_unstake_validator_v1_pb{}.
 -export_type([txn_unstake_validator/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer()) ->
           txn_unstake_validator().
-new(ValidatorAddress, OwnerAddress) ->
+new(ValidatorAddress, OwnerAddress, StakeAmount) ->
     #blockchain_txn_unstake_validator_v1_pb{
        address = ValidatorAddress,
-       owner = OwnerAddress
+       owner = OwnerAddress,
+       stake_amount = StakeAmount
     }.
 
 -spec hash(txn_unstake_validator()) -> blockchain_txn:hash().
@@ -52,6 +54,10 @@ hash(Txn) ->
 -spec owner(txn_unstake_validator()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_unstake_validator_v1_pb.owner.
+
+-spec stake_amount(txn_unstake_validator()) -> pos_integer().
+stake_amount(Txn) ->
+    Txn#blockchain_txn_unstake_validator_v1_pb.stake_amount.
 
 -spec address(txn_unstake_validator()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
@@ -125,6 +131,11 @@ is_valid(Txn, Chain) ->
                             cooldown -> throw(already_cooldown);
                             unstaked -> throw(already_unstaked)
                         end,
+                        ChainStake = blockchain_ledger_validator_v1:stake(V),
+                        case stake_amount(Txn) of
+                            ChainStake -> ok;
+                            Else -> throw({bad_stake, exp, ChainStake, got, Else})
+                        end,
                         case blockchain_ledger_validator_v1:owner_address(V) of
                             Owner -> ok;
                             _ -> throw(bad_owner)
@@ -155,9 +166,10 @@ absorb(Txn, Chain) ->
 print(undefined) -> <<"type=unstake_validator, undefined">>;
 print(#blockchain_txn_unstake_validator_v1_pb{
          owner = O,
-         address = Val}) ->
-    io_lib:format("type=unstake_validator, owner=~p, validator=~p",
-                  [?TO_B58(O), ?TO_ANIMAL_NAME(Val)]).
+         address = Val,
+         stake_amount = A}) ->
+    io_lib:format("type=unstake_validator, owner=~p, validator=~p, stake_amount=~p",
+                  [?TO_B58(O), ?TO_ANIMAL_NAME(Val), A]).
 
 
 -spec to_json(txn_unstake_validator(), blockchain_json:opts()) -> blockchain_json:json_object().
@@ -168,7 +180,8 @@ to_json(Txn, _Opts) ->
       address => ?BIN_TO_B58(address(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),
       owner_signature => ?BIN_TO_B64(owner_signature(Txn)),
-      fee => fee(Txn)
+      fee => fee(Txn),
+      stake_amount => stake_amount(Txn)
      }.
 
 %% ------------------------------------------------------------------
@@ -177,7 +190,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, <<"owner_address">>),
+    Tx = new(<<"validator_address">>, <<"owner_address">>, 10),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_unstake_validator_v1_pb))).

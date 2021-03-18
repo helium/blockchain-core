@@ -15,7 +15,7 @@
 -include_lib("helium_proto/include/blockchain_txn_transfer_validator_stake_v1_pb.hrl").
 
 -export([
-         new/4, new/6,
+         new/5, new/7,
          hash/1,
          old_validator/1,
          new_validator/1,
@@ -23,7 +23,8 @@
          new_owner/1,
          old_owner_signature/1,
          new_owner_signature/1,
-         amount/1,
+         stake_amount/1,
+         payment_amount/1,
          fee/1, calculate_fee/2, calculate_fee/5,
          sign/2,
          new_owner_sign/2,
@@ -42,26 +43,27 @@
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           libp2p_crypto:pubkey_bin(),
-          pos_integer()) ->
+          pos_integer(), pos_integer()) ->
           txn_transfer_validator_stake().
 new(OldValidatorAddress, NewValidatorAddress,
-    OwnerAddress, Fee) ->
+    OwnerAddress, StakeAmount, Fee) ->
     new(OldValidatorAddress, NewValidatorAddress,
-        OwnerAddress, <<>>, 0, Fee).
+        OwnerAddress, <<>>, StakeAmount, 0, Fee).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          non_neg_integer(), pos_integer()) ->
+          non_neg_integer(), pos_integer(), pos_integer()) ->
           txn_transfer_validator_stake().
 new(OldValidatorAddress, NewValidatorAddress,
-    OldOwnerAddress, NewOwnerAddress, Amount,
-    Fee) ->
+    OldOwnerAddress, NewOwnerAddress,
+    StakeAmount, PaymentAmount, Fee) ->
     #blockchain_txn_transfer_validator_stake_v1_pb{
        old_address = OldValidatorAddress,
        new_address = NewValidatorAddress,
        new_owner = NewOwnerAddress,
        old_owner = OldOwnerAddress,
-       amount = Amount,
+       stake_amount = StakeAmount,
+       payment_amount = PaymentAmount,
        fee = Fee
     }.
 
@@ -87,9 +89,13 @@ new_validator(Txn) ->
 old_validator(Txn) ->
     Txn#blockchain_txn_transfer_validator_stake_v1_pb.old_address.
 
--spec amount(txn_transfer_validator_stake()) -> non_neg_integer().
-amount(Txn) ->
-    Txn#blockchain_txn_transfer_validator_stake_v1_pb.amount.
+-spec stake_amount(txn_transfer_validator_stake()) -> non_neg_integer().
+stake_amount(Txn) ->
+    Txn#blockchain_txn_transfer_validator_stake_v1_pb.stake_amount.
+
+-spec payment_amount(txn_transfer_validator_stake()) -> non_neg_integer().
+payment_amount(Txn) ->
+    Txn#blockchain_txn_transfer_validator_stake_v1_pb.payment_amount.
 
 -spec fee(txn_transfer_validator_stake()) -> non_neg_integer().
 fee(Txn) ->
@@ -188,7 +194,7 @@ is_valid(Txn, Chain) ->
                 end,
                 %% make sure them amount is encoded correctly and is only specified in the correct
                 %% case
-                case amount(Txn) of
+                case payment_amount(Txn) of
                     %% 0 is always ok
                     0 -> ok;
                     N when is_integer(N) andalso N >= 0 ->
@@ -226,7 +232,11 @@ is_valid(Txn, Chain) ->
                                 %% check stake is not 0
                                 case blockchain_ledger_validator_v1:stake(OV) of
                                     0 -> throw(cant_transfer_zero_stake);
-                                    _ -> ok
+                                    ChainStake ->
+                                        case stake_amount(Txn) of
+                                            ChainStake -> ok;
+                                            Else -> throw({bad_stake, exp, ChainStake, got, Else})
+                                        end
                                 end;
                             _ -> throw(bad_owner)
                         end;
@@ -246,7 +256,7 @@ absorb(Txn, Chain) ->
     OldOwner = old_owner(Txn),
     NewValidator = new_validator(Txn),
     OldValidator = old_validator(Txn),
-    Amount = amount(Txn),
+    Amount = payment_amount(Txn),
     Fee = fee(Txn),
 
     case blockchain_ledger_v1:debit_fee(OldOwner, Fee, Ledger, true) of
@@ -294,11 +304,12 @@ print(#blockchain_txn_transfer_validator_stake_v1_pb{
          old_owner = OO,
          new_address = NewVal,
          old_address = OldVal,
-         amount = Amount}) ->
+         stake_amount = StakeAmount,
+         payment_amount = PaymentAmount}) ->
     io_lib:format("type=transfer_validator_stake, old_owner=~p, new_owner(optional)=~p "
-                  "new_validator=~p, old_validator=~p, amount=~p",
+                  "new_validator=~p, old_validator=~p, stake_amount=~p, payment_amount=~p",
                   [?TO_B58(OO), ?TO_B58(NO), ?TO_ANIMAL_NAME(NewVal), ?TO_ANIMAL_NAME(OldVal),
-                   Amount]).
+                   StakeAmount, PaymentAmount]).
 
 
 -spec to_json(txn_transfer_validator_stake(), blockchain_json:opts()) -> blockchain_json:json_object().
@@ -312,7 +323,8 @@ to_json(Txn, _Opts) ->
       old_owner => ?BIN_TO_B58(old_owner(Txn)),
       old_owner_signature => ?BIN_TO_B64(old_owner_signature(Txn)),
       new_owner_signature => ?BIN_TO_B64(new_owner_signature(Txn)),
-      amount => amount(Txn),
+      stake_amount => stake_amount(Txn),
+      payment_amount => payment_amount(Txn),
       fee => fee(Txn)
      }.
 
@@ -323,7 +335,7 @@ to_json(Txn, _Opts) ->
 
 to_json_test() ->
     Tx = new(<<"old_validator_address">>, <<"new_validator_address">>,
-             <<"owner_address">>, 10),
+             <<"owner_address">>, 10, 10),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_transfer_validator_stake_v1_pb))).
