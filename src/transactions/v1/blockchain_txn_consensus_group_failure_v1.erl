@@ -121,15 +121,20 @@ is_valid(Txn, Chain) ->
 
         %% {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
 
-        {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
-        case Delay rem ElectionInterval of
+        {ok, ElectionInterval} = blockchain:config(?election_interval, OldLedger),
+        {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, OldLedger),
+        case Delay rem ElectionRestartInterval of
             0 -> ok;
-            _ -> throw(not_an_election)
+            _ -> throw(bad_restart_height)
         end,
         case ElectionHeight of
             %% before a successful election
             BaseHeight when TxnHeight < BaseHeight ->
                 %% need more here?  I'm not sure what else to check
+                case TxnHeight == BaseHeight + ElectionInterval of
+                    true -> ok;
+                    _ -> throw({bad_election_height, TxnHeight, BaseHeight + ElectionInterval})
+                end,
                 ok;
             %% after a successful election
             BaseHeight when TxnHeight == BaseHeight->
