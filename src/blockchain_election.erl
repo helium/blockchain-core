@@ -177,15 +177,11 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     %% remove dupes, sort
     {OldGroupDeduped, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
 
-    %% adjust for bbas and seen votes
-    OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
-
     %% random shuffle of all validators
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
     lager:debug("validators ~p ~p", [min(Replace, length(Validators1)), an2(Validators1)]),
-    lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
 
     %% replace select with iterative icdf
     New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
@@ -195,6 +191,10 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     ToRem =
         case have_gateways(OldGroup0, Ledger) of
             [] ->
+                %% adjust for bbas and seen votes
+                OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
+                lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
+
                 lager:debug("no gateways ~p", [OldGroupAdjusted]),
                 OldLen = length(OldGroup0),
                 case NewLen == 0 of
@@ -299,7 +299,7 @@ adjust_old_group_v2(Group, Ledger) ->
               || Ht <- lists:seq(Start + 2, End)],
 
     Penalties = get_penalties_v2(Blocks, length(Group), Ledger),
-    lager:info("penalties ~p", [Penalties]),
+    lager:debug("penalties ~p", [Penalties]),
 
     %% {ok, Factor} = blockchain_cledger_v1:config(?election_replacement_factor, Ledger),
     {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
@@ -308,17 +308,12 @@ adjust_old_group_v2(Group, Ledger) ->
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
     lists:map(
-      fun(#val_v1{prob = Prob, addr = Addr}) ->
+      fun(#val_v1{prob = Prob, addr = Addr, failures = Failures}) ->
               Index = maps:get(Addr, Addrs),
               Penalty = maps:get(Index, Penalties, 0.0),
 
-              %% calculate tenuring penalty
-              {ok, Val} = blockchain_ledger_v1:get_validator(Addr, Ledger),
-              %% Recent = length(blockchain_ledger_validator_v1:recent_elections(Val)),
-
-              RecentFailures = blockchain_ledger_validator_v1:recent_failures(Val),
               DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
-                                                     lists:map(fun({H, D}) -> H+D end, RecentFailures)),
+                                                     lists:map(fun({H, D}) -> H+D end, Failures)),
               %% TenurePenalty = max(0.0, 1.0 * (Recent - Factor)),
               %% penalties are positive in icdf
               {Addr, normalize_float(Prob + Penalty + DKGPenalty)} % + TenurePenalty)}
@@ -414,7 +409,7 @@ get_penalties_v2(Blocks, Sz, Ledger) ->
           maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
           BBAs),
 
-    lager:info("bba pens ~p", [BBAPenalties]),
+    lager:debug("bba pens ~p", [BBAPenalties]),
 
     Penalties0 =
         maps:map(
@@ -448,7 +443,7 @@ get_penalties_v2(Blocks, Sz, Ledger) ->
           Seens),
 
     lager:debug("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
-    lager:info("penalties0 ~p", [Penalties0]),
+    lager:debug("penalties0 ~p", [Penalties0]),
 
     maps:fold(
       fun(Idx, HtList, Acc) ->

@@ -182,8 +182,6 @@ absorb(Txn, Chain) ->
     Delay = ?MODULE:delay(Txn),
     Height = ?MODULE:height(Txn),
 
-    %% TODO: recheck replay protection here for races
-
     try
         lists:foreach(
           fun(M) ->

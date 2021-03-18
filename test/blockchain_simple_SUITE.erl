@@ -121,7 +121,7 @@ init_per_testcase(TestCase, Config) ->
                           validator_liveness_grace_period => 50,
                           validator_liveness_interval => 200,
                           dkg_penalty => 1.0,
-                          dkg_penalty_history_limit => 100,
+                          penalty_history_limit => 100,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     _ ->

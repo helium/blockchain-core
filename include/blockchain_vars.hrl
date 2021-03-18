@@ -412,7 +412,7 @@
 -define(stake_withdrawl_cooldown, stake_withdrawl_cooldown). % blocks
 %% -define(maximum_overstake, maximum_overstake). % float multiple of min stake
 
--define(penalty_history_limit, dkg_penalty_history_limit). % blocks
+-define(penalty_history_limit, penalty_history_limit). % blocks
 -define(dkg_penalty, dkg_penalty). % float
 
 -define(election_allowed_version, election_allowed_version). % int
