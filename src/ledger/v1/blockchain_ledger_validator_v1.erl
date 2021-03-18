@@ -154,7 +154,7 @@ status(Status, Validator) ->
           validator().
 add_recent_failure(Validator, Height, Delay, Ledger) ->
     Recent0 = Validator#validator_v1.recent_failures,
-    {ok, Limit} = blockchain_ledger_v1:config(?dkg_penalty_history_limit, Ledger),
+    {ok, Limit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
     Recent = lists:filter(fun({H, _D}) -> (Height - H) =< Limit end, Recent0),
     Validator#validator_v1{recent_failures = lists:sort([{Height, Delay} | Recent])}.
 

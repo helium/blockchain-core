@@ -298,12 +298,12 @@ adjust_old_group_v2(Group, Ledger) ->
     Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
               || Ht <- lists:seq(Start + 2, End)],
 
-    Penalties = get_penalties(Blocks, length(Group), Ledger),
-    lager:debug("penalties ~p", [Penalties]),
+    Penalties = get_penalties_v2(Blocks, length(Group), Ledger),
+    lager:info("penalties ~p", [Penalties]),
 
     %% {ok, Factor} = blockchain_cledger_v1:config(?election_replacement_factor, Ledger),
     {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
-    {ok, DKGPenaltyLimit} = blockchain_ledger_v1:config(?dkg_penalty_history_limit, Ledger),
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
@@ -317,21 +317,24 @@ adjust_old_group_v2(Group, Ledger) ->
               %% Recent = length(blockchain_ledger_validator_v1:recent_elections(Val)),
 
               RecentFailures = blockchain_ledger_validator_v1:recent_failures(Val),
-              DKGPenalty = calc_dkg_penalty(DKGPenaltyAmt, DKGPenaltyLimit, Height, RecentFailures),
+              DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
+                                                     lists:map(fun({H, D}) -> H+D end, RecentFailures)),
               %% TenurePenalty = max(0.0, 1.0 * (Recent - Factor)),
               %% penalties are positive in icdf
               {Addr, normalize_float(Prob + Penalty + DKGPenalty)} % + TenurePenalty)}
       end,
       Group).
 
-calc_dkg_penalty(Amt, Limit, Height, Failures) ->
+calc_age_weighted_penalty(Amt, Limit, Height, Instances) ->
     Tot =
         lists:foldl(
-          fun({H, D}, Acc) ->
-                  Acc + (Amt * max(1, (1 - (Height - (H+D))/Limit)))
+          fun(H, Acc) ->
+                  BlocksAgo = Height - H,
+                  %% 1 - ago/limit = linear inverse weighting for recency
+                  Acc + (Amt * (1 - (BlocksAgo/Limit)))
           end,
           0.0,
-          Failures),
+          Instances),
     blockchain_utils:normalize_float(Tot).
 
 get_penalties(Blocks, Sz, Ledger) ->
@@ -384,6 +387,76 @@ get_penalties(Blocks, Sz, Ledger) ->
       end,
       Penalties0,
       Seens).
+
+get_penalties_v2(Blocks, Sz, Ledger) ->
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    BBAs = [begin
+                BBA0 = blockchain_block_v1:bba_completion(Block),
+                Ht = blockchain_block_v1:height(Block),
+                {Ht, blockchain_utils:bitvector_to_map(Sz, BBA0)}
+            end || Block <- Blocks],
+
+    BBAPenalties =
+        lists:foldl(
+          fun({Ht, BBA}, Acc) ->
+                  %% we want to generate a list for each idx where we have a height entry for each place
+                  %% where the BBA map is false for that index
+                  maps:fold(
+                    fun(Idx, false, A) ->
+                            maps:update_with(Idx, fun(X) -> [Ht | X]  end, A);
+                       (_, _, A) -> A
+                    end, Acc, BBA)
+          end,
+          maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
+          BBAs),
+
+    lager:info("bba pens ~p", [BBAPenalties]),
+
+    Penalties0 =
+        maps:map(
+          fun(_Idx, HtList) ->
+                  calc_age_weighted_penalty(BBAPenalty, PenaltyLimit, Height, HtList)
+          end,
+          BBAPenalties),
+
+    Seens = [begin
+                 Seen0 = blockchain_block_v1:seen_votes(Block),
+                 Ht = blockchain_block_v1:height(Block),
+                 %% votes here are lists of per-participant seen
+                 %% information. condense here summarizes them, and a
+                 %% node is only voted against if there are 2f+1
+                 %% votes against it.
+                 {Ht, condense_votes(Sz, Seen0)}
+             end || Block <- Blocks],
+
+    SeenPenalties =
+        lists:foldl(
+          fun({Ht, Seen}, Acc) ->
+                  %% we want to generate a list for each idx where we have a height entry for each place
+                  %% where the BBA map is false for that index
+                  maps:fold(
+                    fun(Idx, false, A) ->
+                            maps:update_with(Idx, fun(X) -> [Ht | X]  end, A);
+                       (_, _, A) -> A
+                    end, Acc, Seen)
+          end,
+          maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
+          Seens),
+
+    lager:debug("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
+    lager:info("penalties0 ~p", [Penalties0]),
+
+    maps:fold(
+      fun(Idx, HtList, Acc) ->
+              SeenPen = calc_age_weighted_penalty(SeenPenalty, PenaltyLimit, Height, HtList),
+              maps:update_with(Idx, fun(X) -> SeenPen + X end, Acc)
+      end,
+      Penalties0,
+      SeenPenalties).
 
 condense_votes(Sz, Seen0) ->
     SeenMaps = [blockchain_utils:bitvector_to_map(Sz, S)
@@ -749,7 +822,7 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
 
     {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
-    {ok, DKGPenaltyLimit} = blockchain_ledger_v1:config(?dkg_penalty_history_limit, Ledger),
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
 
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -777,7 +850,8 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                               true ->
                                   Acc;
                               _ ->
-                                  DKGPenalty = calc_dkg_penalty(DKGPenaltyAmt, DKGPenaltyLimit, Height, Failures),
+                                  DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
+                                                                         lists:map(fun({H , D}) -> H+D end, Failures)),
                                   case max(0.0, Prob - DKGPenalty) of
                                       %% don't even consider until some of these failures have aged out
                                       0.0 -> Acc;

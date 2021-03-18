@@ -121,7 +121,7 @@ init_per_testcase(TestCase, Config) ->
                           validator_liveness_grace_period => 50,
                           validator_liveness_interval => 200,
                           dkg_penalty => 1.0,
-                          dkg_penalty_history_limit => 1000,
+                          dkg_penalty_history_limit => 100,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     _ ->
@@ -1910,13 +1910,16 @@ election_v5_test(Config) ->
 
     %% five should have taken both hits
     FiveTarget = normalize_float(element(2, lists:nth(5, OldGroupVals)) +
-                                     normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))),
-    ?assertEqual(FiveTarget, FiveScore),
+                                     normalize_float((BlockCt * BBAPenalty) + (BlockCt * SeenPenalty))),
+    ?assert(FiveTarget > FiveScore),
+    ?assertEqual(2.4896087646484375, FiveScore),
 
     %% six should have taken only the BBA hit
+    %% move to static targets here because this is no longer easy to calculate
     SixTarget = normalize_float(element(2, lists:nth(6, OldGroupVals))
                                 + (BlockCt * BBAPenalty)),
-    ?assertEqual(SixTarget, SixScore),
+    ?assert(SixTarget > SixScore),
+    ?assertEqual(1.372406005859375, SixScore),
 
     %% seven should not have been penalized
     ?assertEqual(element(2, lists:nth(7, OldGroupVals)), SevenScore),

@@ -1134,13 +1134,15 @@ validate_var(?validator_liveness_grace_period, Value) ->
 validate_var(?stake_withdrawl_cooldown, Value) ->
     %% maybe set this in the test
     validate_int(Value, "stake_withdrawl_cooldown", 5, 1000000, false);
-validate_var(dkg_penalties_version, Value) ->
-    validate_int(Value, "testnet_oops", 1, 2, false);
 
 validate_var(?dkg_penalty, Value) ->
     validate_float(Value, "dkg_penalty", 0.0, 5.0);
-validate_var(?dkg_penalty_history_limit, Value) ->
-    validate_int(Value, "dkg_penalty_history_limit", 90, 100000, false);
+validate_var(?penalty_history_limit, Value) ->
+    %% low end is low for testing and an out if these become corrupted
+    validate_int(Value, "penalty_history_limit", 10, 100000, false);
+
+validate_var(?election_allowed_version, Value) ->
+    validate_int(Value, "election_allowed_version", 1, 100000000000000000, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
