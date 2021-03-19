@@ -3159,8 +3159,7 @@ diff_aux_rewards(Ledger) ->
 
 -spec tally_fun_for_reward_txn_version(Ledger :: ledger()) -> fun().
 tally_fun_for_reward_txn_version(Ledger) ->
-    %% check if the aux ledger has rewards_txn_version set
-    case blockchain:config(?rewards_txn_version, mode(aux, Ledger)) of
+    case blockchain:config(?rewards_txn_version, Ledger) of
         {ok, 2} ->
             fun(Reward, Acc) ->
                     Account = blockchain_txn_rewards_v2:reward_account(Reward),
