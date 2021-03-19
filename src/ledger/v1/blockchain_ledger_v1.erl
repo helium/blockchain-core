@@ -1,4 +1,3 @@
-
 %% @doc
 %% == Blockchain Ledger ==
 %% @end
@@ -23,7 +22,7 @@
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
     election_epoch/1, election_epoch/2,
-    process_delayed_txns/3,
+    process_delayed_actions/3,
 
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
     entries/1,
@@ -55,7 +54,7 @@
     add_gateway_witnesses/3,
     refresh_gateway_witnesses/2,
 
-    gateway_versions/1,
+    cg_versions/1,
 
     update_gateway_score/3, gateway_score/2,
     update_gateway_oui/4,
@@ -141,8 +140,16 @@
     add_commit_hook/4, add_commit_hook/5,
     remove_commit_hook/2,
 
-    %% snapshot save/restore stuff
+    add_validator/4,
+    get_validator/2,
 
+    fold_validators/3,
+
+    query_circulating_hnt/1,
+    query_staked_hnt/1,
+    query_cooldown_hnt/1,
+
+    %% snapshot save/restore stuff
     snapshot_vars/1,
     load_vars/2,
     snapshot_pocs/1,
@@ -183,6 +190,9 @@
 
     load_oracle_price/2,
     load_oracle_price_list/2,
+
+    snapshot_validators/1,
+    load_validators/2,
 
     clean/1, close/1,
     compact/1,
@@ -242,6 +252,7 @@
     subnets :: rocksdb:cf_handle(),
     state_channels :: rocksdb:cf_handle(),
     h3dex :: rocksdb:cf_handle(),
+    validators :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid(),
     gateway_cache :: undefined | ets:tid()
 }).
@@ -291,9 +302,11 @@ new(Dir) ->
          || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
-     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
+     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF,
+     DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -311,7 +324,8 @@ new(Dir) ->
             routing=RoutingCF,
             subnets=SubnetsCF,
             state_channels=SCsCF,
-            h3dex=H3DexCF
+            h3dex=H3DexCF,
+            validators=ValidatorsCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -325,7 +339,8 @@ new(Dir) ->
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
-            h3dex=DelayedH3DexCF
+            h3dex=DelayedH3DexCF,
+            validators=DelayedValidatorsCF
         },
        commit_hooks = Hooks
     }.
@@ -423,7 +438,10 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     prewarm_gateways(Mode, Height, Ledger, GwCache),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
     rocksdb:release_batch(Batch),
-    Callbacks(),
+    case Mode of
+        active -> Callbacks();
+        _ -> ok
+    end,
     delete_context(Ledger),
     ok.
 
@@ -526,8 +544,10 @@ atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
             pocs -> SL#sub_ledger_v1.pocs;
             securities -> SL#sub_ledger_v1.securities;
             routing -> SL#sub_ledger_v1.routing;
-            state_channels -> SL#sub_ledger_v1.state_channels
-        end.
+            state_channels -> SL#sub_ledger_v1.state_channels;
+            h3dex -> SL#sub_ledger_v1.h3dex;
+            validators -> SL#sub_ledger_v1.validators
+       end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
     {ok, Batch} = rocksdb:batch(),
@@ -740,7 +760,7 @@ election_epoch(Epoch, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?ELECTION_EPOCH, Bin).
 
-process_delayed_txns(Block, Ledger, Chain) ->
+process_delayed_actions(Block, Ledger, Chain) ->
     DefaultCF = default_cf(Ledger),
     ok = process_threshold_txns(DefaultCF, Ledger, Chain),
     PendingTxns =
@@ -873,6 +893,14 @@ snapshot_raw_gateways(Ledger) ->
 load_raw_gateways(Gateways, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     load_raw(Gateways, AGwsCF, Ledger).
+
+snapshot_validators(Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    snapshot_raw(ValsCF, Ledger).
+
+load_validators(Gateways, Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    load_raw(Gateways, ValsCF, Ledger).
 
 -spec load_gateways([{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}],
                     ledger()) -> ok | {error, _}.
@@ -1239,6 +1267,15 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                     ok
             end
     end.
+
+cg_versions(Ledger) ->
+    gateway_versions(Ledger).
+    %% case config(?election_version, Ledger) of
+    %%     {ok, N} when N >= 5 ->
+    %%         validator_versions(Ledger);
+    %%     _ ->
+    %%         gateway_versions(Ledger)
+    %% end.
 
 gateway_versions(Ledger) ->
     case config(?var_gw_inactivity_threshold, Ledger) of
@@ -2962,6 +2999,10 @@ state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels
 h3dex_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF;
 h3dex_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF.
 
+-spec validators_cf(ledger()) -> rocksdb:cf_handle().
+validators_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{validators=ValidatorsCF}}) -> ValidatorsCF;
+validators_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{validators=ValidatorsCF}}) -> ValidatorsCF.
+
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
@@ -3119,11 +3160,12 @@ open_db(Dir) ->
 
     DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
                   "pocs", "securities", "routing", "subnets", "state_channels",
-                  "h3dex", "gw_denorm",
+                  "h3dex", "gw_denorm", "validators",
                   "delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
-                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
+                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm",
+                  "delayed_validators"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3432,16 +3474,100 @@ remove_commit_hook(Atom, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_atom
     Hooks1 = lists:keydelete(Atom, #hook.cf, Hooks),
     Ledger#ledger_v1{commit_hooks = Hooks1}.
 
-batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
+-spec add_validator(ValidatorAddress :: libp2p_crypto:pubkey_bin(),
+                    OwnerAddress :: libp2p_crypto:pubkey_bin(),
+                    Stake :: pos_integer(),
+                    Ledger :: ledger()) -> ok | {error, validator_already_added}.
+add_validator(Address,
+              OwnerAddr,
+              Stake,
+              Ledger) ->
+    case ?MODULE:get_validator(Address, Ledger) of
+        {ok, _} ->
+            {error, validator_already_added};
+        _ ->
+            Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Stake),
+            update_validator(Address, Val, Ledger)
+    end.
+
+-spec update_validator(Addr :: libp2p_crypto:pubkey_bin(),
+                       Gw :: blockchain_ledger_validator_v1:validator(),
+                       Ledger :: ledger()) -> ok | {error, _}.
+update_validator(Addr, Val, Ledger) ->
+    Bin = blockchain_ledger_validator_v1:serialize(Val),
+    ValsCF = validators_cf(Ledger),
+    cache_put(Ledger, ValsCF, Addr, Bin).
+
+-spec get_validator(libp2p_crypto:pubkey_bin(), ledger()) ->
+          {ok, blockchain_ledger_validator_v1:validator()}
+              | {error, any()}.
+get_validator(Address, Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    case cache_get(Ledger, ValsCF, Address, []) of
+        {ok, BinVal} ->
+            {ok, blockchain_ledger_validator_v1:deserialize(BinVal)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec query_circulating_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_circulating_hnt(Ledger) ->
+    cache_fold(
+      Ledger,
+      entries_cf(Ledger),
+      fun({_Addr, BinEnt}, Acc) ->
+              Ent = blockchain_ledger_entry_v1:deserialize(BinEnt),
+              Acc + blockchain_ledger_entry_v1:balance(Ent)
+      end,
+      0
+     ).
+
+-spec query_staked_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_staked_hnt(Ledger) ->
+    query_hnt_by_status(staked, Ledger).
+
+-spec query_cooldown_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_cooldown_hnt(Ledger) ->
+    query_hnt_by_status(cooldown, Ledger).
+
+fold_validators(Fun, InitAcc, Ledger) ->
+    cache_fold(
+      Ledger,
+      validators_cf(Ledger),
+      fun({_Addr, BinVal}, Acc) ->
+              Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+              Fun(Val, Acc)
+      end,
+      InitAcc
+     ).
+
+query_hnt_by_status(Status, Ledger) ->
+    fold_validators(fun(Val, Acc) ->
+        case blockchain_ledger_validator_v1:status(Val) of
+            Status ->
+                Acc + blockchain_ledger_validator_v1:stake(Val);
+            _ ->
+                Acc
+        end
+    end, 0, Ledger).
+
+batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
     {ok, Batch} = rocksdb:batch(),
     Filters =
-        lists:foldl(
-          fun(#hook{cf = C} = H, A) ->
-                  K = atom_to_cf(C, Ledger),
-                  maps:update_with(K, fun(L) -> [H | L] end, [H], A)
-          end,
-          #{},
-          Hooks),
+        case Mode of
+            active ->
+                lists:foldl(
+                  fun(#hook{cf = C} = H, A) ->
+                          K = atom_to_cf(C, Ledger),
+                          maps:update_with(K, fun(L) -> [H | L] end, [H], A)
+                  end,
+                  #{},
+                  Hooks);
+            %% don't do any of this work on the delayed or aux ledgers
+            _ -> #{}
+        end,
     {Batch, FilteredChanges} =
         ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
                           rocksdb:batch_delete(B, CF, Key),
@@ -3599,6 +3725,7 @@ subnet_lookup(_, _, _) ->
 %% extract and load section for snapshots.  note that for determinism
 %% reasons, we need to not use maps, but sorted lists
 
+-spec snapshot_vars(ledger()) -> [{binary(), binary()}].
 snapshot_vars(Ledger) ->
     CF = default_cf(Ledger),
     lists:sort(
@@ -3616,6 +3743,7 @@ load_vars(Vars, Ledger) ->
     vars(maps:from_list(Vars), [], Ledger),
     ok.
 
+-spec snapshot_delayed_vars(ledger()) -> [{binary(), binary()}].
 snapshot_delayed_vars(Ledger) ->
     CF = default_cf(Ledger),
     {ok, Height} = current_height(Ledger),
@@ -3663,6 +3791,7 @@ load_delayed_vars(DVars, Ledger) ->
       end, maps:from_list(DVars)),
     ok.
 
+-spec snapshot_threshold_txns(ledger()) -> [{binary(), binary()}].
 snapshot_threshold_txns(Ledger) ->
     CF = default_cf(Ledger),
     lists:sort(scan_threshold_txns(Ledger, CF)).
@@ -3671,6 +3800,7 @@ load_threshold_txns(Txns, Ledger) ->
     lists:map(fun(T) -> save_threshold_txn(T, Ledger) end, Txns),
     ok.
 
+-spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     lists:sort(
@@ -3694,6 +3824,7 @@ load_pocs(PoCs, Ledger) ->
       maps:from_list(PoCs)),
     ok.
 
+-spec snapshot_raw(reference(), ledger()) -> [{binary(), binary()}].
 snapshot_raw(CF, Ledger) ->
     %% we can just reverse this since rocks folds are lexicographic
     lists:reverse(
@@ -3714,6 +3845,7 @@ load_raw(List, CF, Ledger) ->
       List),
     ok.
 
+-spec snapshot_raw_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_raw_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     snapshot_raw(PoCsCF, Ledger).
@@ -3722,6 +3854,7 @@ load_raw_pocs(PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     load_raw(PoCs, PoCsCF, Ledger).
 
+-spec snapshot_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_accounts(Ledger) ->
     lists:sort(maps:to_list(entries(Ledger))).
 
@@ -3735,6 +3868,7 @@ load_accounts(Accounts, Ledger) ->
       maps:from_list(Accounts)),
     ok.
 
+-spec snapshot_raw_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_raw_accounts(Ledger) ->
     EntriesCF = entries_cf(Ledger),
     snapshot_raw(EntriesCF, Ledger).
@@ -3743,6 +3877,7 @@ load_raw_accounts(Accounts, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
 
+-spec snapshot_dc_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_dc_accounts(Ledger) ->
     lists:sort(maps:to_list(dc_entries(Ledger))).
 
@@ -3756,6 +3891,7 @@ load_dc_accounts(DCAccounts, Ledger) ->
       maps:from_list(DCAccounts)),
     ok.
 
+-spec snapshot_raw_dc_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_raw_dc_accounts(Ledger) ->
     EntriesCF = dc_entries_cf(Ledger),
     snapshot_raw(EntriesCF, Ledger).
@@ -3764,6 +3900,7 @@ load_raw_dc_accounts(Accounts, Ledger) ->
     EntriesCF = dc_entries_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
 
+-spec snapshot_security_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_security_accounts(Ledger) ->
     lists:sort(maps:to_list(securities(Ledger))).
 
@@ -3777,6 +3914,7 @@ load_security_accounts(SecAccounts, Ledger) ->
       maps:from_list(SecAccounts)),
     ok.
 
+-spec snapshot_raw_security_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_raw_security_accounts(Ledger) ->
     EntriesCF = securities_cf(Ledger),
     snapshot_raw(EntriesCF, Ledger).
@@ -3785,6 +3923,7 @@ load_raw_security_accounts(Accounts, Ledger) ->
     EntriesCF = securities_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
 
+-spec snapshot_htlcs(ledger()) -> [{binary(), binary()}].
 snapshot_htlcs(Ledger) ->
     lists:sort(maps:to_list(htlcs(Ledger))).
 
@@ -3798,6 +3937,7 @@ load_htlcs(HTLCs, Ledger) ->
       maps:from_list(HTLCs)),
     ok.
 
+-spec snapshot_ouis(ledger()) -> [{binary(), binary()}].
 snapshot_ouis(Ledger) ->
     RoutingCF = routing_cf(Ledger),
     lists:sort(
@@ -3821,6 +3961,7 @@ load_ouis(OUIs, Ledger) ->
       maps:from_list(OUIs)),
     ok.
 
+-spec snapshot_subnets(ledger()) -> [{binary(), binary()}].
 snapshot_subnets(Ledger) ->
     SubnetsCF = subnets_cf(Ledger),
     lists:sort(
@@ -3842,6 +3983,7 @@ load_subnets(Subnets, Ledger) ->
       maps:from_list(Subnets)),
     ok.
 
+-spec snapshot_state_channels(ledger()) -> [{binary(), binary()}].
 snapshot_state_channels(Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     lists:sort(
@@ -3868,6 +4010,7 @@ load_state_channels(SCs, Ledger) ->
       maps:from_list(SCs)),
     ok.
 
+-spec snapshot_hexes(ledger()) -> [{binary(), binary()}].
 snapshot_hexes(Ledger) ->
     case blockchain_ledger_v1:get_hexes(Ledger) of
         {ok, HexMap} ->
@@ -3898,11 +4041,13 @@ load_hexes(Hexes0, Ledger) ->
             ok
     end.
 
+-spec snapshot_h3dex(ledger()) -> [{binary(), binary()}].
 snapshot_h3dex(Ledger) ->
     lists:sort(
       maps:to_list(
         get_h3dex(Ledger))).
 
+-spec load_h3dex([{binary(), binary()}], ledger()) -> ok.
 load_h3dex(H3DexList, Ledger) ->
     set_h3dex(maps:from_list(H3DexList), Ledger).
 
