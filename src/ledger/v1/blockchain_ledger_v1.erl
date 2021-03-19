@@ -3157,9 +3157,8 @@ diff_aux_rewards(Ledger) ->
         true -> diff_aux_rewards_(Ledger)
     end.
 
--spec tally_fun_for_reward_txn_version(Ledger :: ledger()) -> fun().
-tally_fun_for_reward_txn_version(Ledger) ->
-    case blockchain:config(?rewards_txn_version, Ledger) of
+aux_tally_fun(Ledger) ->
+    case blockchain:config(?rewards_txn_version, mode(aux, Ledger)) of
         {ok, 2} ->
             fun(Reward, Acc) ->
                     Account = blockchain_txn_rewards_v2:reward_account(Reward),
@@ -3170,35 +3169,35 @@ tally_fun_for_reward_txn_version(Ledger) ->
                                      #{amount => Amount}, Acc)
             end;
         _ ->
-            fun(Reward, Acc0) ->
-                    Account = blockchain_txn_reward_v1:account(Reward),
-                    Amount = blockchain_txn_reward_v1:amount(Reward),
-                    Type = blockchain_txn_reward_v1:type(Reward),
-                    Acc = case blockchain_txn_reward_v1:gateway(Reward) of
-                              undefined ->
-                                  Acc0;
-                              Gateway ->
-                                  maps:update_with(Gateway, fun(V) ->
-                                                                    V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}
-                                                            end,
-                                                   #{amount => Amount, Type => 1}, Acc0)
-                          end,
-                    maps:update_with(Account, fun(V) ->
-                                                      V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}
-                                              end,
-                                     #{amount => Amount, Type => 1}, Acc)
-            end
+            tally_fun()
+    end.
 
+tally_fun() ->
+    fun(Reward, Acc0) ->
+            Account = blockchain_txn_reward_v1:account(Reward),
+            Amount = blockchain_txn_reward_v1:amount(Reward),
+            Type = blockchain_txn_reward_v1:type(Reward),
+            Acc = case blockchain_txn_reward_v1:gateway(Reward) of
+                      undefined ->
+                          Acc0;
+                      Gateway ->
+                          maps:update_with(Gateway, fun(V) ->
+                                                            V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}
+                                                    end,
+                                           #{amount => Amount, Type => 1}, Acc0)
+                  end,
+            maps:update_with(Account, fun(V) ->
+                                              V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}
+                                      end,
+                             #{amount => Amount, Type => 1}, Acc)
     end.
 
 diff_aux_rewards_(Ledger) ->
     OverallAuxRewards = get_aux_rewards(Ledger),
-    %% tally the account amounts for all rewards
-    TallyFun = tally_fun_for_reward_txn_version(Ledger),
 
     DiffFun = fun(Height, {ActualRewards, AuxRewards}, Acc) ->
-                      ActualAccountBalances = lists:foldl(TallyFun, #{}, ActualRewards),
-                      AuxAccountBalances = lists:foldl(TallyFun, #{}, AuxRewards),
+                      ActualAccountBalances = lists:foldl(tally_fun(), #{}, ActualRewards),
+                      AuxAccountBalances = lists:foldl(aux_tally_fun(Ledger), #{}, AuxRewards),
                       Combined = maps:merge(AuxAccountBalances, ActualAccountBalances),
                       Res = maps:fold(fun(K, V, Acc2) ->
                                               V2 = maps:get(K, AuxAccountBalances, #{amount => 0}),

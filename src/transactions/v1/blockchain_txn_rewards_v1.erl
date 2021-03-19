@@ -148,7 +148,7 @@ aux_absorb(Txn, AuxLedger, Chain) ->
     End = ?MODULE:end_epoch(Txn),
     %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
     %% and do 0 verification for absorption
-    case calculate_rewards_(Start, End, AuxLedger, Chain) of
+    case blockchain_txn_rewards_v2:calculate_rewards_(Start, End, AuxLedger, Chain) of
         {error, _}=E -> E;
         {ok, AuxRewards} ->
             TxnRewards = rewards(Txn),

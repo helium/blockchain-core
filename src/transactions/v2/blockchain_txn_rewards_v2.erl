@@ -31,7 +31,7 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    calculate_rewards/3,
+    calculate_rewards/3, calculate_rewards_/4,
     reward_account/1, reward_amount/1,
     print/1,
     to_json/2
@@ -186,6 +186,7 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
 
     Vars = Vars0#{ var_map => VarMap },
 
+
     %% Previously, if a state_channel closed in the grace blocks before an
     %% epoch ended, then it wouldn't ever get rewarded.
     {ok, PreviousGraceBlockDCRewards} = collect_dc_rewards_from_previous_epoch_grace(Start, End,
@@ -209,6 +210,7 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
                  poc_challenger => #{},
                  poc_challengee => #{},
                  poc_witness => #{} },
+
 
     try
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
