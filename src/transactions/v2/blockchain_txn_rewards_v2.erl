@@ -32,7 +32,7 @@
     is_valid/2,
     absorb/2,
     calculate_rewards/3,
-    reward_account/1,
+    reward_account/1, reward_amount/1,
     print/1,
     to_json/2
 ]).
@@ -44,7 +44,7 @@
 
 -type txn_rewards_v2() :: #blockchain_txn_rewards_v2_pb{}.
 -type reward_v2() :: #blockchain_txn_reward_v2_pb{}.
--type rewards_v2() :: rewards_v2().
+-type rewards_v2() :: [reward_v2()].
 -type reward_vars() :: map().
 -type rewards_share_map() :: #{ libp2p_crypto:pubkey_bin() => non_neg_integer() }.
 -type dc_rewards_share_map() :: #{ libp2p_crypto:pubkey_bin() => non_neg_integer(),
@@ -242,6 +242,11 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
 %% @end
 -spec reward_account(reward_v2()) -> libp2p_crypto:pubkey_bin().
 reward_account(#blockchain_txn_reward_v2_pb{account=Account}) -> Account.
+
+%% @doc Extract the amount from a reward_v2 record
+%% @end
+-spec reward_amount(reward_v2()) -> non_neg_integer().
+reward_amount(#blockchain_txn_reward_v2_pb{amount=Amount}) -> Amount.
 
 -spec print(txn_rewards_v2()) -> iodata().
 print(undefined) -> <<"type=rewards_v2 undefined">>;
