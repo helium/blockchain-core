@@ -228,7 +228,9 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
         %% cache invalidation issues.
         true = blockchain_hex:destroy_memoization(),
 
-        {ok, prepare_rewards_v2_txns(Results, Ledger)}
+        Prep = prepare_rewards_v2_txns(Results, Ledger),
+
+        {ok, Prep}
     catch
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't calculate rewards because: ~p~n~p", [C, Error, Stack]),
@@ -412,7 +414,7 @@ finalize_reward_calculations(#{ dc_rewards := DCShares,
 -spec prepare_rewards_v2_txns( Results :: rewards_metadata(),
                                Ledger :: blockchain_ledger_v1:ledger() ) -> rewards_v2().
 prepare_rewards_v2_txns(Results, Ledger) ->
-    _ = maybe_use_rewards_metadata_callback(Results, Ledger),
+    ok = maybe_use_rewards_metadata_callback(Results, Ledger),
     %% we are going to fold over a list of keys in the rewards map (Results)
     %% and generate a new map which has _all_ the owners and the sum of
     %% _all_ rewards types in a new map...
@@ -427,18 +429,23 @@ prepare_rewards_v2_txns(Results, Ledger) ->
               %% in the Rewards accumulator
 
               maps:fold(fun(Entry, Amt, Acc) ->
-                                Owner = case Entry of
-                                            {owner, _Type, O} -> O;
-                                            {gateway, _Type, G} ->
-                                                {ok, O1} =
-                                                blockchain_ledger_v1:find_gateway_owner(G, Ledger),
-                                                O1
-                                        end,
-
-                                maps:update_with(Owner,
-                                                 fun(Balance) -> Balance + Amt end,
-                                                 Amt,
-                                                 Acc)
+                                case Entry of
+                                    {owner, _Type, Owner} ->
+                                        maps:update_with(Owner,
+                                                         fun(Balance) -> Balance + Amt end,
+                                                         Amt,
+                                                         Acc);
+                                    {gateway, _Type, G} ->
+                                        case blockchain_ledger_v1:find_gateway_owner(G, Ledger) of
+                                            {error, _} ->
+                                                Acc;
+                                            {ok, GOwner} ->
+                                                maps:update_with(GOwner,
+                                                                 fun(Balance) -> Balance + Amt end,
+                                                                 Amt,
+                                                                 Acc)
+                                        end
+                                end
                         end,
                         Rewards,
                         maps:iterator(R)) %% bound memory size no matter size of map
