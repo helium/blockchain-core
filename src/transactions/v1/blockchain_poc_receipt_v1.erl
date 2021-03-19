@@ -177,7 +177,7 @@ is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signat
                         {error, _Reason} ->
                             false;
                         {ok, GWInfo} ->
-                            %% check this challenger is allowed to issue challenges
+                            %% check this GW is allowed to issue receipts
                             blockchain_ledger_gateway_v2:is_valid_capability(GWInfo, ?GW_CAPABILITY_POC_RECEIPT, Ledger)
                     end
             end
