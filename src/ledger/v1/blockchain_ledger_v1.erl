@@ -3157,22 +3157,17 @@ diff_aux_rewards(Ledger) ->
         true -> diff_aux_rewards_(Ledger)
     end.
 
-aux_tally_fun(Ledger) ->
-    case blockchain:config(?rewards_txn_version, mode(aux, Ledger)) of
-        {ok, 2} ->
-            fun(Reward, Acc) ->
-                    Account = blockchain_txn_rewards_v2:reward_account(Reward),
-                    Amount = blockchain_txn_rewards_v2:reward_amount(Reward),
-                    maps:update_with(Account, fun(V) ->
-                                                      V#{amount => maps:get(amount, V, 0) + Amount}
-                                              end,
-                                     #{amount => Amount}, Acc)
-            end;
-        _ ->
-            tally_fun()
+tally_fun_v2() ->
+    fun(Reward, Acc) ->
+            Account = blockchain_txn_rewards_v2:reward_account(Reward),
+            Amount = blockchain_txn_rewards_v2:reward_amount(Reward),
+            maps:update_with(Account, fun(V) ->
+                                              V#{amount => maps:get(amount, V, 0) + Amount}
+                                      end,
+                             #{amount => Amount}, Acc)
     end.
 
-tally_fun() ->
+tally_fun_v1() ->
     fun(Reward, Acc0) ->
             Account = blockchain_txn_reward_v1:account(Reward),
             Amount = blockchain_txn_reward_v1:amount(Reward),
@@ -3195,9 +3190,14 @@ tally_fun() ->
 diff_aux_rewards_(Ledger) ->
     OverallAuxRewards = get_aux_rewards(Ledger),
 
+    TallyFun = case blockchain:config(?rewards_txn_version, mode(aux, Ledger)) of
+                   {ok, 2} -> tally_fun_v2();
+                   _ -> tally_fun_v1()
+               end,
+
     DiffFun = fun(Height, {ActualRewards, AuxRewards}, Acc) ->
-                      ActualAccountBalances = lists:foldl(tally_fun(), #{}, ActualRewards),
-                      AuxAccountBalances = lists:foldl(aux_tally_fun(Ledger), #{}, AuxRewards),
+                      ActualAccountBalances = lists:foldl(TallyFun, #{}, blockchain_txn_rewards_v2:v1_to_v2(ActualRewards)),
+                      AuxAccountBalances = lists:foldl(TallyFun, #{}, AuxRewards),
                       Combined = maps:merge(AuxAccountBalances, ActualAccountBalances),
                       Res = maps:fold(fun(K, V, Acc2) ->
                                               V2 = maps:get(K, AuxAccountBalances, #{amount => 0}),

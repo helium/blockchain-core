@@ -34,12 +34,12 @@
     calculate_rewards/3, calculate_rewards_/4,
     reward_account/1, reward_amount/1,
     print/1,
-    to_json/2
+    to_json/2,
+    v1_to_v2/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--export([v1_to_v2/1]).
 -endif.
 
 -type txn_rewards_v2() :: #blockchain_txn_rewards_v2_pb{}.
@@ -1257,12 +1257,6 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
                       + maps:get(poc_witnesses_percent, Vars))))
                 ).
 
-
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
--ifdef(TEST).
-
 %% @doc Given a list of reward_v1 txns, return the equivalent reward_v2
 %% list.
 -spec v1_to_v2( RewardsV1 :: [blockchain_txn_reward_v1:rewards()] ) -> rewards_v2().
@@ -1277,6 +1271,11 @@ v1_to_v2(RewardsV1) ->
     lists:sort(maps:fold(fun(O, A, Acc) -> [ new_reward(O, A) | Acc ] end,
                          [],
                          R)).
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
 
 new_test() ->
     Tx = #blockchain_txn_rewards_v2_pb{start_epoch=1, end_epoch=30, rewards=[]},
