@@ -130,8 +130,9 @@ absorb(Txn, Chain) ->
 
 -spec calculate_rewards(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) ->
     {ok, [reward_v2()]} | {error, any()}.
-%% @doc Calculate and return an ordered list of rewards for use in a rewards_v2
-%% transaction.
+%% @doc Calculate and return an ordered list (as ordered by lists:sort/1) of
+%% rewards for use in a rewards_v2 transaction. Given how lists:sort/1 works,
+%% ordering will depend on (binary) account information.
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     {ok, Results} = calculate_rewards_metadata(Start, End, Chain),
