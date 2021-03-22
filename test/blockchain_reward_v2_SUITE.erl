@@ -54,8 +54,8 @@ end_per_suite(_Config) ->
 
 all() ->
     [
-     calc_v1_and_v2_test,
-     calc_v2_and_compare_to_chain
+     calc_v1_and_v2_test%,
+     %calc_v2_and_compare_to_chain - do not run this for now, need a better snapshot
     ].
 
 %% In this test we will start a chain from a snapshot and compare the results
