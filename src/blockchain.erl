@@ -56,8 +56,12 @@
     find_last_snapshots/2,
 
     mark_upgrades/2, bootstrap_h3dex/1,
-    snapshot_height/1
+    snapshot_height/1,
+
+    maybe_do_snapshots_gc/1
 ]).
+
+-include_lib("kernel/include/file.hrl").
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
@@ -84,13 +88,14 @@
 }).
 
 -define(GEN_HASH_FILE, "genesis").
--define(DB_FILE, "blockchain.db").
+-define(DB_FILE, "blockchain.db"). % Actually a directory, not a regular file.
 -define(HEAD, <<"head">>).
 -define(TEMP_HEADS, <<"temp_heads">>).
 -define(MISSING_BLOCK, <<"missing_block">>).
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash_and_height).
 -define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
+-define(BYTES_IN_GB, 1000000000).
 
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
@@ -102,7 +107,7 @@
                           fun bootstrap_h3dex/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
--type blockchain() :: #blockchain{}.
+-type blockchain() :: #blockchain{}. % TODO Can blockchain() be made opaque?
 -export_type([blockchain/0, blocks/0]).
 
 %%--------------------------------------------------------------------
@@ -1367,6 +1372,7 @@ check_common_keys(Blockchain) ->
     end.
 
 check_recent_blocks(Blockchain) ->
+    % TODO: Super-nesting could use a monadic result pipe
     Ledger = ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, DelayedLedgerHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
@@ -1427,6 +1433,7 @@ crosscheck(Blockchain, Recalc) ->
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, DelayedLedgerHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
     BlockDelay = blockchain_txn:block_delay(),
+    % TODO: Super-nesting could use a monadic result pipe
     %% check for the important keys like ?HEAD, ?GENESIS, etc
     case check_common_keys(Blockchain) of
         ok ->
@@ -1596,6 +1603,7 @@ missing_block(#blockchain{db=DB, default=DefaultCF}) ->
             not_found
     end.
 
+% TODO Why is this reference to a non-existing module not refjected by Dialyzer?
 -spec add_snapshot(blockchain_ledger_snapshot:snapshot(), blockchain()) ->
                           ok | {error, any()}.
 add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
@@ -1605,8 +1613,10 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
 
         {ok, Batch} = rocksdb:batch(),
         {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
+        % Hash -> BinSnap
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
         %% lexiographic ordering works better with big endian
+        % Height -> Hash
         ok = rocksdb:batch_put(Batch, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
         ok = rocksdb:write_batch(DB, Batch, [])
     catch What:Why:Stack ->
@@ -1690,9 +1700,118 @@ find_last_snapshots(Blockchain, Count0) ->
             lists:reverse(List)
     end.
 
+-spec maybe_do_snapshots_gc(blockchain()) -> ok.
+maybe_do_snapshots_gc(BC) ->
+    ct:log("maybe_do_snapshots_gc starting ..."),
+    case application:get_env(blockchain, snapshot_gc) of
+        undefined ->
+            % lagger:debug
+            ct:log("snapshot_gc config not found - skipping");
+        {ok, []} ->
+            % lagger:debug
+            ct:log("snapshot_gc config not found - skipping");
+        {ok, Cfg} ->
+            % TODO Height check
+            % TODO Where are we in danger of removing GENESIS block?
+            ct:log("Cfg: ~p", [Cfg]),
+            % TODO Reconsider having a hard-coded default
+            Max = kv_get(Cfg, max_db_bytes , 5 * ?BYTES_IN_GB),
+            Curr = db_size(BC),
+            ct:log("Curr: ~p, Max: ~p~n", [Curr, Max]),
+            case Curr >= Max of
+                false ->
+                    ok;
+                true ->
+                    case do_snapshots_gc(BC) of
+                        ok ->
+                            % TODO Log stats: space reclaimed, etc
+                            % lagger:info
+                            ct:log("snapshot_gc completed successfully."),
+                            ok
+                        %{error, Error} ->
+                        %    % lagger:error
+                        %    ct:log("snapshot_gc failed: ~p", [Error]),
+                        %    ok
+                    end
+            end
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+kv_get(KVs, K, Default) ->
+    case lists:keyfind(K, 1, KVs) of
+        false -> Default;
+        {K, V} -> V
+    end.
+
+-spec do_snapshots_gc(blockchain()) -> ok.
+% TODO Result type: {ok, {}} | {error, Error :: any()}.  % TODO Define Error
+do_snapshots_gc(#blockchain{db=DB, snapshots=CF}=BC) ->
+    % lagger:debug
+    ct:log("do_snapshots_gc starting ..."),
+    % TODO How much is each block?
+    BC_Height = height(BC),
+    rocksdb:fold(
+        DB,
+        CF,
+             % Skip height->hash mapping
+        fun ({<<_Height:64/integer-unsigned-big>>, _Hash}, {}) ->
+                %Snap = blockchain_ledger_snapshot_v1:deserialize(Value),
+                %ct:log("do_snapshots_gc -> rocksdb:fold Height: ~p", [Height]),
+                %Res = rocksdb:get(DB, CF, <<Height:64/integer-unsigned-big>>, []),
+                %ct:log("do_snapshots_gc -> rocksdb:get(Height:~p) -> ~p", [Height, Res]),
+                {};
+            % Now _assume_ that the mapping can only be hash->snapshot:
+            % TODO Discuss switching to storing each mapping in its own CF.
+            ({_Hash, SnapBin}, {}) ->
+                {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize(SnapBin),
+                Snap_Height = maps:get(current_height, Snap),
+                Snap_Blocks = maps:get(blocks        , Snap),
+                maps:fold(
+                    fun (K, V, ok) when is_list(V) ->
+                            ct:log("Snap K:~p length(V):~p", [K, length(V)]);
+                        (K, V, ok) ->
+                            ct:log("Snap K:~p V:~p", [K, V])
+                    end,
+                    ok,
+                    Snap
+                 ),
+                ct:log("BC_Height: ~p, Snap_Height: ~p", [BC_Height, Snap_Height]),
+                ct:log("Snap blocks: ~p", [length(Snap_Blocks)]),
+                %ct:log("do_snapshots_gc -> rocksdb:fold Hash: ~p", [Hash]),
+                %ct:log("do_snapshots_gc -> rocksdb:fold Snap.current_height: ~p", [Curr_Height]),
+                %case blockchain_block:is_genesis(Block) of
+                %    true ->
+                %        % skip
+                %        {};
+                %    false ->
+                %        % consider deleting
+                %        {}
+                %end
+                {}
+        end,
+        {},
+        []
+     ),
+    ok.
+
+-spec db_size(blockchain()) ->
+    integer().
+db_size(#blockchain{dir=Parent_Dir}) ->
+    DB_Dir = filename:join(Parent_Dir, ?DB_FILE),
+    db_dir_size(DB_Dir).
+
+-spec db_dir_size(file: filename_all()) ->
+    integer().
+db_dir_size(Dir_Path) ->
+    % Assert directory, for sanity.
+    {ok, #file_info{type=directory}} = file:read_file_info(Dir_Path),
+    {ok, File_Names} = file:list_dir_all(Dir_Path),
+    File_Paths = [filename:join([Dir_Path, FN]) || FN <- File_Names],
+    File_Sizes = [filelib:file_size(FP) || FP <- File_Paths],
+    lists:sum(File_Sizes).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -2291,7 +2410,10 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
             lager:error("Error creating snapshot, Reason: ~p", [Reason]),
             Error;
         {ok, NewLedger} ->
-            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger}),
+            % To avoid adding new fields (needed for snapsho GC) to add_block tuple,
+            % we instead introduce a new event instead:
+            ok = blockchain_worker:notify({maybe_do_snapshots_gc, Blockchain})
     end.
 
 %%--------------------------------------------------------------------

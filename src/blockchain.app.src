@@ -27,7 +27,12 @@
         base64url,
         erbloom
     ]},
-    {env,[]},
+    {env, [
+        {snapshot_gc, [
+            {max_db_bytes, 5000000000},
+            {}
+        ]}
+    ]},
     {modules, []},
     {maintainers, ["Helium"]},
     {licenses, ["Apache 2.0"]},
