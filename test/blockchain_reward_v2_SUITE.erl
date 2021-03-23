@@ -49,7 +49,8 @@ init_per_suite(Config) ->
 
     [{chain, Chain} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    blockchain:clean(proplists:get_value(chain, Config)),
     ok.
 
 all() ->
