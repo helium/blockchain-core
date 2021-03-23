@@ -930,6 +930,11 @@ validate_var(?reward_version, Value) ->
         _ ->
             throw({error, {invalid_reward_version, Value}})
     end;
+validate_var(?rewards_txn_version, Value) ->
+    case Value of
+        N when is_integer(N), N >= 1, N =< 2 -> ok;
+        _ -> throw({error, {invalid_rewards_txn_version, Value}})
+    end;
 
 %% bundle vars
 validate_var(?max_bundle_size, Value) ->

@@ -84,8 +84,9 @@ init_per_testcase(_TestCase, Config) ->
 
     [{chain, Chain} | Config].
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
     blockchain_score_cache:stop(),
+    blockchain:clean(proplists:get_value(chain, Config)),
     ok.
 
 all() ->

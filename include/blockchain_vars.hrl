@@ -183,6 +183,7 @@
 -define(dc_percent, dc_percent).
 -define(witness_redundancy, witness_redundancy).
 -define(poc_reward_decay_rate, poc_reward_decay_rate).
+-define(rewards_txn_version, rewards_txn_version).
 
 %%%
 %%% bundle txn vars
