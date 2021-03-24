@@ -233,14 +233,50 @@ print(#blockchain_txn_rewards_v2_pb{start_epoch=Start,
                   [Start, End, PrintableRewards]).
 
 -spec to_json(txn_rewards_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, _Opts) ->
+to_json(Txn, Opts) ->
+    RewardToJson =
+        fun
+            ({gateway, Type, G}, Amount, Ledger, Acc) ->
+                case blockchain_ledger_v1:find_gateway_owner(G, Ledger) of
+                    {error, _Error} ->
+                        Acc;
+                    {ok, GwOwner} ->
+                        [#{
+                            account => ?BIN_TO_B58(GwOwner),
+                            gateway => ?BIN_TO_B58(G),
+                            amount => Amount,
+                            type => Type} | Acc]
+                end;
+            ({owner, Type, O}, Amount, _Ledger, Acc) ->
+                [#{
+                    account => ?BIN_TO_B58(O),
+                    gateway => undefined,
+                    amount => Amount,
+                    type => Type} | Acc]
+        end,
+    Rewards = case lists:keyfind(chain, 1, Opts) of
+        {chain, Chain} ->
+            Start = blockchain_txn_rewards_v2:start_epoch(Txn),
+            End = ?MODULE:end_epoch(Txn),
+            {ok, Ledger} = blockchain:ledger_at(End, Chain),
+            {ok, Metadata} = ?MODULE:calculate_rewards_metadata(Start, End, Chain),
+            maps:fold(
+                fun(_RewardCategory, Rewards, Acc0) ->
+                    maps:fold(
+                        fun(Entry, Amount, Acc) ->
+                            RewardToJson(Entry, Amount, Ledger, Acc)
+                        end, Acc0, Rewards)
+                end, [], Metadata);
+        _ -> [ reward_to_json(R, []) || R <- rewards(Txn)]
+    end,
+
     #{
       type => <<"rewards_v2">>,
       hash => ?BIN_TO_B64(hash(Txn)),
       start_epoch => start_epoch(Txn),
       end_epoch => end_epoch(Txn),
-      rewards => [ reward_to_json(R, []) || R <- rewards(Txn)]
-     }.
+      rewards => Rewards
+    }.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -253,11 +289,9 @@ print_reward(#blockchain_txn_reward_v2_pb{account = Account, amount = Amt}) ->
 
 -spec reward_to_json( Reward :: reward_v2(),
                       Opts :: blockchain_json:opts() ) -> blockchain_json:json_object().
-reward_to_json(#blockchain_txn_reward_v2_pb{account = Account,
-                                            amount = Amt} = Txn, _Opts) ->
+reward_to_json(#blockchain_txn_reward_v2_pb{account = Account, amount = Amt}, _Opts) ->
     #{
       type => <<"reward_v2">>,
-      hash => ?BIN_TO_B64(hash(Txn)),
       account => ?BIN_TO_B58(Account),
       amount => Amt
      }.
