@@ -426,9 +426,13 @@ prepare_rewards_v2_txns(Results, Ledger) ->
     %% now we are going to fold over all rewards and construct our
     %% transaction for the blockchain
 
-    Rewards = maps:fold(fun(Owner, Amount, Acc) ->
-                      [ new_reward(Owner, Amount) | Acc ]
-              end,
+    Rewards = maps:fold(fun(Owner, 0, Acc) ->
+                                lager:debug("Dropping reward for ~p because the amount is 0",
+                                            [?BIN_TO_B58(Owner)]),
+                                Acc;
+                            (Owner, Amount, Acc) ->
+                                [ new_reward(Owner, Amount) | Acc ]
+                        end,
               [],
               maps:iterator(AllRewards)), %% again, bound memory no matter size of map
 
@@ -1198,7 +1202,8 @@ v1_to_v2(RewardsV1) ->
                     end,
                     #{},
                     RewardsV1),
-    lists:sort(maps:fold(fun(O, A, Acc) -> [ new_reward(O, A) | Acc ] end,
+    lists:sort(maps:fold(fun(_O, 0, Acc) -> Acc; %% drop any 0 amount reward, as in v2
+                             (O, A, Acc) -> [ new_reward(O, A) | Acc ] end,
                          [],
                          R)).
 
