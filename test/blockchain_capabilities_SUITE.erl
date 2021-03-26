@@ -342,6 +342,17 @@ light_gateway_poc_checks(Config0) ->
     %% the txn which includes the receipt will be declared invalid as the enclosed receipt will fail validity checks due to capabilities
     ?assertEqual({error,invalid_receipt}, blockchain_txn_poc_receipts_v1:is_valid(SignedPoCReceiptsTxn, Chain)),
 
+    %%
+    %% update the light gateway's mode to full and confirm the various is_valid tests above then pass
+    %%
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    SecondGWInfo0 = blockchain_ledger_gateway_v2:mode(full, SecondGWInfo),
+    _ = blockchain_ledger_v1:update_gateway(SecondGWInfo0, SecondGateway, Ledger1),
+    ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedWitness, Ledger1)),
+    ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedRx1, Ledger1)),
+    _ = blockchain_ledger_v1:commit_context(Ledger1),
+    %% the txn below currently fails due to bad pathing, need to meck some more but not sure what yet
+%%    ?assertEqual(ok, blockchain_txn_poc_receipts_v1:is_valid(SignedPoCReceiptsTxn, Chain)),
     ok.
 
 full_gateway_poc_checks(Config0) ->

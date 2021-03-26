@@ -7,6 +7,7 @@
         ]).
 
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -import(blockchain_utils, [normalize_float/1]).
 
@@ -313,14 +314,14 @@ gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              case blockchain_ledger_gateway_v2:mode(Gw) of
-                  full ->
+              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+                  true ->
                       Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
                       Last = Height - Last0,
                       Loc = location(ClusterRes, Gw),
                       {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
                       maps:put(Addr, {Last, Loc, Score}, Acc);
-                  _ ->
+                  false ->
                       Acc
 
               end
@@ -368,8 +369,8 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              case blockchain_ledger_gateway_v2:mode(Gw) of
-                  full ->
+              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+                  true ->
                       Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
                       Last = Height - Last0,
                       Loc = location(ClusterRes, Gw),
@@ -377,7 +378,7 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
                       %% we need something like a score for sorting the existing consensus group members
                       %% for performance grading
                       maps:put(Addr, {Last, Loc, 1.0}, Acc);
-                  _ ->
+                  false ->
                       ct:pal("filtering out non full gw with addr ~p", [Addr]),
                       Acc
               end

@@ -172,7 +172,6 @@ is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signat
             case libp2p_crypto:verify(EncodedReceipt, Signature, PubKey) of
                 false -> false;
                 true ->
-                    %% TODO: sure capability check is required here ?
                     case blockchain_gateway_cache:get(Gateway, Ledger) of
                         {error, _Reason} ->
                             false;

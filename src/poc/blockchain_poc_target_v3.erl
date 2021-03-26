@@ -10,6 +10,7 @@
 
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -export([
          target/4
@@ -67,6 +68,7 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
 %% - Dont target the challenger gateway itself.
+%% - Dont target GWs which do not have the releveant capability
 -spec filter(AddrList :: [libp2p_crypto:pubkey_bin()],
              ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
              Ledger :: blockchain_ledger_v1:ledger(),
@@ -75,7 +77,8 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
 filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
     lists:filter(fun(A) ->
                          A /= ChallengerPubkeyBin andalso
-                         is_active(A, Ledger, Height, Vars)
+                         is_active(A, Ledger, Height, Vars) andalso
+                         blockchain_ledger_gateway_v2:is_valid_capability(A, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
                  end,
                  AddrList).
 

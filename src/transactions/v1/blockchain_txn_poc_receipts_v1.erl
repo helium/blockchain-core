@@ -299,7 +299,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                            ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
                                                            {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                            StartFT = erlang:monotonic_time(millisecond),
-                                                           GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
+                                                           GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars, Ledger),
                                                            %% If we make it to this point, we are bound to have a target.
                                                            {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
                                                            maybe_log_duration(filter_target, StartFT),
@@ -307,9 +307,9 @@ check_is_valid_poc(Txn, Chain) ->
 
                                                            RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
                                                                       {ok, true} ->
-                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars);
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars, Ledger);
                                                                       _ ->
-                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars)
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars, Ledger)
                                                                   end,
                                                            maybe_log_duration(build, StartB),
                                                            RetB;
