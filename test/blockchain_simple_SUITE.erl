@@ -31,6 +31,8 @@
     election_test/1,
     election_v3_test/1,
     election_v4_test/1,
+    light_gw_election_v4_test/1,
+    nonconsensus_gw_election_v4_test/1,
     chain_vars_test/1,
     chain_vars_set_unset_test/1,
     token_burn_test/1,
@@ -80,6 +82,8 @@ all() ->
         election_test,
         election_v3_test,
         election_v4_test,
+        light_gw_election_v4_test,
+        nonconsensus_gw_election_v4_test,
         chain_vars_test,
         chain_vars_set_unset_test,
         token_burn_test,
@@ -109,7 +113,9 @@ init_per_testcase(TestCase, Config) ->
                         #{election_version => 3,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
-                    election_v4_test ->
+                    X when X == election_v4_test;
+                           X == light_gw_election_v4_test;
+                           X == nonconsensus_gw_election_v4_test ->
                         #{election_version => 4,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
@@ -1800,6 +1806,223 @@ election_v4_test(Config) ->
     ?assertEqual(element(1, lists:nth(7, ScoredOldGroup)), SevenScore),
 
     ok.
+
+light_gw_election_v4_test(Config) ->
+    %% this reusues the election v4 test but modifies it so that before the new election
+    %% all the GWs are updated to be light mode
+    %% this means they should be excluded from becoming part of the new group
+    %% as the test updates all the GWs the new group ends up being same as the old group
+    BaseDir = ?config(base_dir, Config),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    GenesisMembers = ?config(genesis_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    %% Chain = ?config(chain, Config),
+    Chain = blockchain_worker:blockchain(),
+    N = 7,
+
+    %% make sure our generated alpha & beta values are the same each time
+    rand:seed(exs1024s, {1, 2, 234098723564079}),
+    Ledger = blockchain:ledger(Chain),
+
+    %% add random alpha and beta to gateways
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    [begin
+         {ok, I} = blockchain_gateway_cache:get(Addr, Ledger1),
+         Alpha = 1.0 + rand:uniform(20),
+         Beta = 1.0 + rand:uniform(4),
+         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I3 = blockchain_ledger_gateway_v2:mode(nonconsensus, I2),
+         blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
+     end
+     || {Addr, _} <- GenesisMembers],
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    %% we need to add some blocks here.   they have to have seen
+    %% values and bbas.
+    %% index 5 will be entirely absent
+    %% index 6 will be talking (seen) but missing from bbas (maybe
+    %% byzantine, maybe just missing/slow on too many packets to
+    %% finish anything)
+    %% index 7 will be bba-present, but only partially seen, and
+    %% should not be penalized
+
+    %% it's possible to test unseen but bba-present here, but that seems impossible?
+
+    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
+
+    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
+                          || I <- lists:seq(1, N)]),
+
+    {_, Seen} =
+        lists:foldl(fun(S, {I, Acc})->
+                            V = blockchain_utils:map_to_bitvector(S),
+                            {I + 1, [{I, V} | Acc]}
+                    end,
+                    {1, []},
+                    Seen0),
+    BBA = blockchain_utils:map_to_bitvector(BBA0),
+
+    %% maybe these should vary more?
+
+    BlockCt = 50,
+
+    lists:foreach(
+      fun(_) ->
+              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
+                                                                      bba_completion => BBA}),
+              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+      end,
+      lists:seq(1, BlockCt)
+    ),
+
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
+
+    %% update all of the GWs to light mode
+    %% this should block them from becoming part of any new group
+    %% confirm they are not elected
+    %% the new group should be same as the old group as there are no valid new members
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
+    {_, _SubGenesisMembers} = lists:split(2, GenesisMembers),
+
+    [begin
+         {ok, I} = blockchain_gateway_cache:get(Addr, Ledger2),
+         I2 = blockchain_ledger_gateway_v2:mode(light, I),
+         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
+     end
+     || {Addr, _} <- GenesisMembers],
+    ok = blockchain_ledger_v1:commit_context(Ledger2),
+
+    %% generate new group of the same length
+    New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+
+    ct:pal("new ~p ~nnew1 ~p", [New, New1]),
+
+    ?assertEqual(N, length(New)),
+    ?assertEqual(N, length(New1)),
+
+    ?assertEqual(OldGroup, New),
+    ?assertEqual(OldGroup, New1),
+    ?assertEqual(New, New1),
+
+
+    ok.
+
+nonconsensus_gw_election_v4_test(Config) ->
+    %% this reusues the election v4 test but modifies it so that before the new election
+    %% all the GWs are updated to be nonconsensus mode
+    %% this means they should be exlcuded from becoming part of the new group
+    %% as the test updates all the GWs the new group ends up being same as the old group
+    BaseDir = ?config(base_dir, Config),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    GenesisMembers = ?config(genesis_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    %% Chain = ?config(chain, Config),
+    Chain = blockchain_worker:blockchain(),
+    N = 7,
+
+    %% make sure our generated alpha & beta values are the same each time
+    rand:seed(exs1024s, {1, 2, 234098723564079}),
+    Ledger = blockchain:ledger(Chain),
+
+    %% add random alpha and beta to gateways
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    [begin
+         {ok, I} = blockchain_gateway_cache:get(Addr, Ledger1),
+         Alpha = 1.0 + rand:uniform(20),
+         Beta = 1.0 + rand:uniform(4),
+         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I3 = blockchain_ledger_gateway_v2:mode(nonconsensus, I2),
+         blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
+     end
+     || {Addr, _} <- GenesisMembers],
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    %% we need to add some blocks here.   they have to have seen
+    %% values and bbas.
+    %% index 5 will be entirely absent
+    %% index 6 will be talking (seen) but missing from bbas (maybe
+    %% byzantine, maybe just missing/slow on too many packets to
+    %% finish anything)
+    %% index 7 will be bba-present, but only partially seen, and
+    %% should not be penalized
+
+    %% it's possible to test unseen but bba-present here, but that seems impossible?
+
+    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
+
+    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
+                          || I <- lists:seq(1, N)]),
+
+    {_, Seen} =
+        lists:foldl(fun(S, {I, Acc})->
+                            V = blockchain_utils:map_to_bitvector(S),
+                            {I + 1, [{I, V} | Acc]}
+                    end,
+                    {1, []},
+                    Seen0),
+    BBA = blockchain_utils:map_to_bitvector(BBA0),
+
+    %% maybe these should vary more?
+
+    BlockCt = 50,
+
+    lists:foreach(
+      fun(_) ->
+              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
+                                                                      bba_completion => BBA}),
+              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+      end,
+      lists:seq(1, BlockCt)
+    ),
+
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
+
+    %% update all of the GWs to nonconsensus modes
+    %% this should block them from becoming part of any new group
+    %% confirm they are not elected
+    %% the new group should be same as the old group as there are no valid new members
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
+    {_, _SubGenesisMembers} = lists:split(2, GenesisMembers),
+
+    [begin
+         {ok, I} = blockchain_gateway_cache:get(Addr, Ledger2),
+         I2 = blockchain_ledger_gateway_v2:mode(nonconsensus, I),
+         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
+     end
+     || {Addr, _} <- GenesisMembers],
+    ok = blockchain_ledger_v1:commit_context(Ledger2),
+
+    %% generate new group of the same length
+    New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+
+    ct:pal("new ~p ~nnew1 ~p", [New, New1]),
+
+    ?assertEqual(N, length(New)),
+    ?assertEqual(N, length(New1)),
+
+    ?assertEqual(OldGroup, New),
+    ?assertEqual(OldGroup, New1),
+    ?assertEqual(New, New1),
+
+
+    ok.
+
 
 chain_vars_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),

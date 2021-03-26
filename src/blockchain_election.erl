@@ -313,11 +313,17 @@ gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
-              Last = Height - Last0,
-              Loc = location(ClusterRes, Gw),
-              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
-              maps:put(Addr, {Last, Loc, Score}, Acc)
+              case blockchain_ledger_gateway_v2:mode(Gw) of
+                  full ->
+                      Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+                      Last = Height - Last0,
+                      Loc = location(ClusterRes, Gw),
+                      {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+                      maps:put(Addr, {Last, Loc, Score}, Acc);
+                  _ ->
+                      Acc
+
+              end
       end,
       #{},
       Ledger).
@@ -362,13 +368,19 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
-              Last = Height - Last0,
-              Loc = location(ClusterRes, Gw),
-              %% instead of getting the score, start at 1.0 for all spots
-              %% we need something like a score for sorting the existing consensus group members
-              %% for performance grading
-              maps:put(Addr, {Last, Loc, 1.0}, Acc)
+              case blockchain_ledger_gateway_v2:mode(Gw) of
+                  full ->
+                      Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+                      Last = Height - Last0,
+                      Loc = location(ClusterRes, Gw),
+                      %% instead of getting the score, start at 1.0 for all spots
+                      %% we need something like a score for sorting the existing consensus group members
+                      %% for performance grading
+                      maps:put(Addr, {Last, Loc, 1.0}, Acc);
+                  _ ->
+                      ct:pal("filtering out non full gw with addr ~p", [Addr]),
+                      Acc
+              end
       end,
       #{},
       Ledger).
