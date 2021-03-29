@@ -368,10 +368,10 @@ gateway_mode(Ledger, Payer) ->
         not_found ->
                 full;
         Mappings when is_list(Mappings) ->
-            %% check if there is an entry for the payer key, if not default to full gw
-            %% if a GW needs to be non full, its payer MUST have an entry in the staking key mappings table
+            %% check if there is an entry for the payer key, if not default to light gw
+            %% if a GW needs to be non light, its payer MUST have an entry in the staking key mappings table
             case proplists:get_value(Payer, Mappings, not_found) of
-                not_found -> full;
+                not_found -> light;
                 GWMode -> binary_to_atom(GWMode, utf8)
             end
     end.

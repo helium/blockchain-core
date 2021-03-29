@@ -433,9 +433,9 @@
 -define(max_antenna_gain, max_antenna_gain).        %% Set to 150 (15 dBi)
 
 %% ------------------------------------------------------------------
-%% Light gateway capabilties mask
+%% the mask value to represent the capabilities of light gateways, defined as an integer and used as a bitmask
 -define(light_gateway_capabilities_mask, light_gateway_capabilities_mask).
-%% non consensus gateway capabilties mask
+%% the mask value to represent the capabilities of non consensus gateways, defined as an integer and used as a bitmask
 -define(non_consensus_gateway_capabilities_mask, non_consensus_gateway_capabilities_mask).
-%% full gateway capabilties mask
+%% the mask value to represent the capabilities of full gateways, defined as an integer and used as a bitmask
 -define(full_gateway_capabilities_mask, full_gateway_capabilities_mask).

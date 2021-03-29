@@ -162,7 +162,7 @@ is_valid(Txn, Chain) ->
                         {ok, Info} ->
                             %% check the gateway mode to determine if its allowed to issue POC requests
                             case blockchain_ledger_gateway_v2:is_valid_capability(Info, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
-                                false -> {error, gateway_bad_capabilities};
+                                false -> {error, {gateway_not_allowed, blockchain_ledger_gateway_v2:mode(Info)}};
                                 true ->
                                     case blockchain_ledger_gateway_v2:location(Info) of
                                         undefined ->

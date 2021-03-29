@@ -291,10 +291,10 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars, Ledger) 
                                 %% Don't include if the witness is not in GatewayScoreMap
                                 false;
                             true ->
-                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessPubkeyBin, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                {WitnessGw, _} = maps:get(WitnessPubkeyBin, GatewayScoreMap),
+                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessGw, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
                                     false -> false;
                                     true ->
-                                        {WitnessGw, _} = maps:get(WitnessPubkeyBin, GatewayScoreMap),
                                         WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                         WitnessParent = h3:parent(WitnessLoc, ParentRes),
                                         %% Dont include any witnesses in any parent cell we've already visited

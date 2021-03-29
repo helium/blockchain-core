@@ -379,7 +379,7 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
                       %% for performance grading
                       maps:put(Addr, {Last, Loc, 1.0}, Acc);
                   false ->
-                      ct:pal("filtering out non full gw with addr ~p", [Addr]),
+                      lager:debug("filtering gw due to invalid capability: ~p", [Addr]),
                       Acc
               end
       end,

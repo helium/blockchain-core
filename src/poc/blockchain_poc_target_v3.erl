@@ -76,18 +76,17 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
              Vars :: map()) -> [libp2p_crypto:pubkey_bin()].
 filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
     lists:filter(fun(A) ->
+                        {ok, Gateway} = blockchain_gateway_cache:get(A, Ledger),
                          A /= ChallengerPubkeyBin andalso
-                         is_active(A, Ledger, Height, Vars) andalso
-                         blockchain_ledger_gateway_v2:is_valid_capability(A, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
+                         is_active(Gateway, Height, Vars) andalso
+                         blockchain_ledger_gateway_v2:is_valid_capability(Gateway, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
                  end,
                  AddrList).
 
--spec is_active(GwPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                Ledger :: blockchain_ledger_v1:ledger(),
+-spec is_active(Gateway :: blockchain_ledger_gateway_v2:gateway(),
                 Height :: non_neg_integer(),
                 Vars :: map()) -> boolean().
-is_active(GwPubkeyBin, Ledger, Height, Vars) ->
-    {ok, Gateway} = blockchain_gateway_cache:get(GwPubkeyBin, Ledger),
+is_active(Gateway, Height, Vars) ->
     case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
         undefined ->
             %% No POC challenge, don't include

@@ -321,7 +321,7 @@ nonce(Nonce, Gateway) ->
 mask(Gateway, Ledger)->
     mask_for_gateway_mode(Gateway, Ledger).
 
--spec is_valid_capability(Gateway :: gateway(), non_neg_integer(), Ledger :: blockchain_ledger_v1:ledger())-> non_neg_integer().
+-spec is_valid_capability(Gateway :: gateway(), non_neg_integer(), Ledger :: blockchain_ledger_v1:ledger())-> boolean().
 is_valid_capability(Gateway, Capability, Ledger)->
     Mask = mask_for_gateway_mode(Gateway, Ledger),
     (Mask band Capability) == Capability.
@@ -585,15 +585,12 @@ deserialize(<<2, Bin/binary>>) ->
                 L1 = lists:append(L, [undefined, ?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full]),
                 G1 = list_to_tuple(L1),
                 neighbors([], G1);
-            %% pre mode upgrade ?  TODO %% is this required ?
             13 ->
                 %% pre gain, elevation, mode update
                 L = tuple_to_list(Gw),
                 %% add defaults for gain, elevation and mode
                 L1 = lists:append(L, [?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full]),
                 list_to_tuple(L1);
-            14 ->
-                Gw;
             16 ->
                 Gw
         end,
@@ -651,22 +648,20 @@ convert(#gateway_v1{
        %% this gets set in the upgrade path
        neighbors = []}.
 
--spec mask_for_gateway_mode(Mode :: blockchain_ledger_gateway_v2:mode(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+-spec mask_for_gateway_mode(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
 mask_for_gateway_mode(#gateway_v2{mode = light}, Ledger)->
     case blockchain:config(?light_gateway_capabilities_mask, Ledger) of
-        {error, not_found} ->
-            ?GW_CAPABILITIES_LIGHT_GATEWAY;
-        {ok, V} ->
-            V
+        {error, not_found} -> ?GW_CAPABILITIES_LIGHT_GATEWAY_V1;
+        {ok, V} -> V
     end;
 mask_for_gateway_mode(#gateway_v2{mode = nonconsensus}, Ledger)->
     case blockchain:config(?non_consensus_gateway_capabilities_mask, Ledger) of
-        {error, not_found} -> ?GW_CAPABILITIES_NON_CONSENSUS_GATEWAY;
+        {error, not_found} -> ?GW_CAPABILITIES_NON_CONSENSUS_GATEWAY_V1;
         {ok, V} -> V
     end;
 mask_for_gateway_mode(#gateway_v2{mode = full}, Ledger)->
     case blockchain:config(?full_gateway_capabilities_mask, Ledger) of
-        {error, not_found} -> ?GW_CAPABILITIES_FULL_GATEWAY;
+        {error, not_found} -> ?GW_CAPABILITIES_FULL_GATEWAY_V1;
         {ok, V} -> V
     end.
 %% ------------------------------------------------------------------
