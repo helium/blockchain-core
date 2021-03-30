@@ -261,8 +261,11 @@ to_json(Txn, Opts) ->
             {ok, Ledger} = blockchain:ledger_at(End, Chain),
             {ok, Metadata} = ?MODULE:calculate_rewards_metadata(Start, End, Chain),
             maps:fold(
-                fun(_RewardCategory, Rewards, Acc0) ->
-                    maps:fold(
+                fun(overages, Amount, Acc) ->
+                        [#{amount => Amount,
+                           type => overages} | Acc];
+                   (_RewardCategory, Rewards, Acc0) ->
+                        maps:fold(
                         fun(Entry, Amount, Acc) ->
                             RewardToJson(Entry, Amount, Ledger, Acc)
                         end, Acc0, Rewards)
