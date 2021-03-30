@@ -1121,10 +1121,10 @@ validate_var(?assert_loc_txn_version, Value) ->
     end;
 validate_var(?min_antenna_gain, Value) ->
     %% Initially set to 10 to imply 1 dBi
-    validate_int(Value, "min_antenna_gain", 1, 11, false);
+    validate_int(Value, "min_antenna_gain", 0, 10, false);
 validate_var(?max_antenna_gain, Value) ->
     %% Initially set to 150 to imply 15 dBi
-    validate_int(Value, "max_antenna_gain", 100, 600, false);
+    validate_int(Value, "max_antenna_gain", 10, 200, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
