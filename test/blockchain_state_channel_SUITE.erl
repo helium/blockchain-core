@@ -4,7 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_ct_utils.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([groups/0, all/0, test_cases/0, init_per_group/2, end_per_group/2, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
     basic_test/1,
@@ -34,7 +34,20 @@
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
 
+groups() ->
+    [{sc_libp2p,
+      [],
+      test_cases()
+     },
+     {sc_grpc,
+      [],
+      test_cases()
+     }].
+
 all() ->
+    [{group, sc_libp2p}, {group, sc_grpc}].
+
+test_cases() ->
     [
         basic_test,
         full_test,
@@ -59,6 +72,11 @@ all() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
+init_per_group(sc_libp2p, Config) ->
+    [{sc_client_transport_handler, blockchain_state_channel_handler} | Config];
+init_per_group(sc_grpc, Config) ->
+    [{sc_client_transport_handler, blockchain_grpc_sc_client_test_handler} | Config].
+
 init_per_testcase(basic_test, Config) ->
     BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
     [{base_dir, BaseDir} |Config];
@@ -135,6 +153,8 @@ end_per_testcase(basic_test, _Config) ->
 end_per_testcase(Test, Config) ->
     blockchain_ct_utils:end_per_testcase(Test, Config).
 
+end_per_group(_, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -190,6 +210,11 @@ full_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
     RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    Stuff1 = ct_rpc:call(RouterNode, application, get_all_env, [grpcbox]),
+    Stuff2 = ct_rpc:call(RouterNode, application, get_all_env, [blockchain]),
+    ct:pal("RouterNode ~p", [RouterNode]),
+    ct:pal("grpcbox stuff ~p", [Stuff1]),
+    ct:pal("blockchain stuff ~p", [Stuff2]),
 
     %% Check that the meck txn forwarding works
     Self = self(),
@@ -214,6 +239,7 @@ full_test(Config) ->
     SCOpenBlockHash = blockchain_block:hash_block(Block0),
 
     %% Fake gossip block
+    ct:pal("RouterNode ~p", [RouterNode]),
     ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
 
     %% Wait till the block is gossiped
@@ -230,6 +256,7 @@ full_test(Config) ->
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
     Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
+    ct:pal("Gateway node1 ~p", [GatewayNode1]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -240,6 +267,7 @@ full_test(Config) ->
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
+    ct:pal("Gateway node1 ~p", [GatewayNode1]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     timer:sleep(timer:seconds(1)),
