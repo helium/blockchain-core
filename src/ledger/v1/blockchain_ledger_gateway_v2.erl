@@ -9,6 +9,9 @@
     new/2, new/3,
     owner_address/1, owner_address/2,
     location/1, location/2,
+    gain/1, gain/2,
+    elevation/1, elevation/2,
+    mode/1, mode/2,
     score/4,
     version/1, version/2,
     add_neighbor/2, remove_neighbor/2,
@@ -34,7 +37,7 @@
 
 -import(blockchain_utils, [normalize_float/1]).
 
--include("blockchain.hrl").
+-include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
@@ -62,7 +65,10 @@
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
     witnesses = [] :: witnesses_int(),
-    oui = undefined :: undefined | pos_integer()
+    oui = undefined :: undefined | pos_integer(),
+    gain = ?DEFAULT_GAIN :: integer(),
+    elevation = ?DEFAULT_ELEVATION :: integer(),
+    mode = full :: mode()
 }).
 
 -type gateway() :: #gateway_v2{}.
@@ -70,12 +76,9 @@
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 -type histogram() :: #{integer() => integer()}.
+-type mode() :: light | full.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
@@ -96,38 +99,46 @@ new(OwnerAddress, Location, Nonce) ->
         delta=1
     }.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner_address(Gateway :: gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Gateway) ->
     Gateway#gateway_v2.owner_address.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner_address(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                     Gateway :: gateway()) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
     Gateway#gateway_v2{owner_address=OwnerAddress}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec location(Gateway :: gateway()) ->  undefined | pos_integer().
 location(Gateway) ->
     Gateway#gateway_v2.location.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
     Gateway#gateway_v2{location=Location}.
+
+-spec gain(Gateway :: gateway()) ->  undefined | integer().
+gain(Gateway) ->
+    Gateway#gateway_v2.gain.
+
+-spec gain(Gain :: integer(), Gateway :: gateway()) -> gateway().
+gain(Gain, Gateway) ->
+    Gateway#gateway_v2{gain=Gain}.
+
+-spec elevation(Gateway :: gateway()) ->  undefined | integer().
+elevation(Gateway) ->
+    Gateway#gateway_v2.elevation.
+
+-spec elevation(Elevation :: integer(), Gateway :: gateway()) -> gateway().
+elevation(Elevation, Gateway) ->
+    Gateway#gateway_v2{elevation=Elevation}.
+
+-spec mode(Gateway :: gateway()) ->  mode().
+mode(Gateway) ->
+    Gateway#gateway_v2.mode.
+
+-spec mode(Mode :: mode(), Gateway :: gateway()) -> gateway().
+mode(Mode, Gateway) ->
+    Gateway#gateway_v2{mode=Mode}.
 
 version(Gateway) ->
     Gateway#gateway_v2.version.
@@ -167,7 +178,7 @@ neighbors(Neighbors, Gateway) ->
 -spec score(Address :: libp2p_crypto:pubkey_bin(),
             Gateway :: gateway(),
             Height :: pos_integer(),
-            Ledger :: blockchain_ledger_v2:ledger()) -> {float(), float(), float()}.
+            Ledger :: blockchain_ledger_v1:ledger()) -> {float(), float(), float()}.
 score(Address,
       #gateway_v2{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
@@ -310,7 +321,7 @@ print(Address, Gateway, Ledger, Verbose) ->
         case Verbose of
             true ->
                 {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
-                [ 
+                [
                   {score, Score},
                   {alpha, alpha(Gateway)},
                   {new_alpha, NewAlpha},
@@ -543,10 +554,17 @@ deserialize(<<2, Bin/binary>>) ->
             12 ->
                 L = tuple_to_list(Gw),
                 %% add an undefined OUI slot
-                L1 = lists:append(L, [undefined]),
+                %% and add defaults for gain, elevation and mode
+                L1 = lists:append(L, [undefined, ?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full]),
                 G1 = list_to_tuple(L1),
                 neighbors([], G1);
             13 ->
+                %% pre gain, elevation, mode update
+                L = tuple_to_list(Gw),
+                %% add defaults for gain, elevation and mode
+                L1 = lists:append(L, [?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full]),
+                list_to_tuple(L1);
+            16 ->
                 Gw
         end,
     Neighbors = neighbors(Gw1),
