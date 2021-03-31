@@ -18,6 +18,10 @@
          diff/2
         ]).
 
+-export_type([
+    snapshot/0
+]).
+
 %% this assumes that everything will have loaded the genesis block
 %% already.  I'm not sure that's totally safe in all cases, but it's
 %% the right thing for the spots and easy to work around elsewhere.
@@ -28,6 +32,54 @@
 %% more permanent and less flexible format, like protobufs, or
 %% cauterize.
 
+-type snapshot() ::
+    #{
+        version => v5,
+        current_height => non_neg_integer(),
+        transaction_fee =>  non_neg_integer(),
+        consensus_members => [libp2p_crypto:pubkey_bin()],
+
+        election_height => non_neg_integer(),
+        election_epoch => non_neg_integer(),
+
+        delayed_vars => [term()], % TODO Be more specific
+        threshold_txns => [term()], % TODO Be more specific
+
+        master_key => binary(),
+        multi_keys => [binary()],
+        vars_nonce => pos_integer(),
+        vars => [term()], % TODO Be more specific
+
+        gateways => [term()], % TODO Be more specific
+
+        % TODO Key type; Not 100% sure about Val type either...
+        pocs => [{Key :: term(), Val :: blockchain_ledger_poc_v1:pocs()}],
+
+        accounts => [term()], % TODO Be more specific
+        dc_accounts => [term()], % TODO Be more specific
+
+        security_accounts => [term()], % TODO Be more specific
+
+        htlcs => [term()], % TODO Be more specific
+
+        ouis => [term()], % TODO Be more specific
+        subnets => [term()], % TODO Be more specific
+        oui_counter => pos_integer(),
+
+        hexes => [term()], % TODO Be more specific
+        h3dex => [{integer(), [binary()]}],
+
+        state_channels => [term()], % TODO Be more specific
+
+        blocks => [blockchain_block:block()],
+
+        oracle_price => non_neg_integer(),
+        oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()]
+    }.
+
+-spec snapshot(blockchain_ledger_v1:ledger(), [binary()]) ->
+    {ok, snapshot()}
+    | {error, term()}.  % TODO More-specific than just term()
 snapshot(Ledger0, Blocks) ->
     Parent = self(),
     Ref = make_ref(),
@@ -78,6 +130,9 @@ deliver(Res) ->
               ok
     end.
 
+-spec generate_snapshot(blockchain_ledger_v1:ledger(), [binary()]) ->
+      {ok, snapshot()}
+    | {error, term()}.  % TODO More-specific than just term()
 generate_snapshot(Ledger0, Blocks) ->
     try
         %% TODO: actually verify we're delayed here instead of
@@ -165,6 +220,8 @@ generate_snapshot(Ledger0, Blocks) ->
             {error, {error_taking_snapshot, C, E, S}}
     end.
 
+-spec serialize(snapshot()) ->
+    {ok, binary()}.
 serialize(Snapshot) ->
     serialize(Snapshot, blocks).
 
@@ -231,6 +288,9 @@ serialize_v4(Snapshot, noblocks) ->
     {ok, Snap}.
 
 
+-spec deserialize(binary()) ->
+      {ok, snapshot()}
+    | {error, bad_snapshot_binary}.
 deserialize(<<1,
               %%SHASz:16/little-unsigned-integer, SHA:SHASz/binary,
               BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
@@ -282,6 +342,8 @@ deserialize(<<5,
     end.
 
 %% sha will be stored externally
+-spec import(blockchain:blockchain(), binary(), snapshot()) ->
+    {ok, blockchain_ledger_v1:ledger()} | {error, bad_snapshot_checksum}.
 import(Chain, SHA,
        #{
          current_height := CurrHeight,
@@ -445,6 +507,8 @@ import(Chain, SHA,
             {error, bad_snapshot_checksum}
     end.
 
+-spec get_blocks(blockchain:blockchain()) ->
+    [binary()].
 get_blocks(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),

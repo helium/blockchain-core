@@ -56,6 +56,9 @@ basic_test(_Config) ->
     end,
 
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, []),
+    true = is_map(Snapshot),
+    false = is_map(maps:get(h3dex, Snapshot)),
+    true = is_list(maps:get(h3dex, Snapshot)),
 
     %% make a dir for the loaded snapshot
     {ok, Dir} = file:get_cwd(),
