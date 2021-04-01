@@ -842,6 +842,7 @@ add_block_(Block, Blockchain, Syncing) ->
     Ledger = blockchain:ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, BlockchainHeight} = blockchain:height(Blockchain),
+    FollowMode = follow_mode(),
     case LedgerHeight == BlockchainHeight of
         true ->
             case can_add_block(Block, Blockchain) of
@@ -856,7 +857,7 @@ add_block_(Block, Blockchain, Syncing) ->
                                            ok = run_gc_hooks(FChain, FHash)
                                    end,
                     {Signers, _Signatures} = lists:unzip(Sigs),
-                    Fun = case lists:member(MyAddress, Signers) of
+                    Fun = case lists:member(MyAddress, Signers) orelse FollowMode of
                               true -> unvalidated_absorb_and_commit;
                               _ -> absorb_and_commit
                           end,
@@ -1756,9 +1757,14 @@ load(Dir, Mode) ->
                 ledger=Ledger
             },
             compact(Blockchain),
-            %% pre-calculate the missing snapshots
+            %% if this is not set, the below check will always be true
+            SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 1),
+            FollowMode = follow_mode(), % no need for pre-calc when we only follow
+            %% pre-calculate the missing snapshots when we're above blessed snap
             case height(Blockchain) of
-                {ok, ChainHeight} when ChainHeight > 2 ->
+                {ok, ChainHeight} when ChainHeight > 2 andalso
+                                       ChainHeight > SnapHeight andalso
+                                       (not FollowMode) ->
                     ledger_at(ChainHeight - 1, Blockchain);
                 _ ->
                     ok
@@ -1766,10 +1772,6 @@ load(Dir, Mode) ->
             {Blockchain, ?MODULE:genesis_block(Blockchain)}
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec load_genesis(file:filename_all()) -> {ok, blockchain_block:block()} | {error, any()}.
 load_genesis(Dir) ->
     File = filename:join(Dir, ?GEN_HASH_FILE),
@@ -2318,6 +2320,9 @@ snapshot_height(Height) ->
         false ->
             Height
     end.
+
+follow_mode() ->
+    application:get_env(blockchain, follow_mode, false).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
