@@ -413,7 +413,12 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     Transactions0 = blockchain_block:transactions(Block),
     %% chain vars must always be validated so we don't accidentally sync past a change we don't understand
-    Transactions = lists:filter(fun(T) -> ?MODULE:type(T) == blockchain_txn_vars_v1 end, (Transactions0)),
+    Transactions =
+         lists:filter(
+           fun(T) -> Ty = ?MODULE:type(T),
+                     Ty == blockchain_txn_vars_v1
+                         orelse Ty == blockchain_txn_consensus_group_v1
+           end, (Transactions0)),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
