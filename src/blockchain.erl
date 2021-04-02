@@ -872,12 +872,15 @@ add_block_(Block, Blockchain, Syncing) ->
                               _ -> absorb_and_commit
                           end,
                     Ledger = blockchain:ledger(Blockchain),
+                    %% 0 can never be true below
+                    SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 0),
                     case blockchain_block_v1:snapshot_hash(Block) of
                         <<>> ->
                             ok;
-                        ConsensusHash ->
+                        ConsensusHash when Height /= (SnapHeight - 1) ->
                             process_snapshot(ConsensusHash, MyAddress, Signers,
-                                             Ledger, Height, Blockchain)
+                                             Ledger, Height, Blockchain);
+                        _ -> ok
                     end,
                     case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
                         {error, Reason}=Error ->
