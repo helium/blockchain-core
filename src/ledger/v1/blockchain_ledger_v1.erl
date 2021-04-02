@@ -423,10 +423,10 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
     {ok, Height} = current_height(Ledger),
     prewarm_gateways(Mode, Height, Ledger, GwCache),
+    delete_context(Ledger),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
     rocksdb:release_batch(Batch),
     Callbacks(),
-    delete_context(Ledger),
     ok.
 
 %%--------------------------------------------------------------------
@@ -3593,15 +3593,30 @@ invoke_commit_hooks(Changes, Filters) ->
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
 prewarm_gateways(active, Height, Ledger, GwCache) ->
-   GWList = ets:foldl(fun({_, ?CACHE_TOMBSTONE}, Acc) ->
-                              Acc;
-                         ({Key, spillover}, Acc) ->
-                              AGwsCF = active_gateways_cf(Ledger),
-                              {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
-                              [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc];
-                         ({Key, Value}, Acc) ->
-                              [{Key, Value} | Acc]
-                      end, [], GwCache),
+    RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
+    {_, GWList} =
+        ets:foldl(
+          fun(_, {done, Acc}) ->
+                  {done, Acc};
+             ({_, ?CACHE_TOMBSTONE}, Acc) ->
+                  Acc;
+             ({Key, spillover}, {Ct, Acc}) ->
+                  AGwsCF = active_gateways_cf(Ledger),
+                  {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
+                  case Ct >= RetentionLimit of
+                      true ->
+                          {done, Acc};
+                      false ->
+                          {Ct + 1, [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc]}
+                  end;
+             ({Key, Value}, {Ct, Acc}) ->
+                  case Ct >= RetentionLimit of
+                      true ->
+                          {done, Acc};
+                      false ->
+                          {Ct + 1, [{Key, Value}|Acc]}
+                  end
+          end, {0, []}, GwCache),
     %% best effort here
     try blockchain_gateway_cache:bulk_put(Height, GWList) catch _:_ -> ok end.
 
