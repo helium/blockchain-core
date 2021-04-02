@@ -423,10 +423,10 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
     {ok, Height} = current_height(Ledger),
     prewarm_gateways(Mode, Height, Ledger, GwCache),
+    delete_context(Ledger),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
     rocksdb:release_batch(Batch),
     Callbacks(),
-    delete_context(Ledger),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1581,11 +1581,26 @@ maybe_gc_pocs(Chain, Ledger) ->
                   {ok, V} -> V;
                   _ -> 1
               end,
-    case Version > 3 andalso Height rem 100 == 0 of
+    %% this used to be 100, but that seems like a lot to process at once, so I lowered it to make
+    %% each iteration cheaper and set it off by one so it wouldn't align with so many other gc
+    %% processes
+    case Version > 3 andalso Height rem 51 == 0 of
         true ->
             lager:debug("gcing old pocs"),
             PoCInterval = blockchain_utils:challenge_interval(Ledger),
             PoCsCF = pocs_cf(Ledger),
+            %% construct a list of recent hashes instead of fetching all the blocks by their hashes,
+            %% which ends up being much much cheaper
+            Hashes =
+                lists:foldl(
+                  fun(H, Acc) ->
+                          case blockchain:get_block_hash(H, Chain) of
+                              {ok, Hash} ->
+                                  Acc#{Hash => H};
+                              _ ->
+                                  Acc
+                          end
+                  end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
             Alters =
                 cache_fold(
                   Ledger,
@@ -1608,15 +1623,14 @@ maybe_gc_pocs(Chain, Ledger) ->
                                                 %% pre-upgrade pocs are ancient
                                                 false;
                                             _ ->
-                                                case blockchain:get_block(H, Chain) of
-                                                    {ok, B} ->
-                                                        BH = blockchain_block:height(B),
+                                                case maps:find(H, Hashes) of
+                                                    {ok, BH} ->
+                                                        %% not sure this is even needed, it might
+                                                        %% always be true? but just in case
                                                         (Height - BH) < PoCInterval * 2;
-                                                    {error, not_found} ->
-                                                        %% we assume that if we can't find the
-                                                        %% origin block in a snapshotted build, we
-                                                        %% can just get rid of it, it's guaranteed
-                                                        %% to be too old.
+                                                    error ->
+                                                        %% if it's not in the hashes map, it's too
+                                                        %% old by construction
                                                         false
                                                 end
                                         end
@@ -3585,15 +3599,33 @@ invoke_commit_hooks(Changes, Filters) ->
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
 prewarm_gateways(active, Height, Ledger, GwCache) ->
-   GWList = ets:foldl(fun({_, ?CACHE_TOMBSTONE}, Acc) ->
-                              Acc;
-                         ({Key, spillover}, Acc) ->
-                              AGwsCF = active_gateways_cf(Ledger),
-                              {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
-                              [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc];
-                         ({Key, Value}, Acc) ->
-                              [{Key, Value} | Acc]
-                      end, [], GwCache),
+    %% in larger caches, the list of gateways to precache can get pretty big, so make sure that
+    %% we're honoring the limits set in the config, esp since we're sending this to another process
+    %% and thus at least briefly doubling the memory it uses.
+    RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
+    {_, GWList} =
+        ets:foldl(
+          fun(_, {done, Acc}) ->
+                  {done, Acc};
+             ({_, ?CACHE_TOMBSTONE}, Acc) ->
+                  Acc;
+             ({Key, spillover}, {Ct, Acc}) ->
+                  AGwsCF = active_gateways_cf(Ledger),
+                  {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
+                  case Ct >= RetentionLimit of
+                      true ->
+                          {done, Acc};
+                      false ->
+                          {Ct + 1, [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc]}
+                  end;
+             ({Key, Value}, {Ct, Acc}) ->
+                  case Ct >= RetentionLimit of
+                      true ->
+                          {done, Acc};
+                      false ->
+                          {Ct + 1, [{Key, Value}|Acc]}
+                  end
+          end, {0, []}, GwCache),
     %% best effort here
     try blockchain_gateway_cache:bulk_put(Height, GWList) catch _:_ -> ok end.
 

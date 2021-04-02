@@ -15,7 +15,7 @@
     ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
     dir/1,
 
-    blocks/1, get_block/2, get_raw_block/2, save_block/2,
+    blocks/1, get_block/2, get_block_hash/2, get_raw_block/2, save_block/2,
     has_block/2,
     find_first_block_after/2,
 
@@ -593,6 +593,16 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
             Error
     end.
 
+get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
+    case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+       {ok, Hash} ->
+            {ok, Hash};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
 get_raw_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
@@ -862,12 +872,17 @@ add_block_(Block, Blockchain, Syncing) ->
                               _ -> absorb_and_commit
                           end,
                     Ledger = blockchain:ledger(Blockchain),
+                    %% 0 can never be true below
+                    SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 0),
                     case blockchain_block_v1:snapshot_hash(Block) of
                         <<>> ->
                             ok;
-                        ConsensusHash ->
+                        %% check the snap height as it's pointless to do this work for the snapshot
+                        %% we're currently in the process of loading
+                        ConsensusHash when Height /= (SnapHeight - 1) ->
                             process_snapshot(ConsensusHash, MyAddress, Signers,
-                                             Ledger, Height, Blockchain)
+                                             Ledger, Height, Blockchain);
+                        _ -> ok
                     end,
                     case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
                         {error, Reason}=Error ->
