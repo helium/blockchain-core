@@ -15,7 +15,7 @@
     ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
     dir/1,
 
-    blocks/1, get_block/2, get_raw_block/2, save_block/2,
+    blocks/1, get_block/2, get_block_hash/2, get_raw_block/2, save_block/2,
     has_block/2,
     find_first_block_after/2,
 
@@ -587,6 +587,16 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
        {ok, Hash} ->
            ?MODULE:get_block(Hash, Blockchain);
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
+    case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+       {ok, Hash} ->
+            {ok, Hash};
         not_found ->
             {error, not_found};
         Error ->

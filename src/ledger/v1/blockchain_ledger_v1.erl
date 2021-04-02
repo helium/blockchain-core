@@ -1581,11 +1581,22 @@ maybe_gc_pocs(Chain, Ledger) ->
                   {ok, V} -> V;
                   _ -> 1
               end,
-    case Version > 3 andalso Height rem 100 == 0 of
+    case Version > 3 andalso Height rem 51 == 0 of
         true ->
             lager:debug("gcing old pocs"),
             PoCInterval = blockchain_utils:challenge_interval(Ledger),
             PoCsCF = pocs_cf(Ledger),
+            %% construct a list of recent hashes
+            Hashes =
+                lists:foldl(
+                  fun(H, Acc) ->
+                          case blockchain:get_block_hash(H, Chain) of
+                              {ok, Hash} ->
+                                  Acc#{Hash => H};
+                              _ ->
+                                  Acc
+                          end
+                  end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
             Alters =
                 cache_fold(
                   Ledger,
@@ -1608,15 +1619,12 @@ maybe_gc_pocs(Chain, Ledger) ->
                                                 %% pre-upgrade pocs are ancient
                                                 false;
                                             _ ->
-                                                case blockchain:get_block(H, Chain) of
-                                                    {ok, B} ->
-                                                        BH = blockchain_block:height(B),
+                                                case maps:find(H, Hashes) of
+                                                    {ok, BH} ->
                                                         (Height - BH) < PoCInterval * 2;
-                                                    {error, not_found} ->
-                                                        %% we assume that if we can't find the
-                                                        %% origin block in a snapshotted build, we
-                                                        %% can just get rid of it, it's guaranteed
-                                                        %% to be too old.
+                                                    error ->
+                                                        %% if it's not in the hashes map, it's too
+                                                        %% old by construction
                                                         false
                                                 end
                                         end
