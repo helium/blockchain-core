@@ -464,7 +464,7 @@ import(Chain, SHA,
                                   end,
 
                               Ht = blockchain_block:height(Block),
-                              case blockchain:get_block(Ht, Chain) of
+                              case blockchain:get_block_hash(Ht, Chain) of
                                   {ok, _Block} ->
                                       %% already have it, don't need to store it again.
                                       ok;
