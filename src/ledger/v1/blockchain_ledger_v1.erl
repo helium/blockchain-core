@@ -1581,12 +1581,16 @@ maybe_gc_pocs(Chain, Ledger) ->
                   {ok, V} -> V;
                   _ -> 1
               end,
+    %% this used to be 100, but that seems like a lot to process at once, so I lowered it to make
+    %% each iteration cheaper and set it off by one so it wouldn't align with so many other gc
+    %% processes
     case Version > 3 andalso Height rem 51 == 0 of
         true ->
             lager:debug("gcing old pocs"),
             PoCInterval = blockchain_utils:challenge_interval(Ledger),
             PoCsCF = pocs_cf(Ledger),
-            %% construct a list of recent hashes
+            %% construct a list of recent hashes instead of fetching all the blocks by their hashes,
+            %% which ends up being much much cheaper
             Hashes =
                 lists:foldl(
                   fun(H, Acc) ->
@@ -1621,6 +1625,8 @@ maybe_gc_pocs(Chain, Ledger) ->
                                             _ ->
                                                 case maps:find(H, Hashes) of
                                                     {ok, BH} ->
+                                                        %% not sure this is even needed, it might
+                                                        %% always be true? but just in case
                                                         (Height - BH) < PoCInterval * 2;
                                                     error ->
                                                         %% if it's not in the hashes map, it's too
@@ -3593,6 +3599,9 @@ invoke_commit_hooks(Changes, Filters) ->
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
 prewarm_gateways(active, Height, Ledger, GwCache) ->
+    %% in larger caches, the list of gateways to precache can get pretty big, so make sure that
+    %% we're honoring the limits set in the config, esp since we're sending this to another process
+    %% and thus at least briefly doubling the memory it uses.
     RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
     {_, GWList} =
         ets:foldl(

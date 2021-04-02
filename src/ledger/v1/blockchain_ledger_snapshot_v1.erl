@@ -442,6 +442,8 @@ import(Chain, SHA,
                  blockchain_ledger_v1:commit_context(Ledger)
              end
              || Mode <- [delayed, active]],
+            %% TODO: it might make more sense to do this block by block?  it will at least be
+            %% cheaper to do it that way.
             Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
             Chain1 = blockchain:ledger(Ledger2, Chain),
             {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
@@ -464,8 +466,10 @@ import(Chain, SHA,
                                   end,
 
                               Ht = blockchain_block:height(Block),
+                              %% since hash and block are written at the same time, just getting the
+                              %% hash from the height is an acceptable presence check, and much cheaper
                               case blockchain:get_block_hash(Ht, Chain) of
-                                  {ok, _Block} ->
+                                  {ok, _Hash} ->
                                       %% already have it, don't need to store it again.
                                       ok;
                                   _ ->

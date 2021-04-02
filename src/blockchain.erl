@@ -877,6 +877,8 @@ add_block_(Block, Blockchain, Syncing) ->
                     case blockchain_block_v1:snapshot_hash(Block) of
                         <<>> ->
                             ok;
+                        %% check the snap height as it's pointless to do this work for the snapshot
+                        %% we're currently in the process of loading
                         ConsensusHash when Height /= (SnapHeight - 1) ->
                             process_snapshot(ConsensusHash, MyAddress, Signers,
                                              Ledger, Height, Blockchain);
