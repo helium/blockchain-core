@@ -171,7 +171,7 @@ handle_cast({reject, Rejection, HandlerPid}, State) ->
     {noreply, NewState};
 handle_cast({gc_state_channels, SCIDs}, #state{pending_closes=P, db=DB, cf=CF}=State) ->
     lists:foreach(fun(SCID) ->
-                          rocksdb:delete(DB, CF, SCID)
+                          rocksdb:delete(DB, CF, SCID, [])
                   end, SCIDs),
     {noreply, State#state{pending_closes=P -- SCIDs}};
 handle_cast(_Msg, State) ->
