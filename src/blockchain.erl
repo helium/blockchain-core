@@ -99,7 +99,8 @@
                           %% we have had to delete a previously build h3dex so we are
                           %% reinitializing it with a different name specified in the hrl
                           fun bootstrap_h3dex/1,
-                          fun bootstrap_h3dex/1]).
+                          fun bootstrap_h3dex/1,
+                          fun upgrade_gateways_lg/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -218,6 +219,29 @@ upgrade_gateways_v2_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G1, A, Ledger)
       end, Gateways),
     ok.
+
+upgrade_gateways_lg(Ledger) ->
+    upgrade_gateways_lg_(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    upgrade_gateways_lg_(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
+
+upgrade_gateways_lg_(Ledger) ->
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, _) ->
+              %% deser will do the conversion
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              %% check if re-serialization changes and only write if so
+              case blockchain_ledger_gateway_v2:serialize(Gw) of
+                  BinGw -> ok;
+                  _ ->
+                      blockchain_ledger_v1:update_gateway(Gw, Addr, Ledger)
+              end
+      end,
+      whatever,
+      Ledger).
 
 bootstrap_hexes(Ledger) ->
     bootstrap_hexes_(Ledger),
