@@ -274,7 +274,7 @@ memo_check(Txn, Ledger) ->
             %% old behavior before var, allow only if memo=0 (default)
             case has_default_memos(Payments) of
                 true -> ok;
-                false -> {error, non_default_memo_before_memo_allowance}
+                false -> {error, invalid_memo_before_var}
             end
     end.
 
@@ -317,7 +317,8 @@ has_valid_memos(Payments) ->
 has_default_memos(Payments) ->
     lists:all(
         fun(Payment) ->
-            0 == blockchain_payment_v2:memo(Payment)
+            0 == blockchain_payment_v2:memo(Payment) orelse
+                undefined == blockchain_payment_v2:memo(Payment)
         end,
         Payments
     ).

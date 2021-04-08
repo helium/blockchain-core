@@ -72,7 +72,8 @@ print(#payment_pb{payee=Payee, amount=Amount, memo=Memo}) ->
 to_json(Payment, _Opts) ->
     #{
       payee => ?BIN_TO_B58(payee(Payment)),
-      amount => amount(Payment)
+      amount => amount(Payment),
+      memo => ?MAYBE_UNDEFINED(memo(Payment))
      }.
 
 %% ------------------------------------------------------------------

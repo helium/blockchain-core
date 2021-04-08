@@ -492,7 +492,7 @@ invalid_memo_not_set_test(Config) ->
     %% which does validations, this will suffice for now
     %% NOTE: SignedTx being in the second pos implies it's invalid
     {[], [{SignedTx, InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
-    ?assertEqual(non_default_memo_before_memo_allowance, InvalidReason),
+    ?assertEqual(invalid_memo_before_var, InvalidReason),
     ok.
 
 %%--------------------------------------------------------------------
