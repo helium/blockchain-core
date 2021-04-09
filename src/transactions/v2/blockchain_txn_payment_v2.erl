@@ -305,10 +305,15 @@ has_non_zero_amounts(Payments) ->
 has_valid_memos(Payments) ->
     lists:all(
         fun(Payment) ->
-            ok ==
-                blockchain_txn:validate_fields([
-                    {{memo, blockchain_payment_v2:memo(Payment)}, {is_integer, 0}}
-                ])
+                %% check that the memo field is valid
+                FieldCheck = blockchain_txn:validate_fields([ {{memo, blockchain_payment_v2:memo(Payment)}, {is_integer, 0}} ]),
+                case FieldCheck of
+                    ok ->
+                        %% check that the memo field is within limits
+                        blockchain_payment_v2:is_valid_memo(Payment);
+                    _ ->
+                        false
+                end
         end,
         Payments
     ).
