@@ -2068,6 +2068,7 @@ debit_fee_from_account(Address, Fee, Ledger) ->
                     ),
                     Bin = blockchain_ledger_entry_v1:serialize(Entry1),
                     EntriesCF = entries_cf(Ledger),
+                    lager:info("!!!!!!!!!!!!!IMPLICIT BURN!!!!!!!!!!!!!!!!!!"),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
