@@ -1526,6 +1526,7 @@ fp_to_cf(<<"core_fingerprint">>) -> default;
 fp_to_cf(<<"gateways_fingerprint">>) -> active_gateways;
 fp_to_cf(<<"poc_fingerprint">>) -> pocs;
 fp_to_cf(<<"entries_fingerprint">>) -> entries;
+fp_to_cf(<<"implicit_burn_fingerprint">>) -> implicit_burn;
 fp_to_cf(<<"dc_entries_fingerprint">>) -> dc_entries;
 fp_to_cf(<<"securities_fingerprint">>) -> securities;
 fp_to_cf(<<"htlc_fingerprint">>) -> htlcs;

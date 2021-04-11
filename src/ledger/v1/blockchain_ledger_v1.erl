@@ -2888,6 +2888,7 @@ state_channel_key(ID, Owner) ->
 compact_ledger(DB, #sub_ledger_v1{default=Default,
                                   active_gateways=Gateways,
                                   entries=Entries,
+                                  implicit_burn=ImplictiBurn,
                                   dc_entries=DCEntries,
                                   htlcs=HTLCs,
                                   pocs=PoCs,
@@ -2896,6 +2897,7 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
     rocksdb:compact_range(DB, Gateways, undefined, undefined, []),
     rocksdb:compact_range(DB, Entries, undefined, undefined, []),
+    rocksdb:compact_range(DB, ImplictiBurn, undefined, undefined, []),
     rocksdb:compact_range(DB, DCEntries, undefined, undefined, []),
     rocksdb:compact_range(DB, HTLCs, undefined, undefined, []),
     rocksdb:compact_range(DB, PoCs, undefined, undefined, []),
@@ -2949,9 +2951,9 @@ entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=EntriesCF}}) 
     EntriesCF.
 
 -spec implicit_burn_cf(ledger()) -> rocksdb:cf_handle().
-implicit_burn_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=ImplicitBurnCF}}) ->
+implicit_burn_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{implicit_burn=ImplicitBurnCF}}) ->
     ImplicitBurnCF;
-implicit_burn_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=ImplicitBurnCF}}) ->
+implicit_burn_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{implicit_burn=ImplicitBurnCF}}) ->
     ImplicitBurnCF.
 
 -spec dc_entries_cf(ledger()) -> rocksdb:cf_handle().
@@ -3155,10 +3157,10 @@ open_db(Dir) ->
 
     CFOpts = GlobalOpts,
 
-    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
+    DefaultCFs = ["default", "active_gateways", "entries", "implicit_burn", "dc_entries", "htlcs",
                   "pocs", "securities", "routing", "subnets", "state_channels",
                   "h3dex", "gw_denorm",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_implicit_burn",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
                   "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
