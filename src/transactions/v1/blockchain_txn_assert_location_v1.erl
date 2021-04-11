@@ -366,6 +366,7 @@ absorb(Txn, Chain) ->
     Nonce = ?MODULE:nonce(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
         true -> Owner;
@@ -373,7 +374,7 @@ absorb(Txn, Chain) ->
     end,
 
     {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash) of
         {error, _Reason}=Error ->
             Error;
         ok ->

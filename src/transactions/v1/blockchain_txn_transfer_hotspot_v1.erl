@@ -197,12 +197,13 @@ absorb(Txn, Chain) ->
     Seller = ?MODULE:seller(Txn),
     Buyer = ?MODULE:buyer(Txn),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     BuyerNonce = ?MODULE:buyer_nonce(Txn),
     HNTToSeller = ?MODULE:amount_to_seller(Txn),
 
     {ok, GWInfo} = blockchain_gateway_cache:get(Gateway, Ledger),
     %% fees here are in DC (and perhaps converted to HNT automagically)
-    case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled, Hash) of
         {error, _Reason} = Error -> Error;
         ok ->
             ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, BuyerNonce, Ledger),

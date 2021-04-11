@@ -346,12 +346,13 @@ absorb(Txn, Chain) ->
     Gateway = ?MODULE:gateway(Txn),
     Payer = ?MODULE:payer(Txn),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash) of
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.

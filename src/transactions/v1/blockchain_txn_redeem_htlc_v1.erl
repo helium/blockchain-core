@@ -195,9 +195,10 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     Redeemer = ?MODULE:payee(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger, AreFeesEnabled, Hash) of
         {error, _Reason}=Error ->
             Error;
         ok ->

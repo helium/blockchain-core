@@ -325,7 +325,8 @@ absorb(Txn, Chain) ->
     Owner = blockchain_state_channel_v1:owner(SC),
     Closer = ?MODULE:closer(Txn),
     TxnFee = ?MODULE:fee(Txn),
-    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of
+    TxnHash = ?MODULE:hash(Txn),
+    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled, TxnHash) of
         {error, _Reason}=Error -> Error;
         ok ->
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of
