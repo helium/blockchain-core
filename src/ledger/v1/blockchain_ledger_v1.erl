@@ -68,14 +68,15 @@
     maybe_gc_scs/1,
 
     find_entry/2,
-    credit_account/3, debit_account/4, debit_fee_from_account/3,
+    find_implicit_burn/2,
+    credit_account/3, debit_account/4, debit_fee_from_account/4,
     check_balance/3,
 
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
     debit_dc/4,
-    debit_fee/3, debit_fee/4,
+    debit_fee/3, debit_fee/4, debit_fee/5,
     check_dc_balance/3,
     check_dc_or_hnt_balance/4,
 
@@ -234,6 +235,7 @@
     active_gateways :: rocksdb:cf_handle(),
     gw_denorm :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
+    implicit_burn :: rocksdb:cf_handle(),
     dc_entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
     pocs :: rocksdb:cf_handle(),
@@ -270,6 +272,7 @@
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
+% -type implicit_burn() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_implicit_burn_v1:implicit_burn()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -290,8 +293,8 @@ new(Dir) ->
         [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
          || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
-    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
+    [DefaultCF, AGwsCF, EntriesCF, ImplicitBurnCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedImplicitBurnCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
     #ledger_v1{
@@ -304,6 +307,7 @@ new(Dir) ->
             active_gateways=AGwsCF,
             gw_denorm=GwDenormCF,
             entries=EntriesCF,
+            implicit_burn=ImplicitBurnCF,
             dc_entries=DCEntriesCF,
             htlcs=HTLCsCF,
             pocs=PoCsCF,
@@ -318,6 +322,7 @@ new(Dir) ->
             active_gateways=DelayedAGwsCF,
             gw_denorm=DelayedGwDenormCF,
             entries=DelayedEntriesCF,
+            implicit_burn=DelayedImplicitBurnCF,
             dc_entries=DelayedDCEntriesCF,
             htlcs=DelayedHTLCsCF,
             pocs=DelayedPoCsCF,
@@ -521,6 +526,7 @@ atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
             default -> SL#sub_ledger_v1.default;
             active_gateways -> SL#sub_ledger_v1.active_gateways;
             entries -> SL#sub_ledger_v1.entries;
+            implicit_burn -> SL#sub_ledger_v1.implicit_burn;
             dc_entries -> SL#sub_ledger_v1.dc_entries;
             htlcs -> SL#sub_ledger_v1.htlcs;
             pocs -> SL#sub_ledger_v1.pocs;
@@ -579,6 +585,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            default = DefaultCF,
            active_gateways = AGwsCF,
            entries = EntriesCF,
+           implicit_burn = ImplicitBurnCF,
            dc_entries = DCEntriesCF,
            htlcs = HTLCsCF,
            pocs = PoCsCF,
@@ -619,6 +626,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
              || {CF, Mod} <-
                     [{AGwsCF, blockchain_ledger_gateway_v2},
                      {EntriesCF, blockchain_ledger_entry_v1},
+                     {ImplicitBurnCF, blockchain_ledger_implicit_burn_v1},
                      {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
                      {HTLCsCF, blockchain_ledger_htlc_v1},
                      {PoCsCF, t2b},
@@ -637,12 +645,13 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             false ->
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash}};
             _ ->
-                [_, GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
+                [_, GWsHash, EntriesHash, ImplicitBurnHash, DCEntriesHash, HTLCsHash,
                  PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash] = L,
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash,
                        <<"gateways_fingerprint">> => GWsHash,
                        <<"core_fingerprint">> => DefaultHash,
                        <<"entries_fingerprint">> => EntriesHash,
+                       <<"impicit_burn_fingerprint">> => ImplicitBurnHash,
                        <<"dc_entries_fingerprint">> => DCEntriesHash,
                        <<"htlc_fingerprint">> => HTLCsHash,
                        <<"securities_fingerprint">> => SecuritiesHash,
@@ -2008,6 +2017,19 @@ find_entry(Address, Ledger) ->
             Error
     end.
 
+-spec find_implicit_burn(any(), ledger()) -> {ok, blockchain_ledger_implicit_burn_v1:implicit_burn()}
+                                                          | {error, any()}.
+find_implicit_burn(Transaction, Ledger) ->
+    ImplicitBurnCF = implicit_burn_cf(Ledger),
+    case cache_get(Ledger, ImplicitBurnCF, Transaction, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_implicit_burn_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),
@@ -2053,8 +2075,8 @@ debit_account(Address, Amount, Nonce, Ledger) ->
             end
     end.
 
--spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
-debit_fee_from_account(Address, Fee, Ledger) ->
+-spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), any()) -> ok | {error, any()}.
+debit_fee_from_account(Address, Fee, Ledger, TxnHash) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -2066,10 +2088,16 @@ debit_fee_from_account(Address, Fee, Ledger) ->
                         blockchain_ledger_entry_v1:nonce(Entry),
                         (Balance - Fee)
                     ),
-                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    ImplicitBurn1 = blockchain_ledger_implicit_burn_v1:new(
+                        Fee    
+                    ),
+                    EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    ImplicitBurnBin = blockchain_ledger_entry_v1:serialize(ImplicitBurn1),
                     EntriesCF = entries_cf(Ledger),
+                    ImplicitBurnCF = implicit_burn_cf(Ledger),
                     lager:info("!!!!!!!!!!!!!IMPLICIT BURN!!!!!!!!!!!!!!!!!!"),
-                    cache_put(Ledger, EntriesCF, Address, Bin);
+                    cache_put(Ledger, ImplicitBurnCF, TxnHash, ImplicitBurnBin),
+                    cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
             end
@@ -2161,15 +2189,18 @@ debit_dc(Address, Nonce, Amount, Ledger) ->
 
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(_Address, Fee,_Ledger) ->
-    debit_fee(_Address, Fee,_Ledger, false).
+    debit_fee(_Address, Fee,_Ledger, false, nil).
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean()) -> ok | {error, any()}.
-debit_fee(_Address, 0,_Ledger, _MaybeTryImplicitBurn) ->
+debit_fee(_Address, Fee,_Ledger, _MaybeTryImplicitBurn) ->
+    debit_fee(_Address, Fee,_Ledger, _MaybeTryImplicitBurn, nil).
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean(), TxnHash :: any()) -> ok | {error, any()}.
+debit_fee(_Address, 0,_Ledger, _MaybeTryImplicitBurn, _TxnHash) ->
     ok;
-debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
+debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn, TxnHash) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} when MaybeTryImplicitBurn == true ->
             {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
-            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash);
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
@@ -2186,7 +2217,7 @@ debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
                 {false, true} ->
                     %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
                     {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
-                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash);
                 {false, false} ->
                     {error, {insufficient_dc_balance, {Fee, Balance}}}
             end
@@ -2916,6 +2947,12 @@ entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF;
 entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF.
+
+-spec implicit_burn_cf(ledger()) -> rocksdb:cf_handle().
+implicit_burn_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=ImplicitBurnCF}}) ->
+    ImplicitBurnCF;
+implicit_burn_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=ImplicitBurnCF}}) ->
+    ImplicitBurnCF.
 
 -spec dc_entries_cf(ledger()) -> rocksdb:cf_handle().
 dc_entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
