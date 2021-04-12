@@ -955,29 +955,37 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
         false ->
             %% hash here is *pre*absorb.
             try
-                Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
-                case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
-                    {ok, Snap} ->
-                        case blockchain_ledger_snapshot_v1:hash(Snap) of
-                            ConsensusHash ->
-                                ok = blockchain:add_snapshot(Snap, Blockchain);
-                            OtherHash ->
-                                lager:info("bad snapshot hash: ~p good ~p",
-                                           [OtherHash, ConsensusHash]),
-                                case application:get_env(blockchain, save_bad_snapshot, false) of
-                                    true ->
-                                        lager:info("saving bad snapshot ~p", [OtherHash]),
+                case get_snapshot(ConsensusHash, Blockchain) of
+                    {ok, _Snap} ->
+                        %% already have this
+                        ok;
+                    {error, sentinel} ->
+                        lager:info("skipping previously failed snapshot at height ~p", [Height]);
+                    _ ->
+                        Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
+                        case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
+                            {ok, Snap} ->
+                                case blockchain_ledger_snapshot_v1:hash(Snap) of
+                                    ConsensusHash ->
                                         ok = blockchain:add_snapshot(Snap, Blockchain);
-                                    false ->
-                                        ok
-                                end,
-                                %% TODO: this is currently called basically for the
-                                %% logging. it does not reset, or halt
-                                blockchain_worker:async_reset(Height)
-                        end;
-                    {error, SnapReason} ->
-                        lager:info("error ~p taking snapshot", [SnapReason]),
-                        ok
+                                    OtherHash ->
+                                        lager:info("bad snapshot hash: ~p good ~p",
+                                                   [OtherHash, ConsensusHash]),
+                                        case application:get_env(blockchain, save_bad_snapshot, false) of
+                                            true ->
+                                                lager:info("saving bad snapshot ~p", [OtherHash]),
+                                                ok = blockchain:add_snapshot(Snap, Blockchain);
+                                            false ->
+                                                ok
+                                        end,
+                                        %% TODO: this is currently called basically for the
+                                        %% logging. it does not reset, or halt
+                                        blockchain_worker:async_reset(Height)
+                                end;
+                            {error, SnapReason} ->
+                                lager:info("error ~p taking snapshot", [SnapReason]),
+                                ok
+                        end
                 end
             catch What:Why ->
                     lager:info("error ~p taking snapshot", [{What, Why}]),
@@ -1640,6 +1648,14 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
         Height = blockchain_ledger_snapshot_v1:height(Snapshot),
         Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
+        %% write a sentinel value to mark we were trying to build this
+        %% so we can skip it next time if we crash out
+        {ok, Batch0} = rocksdb:batch(),
+        ok = rocksdb:batch_put(Batch0, SnapshotsCF, Hash, <<"__sentinel__">>),
+        %% lexiographic ordering works better with big endian
+        ok = rocksdb:batch_put(Batch0, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
+        ok = rocksdb:write_batch(DB, Batch0, []),
+
         {ok, Batch} = rocksdb:batch(),
         {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
@@ -1670,6 +1686,8 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF
                           {ok, blockchain_ledger_snapshot:snapshot()} | {error, any()}.
 get_snapshot(Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) when is_binary(Hash) ->
     case rocksdb:get(DB, SnapshotsCF, Hash, []) of
+        {ok, <<"__sentinel__">>} ->
+            {error, sentinel};
         {ok, Snap} ->
             {ok, Snap};
         not_found ->
