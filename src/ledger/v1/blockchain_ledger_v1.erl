@@ -272,7 +272,7 @@
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
-% -type implicit_burn() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_implicit_burn_v1:implicit_burn()}.
+-type implicit_burn() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_implicit_burn_v1:implicit_burn()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -2017,7 +2017,7 @@ find_entry(Address, Ledger) ->
             Error
     end.
 
--spec find_implicit_burn(any(), ledger()) -> {ok, blockchain_ledger_implicit_burn_v1:implicit_burn()}
+-spec find_implicit_burn(implicit_burn(), ledger()) -> {ok, blockchain_ledger_implicit_burn_v1:implicit_burn()}
                                                           | {error, any()}.
 find_implicit_burn(Transaction, Ledger) ->
     ImplicitBurnCF = implicit_burn_cf(Ledger),
