@@ -178,16 +178,19 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
 process_upgrades([], _Ledger) ->
     ok;
 process_upgrades([{Key, Fun} | Tail], Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    case blockchain_ledger_v1:check_key(Key, Ledger1) of
+    case blockchain_ledger_v1:check_key(Key, Ledger) of
         true ->
-            process_upgrades(Tail, Ledger1);
+            ok;
         false ->
+            Ledger1 = blockchain_ledger_v1:new_context(Ledger),
             Fun(Ledger1),
-            blockchain_ledger_v1:mark_key(Key, Ledger1)
+            blockchain_ledger_v1:mark_key(Key, Ledger1),
+            Ledger2_0 = blockchain_ledger_v1:mode(delayed, Ledger),
+            Ledger2 = blockchain_ledger_v1:new_context(Ledger2_0),
+            Fun(Ledger2),
+            blockchain_ledger_v1:commit_context(Ledger2)
     end,
-    blockchain_ledger_v1:commit_context(Ledger1),
-    ok.
+    process_upgrades(Tail, Ledger).
 
 mark_upgrades(Upgrades, Ledger) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
@@ -198,13 +201,6 @@ mark_upgrades(Upgrades, Ledger) ->
     ok.
 
 upgrade_gateways_v2(Ledger) ->
-    upgrade_gateways_v2_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_v2_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-upgrade_gateways_v2_(Ledger) ->
     %% the initial load here will automatically convert these into v2 records
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     %% find all neighbors for everyone
@@ -221,13 +217,6 @@ upgrade_gateways_v2_(Ledger) ->
     ok.
 
 upgrade_gateways_lg(Ledger) ->
-    upgrade_gateways_lg_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_lg_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-upgrade_gateways_lg_(Ledger) ->
     blockchain_ledger_v1:cf_fold(
       active_gateways,
       fun({Addr, BinGw}, _) ->
@@ -244,13 +233,6 @@ upgrade_gateways_lg_(Ledger) ->
       Ledger).
 
 bootstrap_hexes(Ledger) ->
-    bootstrap_hexes_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    bootstrap_hexes_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-bootstrap_hexes_(Ledger) ->
     %% hardcode this until we have the var update hook.
     Res = 5,
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -274,13 +256,6 @@ bootstrap_hexes_(Ledger) ->
     ok.
 
 upgrade_gateways_oui(Ledger) ->
-    upgrade_gateways_oui_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_oui_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-upgrade_gateways_oui_(Ledger) ->
     %% the initial load here will automatically convert these into
     %% records with oui slots
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -294,13 +269,6 @@ upgrade_gateways_oui_(Ledger) ->
 -spec bootstrap_h3dex(blockchain_ledger_v1:ledger()) -> ok.
 %% @doc Bootstrap the H3Dex for both the active and delayed ledgers
 bootstrap_h3dex(Ledger) ->
-   ok = do_bootstrap_h3dex(Ledger),
-   Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-   Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-   ok = do_bootstrap_h3dex(Ledger2),
-   blockchain_ledger_v1:commit_context(Ledger2).
-
-do_bootstrap_h3dex(Ledger) ->
     blockchain_ledger_v1:bootstrap_h3dex(Ledger).
 
 %%--------------------------------------------------------------------
