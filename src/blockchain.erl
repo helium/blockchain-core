@@ -181,13 +181,13 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     case blockchain_ledger_v1:check_key(Key, Ledger1) of
         true ->
-            process_upgrades(Tail, Ledger1);
+            ok;
         false ->
             Fun(Ledger1),
-            blockchain_ledger_v1:mark_key(Key, Ledger1)
+            blockchain_ledger_v1:mark_key(Key, Ledger1),
+            blockchain_ledger_v1:commit_context(Ledger1)
     end,
-    blockchain_ledger_v1:commit_context(Ledger1),
-    ok.
+    process_upgrades(Tail, Ledger).
 
 mark_upgrades(Upgrades, Ledger) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
