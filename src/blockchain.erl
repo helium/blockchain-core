@@ -15,7 +15,7 @@
     ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
     dir/1,
 
-    blocks/1, get_block/2, get_raw_block/2, save_block/2,
+    blocks/1, get_block/2, get_block_hash/2, get_raw_block/2, save_block/2,
     has_block/2,
     find_first_block_after/2,
 
@@ -99,7 +99,8 @@
                           %% we have had to delete a previously build h3dex so we are
                           %% reinitializing it with a different name specified in the hrl
                           fun bootstrap_h3dex/1,
-                          fun bootstrap_h3dex/1]).
+                          fun bootstrap_h3dex/1,
+                          fun upgrade_gateways_lg/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -218,6 +219,29 @@ upgrade_gateways_v2_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G1, A, Ledger)
       end, Gateways),
     ok.
+
+upgrade_gateways_lg(Ledger) ->
+    upgrade_gateways_lg_(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    upgrade_gateways_lg_(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
+
+upgrade_gateways_lg_(Ledger) ->
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, _) ->
+              %% deser will do the conversion
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              %% check if re-serialization changes and only write if so
+              case blockchain_ledger_gateway_v2:serialize(Gw) of
+                  BinGw -> ok;
+                  _ ->
+                      blockchain_ledger_v1:update_gateway(Gw, Addr, Ledger)
+              end
+      end,
+      whatever,
+      Ledger).
 
 bootstrap_hexes(Ledger) ->
     bootstrap_hexes_(Ledger),
@@ -593,6 +617,16 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
             Error
     end.
 
+get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
+    case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+       {ok, Hash} ->
+            {ok, Hash};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
 get_raw_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
@@ -842,6 +876,7 @@ add_block_(Block, Blockchain, Syncing) ->
     Ledger = blockchain:ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, BlockchainHeight} = blockchain:height(Blockchain),
+    FollowMode = follow_mode(),
     case LedgerHeight == BlockchainHeight of
         true ->
             case can_add_block(Block, Blockchain) of
@@ -856,17 +891,22 @@ add_block_(Block, Blockchain, Syncing) ->
                                            ok = run_gc_hooks(FChain, FHash)
                                    end,
                     {Signers, _Signatures} = lists:unzip(Sigs),
-                    Fun = case lists:member(MyAddress, Signers) of
+                    Fun = case lists:member(MyAddress, Signers) orelse FollowMode of
                               true -> unvalidated_absorb_and_commit;
                               _ -> absorb_and_commit
                           end,
                     Ledger = blockchain:ledger(Blockchain),
+                    %% 0 can never be true below
+                    SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 0),
                     case blockchain_block_v1:snapshot_hash(Block) of
                         <<>> ->
                             ok;
-                        ConsensusHash ->
+                        %% check the snap height as it's pointless to do this work for the snapshot
+                        %% we're currently in the process of loading
+                        ConsensusHash when Height /= (SnapHeight - 1) ->
                             process_snapshot(ConsensusHash, MyAddress, Signers,
-                                             Ledger, Height, Blockchain)
+                                             Ledger, Height, Blockchain);
+                        _ -> ok
                     end,
                     case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
                         {error, Reason}=Error ->
@@ -1757,9 +1797,14 @@ load(Dir, Mode) ->
                 ledger=Ledger
             },
             compact(Blockchain),
-            %% pre-calculate the missing snapshots
+            %% if this is not set, the below check will always be true
+            SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 1),
+            FollowMode = follow_mode(), % no need for pre-calc when we only follow
+            %% pre-calculate the missing snapshots when we're above blessed snap
             case height(Blockchain) of
-                {ok, ChainHeight} when ChainHeight > 2 ->
+                {ok, ChainHeight} when ChainHeight > 2 andalso
+                                       ChainHeight > SnapHeight andalso
+                                       (not FollowMode) ->
                     ledger_at(ChainHeight - 1, Blockchain);
                 _ ->
                     ok
@@ -1767,10 +1812,6 @@ load(Dir, Mode) ->
             {Blockchain, ?MODULE:genesis_block(Blockchain)}
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec load_genesis(file:filename_all()) -> {ok, blockchain_block:block()} | {error, any()}.
 load_genesis(Dir) ->
     File = filename:join(Dir, ?GEN_HASH_FILE),
@@ -2319,6 +2360,9 @@ snapshot_height(Height) ->
         false ->
             Height
     end.
+
+follow_mode() ->
+    application:get_env(blockchain, follow_mode, false).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

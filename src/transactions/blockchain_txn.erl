@@ -38,7 +38,8 @@
              | blockchain_txn_gen_price_oracle_v1:txn_genesis_price_oracle()
              | blockchain_txn_transfer_hotspot_v1:txn_transfer_hotspot()
              | blockchain_txn_state_channel_close_v1:txn_state_channel_close()
-             | blockchain_txn_rewards_v2:txn_rewards_v2().
+             | blockchain_txn_rewards_v2:txn_rewards_v2()
+             | blockchain_txn_assert_location_v2:txn_assert_location().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -115,7 +116,8 @@
     {blockchain_txn_state_channel_close_v1, 24},
     {blockchain_txn_token_burn_v1, 25},
     {blockchain_txn_transfer_hotspot_v1, 26},
-    {blockchain_txn_rewards_v2, 27}
+    {blockchain_txn_rewards_v2, 27},
+    {blockchain_txn_assert_location_v2, 28}
 ]).
 
 block_delay() ->
@@ -196,7 +198,9 @@ wrap_txn(#blockchain_txn_gen_price_oracle_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_transfer_hotspot_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={transfer_hotspot, Txn}};
 wrap_txn(#blockchain_txn_rewards_v2_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={rewards_v2, Txn}}.
+    #blockchain_txn_pb{txn={rewards_v2, Txn}};
+wrap_txn(#blockchain_txn_assert_location_v2_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={assert_location_v2, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -409,7 +413,12 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     Transactions0 = blockchain_block:transactions(Block),
     %% chain vars must always be validated so we don't accidentally sync past a change we don't understand
-    Transactions = lists:filter(fun(T) -> ?MODULE:type(T) == blockchain_txn_vars_v1 end, (Transactions0)),
+    Transactions =
+         lists:filter(
+           fun(T) -> Ty = ?MODULE:type(T),
+                     Ty == blockchain_txn_vars_v1
+                         orelse Ty == blockchain_txn_consensus_group_v1
+           end, (Transactions0)),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
@@ -585,7 +594,9 @@ type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
 type(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
     blockchain_txn_transfer_hotspot_v1;
 type(#blockchain_txn_rewards_v2_pb{}) ->
-    blockchain_txn_rewards_v2.
+    blockchain_txn_rewards_v2;
+type(#blockchain_txn_assert_location_v2_pb{}) ->
+    blockchain_txn_assert_location_v2.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
@@ -767,6 +778,8 @@ nonce(Txn) ->
             end;
         blockchain_txn_routing_v1 ->
             blockchain_txn_routing_v1:nonce(Txn);
+        blockchain_txn_assert_location_v2 ->
+            blockchain_txn_assert_location_v2:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -813,6 +826,8 @@ actor(Txn) ->
         blockchain_txn_state_channel_close_v1 ->
             %% group by owner
             blockchain_txn_state_channel_close_v1:state_channel_owner(Txn);
+        blockchain_txn_assert_location_v2 ->
+            blockchain_txn_assert_location_v2:gateway(Txn);
         _ ->
             <<>>
     end.
@@ -879,6 +894,13 @@ depends_on(ThisTxn, CachedTxns) ->
                                  (type(Txn) == blockchain_txn_routing_v1 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce)
                          end,
                          CachedTxns);
+        blockchain_txn_assert_location_v2 ->
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 (type(Txn) == blockchain_txn_assert_location_v2 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce) orelse
+                                 (type(Txn) == blockchain_txn_add_gateway_v1 andalso blockchain_txn_add_gateway_v1:gateway(Txn) == Actor)
+                         end, CachedTxns);
         %% TODO: token exchange rate txn when it's time
         _ ->
             []
@@ -1336,6 +1358,34 @@ txn_fees_update_gateway_oui_v1_test() ->
     ?assertEqual(40000, Txn02Fee),
     ok.
 
+txn_fees_assert_location_v2_test() ->
+    [{Payer, PayerSigFun}] = gen_payers(1),
+    #{public := GWPubKey, secret := _GWPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    GWPubkeyBin = libp2p_crypto:pubkey_to_bin(GWPubKey),
+    #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    OwnerPubkeyBin = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
+    %% create new txn, and confirm expected txn and staking fee
+    Txn00 = blockchain_txn_assert_location_v2:new(GWPubkeyBin, OwnerPubkeyBin, Payer, ?TEST_LOCATION, 1),
+    Txn00Fee = blockchain_txn_assert_location_v2:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+    Txn00StakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn00, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], true),
+    Txn00LegacyStakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn00, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], false),
+    ?assertEqual(55000, Txn00Fee),
+    ?assertEqual(?ASSERT_LOC_STAKING_FEE, Txn00StakingFee),
+    ?assertEqual(1, Txn00LegacyStakingFee),
+
+    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+    Txn01 = blockchain_txn_assert_location_v2:fee(Txn00, Txn00Fee),
+    Txn02 = blockchain_txn_assert_location_v2:staking_fee(Txn01, Txn00StakingFee),
+    Txn03 = blockchain_txn_assert_location_v2:sign(Txn02, OwnerSigFun),
+    Txn04 = blockchain_txn_assert_location_v2:sign_payer(Txn03, PayerSigFun),
+    Txn04Fee = blockchain_txn_assert_location_v2:calculate_fee(Txn04, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+    Txn04StakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn04, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], true),
+    Txn04LegacyStakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn04, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], false),
+    ?assertEqual(55000, Txn04Fee),
+    ?assertEqual(?ASSERT_LOC_STAKING_FEE, Txn04StakingFee),
+    ?assertEqual(1, Txn04LegacyStakingFee),
+    ok.
 
 -endif.

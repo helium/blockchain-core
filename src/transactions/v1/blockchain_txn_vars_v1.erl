@@ -740,6 +740,8 @@ validate_var(?election_interval, Value) ->
     validate_int(Value, "election_interval", 5, 100, true);
 validate_var(?election_restart_interval, Value) ->
     validate_int(Value, "election_restart_interval", 5, 100, false);
+validate_var(?election_restart_interval_range, Value) ->
+    validate_int(Value, "election_restart_interval_range", 1, 5, false);
 validate_var(?election_bba_penalty, Value) ->
     validate_float(Value, "election_bba_penalty", 0.001, 0.5);
 validate_var(?election_seen_penalty, Value) ->
@@ -1111,6 +1113,18 @@ validate_var(?density_tgt_res, Value) ->
     validate_int(Value, "density_tgt_res", 1, 15, false);
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
+
+validate_var(?assert_loc_txn_version, Value) ->
+    case Value of
+        N when is_integer(N), N >= 1, N =< 2 -> ok;
+        _ -> throw({error, {invalid_assert_loc_txn_version, Value}})
+    end;
+validate_var(?min_antenna_gain, Value) ->
+    %% Initially set to 10 to imply 1 dBi
+    validate_int(Value, "min_antenna_gain", 0, 10, false);
+validate_var(?max_antenna_gain, Value) ->
+    %% Initially set to 150 to imply 15 dBi
+    validate_int(Value, "max_antenna_gain", 10, 200, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
