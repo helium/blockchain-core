@@ -78,7 +78,9 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 
 -spec to_json(implicit_burn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(ImplicitBurn, Opts) ->
-    (type(ImplicitBurn)):to_json(ImplicitBurn, Opts).
+    #{
+      fee => fee(ImplicitBurn),
+     }.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
