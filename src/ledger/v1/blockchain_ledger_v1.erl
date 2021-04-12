@@ -2134,7 +2134,6 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash) ->
                     ImplicitBurnBin = blockchain_ledger_entry_v1:serialize(ImplicitBurn1),
                     EntriesCF = entries_cf(Ledger),
                     ImplicitBurnCF = implicit_burn_cf(Ledger),
-                    lager:info("!!!!!!!!!!!!!IMPLICIT BURN!!!!!!!!!!!!!!!!!!"),
                     cache_put(Ledger, ImplicitBurnCF, TxnHash, ImplicitBurnBin),
                     cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
