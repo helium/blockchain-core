@@ -79,7 +79,7 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 -spec to_json(implicit_burn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(ImplicitBurn, _Opts) ->
     #{
-      fee => fee(ImplicitBurn),
+      fee => fee(ImplicitBurn)
     }.
 
 %% ------------------------------------------------------------------
