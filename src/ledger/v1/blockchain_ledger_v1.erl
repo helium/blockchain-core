@@ -2131,7 +2131,7 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash) ->
                         Fee    
                     ),
                     EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    ImplicitBurnBin = blockchain_ledger_entry_v1:serialize(ImplicitBurn1),
+                    ImplicitBurnBin = blockchain_ledger_implicit_burn_v1:serialize(ImplicitBurn1),
                     EntriesCF = entries_cf(Ledger),
                     ImplicitBurnCF = implicit_burn_cf(Ledger),
                     cache_put(Ledger, ImplicitBurnCF, TxnHash, ImplicitBurnBin),
