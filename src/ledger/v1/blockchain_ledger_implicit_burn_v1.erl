@@ -8,7 +8,8 @@
 -export([
     new/0, new/1,
     fee/1, fee/2,
-    serialize/1, deserialize/1
+    serialize/1, deserialize/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -69,6 +70,15 @@ serialize(ImplicitBurn) ->
 -spec deserialize(binary()) -> implicit_burn().
 deserialize(<<_:1/binary, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+
+-spec to_json(implicit_burn(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(ImplicitBurn, Opts) ->
+    (type(ImplicitBurn)):to_json(ImplicitBurn, Opts).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
