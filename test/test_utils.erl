@@ -47,6 +47,9 @@ init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
     GenesisMembers = init_genesis_members(Keys, InConsensus),
     init_chain(Balance, GenesisMembers, ExtraVars).
 
+-spec init_genesis_members({P, S}, boolean()) -> [{binary(), {P, S}}] when
+    P :: libp2p_crypto:pubkey(),
+    S :: libp2p_crypto:privkey().
 init_genesis_members({PrivKey, PubKey}, InConsensus) ->
     % Generate fake blockchains (just the keys)
     case InConsensus of

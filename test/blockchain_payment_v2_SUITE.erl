@@ -7,6 +7,7 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
+         multisig_test/1,
          single_payee_test/1,
          same_payees_test/1,
          different_payees_test/1,
@@ -28,6 +29,7 @@
 
 all() ->
     [
+     multisig_test,
      single_payee_test,
      same_payees_test,
      different_payees_test,
@@ -109,6 +111,48 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
+
+multisig_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+
+    Amount = 10,
+    InitialHeight = 2,
+
+    %% Transfer plan:
+    %% A -> B[i] --> C[i]
+    %%      |
+    %%      +------> D[i]
+    %% All funds will come from A, so only it needs a starting balance,
+    %% the rest can be freshly created.
+    [_, {A, {_, _, A_SigFun}} | _ ] = ConsensusMembers,
+    lists:foldl(
+        fun ({M, N}, H) ->
+            {B, B_SigFun} = make_multisig_addr(M, N),
+            {C, _} = make_multisig_addr(M, N),
+            {D, D_SigFun} = make_multisig_addr(M, N),
+            %% * 2 because B will later pay twice (to C and D)
+            ?assertEqual(ok, transfer(Amount * 2, {A, A_SigFun}, B, H, Chain, ConsensusMembers)),
+            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, C, H + 1, Chain, ConsensusMembers)),
+            %% B->D wrong SigFun
+            ?assertError(
+                {badmatch, {error, {invalid_txns, [{_, bad_signature}]}}},
+                transfer(1, {B, D_SigFun}, D, H + 2, Chain, ConsensusMembers)
+            ),
+            %% B->D correct SigFun
+            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, D, H + 2, Chain, ConsensusMembers)),
+            H + 3
+        end,
+        InitialHeight,
+        [
+            {M, N}
+        ||
+            N <- lists:seq(1, 10),
+            M <- lists:seq(1, N)
+        ]
+    ).
 
 single_payee_test(Config) ->
     BaseDir = ?config(base_dir, Config),
@@ -569,3 +613,60 @@ extra_vars(negative_memo_test) ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
 extra_vars(_) ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false}.
+
+%% Helpers --------------------------------------------------------------------
+
+make_multisig_addr(M, N) ->
+    Network = mainnet,
+    KeyType = ecc_compact,
+    KeyMaps = [libp2p_crypto:generate_keys(KeyType) || _ <- lists:duplicate(N, {})],
+    MemberKeys = [P || #{public := P} <- KeyMaps],
+    MakeFun = fun libp2p_crypto:mk_sig_fun/1,
+    IFuns =
+        [
+            {libp2p_crypto:multisig_member_key_index(P, MemberKeys), MakeFun(S)}
+        ||
+            #{secret := S, public := P} <- KeyMaps
+        ],
+    {ok, MultisigPK} = libp2p_crypto:make_multisig_pubkey(Network, M, N, MemberKeys),
+    MultisigSign =
+        fun (Msg) ->
+            ISigs = [{I, F(Msg)}|| {I, F} <- IFuns],
+            {ok, Sig} =
+                libp2p_crypto:make_multisig_signature(Network, Msg, MultisigPK, MemberKeys, ISigs),
+            Sig
+        end,
+    {libp2p_crypto:pubkey_to_bin(Network, MultisigPK), MultisigSign}.
+
+% TODO Use in the rest of cases?
+transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers) ->
+    SrcBalance0 = balance(Src, Chain),
+    DstBalance0 = balance(Dst, Chain),
+    Ledger = blockchain:ledger(Chain),
+    Nonce = case blockchain_ledger_v1:find_entry(Src, Ledger) of
+                {error, not_found} -> 1;
+                {ok, Entry} -> blockchain_ledger_entry_v1:nonce(Entry) + 1
+            end,
+    Tx = blockchain_txn_payment_v2:new(Src, [blockchain_payment_v2:new(Dst, Amount)], Nonce),
+    TxSigned = blockchain_txn_payment_v2:sign(Tx, SrcSigFun),
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [TxSigned]),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, ExpectHeight}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block}, blockchain:get_block(ExpectHeight, Chain)),
+    SrcBalance1 = balance(Src, Chain),
+    DstBalance1 = balance(Dst, Chain),
+    ?assertEqual(SrcBalance1, SrcBalance0 - Amount),
+    ?assertEqual(DstBalance1, DstBalance0 + Amount),
+    ok.
+
+% TODO Use in the rest of cases?
+balance(<<Addr/binary>>, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(Addr, Ledger) of
+        {error, not_found} ->
+            0;
+        {ok, Entry} ->
+            blockchain_ledger_entry_v1:balance(Entry)
+    end.
