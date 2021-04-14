@@ -1743,6 +1743,24 @@ get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) w
             Error
     end;
 
+-spec add_implicit_burn(blockchain_txn:hash(), blockchain_implicit_burn:implicit_burn(), blockchain()) ->
+                          ok | {error, any()}.
+add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burn=ImplicitBurnCF}) ->
+    try
+        Fee = blockchain_implicit_burn:fee(ImplictiBurn),
+        Payer = blockchain_implicit_burn:payer(ImplictiBurn),
+
+        {ok, Batch} = rocksdb:batch(),
+        {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
+        ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
+        %% lexiographic ordering works better with big endian
+        ok = rocksdb:batch_put(Batch, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
+        ok = rocksdb:write_batch(DB, Batch, [])
+    catch What:Why:Stack ->
+            lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
+            {error, Why}
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
