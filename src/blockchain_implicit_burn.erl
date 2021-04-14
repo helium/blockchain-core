@@ -3,21 +3,19 @@
 %% == Blockchain Implicit Burn ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_ledger_implicit_burn).
+-module(blockchain_implicit_burn).
 
 -export([
-    new/0, new/1,
+    new/2,
     fee/1, fee/2,
+    payer/1, payer/2,
     serialize/1, deserialize/1,
     to_json/2
 ]).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -record(implicit_burn, {
-    fee = 0 :: non_neg_integer()
+    fee :: non_neg_integer(),
+    payer :: libp2p_crypto:pubkey_bin(),
 }).
 
 -type implicit_burn() :: #implicit_burn{}.
@@ -28,13 +26,10 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new() -> implicit_burn().
-new() ->
-    #implicit_burn{}.
 
--spec new(non_neg_integer()) -> implicit_burn().
-new(Fee) when Fee /= undefined ->
-    #implicit_burn{fee=Fee}.
+-spec new(non_neg_integer(), libp2p_crypto:pubkey_bin()) -> implicit_burn().
+new(Fee, Payer) ->
+    #implicit_burn{fee=Fee, payer=Payer}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -51,6 +46,22 @@ fee(#implicit_burn{fee=Fee}) ->
 -spec fee(non_neg_integer(), implicit_burn()) -> implicit_burn().
 fee(Fee, ImplicitBurn) ->
     ImplicitBurn#implicit_burn{fee=Fee}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payer(implicit_burn()) -> libp2p_crypto:pubkey_bin().
+payer(#implicit_burn{payer=Payer}) ->
+    Payer.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payer(libp2p_crypto:pubkey_bin(), implicit_burn()) -> implicit_burn().
+payer(Fee, ImplicitBurn) ->
+    ImplicitBurn#implicit_burn{payer=Payer}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -79,7 +90,8 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 -spec to_json(implicit_burn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(ImplicitBurn, _Opts) ->
     #{
-      fee => fee(ImplicitBurn)
+      fee => fee(ImplicitBurn),
+      payer => payer(ImplicitBurn)
     }.
 
 %% ------------------------------------------------------------------
@@ -89,21 +101,21 @@ to_json(ImplicitBurn, _Opts) ->
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
--ifdef(TEST).
+% -ifdef(TEST).
 
-new_test() ->
-    ImplicitBurn0 = #implicit_burn{
-        fee = 0
-    },
-    ?assertEqual(ImplicitBurn0, new()),
-    ImplicitBurn1 = #implicit_burn{
-        fee = 1
-    },
-    ?assertEqual(ImplicitBurn1, new(1)).
+% new_test() ->
+%     ImplicitBurn0 = #implicit_burn{
+%         fee = 0
+%     },
+%     ?assertEqual(ImplicitBurn0, new()),
+%     ImplicitBurn1 = #implicit_burn{
+%         fee = 1
+%     },
+%     ?assertEqual(ImplicitBurn1, new(1)).
 
-fee_test() ->
-    ImplictiBurn = new(),
-    ?assertEqual(0, fee(ImplictiBurn)),
-    ?assertEqual(1, fee(fee(1, ImplicitBurn))).
+% fee_test() ->
+%     ImplictiBurn = new(),
+%     ?assertEqual(0, fee(ImplictiBurn)),
+%     ?assertEqual(1, fee(fee(1, ImplicitBurn))).
 
--endif.
+% -endif.
