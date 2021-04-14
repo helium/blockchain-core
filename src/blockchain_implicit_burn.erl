@@ -15,7 +15,7 @@
 
 -record(implicit_burn, {
     fee :: non_neg_integer(),
-    payer :: libp2p_crypto:pubkey_bin(),
+    payer :: libp2p_crypto:pubkey_bin()
 }).
 
 -type implicit_burn() :: #implicit_burn{}.
@@ -60,7 +60,7 @@ payer(#implicit_burn{payer=Payer}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec payer(libp2p_crypto:pubkey_bin(), implicit_burn()) -> implicit_burn().
-payer(Fee, ImplicitBurn) ->
+payer(Payer, ImplicitBurn) ->
     ImplicitBurn#implicit_burn{payer=Payer}.
 
 %%--------------------------------------------------------------------

@@ -55,7 +55,7 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
-    add_implicit_burn/2,
+    add_implicit_burn/3,
     get_implicit_burn/2,
 
     mark_upgrades/2, bootstrap_h3dex/1,
@@ -83,6 +83,7 @@
     temp_blocks :: rocksdb:cf_handle(),
     plausible_blocks :: rocksdb:cf_handle(),
     snapshots :: rocksdb:cf_handle(),
+    implicit_burns :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 
@@ -1731,33 +1732,26 @@ find_last_snapshots(Blockchain, Count0) ->
             lists:reverse(List)
     end.
 
--spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()}
-                                                          | {error, any()}.
+-spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()} | {error, any()}.
 get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) when is_binary(TxnHash) ->
-    case rocksdb:get(DB, ImplicitBurnsCF, Hash, []) of
+    case rocksdb:get(DB, ImplicitBurnsCF, TxnHash, []) of
         {ok, Bin} ->
             {ok, blockchain_implicit_burn:deserialize(Bin)};
         not_found ->
             {error, not_found};
         Error ->
             Error
-    end;
+    end.
 
--spec add_implicit_burn(blockchain_txn:hash(), blockchain_implicit_burn:implicit_burn(), blockchain()) ->
-                          ok | {error, any()}.
-add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burn=ImplicitBurnCF}) ->
+-spec add_implicit_burn(blockchain_txn:hash(), blockchain_implicit_burn:implicit_burn(), blockchain()) -> ok | {error, any()}.
+add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) ->
     try
-        Fee = blockchain_implicit_burn:fee(ImplictiBurn),
-        Payer = blockchain_implicit_burn:payer(ImplictiBurn),
-
         {ok, Batch} = rocksdb:batch(),
-        {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
-        ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
-        %% lexiographic ordering works better with big endian
-        ok = rocksdb:batch_put(Batch, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
+        {ok, BinImp} = blockchain_ledger_snapshot_v1:serialize(ImplicitBurn),
+        ok = rocksdb:batch_put(Batch, ImplicitBurnsCF, TxnHash, BinImp),
         ok = rocksdb:write_batch(DB, Batch, [])
     catch What:Why:Stack ->
-            lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
+            lager:warning("error adding implicit burn: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
     end.
 
