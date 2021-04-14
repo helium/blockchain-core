@@ -65,16 +65,5 @@ export_dcs(Ledger) ->
         maps:to_list(blockchain_ledger_v1:dc_entries(Ledger))
     ).
 
-% -spec export_implicit_burns(blockchain_ledger_v1:ledger()) -> list().
-% export_implicit_burns(Ledger) ->
-%     lists:foldl(
-%         fun({TxnHash, ImplicitBurn}, Acc) ->
-%             [[{hash, libp2p_crypto:bin_to_b58(TxnHash)},
-%               {fee, blockchain_ledger_data_credits_entry_v1:fee(ImplicitBurn)}] | Acc]
-%         end,
-%         [],
-%         maps:to_list(blockchain_ledger_v1:dc_entries(Ledger))
-%     ).
-
 export_chain_vars(Ledger) ->
     lists:sort(blockchain_ledger_v1:snapshot_vars(Ledger)).
