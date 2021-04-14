@@ -70,7 +70,6 @@
     maybe_gc_scs/1,
 
     find_entry/2,
-    find_implicit_burn/2,
     credit_account/3, debit_account/4, debit_fee_from_account/4,
     check_balance/3,
 
@@ -237,7 +236,6 @@
     active_gateways :: rocksdb:cf_handle(),
     gw_denorm :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
-    implicit_burn :: rocksdb:cf_handle(),
     dc_entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
     pocs :: rocksdb:cf_handle(),
@@ -274,7 +272,6 @@
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
--type implicit_burn() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_implicit_burn_v1:implicit_burn()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -295,8 +292,8 @@ new(Dir) ->
         [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
          || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
-    [DefaultCF, AGwsCF, EntriesCF, ImplicitBurnCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedImplicitBurnCF,
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
     #ledger_v1{
@@ -309,7 +306,6 @@ new(Dir) ->
             active_gateways=AGwsCF,
             gw_denorm=GwDenormCF,
             entries=EntriesCF,
-            implicit_burn=ImplicitBurnCF,
             dc_entries=DCEntriesCF,
             htlcs=HTLCsCF,
             pocs=PoCsCF,
@@ -324,7 +320,6 @@ new(Dir) ->
             active_gateways=DelayedAGwsCF,
             gw_denorm=DelayedGwDenormCF,
             entries=DelayedEntriesCF,
-            implicit_burn=DelayedImplicitBurnCF,
             dc_entries=DelayedDCEntriesCF,
             htlcs=DelayedHTLCsCF,
             pocs=DelayedPoCsCF,
@@ -528,7 +523,6 @@ atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
             default -> SL#sub_ledger_v1.default;
             active_gateways -> SL#sub_ledger_v1.active_gateways;
             entries -> SL#sub_ledger_v1.entries;
-            implicit_burn -> SL#sub_ledger_v1.implicit_burn;
             dc_entries -> SL#sub_ledger_v1.dc_entries;
             htlcs -> SL#sub_ledger_v1.htlcs;
             pocs -> SL#sub_ledger_v1.pocs;
@@ -587,7 +581,6 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            default = DefaultCF,
            active_gateways = AGwsCF,
            entries = EntriesCF,
-           implicit_burn = ImplicitBurnCF,
            dc_entries = DCEntriesCF,
            htlcs = HTLCsCF,
            pocs = PoCsCF,
@@ -628,7 +621,6 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
              || {CF, Mod} <-
                     [{AGwsCF, blockchain_ledger_gateway_v2},
                      {EntriesCF, blockchain_ledger_entry_v1},
-                     {ImplicitBurnCF, blockchain_ledger_implicit_burn_v1},
                      {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
                      {HTLCsCF, blockchain_ledger_htlc_v1},
                      {PoCsCF, t2b},
@@ -647,13 +639,12 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             false ->
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash}};
             _ ->
-                [_, GWsHash, EntriesHash, ImplicitBurnHash, DCEntriesHash, HTLCsHash,
+                [_, GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
                  PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash] = L,
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash,
                        <<"gateways_fingerprint">> => GWsHash,
                        <<"core_fingerprint">> => DefaultHash,
                        <<"entries_fingerprint">> => EntriesHash,
-                       <<"impicit_burn_fingerprint">> => ImplicitBurnHash,
                        <<"dc_entries_fingerprint">> => DCEntriesHash,
                        <<"htlc_fingerprint">> => HTLCsHash,
                        <<"securities_fingerprint">> => SecuritiesHash,
@@ -2926,7 +2917,6 @@ state_channel_key(ID, Owner) ->
 compact_ledger(DB, #sub_ledger_v1{default=Default,
                                   active_gateways=Gateways,
                                   entries=Entries,
-                                  implicit_burn=ImplicitBurn,
                                   dc_entries=DCEntries,
                                   htlcs=HTLCs,
                                   pocs=PoCs,
@@ -2935,7 +2925,6 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
     rocksdb:compact_range(DB, Gateways, undefined, undefined, []),
     rocksdb:compact_range(DB, Entries, undefined, undefined, []),
-    rocksdb:compact_range(DB, ImplicitBurn, undefined, undefined, []),
     rocksdb:compact_range(DB, DCEntries, undefined, undefined, []),
     rocksdb:compact_range(DB, HTLCs, undefined, undefined, []),
     rocksdb:compact_range(DB, PoCs, undefined, undefined, []),
@@ -2987,12 +2976,6 @@ entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF;
 entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF.
-
--spec implicit_burn_cf(ledger()) -> rocksdb:cf_handle().
-implicit_burn_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{implicit_burn=ImplicitBurnCF}}) ->
-    ImplicitBurnCF;
-implicit_burn_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{implicit_burn=ImplicitBurnCF}}) ->
-    ImplicitBurnCF.
 
 -spec dc_entries_cf(ledger()) -> rocksdb:cf_handle().
 dc_entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
@@ -3195,10 +3178,10 @@ open_db(Dir) ->
 
     CFOpts = GlobalOpts,
 
-    DefaultCFs = ["default", "active_gateways", "entries", "implicit_burn", "dc_entries", "htlcs",
+    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
                   "pocs", "securities", "routing", "subnets", "state_channels",
                   "h3dex", "gw_denorm",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_implicit_burn",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries",
                   "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
                   "delayed_securities", "delayed_routing", "delayed_subnets",
                   "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
