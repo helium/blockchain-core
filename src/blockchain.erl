@@ -1231,12 +1231,13 @@ close(#blockchain{db=DB, ledger=Ledger}) ->
     catch blockchain_ledger_v1:close(Ledger),
     catch rocksdb:close(DB).
 
-compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF}) ->
+compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF, implicit_burns=ImplicitBurnsCF}) ->
     rocksdb:compact_range(DB, undefined, undefined, []),
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
     rocksdb:compact_range(DB, BlocksCF, undefined, undefined, []),
     rocksdb:compact_range(DB, HeightsCF, undefined, undefined, []),
     rocksdb:compact_range(DB, TempBlocksCF, undefined, undefined, []),
+    rocksdb:compact_range(DB, ImplicitBurnsCF, undefined, undefined, []),
     ok.
 
 reset_ledger(Chain) ->
@@ -1732,8 +1733,8 @@ find_last_snapshots(Blockchain, Count0) ->
 
 -spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()}
                                                           | {error, any()}.
-get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burn=ImplicitBurnCF}) when is_binary(TxnHash) ->
-    case rocksdb:get(DB, ImplicitBurnCF, Hash, []) of
+get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) when is_binary(TxnHash) ->
+    case rocksdb:get(DB, ImplicitBurnsCF, Hash, []) of
         {ok, Bin} ->
             {ok, blockchain_implicit_burn:deserialize(Bin)};
         not_found ->
@@ -1771,7 +1772,7 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, SnapshotCF]} ->
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, ImplicitBurnsCF, SnapshotCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
                 case Mode of
@@ -1807,6 +1808,7 @@ load(Dir, Mode) ->
                 heights=HeightsCF,
                 temp_blocks=TempBlocksCF,
                 plausible_blocks=PlausibleBlocksCF,
+                implicit_burns=ImplicitBurnsCF,
                 snapshots=SnapshotCF,
                 ledger=Ledger
             },
