@@ -149,7 +149,8 @@ aux_rewards_test(Config) ->
     %% construct some yolo rewards, two versions, real and aux
     Reward = 1000000000,
     Height = 10,
-    AuxReward = Reward * 100,
+    AuxMultiplier = 100,
+    AuxReward = Reward * AuxMultiplier,
     Owner = <<"o1">>,
 
     GW1 = <<"g1">>,
@@ -185,22 +186,21 @@ aux_rewards_test(Config) ->
 
     %% check that the diff has the right account rewards
     Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
-    {AR1, AR2} = maps:get(Owner, maps:get(Height, Diff)),
+    ct:pal("Diff: ~p", [Diff]),
 
-    %% account gets 6 rewards
-    true = Reward * 6 == AR1,
-    true = AuxReward * 6 == AR2,
+    {O_R, O_AR} = maps:get(Owner, maps:get(Height, Diff)),
+    Amount_O_R = maps:get(amount, O_R),
+    Amount_O_AR = maps:get(amount, O_AR),
+    ?assertEqual(Amount_O_AR, AuxMultiplier * Amount_O_R),
 
-    %% check that the diff has the right gateway rewards
-    {G1R, G1AuxR} = maps:get(GW1, maps:get(Height, Diff)),
-    {G2R, G2AuxR} = maps:get(GW2, maps:get(Height, Diff)),
+    {G1_R, G1_AR} = maps:get(GW1, maps:get(Height, Diff)),
+    Amount_G1_R = maps:get(amount, G1_R),
+    Amount_G1_AR = maps:get(amount, G1_AR),
+    ?assertEqual(Amount_G1_AR, AuxMultiplier * Amount_G1_R),
 
-    %% GW1 gets: consensus + poc_challengees
-    true = Reward * 2 == G1R,
-    true = AuxReward * 2 == G1AuxR,
-
-    %% GW2 gets: consensus + poc_witnesses + poc_challengers
-    true = Reward * 3 == G2R,
-    true = AuxReward * 3 == G2AuxR,
+    {G2_R, G2_AR} = maps:get(GW2, maps:get(Height, Diff)),
+    Amount_G2_R = maps:get(amount, G2_R),
+    Amount_G2_AR = maps:get(amount, G2_AR),
+    ?assertEqual(Amount_G2_AR, AuxMultiplier * Amount_G2_R),
 
     ok.
