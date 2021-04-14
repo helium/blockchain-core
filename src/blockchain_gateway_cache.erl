@@ -116,23 +116,18 @@ init([]) ->
                     [named_table,
                      public,
                      {read_concurrency, true}]),
-    case application:get_env(blockchain, disable_gateway_cache, false) of
-        false ->
-            try blockchain_worker:blockchain() of
-                undefined ->
-                    erlang:send_after(500, self(), chain_init),
-                    {ok, #state{cache = Cache}};
-                Chain ->
-                    ok = blockchain_event:add_handler(self()),
-                    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
-                    ets:insert(?MODULE, {start_height, Height}),
-                    {ok, #state{height = Height, cache = Cache}}
-            catch _:_ ->
-                      erlang:send_after(500, self(), chain_init),
-                      {ok, #state{cache = Cache}}
-            end;
-        _ ->
-            {ok, #state{cache=Cache}}
+    try blockchain_worker:blockchain() of
+        undefined ->
+            erlang:send_after(500, self(), chain_init),
+            {ok, #state{cache = Cache}};
+        Chain ->
+            ok = blockchain_event:add_handler(self()),
+            {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
+            ets:insert(?MODULE, {start_height, Height}),
+            {ok, #state{height = Height, cache = Cache}}
+    catch _:_ ->
+            erlang:send_after(500, self(), chain_init),
+            {ok, #state{cache = Cache}}
     end.
 
 handle_call({bulk_put, Height, List}, _From, State) ->
