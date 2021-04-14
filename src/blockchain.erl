@@ -1730,7 +1730,7 @@ find_last_snapshots(Blockchain, Count0) ->
             lists:reverse(List)
     end.
 
--spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn_v1:implicit_burn()}
+-spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()}
                                                           | {error, any()}.
 get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burn=ImplicitBurnCF}) when is_binary(TxnHash) ->
     case rocksdb:get(DB, ImplicitBurnCF, Hash, []) of
