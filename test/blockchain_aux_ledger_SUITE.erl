@@ -5,19 +5,23 @@
 
 -include("blockchain_vars.hrl").
 
+-include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
+
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
     bootstrap_test/1,
     alter_var_test/1,
-    aux_rewards_test/1
+    aux_rewards_test/1,
+    aux_rewards_v2_test/1
 ]).
 
 all() ->
     [
         bootstrap_test,
         alter_var_test,
-        aux_rewards_test
+        aux_rewards_test,
+        aux_rewards_v2_test
     ].
 
 %%--------------------------------------------------------------------
@@ -30,7 +34,7 @@ init_per_testcase(TestCase, Config) ->
     BaseDir = ?config(base_dir, Config0),
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
 
-    ExtraVars = #{},
+    ExtraVars = extra_vars(TestCase),
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
@@ -188,19 +192,80 @@ aux_rewards_test(Config) ->
     Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
     ct:pal("Diff: ~p", [Diff]),
 
-    {O_R, O_AR} = maps:get(Owner, maps:get(Height, Diff)),
-    Amount_O_R = maps:get(amount, O_R),
-    Amount_O_AR = maps:get(amount, O_AR),
-    ?assertEqual(Amount_O_AR, AuxMultiplier * Amount_O_R),
-
-    {G1_R, G1_AR} = maps:get(GW1, maps:get(Height, Diff)),
-    Amount_G1_R = maps:get(amount, G1_R),
-    Amount_G1_AR = maps:get(amount, G1_AR),
-    ?assertEqual(Amount_G1_AR, AuxMultiplier * Amount_G1_R),
-
-    {G2_R, G2_AR} = maps:get(GW2, maps:get(Height, Diff)),
-    Amount_G2_R = maps:get(amount, G2_R),
-    Amount_G2_AR = maps:get(amount, G2_AR),
-    ?assertEqual(Amount_G2_AR, AuxMultiplier * Amount_G2_R),
+    true = check_bal_diff(Owner, AuxMultiplier, Height, Diff),
+    true = check_bal_diff(GW1, AuxMultiplier, Height, Diff),
+    true = check_bal_diff(GW2, AuxMultiplier, Height, Diff),
 
     ok.
+
+aux_rewards_v2_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    Ledger = ?config(ledger, Config),
+    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+        filename:join([BaseDir, "bootstrap_test.db"]),
+        Ledger
+    ),
+    AuxLedger = blockchain_ledger_v1:mode(aux, AuxLedger0),
+
+    %% construct some yolo rewards, two versions, real and aux
+    Height = 10,
+    AuxMultiplier = 100,
+    O1 = <<"o1">>,
+    O2 = <<"o2">>,
+    O3 = <<"o3">>,
+    R1 = 1000000000,
+    R2 = 2000000000,
+    R3 = 3000000000,
+
+    %% We'll only push the internal rewards to aux ledger instead of wrapping them in a transaction
+    Rewards = [
+        #blockchain_txn_reward_v2_pb{account = O1, amount = R1},
+        #blockchain_txn_reward_v2_pb{account = O2, amount = R2},
+        #blockchain_txn_reward_v2_pb{account = O3, amount = R3}
+    ],
+
+    AuxRewards = [
+        #blockchain_txn_reward_v2_pb{account = O1, amount = R1 * AuxMultiplier},
+        #blockchain_txn_reward_v2_pb{account = O2, amount = R2 * AuxMultiplier},
+        #blockchain_txn_reward_v2_pb{account = O3, amount = R3 * AuxMultiplier}
+    ],
+
+    %% set both sets of rewards for aux ledger
+    ok = blockchain_ledger_v1:set_aux_rewards(Height, Rewards, AuxRewards, AuxLedger),
+
+    %% check that we get the correct sets of rewards
+    {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards_at(Height, AuxLedger),
+
+    %% check that all the aux rewards are as expected
+    ExpectedAuxRewards = #{Height => {Rewards, AuxRewards}},
+    AllAuxRewards = blockchain_ledger_v1:get_aux_rewards(AuxLedger),
+
+    ct:pal("ExpectedAuxRewards: ~p", [ExpectedAuxRewards]),
+    ct:pal("AllAuxRewards: ~p", [AllAuxRewards]),
+
+    true = lists:sort(maps:to_list(ExpectedAuxRewards)) == lists:sort(maps:to_list(AllAuxRewards)),
+
+    %% check that the diff has the right account rewards
+    Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
+    ct:pal("Diff: ~p", [Diff]),
+
+    true = check_bal_diff(O1, AuxMultiplier, Height, Diff),
+    true = check_bal_diff(O2, AuxMultiplier, Height, Diff),
+    true = check_bal_diff(O3, AuxMultiplier, Height, Diff),
+
+    ok.
+
+%%--------------------------------------------------------------------
+%% internal functions
+%%--------------------------------------------------------------------
+
+extra_vars(aux_rewards_v2_test) ->
+    #{rewards_txn_version => 2};
+extra_vars(_) ->
+    #{}.
+
+check_bal_diff(Owner, AuxMultiplier, Height, Diff) ->
+    {O1_R, O1_AR} = maps:get(Owner, maps:get(Height, Diff)),
+    Amount_O1_R = maps:get(amount, O1_R),
+    Amount_O1_AR = maps:get(amount, O1_AR),
+    Amount_O1_AR == AuxMultiplier * Amount_O1_R.

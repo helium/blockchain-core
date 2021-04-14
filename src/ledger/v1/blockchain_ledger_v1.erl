@@ -216,6 +216,7 @@
 -include("blockchain_vars.hrl").
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
 
 -ifdef(TEST).
 -export([median/1]).
@@ -3139,8 +3140,8 @@ aux_db(Ledger) ->
     end.
 
 -spec set_aux_rewards(Height :: non_neg_integer(),
-                      Rewards :: blockchain_txn_reward_v1:rewards(),
-                      AuxRewards :: blockchain_txn_reward_v1:rewards(),
+                      Rewards :: blockchain_txn_reward_v1:rewards() | blockchain_txn_rewards_v2:rewards(),
+                      AuxRewards :: blockchain_txn_reward_v1:rewards() | blockchain_txn_rewards_v2:rewards(),
                       Ledger :: ledger()) -> ok | {error, any()}.
 set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
     case has_aux(Ledger) of
@@ -3195,19 +3196,11 @@ diff_aux_rewards(Ledger) ->
         false -> #{};
         true ->
             OverallAuxRewards = get_aux_rewards(Ledger),
-
-            %% tally the account amounts for all rewards
-            TallyFun = fun(Reward, Acc0) ->
-                               Account = blockchain_txn_reward_v1:account(Reward),
-                               Amount = blockchain_txn_reward_v1:amount(Reward),
-                               Type = blockchain_txn_reward_v1:type(Reward),
-                               Acc = case blockchain_txn_reward_v1:gateway(Reward) of
-                                         undefined ->
-                                             Acc0;
-                                         Gateway ->
-                                             maps:update_with(Gateway, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}  end, #{amount => Amount, Type => 1}, Acc0)
-                                     end,
-                               maps:update_with(Account, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1} end, #{amount => Amount, Type => 1}, Acc)
+            TallyFun = case blockchain:config(?rewards_txn_version, Ledger) of
+                           {ok, 2} ->
+                               tally_fun_v2();
+                           _ ->
+                               tally_fun_v1()
                        end,
 
             DiffFun = fun(Height, {ActualRewards, AuxRewards}, Acc) ->
@@ -3215,30 +3208,50 @@ diff_aux_rewards(Ledger) ->
                               AuxAccountBalances = lists:foldl(TallyFun, #{}, AuxRewards),
                               Combined = maps:merge(AuxAccountBalances, ActualAccountBalances),
                               Res = maps:fold(fun(K, V, Acc2) ->
-                                               V2 = maps:get(K, AuxAccountBalances, #{amount => 0}),
-                                               case V == V2 of
-                                                   true ->
-                                                       %% check this is not missing in actual balances
-                                                       case maps:is_key(K, ActualAccountBalances) of
-                                                           false ->
-                                                               maps:put(K, {#{amount => 0}, V}, Acc2);
-                                                           true ->
-                                                               %% no difference
-                                                               Acc2
-                                                       end;
-                                                   false ->
-                                                       maps:put(K, {V, V2}, Acc2)
-                                               end
-                                        end, #{}, Combined),
+                                                      V2 = maps:get(K, AuxAccountBalances, #{amount => 0}),
+                                                      case V == V2 of
+                                                          true ->
+                                                              %% check this is not missing in actual balances
+                                                              case maps:is_key(K, ActualAccountBalances) of
+                                                                  false ->
+                                                                      maps:put(K, {#{amount => 0}, V}, Acc2);
+                                                                  true ->
+                                                                      %% no difference
+                                                                      Acc2
+                                                              end;
+                                                          false ->
+                                                              maps:put(K, {V, V2}, Acc2)
+                                                      end
+                                              end, #{}, Combined),
                               maps:put(Height, Res, Acc)
                       end,
 
             maps:fold(DiffFun, #{}, OverallAuxRewards)
+    end.
 
+-spec tally_fun_v1() -> fun().
+tally_fun_v1() ->
+    fun(Reward, Acc0) ->
+            Account = blockchain_txn_reward_v1:account(Reward),
+            Amount = blockchain_txn_reward_v1:amount(Reward),
+            Type = blockchain_txn_reward_v1:type(Reward),
+            Acc = case blockchain_txn_reward_v1:gateway(Reward) of
+                      undefined ->
+                          Acc0;
+                      Gateway ->
+                          maps:update_with(Gateway, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1}  end, #{amount => Amount, Type => 1}, Acc0)
+                  end,
+            maps:update_with(Account, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount, Type => maps:get(Type, V, 0) + 1} end, #{amount => Amount, Type => 1}, Acc)
+    end.
+
+-spec tally_fun_v2() -> fun().
+tally_fun_v2() ->
+    fun(#blockchain_txn_reward_v2_pb{amount=Amount, account=Account}, Acc) ->
+            maps:update_with(Account, fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end, #{amount => Amount}, Acc)
     end.
 
 -spec get_aux_rewards_at(Height :: non_neg_integer(), Ledger :: ledger()) ->
-    {ok, blockchain_txn_reward_v1:rewards(), blockchain_txn_reward_v1:rewards()} | {error, any()}.
+    {ok, blockchain_txn_reward_v1:rewards() | blockchain_txn_rewards_v2:rewards(), blockchain_txn_reward_v1:rewards() | blockchain_txn_rewards_v2:rewards()} | {error, any()}.
 get_aux_rewards_at(Height, Ledger) ->
     case has_aux(Ledger) of
         false -> {error, no_aux_ledger};

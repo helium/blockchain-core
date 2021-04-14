@@ -44,6 +44,7 @@
 
 -type txn_rewards_v2() :: #blockchain_txn_rewards_v2_pb{}.
 -type reward_v2() :: #blockchain_txn_reward_v2_pb{}.
+-type rewards() :: [reward_v2()].
 -type reward_vars() :: map().
 -type rewards_share_map() :: #{ libp2p_crypto:pubkey_bin() => non_neg_integer() }.
 -type dc_rewards_share_map() :: #{ libp2p_crypto:pubkey_bin() => non_neg_integer(),
@@ -71,7 +72,7 @@
 %% Public API
 %% ------------------------------------------------------------------
 
--spec new(non_neg_integer(), non_neg_integer(), [reward_v2()]) -> txn_rewards_v2().
+-spec new(non_neg_integer(), non_neg_integer(), rewards()) -> txn_rewards_v2().
 new(Start, End, Rewards) ->
     SortedRewards = lists:sort(Rewards),
     #blockchain_txn_rewards_v2_pb{start_epoch=Start, end_epoch=End, rewards=SortedRewards}.
@@ -89,7 +90,7 @@ start_epoch(#blockchain_txn_rewards_v2_pb{start_epoch=Start}) ->
 end_epoch(#blockchain_txn_rewards_v2_pb{end_epoch=End}) ->
     End.
 
--spec rewards(txn_rewards_v2()) -> [reward_v2()].
+-spec rewards(txn_rewards_v2()) -> rewards().
 rewards(#blockchain_txn_rewards_v2_pb{rewards=Rewards}) ->
     Rewards.
 
@@ -121,20 +122,66 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+
+    case blockchain_ledger_v1:mode(Ledger) == aux of
+        false ->
+            %% only absorb in the main ledger
+            absorb_(Txn, Ledger);
+        true ->
+            aux_absorb(Txn, Ledger, Chain)
+    end.
+
+-spec absorb_(Txn :: txn_rewards_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+absorb_(Txn, Ledger) ->
+    Rewards = ?MODULE:rewards(Txn),
+    absorb_rewards(Rewards, Ledger).
+
+-spec absorb_rewards(Rewards :: rewards(),
+                     Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+absorb_rewards(Rewards, Ledger) ->
     lists:foreach(
         fun(#blockchain_txn_reward_v2_pb{account=Account, amount=Amount}) ->
             ok = blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
         end,
-        ?MODULE:rewards(Txn)
+        Rewards
     ).
 
+-spec aux_absorb(Txn :: txn_rewards_v2(),
+                 AuxLedger :: blockchain_ledger_v1:ledger(),
+                 Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+aux_absorb(Txn, AuxLedger, Chain) ->
+    Start = ?MODULE:start_epoch(Txn),
+    End = ?MODULE:end_epoch(Txn),
+    %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
+    %% and do 0 verification for absorption
+    case calculate_rewards_(Start, End, AuxLedger, Chain) of
+        {error, _}=E -> E;
+        {ok, AuxRewards} ->
+            TxnRewards = rewards(Txn),
+            %% absorb the rewards attached to the txn (real)
+            absorb_rewards(TxnRewards, AuxLedger),
+            %% set auxiliary rewards in the aux ledger also
+            lager:info("are aux rewards equal?: ~p", [lists:sort(TxnRewards) == lists:sort(AuxRewards)]),
+            %% rewards appear in (End + 1) block
+            blockchain_ledger_v1:set_aux_rewards(End + 1, TxnRewards, AuxRewards, AuxLedger)
+    end.
+
+
 -spec calculate_rewards(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) ->
-    {ok, [reward_v2()]} | {error, any()}.
+    {ok, rewards()} | {error, any()}.
 %% @doc Calculate and return an ordered list (as ordered by lists:sort/1) of
 %% rewards for use in a rewards_v2 transaction. Given how lists:sort/1 works,
 %% ordering will depend on (binary) account information.
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
+    calculate_rewards_(Start, End, Ledger, Chain).
+
+-spec calculate_rewards_(
+        Start :: non_neg_integer(),
+        End :: non_neg_integer(),
+        Ledger :: blockchain_ledger_v1:ledger(),
+        Chain :: blockchain:blockchain()) -> {error, any()} | {ok, rewards()}.
+calculate_rewards_(Start, End, Ledger, Chain) ->
     {ok, Results} = calculate_rewards_metadata(Start, End, Chain),
     try
         {ok, prepare_rewards_v2_txns(Results, Ledger)}
@@ -420,7 +467,7 @@ finalize_reward_calculations(#{ dc_rewards := DCShares,
        overages => Overages }.
 
 -spec prepare_rewards_v2_txns( Results :: rewards_metadata(),
-                               Ledger :: blockchain_ledger_v1:ledger() ) -> [reward_v2()].
+                               Ledger :: blockchain_ledger_v1:ledger() ) -> rewards().
 prepare_rewards_v2_txns(Results, Ledger) ->
     %% we are going to fold over a list of keys in the rewards map (Results)
     %% and generate a new map which has _all_ the owners and the sum of
@@ -1230,7 +1277,7 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
 
 %% @doc Given a list of reward_v1 txns, return the equivalent reward_v2
 %% list.
--spec v1_to_v2( RewardsV1 :: [blockchain_txn_reward_v1:rewards()] ) -> [reward_v2()].
+-spec v1_to_v2( RewardsV1 :: [blockchain_txn_reward_v1:rewards()] ) -> rewards().
 v1_to_v2(RewardsV1) ->
     R = lists:foldl(fun(R, Acc) ->
                             Owner = blockchain_txn_reward_v1:account(R),
