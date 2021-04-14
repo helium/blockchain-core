@@ -232,7 +232,7 @@ absorb(Txn, Chain) ->
             Error;
         {ok, _Entry} ->
             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            case blockchain_ledger_v1:debit_fee(Payer,TxnFee, Ledger, AreFeesEnabled, TxnHash) of
+            case blockchain_ledger_v1:debit_fee(Payer,TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->

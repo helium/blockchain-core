@@ -198,7 +198,7 @@ absorb(Txn, Chain) ->
     Hash = ?MODULE:hash(Txn),
     Redeemer = ?MODULE:payee(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger, AreFeesEnabled, Hash) of
+    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->

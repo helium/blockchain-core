@@ -203,7 +203,7 @@ absorb(Txn, Chain) ->
 
     {ok, GWInfo} = blockchain_gateway_cache:get(Gateway, Ledger),
     %% fees here are in DC (and perhaps converted to HNT automagically)
-    case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled, Hash) of
+    case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason} = Error -> Error;
         ok ->
             ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, BuyerNonce, Ledger),

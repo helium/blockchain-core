@@ -144,7 +144,7 @@ absorb(Txn, Chain) ->
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash) of
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->

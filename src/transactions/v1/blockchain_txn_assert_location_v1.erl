@@ -374,7 +374,7 @@ absorb(Txn, Chain) ->
     end,
 
     {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->

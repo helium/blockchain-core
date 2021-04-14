@@ -326,7 +326,7 @@ absorb(Txn, Chain) ->
     Closer = ?MODULE:closer(Txn),
     TxnFee = ?MODULE:fee(Txn),
     TxnHash = ?MODULE:hash(Txn),
-    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled, TxnHash) of
+    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
         {error, _Reason}=Error -> Error;
         ok ->
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of

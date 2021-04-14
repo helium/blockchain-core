@@ -352,7 +352,7 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
