@@ -2047,19 +2047,6 @@ find_entry(Address, Ledger) ->
             Error
     end.
 
--spec find_implicit_burn(implicit_burn(), ledger()) -> {ok, blockchain_ledger_implicit_burn_v1:implicit_burn()}
-                                                          | {error, any()}.
-find_implicit_burn(Transaction, Ledger) ->
-    ImplicitBurnCF = implicit_burn_cf(Ledger),
-    case cache_get(Ledger, ImplicitBurnCF, Transaction, []) of
-        {ok, BinEntry} ->
-            {ok, blockchain_ledger_implicit_burn_v1:deserialize(BinEntry)};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
-    end.
-
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),

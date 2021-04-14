@@ -55,6 +55,9 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
+    add_implicit_burn/2,
+    get_implicit_burn/2,
+
     mark_upgrades/2, bootstrap_h3dex/1,
     snapshot_height/1
 ]).
@@ -1566,7 +1569,6 @@ fp_to_cf(<<"core_fingerprint">>) -> default;
 fp_to_cf(<<"gateways_fingerprint">>) -> active_gateways;
 fp_to_cf(<<"poc_fingerprint">>) -> pocs;
 fp_to_cf(<<"entries_fingerprint">>) -> entries;
-fp_to_cf(<<"implicit_burn_fingerprint">>) -> implicit_burn;
 fp_to_cf(<<"dc_entries_fingerprint">>) -> dc_entries;
 fp_to_cf(<<"securities_fingerprint">>) -> securities;
 fp_to_cf(<<"htlc_fingerprint">>) -> htlcs;
@@ -1727,6 +1729,18 @@ find_last_snapshots(Blockchain, Count0) ->
         {_, List} ->
             lists:reverse(List)
     end.
+
+-spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn_v1:implicit_burn()}
+                                                          | {error, any()}.
+get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burn=ImplicitBurnCF}) when is_binary(TxnHash) ->
+    case rocksdb:get(DB, ImplicitBurnCF, Hash, []) of
+        {ok, Bin} ->
+            {ok, blockchain_implicit_burn:deserialize(Bin)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end;
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
