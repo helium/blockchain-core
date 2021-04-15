@@ -2107,7 +2107,9 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
                                 Fee,
                                 Address
                             ),
-                            blockchain:add_implicit_burn(TxnHash, ImplicitBurn, Chain)
+                            blockchain:add_implicit_burn(TxnHash, ImplicitBurn, Chain);
+                        false ->
+                            ok
                     end,
                     Entry1 = blockchain_ledger_entry_v1:new(
                         blockchain_ledger_entry_v1:nonce(Entry),
