@@ -474,3 +474,25 @@
 -define(penalty_history_limit, penalty_history_limit). % blocks
 -define(dkg_penalty, dkg_penalty). % float
 -define(tenure_penalty, tenure_penalty). % float
+
+%% ------------------------------------------------------------------
+%% regulatory_region related variables
+
+%% This is a comma separated string like so: "as923_1,as923_2,as923_3,au915,..."
+-define(regulatory_regions, regulatory_regions).
+
+%% Each of the following is a serialized form of an h3_region set determined at h3_res: 7
+%% For more information, check: https://github.com/JayKickliter/lorawan-h3-regions and https://github.com/helium/erlang-h3/pull/29
+-define(region_as923_1, region_as923_1).
+-define(region_as923_2, region_as923_2).
+-define(region_as923_3, region_as923_3).
+-define(region_au915, region_au915).
+-define(region_cn779, region_cn779).
+-define(region_eu433, region_eu433).
+-define(region_eu868, region_eu868).
+-define(region_in865, region_in865).
+-define(region_kr920, region_kr920).
+-define(region_ru864, region_ru864).
+-define(region_us915, region_us915).
+
+%% TODO: Figure out region_parameters for each of the supported regions
