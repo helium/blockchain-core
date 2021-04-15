@@ -27,7 +27,8 @@
          init_base_dir_config/3,
          join_packet/3,
          ledger/2,
-         destroy_ledger/0
+         destroy_ledger/0,
+         download_serialized_region/1
         ]).
 
 -ifdef(EQC).
@@ -514,3 +515,17 @@ destroy_ledger() ->
             %% ledger.db dir not found, don't do anything
             ok
     end.
+
+download_serialized_region(URL) ->
+    %% Example URL: "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/US915.res7.h3idx?raw=true"
+    {ok, Dir} = file:get_cwd(),
+    %% Ensure priv dir exists
+    PrivDir = filename:join([Dir, "priv"]),
+    ok = filelib:ensure_dir(PrivDir ++ "/"),
+    ok = ssl:start(),
+    {ok, {{_, 200, "OK"}, _, Body}} = httpc:request(URL),
+    FName = hd(string:tokens(hd(lists:reverse(string:tokens(URL, "/"))), "?")),
+    FPath = filename:join([PrivDir, FName]),
+    ok = file:write_file(FPath, Body),
+    {ok, Data} = file:read_file(FPath),
+    Data.
