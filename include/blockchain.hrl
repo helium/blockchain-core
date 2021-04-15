@@ -34,3 +34,17 @@
                            <<"clear_witnesses">>]).
 
 -define(bones(HNT), HNT * 100000000).
+
+-define(SUPPORTED_REGIONS, [
+    "as923_1",
+    "as923_2",
+    "as923_3",
+    "au915",
+    "cn779",
+    "eu433",
+    "eu868",
+    "in865",
+    "kr920",
+    "ru864",
+    "us915"
+]).
