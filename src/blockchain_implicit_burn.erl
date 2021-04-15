@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_implicit_burn).
 
+-include("blockchain_json.hrl").
+
 -export([
     new/2,
     fee/1, fee/2,
