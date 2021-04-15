@@ -1746,10 +1746,8 @@ get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) w
 -spec add_implicit_burn(blockchain_txn:hash(), blockchain_implicit_burn:implicit_burn(), blockchain()) -> ok | {error, any()}.
 add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) ->
     try
-        {ok, Batch} = rocksdb:batch(),
         {ok, BinImp} = blockchain_ledger_snapshot_v1:serialize(ImplicitBurn),
-        ok = rocksdb:batch_put(Batch, ImplicitBurnsCF, TxnHash, BinImp),
-        ok = rocksdb:write_batch(DB, Batch, [])
+        rocksdb:put(DB, ImplicitBurnsCF, Hash, BinImp, [{sync, true}])
     catch What:Why:Stack ->
             lager:warning("error adding implicit burn: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
