@@ -1272,7 +1272,7 @@ validate_var(?penalty_history_limit, Value) ->
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
-validate_var(?regulatory_regions, Value) ->
+validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The only regulatory_regions value we support must look like this:
     %% <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
     %% The order does not matter in validation
@@ -1280,11 +1280,13 @@ validate_var(?regulatory_regions, Value) ->
         {ok, ValueList} ->
             case ValueList -- ?SUPPORTED_REGIONS == [] of
                 true -> ok;
-                false -> throw({error, {invalid_regulatory_regions, Value}})
+                false -> throw({error, {invalid_regulatory_regions_unexpected_region, Value}})
             end;
         {error, _}=E ->
             E
     end;
+validate_var(?regulatory_regions, Value) ->
+    throw({error, {invalid_regulatory_regions_not_binary, Value}});
 
 validate_var(?region_as923_1, Value) ->
     validate_region_var(region_as923_1, Value);
@@ -1313,7 +1315,7 @@ validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
 
-validate_region_var(Var, Value) ->
+validate_region_var(Var, Value) when is_binary(Value) ->
     case size(Value) rem 8 of
         %% This is always supposed to be true
         0 ->
@@ -1324,7 +1326,9 @@ validate_region_var(Var, Value) ->
                 _ -> throw({error, {invalid_region_var_byte_size, Var, Value}})
             end;
         _ -> throw({error, {invalid_region_var_size, Var, Value}})
-    end.
+    end;
+validate_region_var(Var, Value) ->
+    throw({error, {invalid_region_var, Var, Value}}).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
