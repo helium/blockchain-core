@@ -91,7 +91,7 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 to_json(ImplicitBurn, _Opts) ->
     #{
       fee => fee(ImplicitBurn),
-      payer => payer(ImplicitBurn)
+      payer => ?BIN_TO_B58(payer(ImplicitBurn))
     }.
 
 %% ------------------------------------------------------------------
