@@ -2101,11 +2101,14 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
             Balance = blockchain_ledger_entry_v1:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
-                    ImplicitBurn = blockchain_implicit_burn:new(
-                        Fee,
-                        Address
-                    ),
-                    blockchain:add_implicit_burn(TxnHash, ImplicitBurn, Chain),
+                    case application:get_env(blockchain, store_implicit_burns, false) of
+                        true ->
+                            ImplicitBurn = blockchain_implicit_burn:new(
+                                Fee,
+                                Address
+                            ),
+                            blockchain:add_implicit_burn(TxnHash, ImplicitBurn, Chain)
+                    end,
                     Entry1 = blockchain_ledger_entry_v1:new(
                         blockchain_ledger_entry_v1:nonce(Entry),
                         (Balance - Fee)
