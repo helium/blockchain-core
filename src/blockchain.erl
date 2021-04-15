@@ -1747,7 +1747,7 @@ get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) w
 add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) ->
     try
         {ok, BinImp} = blockchain_ledger_snapshot_v1:serialize(ImplicitBurn),
-        rocksdb:put(DB, ImplicitBurnsCF, Hash, BinImp, [{sync, true}])
+        rocksdb:put(DB, ImplicitBurnsCF, TxnHash, BinImp, [{sync, true}])
     catch What:Why:Stack ->
             lager:warning("error adding implicit burn: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
