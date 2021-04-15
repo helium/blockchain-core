@@ -1290,9 +1290,63 @@ validate_var(?net_emissions_enabled, Value) ->
 validate_var(?net_emissions_max_rate, Value) ->
     validate_int(Value, "net_emissions_max_rate", 0, ?bones(200), false);
 
+validate_var(?regulatory_regions, Value) when is_binary(Value) ->
+    %% The only regulatory_regions value we support must look like this:
+    %% <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
+    %% The order does not matter in validation
+    case blockchain_region:get_regulatory_regions_var(Value) of
+        {ok, ValueList} ->
+            case ValueList -- ?SUPPORTED_REGIONS == [] of
+                true -> ok;
+                false -> throw({error, {invalid_regulatory_regions_unexpected_region, Value}})
+            end;
+        {error, _}=E ->
+            E
+    end;
+validate_var(?regulatory_regions, Value) ->
+    throw({error, {invalid_regulatory_regions_not_binary, Value}});
+
+validate_var(?region_as923_1, Value) ->
+    validate_region_var(region_as923_1, Value);
+validate_var(?region_as923_2, Value) ->
+    validate_region_var(region_as923_2, Value);
+validate_var(?region_as923_3, Value) ->
+    validate_region_var(region_as923_3, Value);
+validate_var(?region_au915, Value) ->
+    validate_region_var(region_au915, Value);
+validate_var(?region_cn779, Value) ->
+    validate_region_var(region_cn779, Value);
+validate_var(?region_eu433, Value) ->
+    validate_region_var(region_eu433, Value);
+validate_var(?region_eu868, Value) ->
+    validate_region_var(region_eu868, Value);
+validate_var(?region_in865, Value) ->
+    validate_region_var(region_in865, Value);
+validate_var(?region_kr920, Value) ->
+    validate_region_var(region_kr920, Value);
+validate_var(?region_ru864, Value) ->
+    validate_region_var(region_ru864, Value);
+validate_var(?region_us915, Value) ->
+    validate_region_var(region_us915, Value);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
+
+validate_region_var(Var, Value) when is_binary(Value) ->
+    case size(Value) rem 8 of
+        %% This is always supposed to be true
+        0 ->
+            case byte_size(Value) of
+                %% All serialized regions we know so far are below 1MB
+                B when B =< 1 * 1024 * 1024 ->
+                    ok;
+                _ -> throw({error, {invalid_region_var_byte_size, Var, Value}})
+            end;
+        _ -> throw({error, {invalid_region_var_size, Var, Value}})
+    end;
+validate_region_var(Var, Value) ->
+    throw({error, {invalid_region_var, Var, Value}}).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
