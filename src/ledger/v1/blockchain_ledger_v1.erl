@@ -2204,10 +2204,10 @@ debit_dc(Address, Nonce, Amount, Ledger) ->
 
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(_Address, Fee, _Ledger) ->
-    debit_fee(_Address, Fee, _Ledger, false, nil, nil).
+    debit_fee(_Address, Fee, _Ledger, false, undefined, undefined).
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean()) -> ok | {error, any()}.
 debit_fee(_Address, Fee,_Ledger, _MaybeTryImplicitBurn) ->
-    debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn, nil, nil).
+    debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn, undefined, undefined).
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean(), TxnHash :: any(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 debit_fee(_Address, 0, _Ledger, _MaybeTryImplicitBurn, _TxnHash, _Chain) ->
     ok;
