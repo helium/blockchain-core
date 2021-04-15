@@ -1732,7 +1732,7 @@ find_last_snapshots(Blockchain, Count0) ->
             lists:reverse(List)
     end.
 
--spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()} | {error, any()}.
+-spec get_implicit_burn(string(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()} | {error, any()}.
 get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) when is_binary(TxnHash) ->
     case rocksdb:get(DB, ImplicitBurnsCF, TxnHash, []) of
         {ok, Bin} ->
@@ -1743,11 +1743,11 @@ get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) w
             Error
     end.
 
--spec add_implicit_burn(blockchain_txn:hash(), blockchain_implicit_burn:implicit_burn(), blockchain()) -> ok | {error, any()}.
+-spec add_implicit_burn(string(), blockchain_implicit_burn:implicit_burn(), blockchain()) -> ok | {error, any()}.
 add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) ->
     try
-        {ok, BinImp} = blockchain_ledger_snapshot_v1:serialize(ImplicitBurn),
-        rocksdb:put(DB, ImplicitBurnsCF, TxnHash, BinImp, [{sync, true}])
+        BinImp = blockchain_implicit_burn:serialize(ImplicitBurn),
+        ok = rocksdb:put(DB, ImplicitBurnsCF, TxnHash, BinImp, [{sync, true}])
     catch What:Why:Stack ->
             lager:warning("error adding implicit burn: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
