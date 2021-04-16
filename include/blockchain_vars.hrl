@@ -496,3 +496,14 @@
 -define(region_us915, region_us915).
 
 %% TODO: Figure out region_parameters for each of the supported regions
+%% -define(region_params_as923_1, region_params_as923_1).
+%% -define(region_params_as923_2, region_params_as923_2).
+%% -define(region_params_as923_3, region_params_as923_3).
+%% -define(region_params_au915, region_params_au915).
+%% -define(region_params_cn779, region_params_cn779).
+%% -define(region_params_eu433, region_params_eu433).
+%% -define(region_params_eu868, region_params_eu868).
+%% -define(region_params_in865, region_params_in865).
+%% -define(region_params_kr920, region_params_kr920).
+%% -define(region_params_ru864, region_params_ru864).
+%% -define(region_params_us915, region_params_us915).
