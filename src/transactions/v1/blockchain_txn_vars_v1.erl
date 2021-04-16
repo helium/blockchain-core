@@ -1160,6 +1160,8 @@ validate_var(?validator_liveness_grace_period, Value) ->
 validate_var(?stake_withdrawl_cooldown, Value) ->
     %% maybe set this in the test
     validate_int(Value, "stake_withdrawl_cooldown", 5, 1000000, false);
+validate_var(?stake_withdrawl_max, Value) ->
+    validate_int(Value, "stake_withdrawl_max", 500, 10000, false);
 
 validate_var(?dkg_penalty, Value) ->
     validate_float(Value, "dkg_penalty", 0.0, 5.0);
