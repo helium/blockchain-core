@@ -374,13 +374,6 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             {ok, NewLedger} = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
-            ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, blockchain_ledger_v1:mode(delayed, NewLedger)),
-            case blockchain_ledger_v1:has_aux(NewLedger) of
-                true ->
-                    ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, blockchain_ledger_v1:mode(aux, NewLedger));
-                false ->
-                    ok
-            end,
             try
                 %% there is a hole in the snapshot history where this will be true, but later it
                 %% will have come from the snap.
@@ -423,7 +416,6 @@ handle_call({install_aux_snapshot, Snapshot}, _From,
     NewLedger = blockchain_ledger_v1:new_aux(OldLedger),
     blockchain_ledger_snapshot_v1:load_into_ledger(Snapshot, NewLedger, aux),
     blockchain_ledger_snapshot_v1:load_blocks(blockchain_ledger_v1:mode(aux, NewLedger), Chain, Snapshot),
-    ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, blockchain_ledger_v1:mode(aux, NewLedger)),
     NewChain = blockchain:ledger(NewLedger, Chain),
     remove_handlers(Swarm),
     {ok, GossipRef} = add_handlers(Swarm, NewChain),

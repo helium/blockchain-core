@@ -141,8 +141,6 @@ deliver(Res) ->
     | {error, term()}.  % TODO More-specific than just term()
 generate_snapshot(Ledger0, Blocks, Mode) ->
     try
-        %% TODO: actually verify we're in the right mode here instead of
-        %% changing modes?
         Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
         {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),

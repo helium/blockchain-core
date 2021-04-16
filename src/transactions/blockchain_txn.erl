@@ -704,7 +704,7 @@ absorb_delayed(Block0, Chain0) ->
     case blockchain_ledger_v1:current_height(Ledger0) of
         % This is so it absorbs genesis
         {ok, H} when H < 2 ->
-            absorb_delayed_(Block0, Chain1),
+            plain_absorb_(Block0, Chain1),
             ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
         {ok, CurrentHeight} ->
             {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
@@ -717,7 +717,7 @@ absorb_delayed(Block0, Chain0) ->
                     Lag = min(?BLOCK_DELAY, CurrentHeight - DelayedHeight - ?BLOCK_DELAY),
                     Res = lists:foldl(fun(H, ok) ->
                                               {ok, Block1} = blockchain:get_block(H, Chain0),
-                                              absorb_delayed_(Block1, Chain1);
+                                              plain_absorb_(Block1, Chain1);
                                          (_, Acc) ->
                                               Acc
                                       end,
@@ -734,21 +734,6 @@ absorb_delayed(Block0, Chain0) ->
             _Any
     end.
 
-absorb_delayed_(Block, Chain0) ->
-    case ?MODULE:absorb_block(Block, Chain0) of
-        {ok, _} ->
-            Hash = blockchain_block:hash_block(Block),
-            Ledger0 = blockchain:ledger(Chain0),
-            ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
-            ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
-            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
-            ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
-            ok;
-        Error ->
-            Ledger = blockchain:ledger(Chain0),
-            blockchain_ledger_v1:delete_context(Ledger),
-            Error
-    end.
 
 -spec absorb_aux(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_aux(Block0, Chain0) ->
@@ -761,7 +746,7 @@ absorb_aux(Block0, Chain0) ->
             case blockchain_ledger_v1:current_height(Ledger0) of
                 % This is so it absorbs genesis
                 {ok, H} when H < 2 ->
-                    absorb_aux_(Block0, Chain1),
+                    plain_absorb_(Block0, Chain1),
                     ok = blockchain_ledger_v1:commit_context(AuxLedger1);
                 {ok, CurrentHeight} ->
                     {ok, AuxHeight} = blockchain_ledger_v1:current_height(AuxLedger1),
@@ -769,7 +754,7 @@ absorb_aux(Block0, Chain0) ->
                     End = min(AuxHeight + 100, CurrentHeight - 1),
                     Res = lists:foldl(fun(H, ok) ->
                                               {ok, Block1} = blockchain:get_block(H, Chain0),
-                                              absorb_aux_(Block1, Chain1);
+                                              plain_absorb_(Block1, Chain1);
                                          (_, Acc) ->
                                               Acc
                                       end,
@@ -789,7 +774,7 @@ absorb_aux(Block0, Chain0) ->
             ok
     end.
 
-absorb_aux_(Block, Chain0) ->
+plain_absorb_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, _} ->
             Hash = blockchain_block:hash_block(Block),
@@ -804,8 +789,6 @@ absorb_aux_(Block, Chain0) ->
             blockchain_ledger_v1:delete_context(Ledger),
             Error
     end.
-
-
 
 %%--------------------------------------------------------------------
 %% @doc

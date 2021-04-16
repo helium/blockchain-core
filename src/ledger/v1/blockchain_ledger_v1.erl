@@ -261,9 +261,14 @@
 }).
 
 -record(aux_ledger_v1, {
+          %% aux-ledger is maintained in a separate database
           dir :: file:filename_all(),
+          %% with its own db handle
           db :: rocksdb:db_handle(),
+          %% it however maintains same subledger structure as the active ledger
           aux :: sub_ledger(),
+          %% it provides this extra aux_heights column to differentiate actual
+          %% rewards vs aux rewards (for now, but can be extended to show other differences)
           aux_heights :: rocksdb:cf_handle()
          }).
 
