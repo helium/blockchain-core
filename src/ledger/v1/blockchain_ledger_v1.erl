@@ -145,11 +145,11 @@
     add_validator/4,
     get_validator/2,
     activate_validator/2,
-    deactivate_validator/2,
+    deactivate_validator/3,
     update_validator/3,
     fold_validators/3,
 
-    cooldown_stake/4,
+    cooldown_stake/5,
     cancel_cooldown_stake/2,
     get_cooldown_stake/2,
 
@@ -3623,9 +3623,9 @@ get_validator(Address, Ledger) ->
             Error
     end.
 
--spec deactivate_validator(libp2p_crypto:pubkey_bin(), ledger()) ->
+-spec deactivate_validator(libp2p_crypto:pubkey_bin(), pos_integer(), ledger()) ->
           ok | {error, any()}.
-deactivate_validator(Address, Ledger) ->
+deactivate_validator(Address, StakeReleaseHeight, Ledger) ->
     case get_validator(Address, Ledger) of
         {ok, Val} ->
             Stake = blockchain_ledger_validator_v1:stake(Val),
@@ -3634,7 +3634,7 @@ deactivate_validator(Address, Ledger) ->
             %% set status to unstaked
             Val1 = blockchain_ledger_validator_v1:status(cooldown, Val),
             %% put the stake HNT into cooldown
-            ok = cooldown_stake(Owner, Address, Stake, Ledger),
+            ok = cooldown_stake(Owner, Address, Stake, StakeReleaseHeight, Ledger),
             update_validator(Address, Val1, Ledger);
         Error -> Error
     end.
@@ -3665,13 +3665,12 @@ activate_validator(Address, Ledger) ->
 
 -spec cooldown_stake(Owner :: libp2p_crypto:pubkey_bin(),
                      Validator :: libp2p_crypto:pubkey_bin(),
-                     Stake :: non_neg_integer(), Ledger :: ledger()) ->
+                     Stake :: non_neg_integer(),
+                     StakeReleaseHeight :: pos_integer(),
+                     Ledger :: ledger()) ->
           ok | {error, any()}.
-cooldown_stake(Owner, Validator, Stake, Ledger) ->
+cooldown_stake(Owner, Validator, Stake, StakeReleaseHeight, Ledger) ->
     DefaultCF = default_cf(Ledger),
-    {ok, Height} = current_height(Ledger),
-    {ok, Cooldown} = config(?stake_withdrawl_cooldown, Ledger),
-    TargetBlock = Height + Cooldown,
 
     %% make an entry for the owner with {validator, stake, target block}
     OwnerEntry =
@@ -3682,12 +3681,12 @@ cooldown_stake(Owner, Validator, Stake, Ledger) ->
                 []
             %% just gonna function clause for now
         end,
-    OwnerEntry1 = OwnerEntry ++ [{Validator, Stake, TargetBlock}],
+    OwnerEntry1 = OwnerEntry ++ [{Validator, Stake, StakeReleaseHeight}],
     cache_put(Ledger, DefaultCF, owner_name(Owner),
               term_to_binary(OwnerEntry1)),
     %% make an entry for the return with {owner, validator, stake} at height
     HeightEntry =
-        case cache_get(Ledger, DefaultCF, cd_block_name(TargetBlock), []) of
+        case cache_get(Ledger, DefaultCF, cd_block_name(StakeReleaseHeight), []) of
             {ok, HE} ->
                 binary_to_term(HE);
             not_found ->
@@ -3695,7 +3694,7 @@ cooldown_stake(Owner, Validator, Stake, Ledger) ->
             %% just gonna function clause for now
         end,
     HeightEntry1 = HeightEntry ++ [{Owner, Validator, Stake}],
-    cache_put(Ledger, DefaultCF, cd_block_name(TargetBlock),
+    cache_put(Ledger, DefaultCF, cd_block_name(StakeReleaseHeight),
               term_to_binary(HeightEntry1)).
 
 cancel_cooldown_stake(Val, Ledger) ->
