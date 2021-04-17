@@ -21,14 +21,13 @@
          print/3
         ]).
 
--import(blockchain_utils, [normalize_float/1]).
-
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
 
 -record(validator_v1,
         {
@@ -40,10 +39,11 @@
          version = 1 :: pos_integer(),
          status = staked :: status(),
          penalty = 0.0 :: float(),
-         recent_failures = [] :: [pos_integer()]
+         recent_failures = [] :: [recent_failure()]
         }).
 
 -type status() :: staked | unstaked | cooldown.
+-type recent_failure() :: { Height :: pos_integer(), Delay :: pos_integer() }.
 
 -type validator() :: #validator_v1{}.
 
@@ -143,7 +143,7 @@ add_recent_failure(Validator, Height, Delay, Ledger) ->
     Recent = lists:filter(fun({H, _D}) -> (Height - H) =< Limit end, Recent0),
     Validator#validator_v1{recent_failures = lists:sort([{Height, Delay} | Recent])}.
 
--spec recent_failures(Validator :: validator()) -> [pos_integer()].
+-spec recent_failures(Validator :: validator()) -> [recent_failure()].
 recent_failures(Validator) ->
     Validator#validator_v1.recent_failures.
 

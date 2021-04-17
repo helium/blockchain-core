@@ -14,16 +14,35 @@
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_failure_v1_pb.hrl").
 
--export([new/3, hash/1, failed_members/1, members/1, height/1, delay/1, signatures/1, fee/1, sign/2, verify_signature/3, set_signatures/2, is_valid/2, absorb/2, print/1, to_json/2]).
+-export([
+    new/3,
+    hash/1,
+    failed_members/1,
+    members/1,
+    height/1,
+    delay/1,
+    signatures/1,
+    fee/1,
+    sign/2,
+    verify_signature/3,
+    set_signatures/2,
+    is_valid/2,
+    absorb/2,
+    print/1,
+    to_json/2
+]).
 
 -type txn_consensus_group_failure() :: #blockchain_txn_consensus_group_failure_v1_pb{}.
 -export_type([txn_consensus_group_failure/0]).
 
--spec new([libp2p_crypto:pubkey_bin()], pos_integer(), non_neg_integer()) -> txn_consensus_group_failure().
+-spec new([libp2p_crypto:pubkey_bin()], pos_integer(), non_neg_integer()) ->
+    txn_consensus_group_failure().
 new(FailedMembers, Height, Delay) ->
-    #blockchain_txn_consensus_group_failure_v1_pb{failed_members = FailedMembers,
-                                                  height = Height,
-                                                  delay = Delay}.
+    #blockchain_txn_consensus_group_failure_v1_pb{
+        failed_members = FailedMembers,
+        height = Height,
+        delay = Delay
+    }.
 
 -spec hash(txn_consensus_group_failure()) -> blockchain_txn:hash().
 hash(Txn) ->
@@ -56,21 +75,31 @@ fee(_Txn) ->
 
 -spec sign(txn_consensus_group_failure(), libp2p_crypto:sig_fun()) -> binary().
 sign(Txn, SigFun) ->
-    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(Txn#blockchain_txn_consensus_group_failure_v1_pb{members=[], signatures=[]}),
+    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(
+        Txn#blockchain_txn_consensus_group_failure_v1_pb{members = [], signatures = []}
+    ),
     SigFun(Artifact).
 
--spec verify_signature(txn_consensus_group_failure(), libp2p_crypto:pubkey_bin(), binary()) -> boolean().
+-spec verify_signature(txn_consensus_group_failure(), libp2p_crypto:pubkey_bin(), binary()) ->
+    boolean().
 verify_signature(Txn, Address, Signature) ->
-    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(Txn#blockchain_txn_consensus_group_failure_v1_pb{members=[], signatures=[]}),
-    libp2p_crypto:verify(Artifact, Signature,
-                         libp2p_crypto:bin_to_pubkey(Address)).
+    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(
+        Txn#blockchain_txn_consensus_group_failure_v1_pb{members = [], signatures = []}
+    ),
+    libp2p_crypto:verify(
+        Artifact,
+        Signature,
+        libp2p_crypto:bin_to_pubkey(Address)
+    ).
 
--spec set_signatures(txn_consensus_group_failure(), [{libp2p_crypto:pubkey_bin(), binary()}]) -> txn_consensus_group_failure().
+-spec set_signatures(txn_consensus_group_failure(), [{libp2p_crypto:pubkey_bin(), binary()}]) ->
+    txn_consensus_group_failure().
 set_signatures(Txn, AddrsAndSignatures) ->
     {Members, Signatures} = lists:unzip(AddrsAndSignatures),
-    Txn#blockchain_txn_consensus_group_failure_v1_pb{members=Members, signatures=Signatures}.
+    Txn#blockchain_txn_consensus_group_failure_v1_pb{members = Members, signatures = Signatures}.
 
--spec is_valid(txn_consensus_group_failure(), blockchain:blockchain()) -> {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_consensus_group_failure(), blockchain:blockchain()) ->
+    {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     FailedMembers = ?MODULE:failed_members(Txn),
@@ -78,9 +107,11 @@ is_valid(Txn, Chain) ->
     TxnHeight = ?MODULE:height(Txn),
     ReportHeight = TxnHeight + Delay,
     {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
-    #{election_height := ElectionHeight,
-      start_height := StartHeight,
-      election_delay := ElectionDelay} = blockchain_election:election_info(CurrHeight, Chain),
+    #{
+        election_height := ElectionHeight,
+        start_height := StartHeight,
+        election_delay := ElectionDelay
+    } = blockchain_election:election_info(CurrHeight, Chain),
 
     try
         case blockchain_ledger_v1:config(?election_version, Ledger) of
@@ -108,22 +139,29 @@ is_valid(Txn, Chain) ->
 
         %% has there already been a report about this dkg
         lists:foreach(
-          fun(M) ->
-                  case blockchain_ledger_v1:get_validator(M, Ledger) of
-                      {ok, V} ->
-                          Failures = blockchain_ledger_validator_v1:recent_failures(V),
-                          case lists:any(fun({H, D}) ->
-                                                 H == TxnHeight andalso D == Delay
-                                         end, Failures) of
-                              true ->
-                                  throw(already_absorbed);
-                              false ->
-                                  ok
-                          end;
-                      GetErr ->
-                          throw({bad_validator, GetErr})
-                  end
-          end, FailedMembers),
+            fun(M) ->
+                case blockchain_ledger_v1:get_validator(M, Ledger) of
+                    {ok, V} ->
+                        Failures = blockchain_ledger_validator_v1:recent_failures(V),
+                        case
+                            lists:any(
+                                fun({H, D}) ->
+                                    H == TxnHeight andalso D == Delay
+                                end,
+                                Failures
+                            )
+                        of
+                            true ->
+                                throw(already_absorbed);
+                            false ->
+                                ok
+                        end;
+                    GetErr ->
+                        throw({bad_validator, GetErr})
+                end
+            end,
+            FailedMembers
+        ),
 
         {ok, ElectionInterval} = blockchain:config(?election_interval, OldLedger),
         {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, OldLedger),
@@ -143,7 +181,7 @@ is_valid(Txn, Chain) ->
                 end,
                 ok;
             %% after a successful election
-            _BaseHeight when TxnHeight == ElectionHeight->
+            _BaseHeight when TxnHeight == ElectionHeight ->
                 case Delay == ElectionDelay of
                     true -> throw(successful_election);
                     _ -> ok
@@ -152,7 +190,8 @@ is_valid(Txn, Chain) ->
             _ ->
                 throw(too_old)
         end
-    catch throw:E ->
+    catch
+        throw:E ->
             {error, E}
     end.
 
@@ -161,29 +200,39 @@ verify_proof(Txn, Hash, OldLedger) ->
     {ok, L} = blockchain:config(?num_consensus_members, OldLedger),
     Members = blockchain_election:new_group(OldLedger, Hash, L, delay(Txn)),
     F = floor((length(Members) - 1) / 3),
-    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(Txn#blockchain_txn_consensus_group_failure_v1_pb{members=[], signatures=[]}),
+    Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(
+        Txn#blockchain_txn_consensus_group_failure_v1_pb{members = [], signatures = []}
+    ),
 
     %% verify all the signatures
     %% verify that the signatories are all in the members list
-    case lists:all(fun({Addr, Sig}) ->
-                           lists:member(Addr, Members) andalso
-                           libp2p_crypto:verify(Artifact, Sig,
-                                                libp2p_crypto:bin_to_pubkey(Addr))
-
-                   end, lists:zip(members(Txn), signatures(Txn))) andalso
-         %% check all the failed members are in the group
-         lists:all(fun(Addr) -> lists:member(Addr, Members) end, failed_members(Txn)) andalso
-         %% check the members and the failed members have no overlap
-         not lists:any(fun(Addr) -> lists:member(Addr, members(Txn)) end, failed_members(Txn)) andalso
-         %% verify we have enough signatures
-         length(members(Txn)) >= (2*F)+1 of
+    case
+        lists:all(
+            fun({Addr, Sig}) ->
+                lists:member(Addr, Members) andalso
+                    libp2p_crypto:verify(
+                        Artifact,
+                        Sig,
+                        libp2p_crypto:bin_to_pubkey(Addr)
+                    )
+            end,
+            lists:zip(members(Txn), signatures(Txn))
+        ) andalso
+            %% check all the failed members are in the group
+            lists:all(fun(Addr) -> lists:member(Addr, Members) end, failed_members(Txn)) andalso
+            %% check the members and the failed members have no overlap
+            not lists:any(fun(Addr) -> lists:member(Addr, members(Txn)) end, failed_members(Txn)) andalso
+            %% verify we have enough signatures
+            length(members(Txn)) >= (2 * F) + 1
+    of
         true ->
             ok;
         _ ->
             {error, group_verification_failed}
     end.
 
--spec absorb(txn_consensus_group_failure(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_consensus_group_failure(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     FailedMembers = ?MODULE:failed_members(Txn),
@@ -192,42 +241,55 @@ absorb(Txn, Chain) ->
 
     try
         lists:foreach(
-          fun(M) ->
-                  case blockchain_ledger_v1:get_validator(M, Ledger) of
-                      {ok, V} ->
-                          V1 = blockchain_ledger_validator_v1:add_recent_failure(V, Height, Delay, Ledger),
-                          blockchain_ledger_v1:update_validator(M, V1, Ledger);
-                      GetErr ->
-                          throw({bad_validator, GetErr})
-                  end
-          end, FailedMembers)
-    catch _:Err ->
+            fun(M) ->
+                case blockchain_ledger_v1:get_validator(M, Ledger) of
+                    {ok, V} ->
+                        V1 = blockchain_ledger_validator_v1:add_recent_failure(
+                            V,
+                            Height,
+                            Delay,
+                            Ledger
+                        ),
+                        blockchain_ledger_v1:update_validator(M, V1, Ledger);
+                    GetErr ->
+                        throw({bad_validator, GetErr})
+                end
+            end,
+            FailedMembers
+        )
+    catch
+        _:Err ->
             {error, Err}
-    end,
-    ok.
+    end.
 
 -spec print(txn_consensus_group_failure()) -> iodata().
-print(undefined) -> <<"type=group_failure, undefined">>;
-print(#blockchain_txn_consensus_group_failure_v1_pb{height = Height,
-                                            delay = Delay,
-                                            failed_members = FailedMembers,
-                                            members = Members}) ->
-    io_lib:format("type=group_failure height=~p delay=~p members=~p failed_members=~p",
-                  [Height,
-                   Delay,
-                   lists:map(fun blockchain_utils:addr2name/1, Members),
-                   lists:map(fun blockchain_utils:addr2name/1, FailedMembers)]).
+print(undefined) ->
+    <<"type=group_failure, undefined">>;
+print(#blockchain_txn_consensus_group_failure_v1_pb{
+    height = Height,
+    delay = Delay,
+    failed_members = FailedMembers,
+    members = Members
+}) ->
+    io_lib:format(
+        "type=group_failure height=~p delay=~p members=~p failed_members=~p",
+        [
+            Height,
+            Delay,
+            lists:map(fun blockchain_utils:addr2name/1, Members),
+            lists:map(fun blockchain_utils:addr2name/1, FailedMembers)
+        ]
+    ).
 
--spec to_json(txn_consensus_group_failure(), blockchain_json:opts()) -> blockchain_json:json_object().
+-spec to_json(txn_consensus_group_failure(), blockchain_json:opts()) ->
+    blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"consensus_group_failure_v1">>,
-      hash => ?BIN_TO_B64(hash(Txn)),
-      members => [?BIN_TO_B58(M) || M <- members(Txn)],
-      failed_members => [?BIN_TO_B58(M) || M <- members(Txn)],
-      signatures => [?BIN_TO_B64(S) || S <- signatures(Txn)],
-      height => height(Txn),
-      delay => delay(Txn)
-     }.
-
-
+        type => <<"consensus_group_failure_v1">>,
+        hash => ?BIN_TO_B64(hash(Txn)),
+        members => [?BIN_TO_B58(M) || M <- members(Txn)],
+        failed_members => [?BIN_TO_B58(M) || M <- members(Txn)],
+        signatures => [?BIN_TO_B64(S) || S <- signatures(Txn)],
+        height => height(Txn),
+        delay => delay(Txn)
+    }.
