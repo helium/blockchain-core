@@ -8,7 +8,10 @@
          deserialize/1,
 
          snapshot/2,
+         snapshot/3,
          import/3,
+         load_into_ledger/3,
+         load_blocks/3,
 
          get_blocks/1,
 
@@ -81,17 +84,20 @@
     {ok, snapshot()}
     | {error, term()}.  % TODO More-specific than just term()
 snapshot(Ledger0, Blocks) ->
+    snapshot(Ledger0, Blocks, delayed).
+
+snapshot(Ledger0, Blocks, Mode) ->
     Parent = self(),
     Ref = make_ref(),
     {_Pid, MonitorRef} =
         spawn_opt(fun ThisFun() ->
-                      Ledger = blockchain_ledger_v1:mode(delayed, Ledger0),
+                      Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
                       {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
                       %% this should not leak a huge amount of atoms
                       Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
                       try register(Regname, self()) of
                           true ->
-                              Res = generate_snapshot(Ledger0, Blocks),
+                              Res = generate_snapshot(Ledger0, Blocks, Mode),
                               %% deliver to the caller
                               Parent ! {Ref, Res},
                               %% deliver to anyone else blocking
@@ -130,14 +136,12 @@ deliver(Res) ->
               ok
     end.
 
--spec generate_snapshot(blockchain_ledger_v1:ledger(), [binary()]) ->
+-spec generate_snapshot(blockchain_ledger_v1:ledger(), [binary()], blockchain_ledger_v1:mode()) ->
       {ok, snapshot()}
     | {error, term()}.  % TODO More-specific than just term()
-generate_snapshot(Ledger0, Blocks) ->
+generate_snapshot(Ledger0, Blocks, Mode) ->
     try
-        %% TODO: actually verify we're delayed here instead of
-        %% changing modes?
-        Ledger = blockchain_ledger_v1:mode(delayed, Ledger0),
+        Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
         {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
         {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
@@ -346,6 +350,54 @@ deserialize(<<5,
     {ok, blockchain_ledger_v1:ledger()} | {error, bad_snapshot_checksum}.
 import(Chain, SHA,
        #{
+         blocks := Blocks
+         } = Snapshot) ->
+    Dir = blockchain:dir(Chain),
+    case hash(Snapshot) == SHA orelse
+        hash_v4(v5_to_v4(Snapshot)) == SHA orelse
+        hash_v3(v4_to_v3(v5_to_v4(Snapshot))) == SHA orelse
+        hash_v2(v3_to_v2(v4_to_v3(v5_to_v4(Snapshot)))) == SHA orelse
+        hash_v1(v2_to_v1(v3_to_v2(v4_to_v3(v5_to_v4(Snapshot))))) == SHA of
+        true ->
+            CLedger = blockchain:ledger(Chain),
+            Ledger0 =
+                case catch blockchain_ledger_v1:current_height(CLedger) of
+                    %% nothing in there, proceed
+                    {ok, 1} ->
+                        CLedger;
+                    _ ->
+                        blockchain_ledger_v1:clean(CLedger),
+                        blockchain_ledger_v1:new(Dir)
+                end,
+
+            %% we load up both with the same snapshot here, then sync the next N
+            %% blocks and check that we're valid.
+            [load_into_ledger(Snapshot, Ledger0, Mode)
+             || Mode <- [delayed, active]],
+            load_blocks(Ledger0, Chain, Blocks),
+            case blockchain_ledger_v1:has_aux(Ledger0) of
+                true ->
+                    load_into_ledger(Snapshot, Ledger0, aux),
+                    load_blocks(blockchain_ledger_v1:mode(aux, Ledger0), Chain, Blocks);
+                false ->
+                    ok
+            end,
+            {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
+            lager:info("ledger height is ~p after absorbing blocks", [Curr3]),
+
+            %% store the snapshot if we don't have it already
+            case blockchain:get_snapshot(SHA, Chain) of
+                {ok, _Snap} -> ok;
+                {error, not_found} ->
+                    blockchain:add_snapshot(Snapshot, Chain)
+            end,
+
+            {ok, Ledger0};
+        _ ->
+            {error, bad_snapshot_checksum}
+    end.
+
+load_into_ledger(#{
          current_height := CurrHeight,
          transaction_fee :=  _TxnFee,
          consensus_members := ConsensusMembers,
@@ -380,136 +432,102 @@ import(Chain, SHA,
 
          state_channels := StateChannels,
 
-         blocks := Blocks,
-
          oracle_price := OraclePrice,
          oracle_price_list := OraclePriceList
-         } = Snapshot) ->
-    Dir = blockchain:dir(Chain),
-    case hash(Snapshot) == SHA orelse
-        hash_v4(v5_to_v4(Snapshot)) == SHA orelse
-        hash_v3(v4_to_v3(v5_to_v4(Snapshot))) == SHA orelse
-        hash_v2(v3_to_v2(v4_to_v3(v5_to_v4(Snapshot)))) == SHA orelse
-        hash_v1(v2_to_v1(v3_to_v2(v4_to_v3(v5_to_v4(Snapshot))))) == SHA of
-        true ->
-            CLedger = blockchain:ledger(Chain),
-            Ledger0 =
-                case catch blockchain_ledger_v1:current_height(CLedger) of
-                    %% nothing in there, proceed
-                    {ok, 1} ->
-                        CLedger;
-                    _ ->
-                        blockchain_ledger_v1:clean(CLedger),
-                        blockchain_ledger_v1:new(Dir)
-                end,
+         }, Ledger0, Mode) ->
+    Ledger1 = blockchain_ledger_v1:mode(Mode, Ledger0),
+    Ledger = blockchain_ledger_v1:new_context(Ledger1),
+    ok = blockchain_ledger_v1:current_height(CurrHeight, Ledger),
+    ok = blockchain_ledger_v1:consensus_members(ConsensusMembers, Ledger),
+    ok = blockchain_ledger_v1:election_height(ElectionHeight, Ledger),
+    ok = blockchain_ledger_v1:election_epoch(ElectionEpoch, Ledger),
+    ok = blockchain_ledger_v1:load_delayed_vars(DelayedVars, Ledger),
+    ok = blockchain_ledger_v1:load_threshold_txns(ThresholdTxns, Ledger),
+    ok = blockchain_ledger_v1:master_key(MasterKey, Ledger),
+    ok = blockchain_ledger_v1:multi_keys(MultiKeys, Ledger),
+    ok = blockchain_ledger_v1:vars_nonce(VarsNonce, Ledger),
+    ok = blockchain_ledger_v1:load_vars(Vars, Ledger),
 
-            %% we load up both with the same snapshot here, then sync the next N
-            %% blocks and check that we're valid.
-            [begin
-                 Ledger1 = blockchain_ledger_v1:mode(Mode, Ledger0),
-                 Ledger = blockchain_ledger_v1:new_context(Ledger1),
-                 ok = blockchain_ledger_v1:current_height(CurrHeight, Ledger),
-                 ok = blockchain_ledger_v1:consensus_members(ConsensusMembers, Ledger),
-                 ok = blockchain_ledger_v1:election_height(ElectionHeight, Ledger),
-                 ok = blockchain_ledger_v1:election_epoch(ElectionEpoch, Ledger),
-                 ok = blockchain_ledger_v1:load_delayed_vars(DelayedVars, Ledger),
-                 ok = blockchain_ledger_v1:load_threshold_txns(ThresholdTxns, Ledger),
-                 ok = blockchain_ledger_v1:master_key(MasterKey, Ledger),
-                 ok = blockchain_ledger_v1:multi_keys(MultiKeys, Ledger),
-                 ok = blockchain_ledger_v1:vars_nonce(VarsNonce, Ledger),
-                 ok = blockchain_ledger_v1:load_vars(Vars, Ledger),
+    ok = blockchain_ledger_v1:load_raw_gateways(Gateways, Ledger),
+    ok = blockchain_ledger_v1:load_raw_pocs(PoCs, Ledger),
+    ok = blockchain_ledger_v1:load_raw_accounts(Accounts, Ledger),
+    ok = blockchain_ledger_v1:load_raw_dc_accounts(DCAccounts, Ledger),
+    ok = blockchain_ledger_v1:load_raw_security_accounts(SecurityAccounts, Ledger),
 
-                 ok = blockchain_ledger_v1:load_raw_gateways(Gateways, Ledger),
-                 ok = blockchain_ledger_v1:load_raw_pocs(PoCs, Ledger),
-                 ok = blockchain_ledger_v1:load_raw_accounts(Accounts, Ledger),
-                 ok = blockchain_ledger_v1:load_raw_dc_accounts(DCAccounts, Ledger),
-                 ok = blockchain_ledger_v1:load_raw_security_accounts(SecurityAccounts, Ledger),
+    ok = blockchain_ledger_v1:load_htlcs(HTLCs, Ledger),
 
-                 ok = blockchain_ledger_v1:load_htlcs(HTLCs, Ledger),
+    ok = blockchain_ledger_v1:load_ouis(OUIs, Ledger),
+    ok = blockchain_ledger_v1:load_subnets(Subnets, Ledger),
+    ok = blockchain_ledger_v1:set_oui_counter(OUICounter, Ledger),
 
-                 ok = blockchain_ledger_v1:load_ouis(OUIs, Ledger),
-                 ok = blockchain_ledger_v1:load_subnets(Subnets, Ledger),
-                 ok = blockchain_ledger_v1:set_oui_counter(OUICounter, Ledger),
+    ok = blockchain_ledger_v1:load_hexes(Hexes, Ledger),
+    ok = blockchain_ledger_v1:load_h3dex(H3dex, Ledger),
 
-                 ok = blockchain_ledger_v1:load_hexes(Hexes, Ledger),
-                 ok = blockchain_ledger_v1:load_h3dex(H3dex, Ledger),
+    ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
 
-                 ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
+    ok = blockchain_ledger_v1:load_oracle_price(OraclePrice, Ledger),
+    ok = blockchain_ledger_v1:load_oracle_price_list(OraclePriceList, Ledger),
 
-                 ok = blockchain_ledger_v1:load_oracle_price(OraclePrice, Ledger),
-                 ok = blockchain_ledger_v1:load_oracle_price_list(OraclePriceList, Ledger),
+    blockchain_ledger_v1:commit_context(Ledger).
 
-                 blockchain_ledger_v1:commit_context(Ledger)
-             end
-             || Mode <- [delayed, active]],
-            %% TODO: it might make more sense to do this block by block?  it will at least be
-            %% cheaper to do it that way.
-            Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
-            Chain1 = blockchain:ledger(Ledger2, Chain),
-            {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
-            lager:info("ledger height is ~p after absorbing snapshot", [Curr2]),
-            lager:info("snapshot contains ~p blocks", [length(Blocks)]),
+load_blocks(Ledger, Chain, #{blocks:=Blocks}) ->
+    load_blocks(Ledger, Chain, Blocks);
+load_blocks(Ledger0, Chain, Blocks) ->
+    %% TODO: it might make more sense to do this block by block?  it will at least be
+    %% cheaper to do it that way.
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
+    Chain1 = blockchain:ledger(Ledger2, Chain),
+    {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
+    lager:info("ledger height is ~p after absorbing snapshot", [Curr2]),
+    lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
-            case Blocks of
-                [] ->
-                    %% ignore blocks in testing
-                    ok;
-                Blocks ->
-                    %% just store the head, we'll need it sometimes
-                    lists:foreach(
-                      fun(Block0) ->
-                              Block =
-                                  case Block0 of
-                                      B when is_binary(B) ->
-                                          blockchain_block:deserialize(B);
-                                      B -> B
-                                  end,
-
-                              Ht = blockchain_block:height(Block),
-                              %% since hash and block are written at the same time, just getting the
-                              %% hash from the height is an acceptable presence check, and much cheaper
-                              case blockchain:get_block_hash(Ht, Chain) of
-                                  {ok, _Hash} ->
-                                      %% already have it, don't need to store it again.
-                                      ok;
-                                  _ ->
-                                      ok = blockchain:save_block(Block, Chain)
-                              end,
-                              case Ht > Curr2 of
-                                  %% we need some blocks before for history, only absorb if they're
-                                  %% not on the ledger already
-                                  true ->
-                                      lager:info("loading block ~p", [Ht]),
-                                      Rescue = blockchain_block:is_rescue_block(Block),
-                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                                      Hash = blockchain_block:hash_block(Block),
-                                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
-
-                                      ok = blockchain_ledger_v1:maybe_gc_scs(Chain1),
-
-                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
-                                      ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2);
-                                  _ ->
-                                      ok
-                              end
+    case Blocks of
+        [] ->
+            %% ignore blocks in testing
+            ok;
+        Blocks ->
+            %% just store the head, we'll need it sometimes
+            lists:foreach(
+              fun(Block0) ->
+                      Block =
+                      case Block0 of
+                          B when is_binary(B) ->
+                              blockchain_block:deserialize(B);
+                          B -> B
                       end,
-                      Blocks)
-            end,
-            blockchain_ledger_v1:commit_context(Ledger2),
-            {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
-            lager:info("ledger height is ~p after absorbing blocks", [Curr3]),
 
-            %% store the snapshot if we don't have it already
-            case blockchain:get_snapshot(SHA, Chain) of
-                {ok, _Snap} -> ok;
-                {error, not_found} ->
-                    blockchain:add_snapshot(Snapshot, Chain)
-            end,
+                      Ht = blockchain_block:height(Block),
+                      %% since hash and block are written at the same time, just getting the
+                      %% hash from the height is an acceptable presence check, and much cheaper
+                      case blockchain:get_block_hash(Ht, Chain) of
+                          {ok, _Hash} ->
+                              %% already have it, don't need to store it again.
+                              ok;
+                          _ ->
+                              ok = blockchain:save_block(Block, Chain)
+                      end,
+                      case Ht > Curr2 of
+                          %% we need some blocks before for history, only absorb if they're
+                          %% not on the ledger already
+                          true ->
+                              lager:info("loading block ~p", [Ht]),
+                              Rescue = blockchain_block:is_rescue_block(Block),
+                              {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+                              Hash = blockchain_block:hash_block(Block),
+                              ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
 
-            {ok, Ledger0};
-        _ ->
-            {error, bad_snapshot_checksum}
-    end.
+                              ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
+
+                              ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
+                              ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2);
+                          _ ->
+                              ok
+                      end
+              end,
+              Blocks)
+    end,
+    blockchain_ledger_v1:commit_context(Ledger2).
+
 
 -spec get_blocks(blockchain:blockchain()) ->
     [binary()].

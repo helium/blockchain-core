@@ -44,6 +44,7 @@
 
     snapshot_sync/2,
     install_snapshot/2,
+    install_aux_snapshot/1,
     reset_ledger_to_snap/2,
     async_reset/1,
 
@@ -167,6 +168,9 @@ snapshot_sync(Hash, Height) ->
 
 install_snapshot(Hash, Snapshot) ->
     gen_server:call(?SERVER, {install_snapshot, Hash, Snapshot}, infinity).
+
+install_aux_snapshot(Snapshot) ->
+    gen_server:call(?SERVER, {install_aux_snapshot, Snapshot}, infinity).
 
 absorb_done() ->
     gen_server:call(?SERVER, absorb_done, infinity).
@@ -385,24 +389,40 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
                     blockchain_ledger_v1:commit_context(NewLedger1)
             end,
             remove_handlers(Swarm),
-            notify({new_chain, Chain1}),
-            {ok, GossipRef} = add_handlers(Swarm, Chain1),
+            NewChain = blockchain:delete_temp_blocks(Chain1),
+            notify({new_chain, NewChain}),
+            {ok, GossipRef} = add_handlers(Swarm, NewChain),
             {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),
-            {ok, ChainHeight} = blockchain:height(Chain1),
-            blockchain:delete_temp_blocks(Chain1),
+            {ok, ChainHeight} = blockchain:height(NewChain),
             case LedgerHeight >= ChainHeight of
                 true -> ok;
                 false ->
                     %% we likely retain some old blocks, and we should absorb them
-                    set_resyncing(ChainHeight, LedgerHeight, Chain1)
+                    set_resyncing(ChainHeight, LedgerHeight, NewChain)
             end,
             blockchain_lock:release(),
             {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
-                                               blockchain = Chain1, gossip_ref = GossipRef})};
+                                               blockchain = NewChain, gossip_ref = GossipRef})};
         true ->
             %% if we don't want to auto-clean the ledger, stop
             {stop, shutdown, State}
         end;
+
+handle_call({install_aux_snapshot, Snapshot}, _From,
+            #state{blockchain = Chain, swarm = Swarm} = State) ->
+    ok = blockchain_lock:acquire(),
+    OldLedger = blockchain:ledger(Chain),
+    blockchain_ledger_v1:clean_aux(OldLedger),
+    NewLedger = blockchain_ledger_v1:new_aux(OldLedger),
+    blockchain_ledger_snapshot_v1:load_into_ledger(Snapshot, NewLedger, aux),
+    blockchain_ledger_snapshot_v1:load_blocks(blockchain_ledger_v1:mode(aux, NewLedger), Chain, Snapshot),
+    NewChain = blockchain:ledger(NewLedger, Chain),
+    remove_handlers(Swarm),
+    {ok, GossipRef} = add_handlers(Swarm, NewChain),
+    notify({new_chain, NewChain}),
+    blockchain_lock:release(),
+    {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
+                                       blockchain = NewChain, gossip_ref = GossipRef})};
 
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
