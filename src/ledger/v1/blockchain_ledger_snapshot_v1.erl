@@ -478,7 +478,7 @@ load_blocks(Ledger0, Chain, Blocks) ->
     Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger2, Chain),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
-    lager:info("ledger height is ~p after absorbing snapshot", [Curr2]),
+    lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
     lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
     case Blocks of
