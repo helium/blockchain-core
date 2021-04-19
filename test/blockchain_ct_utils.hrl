@@ -3,6 +3,7 @@
 -define(APPKEY, <<16#2B, 16#7E, 16#15, 16#16, 16#28, 16#AE, 16#D2, 16#A6, 16#AB, 16#F7, 16#15, 16#88, 16#09, 16#CF, 16#4F, 16#3C>>).
 -define(JOIN_REQUEST, 2#000).
 
+%% NOTE: Only used for testing
 %% Each of these is used to download a serialized copy of h3 region set
 -define(region_as923_1_url,
     "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/AS923-1.res7.h3idx?raw=true"
@@ -48,3 +49,6 @@
     "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/US915.res7.h3idx?raw=true"
 ).
 
+-define(regulatory_region_bin_str,
+    <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
+).

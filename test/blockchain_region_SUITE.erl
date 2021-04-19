@@ -268,27 +268,38 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 %% internal functions
 %%--------------------------------------------------------------------
+
 extra_vars(with_h3_data) ->
-    %% NOTE: This map represents all the chain vars we would end up setting on chain
-    #{
-        region_as923_1 => blockchain_ct_utils:download_serialized_region(?region_as923_1_url),
-        region_as923_2 => blockchain_ct_utils:download_serialized_region(?region_as923_2_url),
-        region_as923_3 => blockchain_ct_utils:download_serialized_region(?region_as923_3_url),
-        region_au915 => blockchain_ct_utils:download_serialized_region(?region_au915_url),
-        region_cn779 => blockchain_ct_utils:download_serialized_region(?region_cn779_url),
-        region_eu433 => blockchain_ct_utils:download_serialized_region(?region_eu433_url),
-        region_eu868 => blockchain_ct_utils:download_serialized_region(?region_eu868_url),
-        region_in865 => blockchain_ct_utils:download_serialized_region(?region_in865_url),
-        region_kr920 => blockchain_ct_utils:download_serialized_region(?region_kr920_url),
-        region_ru864 => blockchain_ct_utils:download_serialized_region(?region_ru864_url),
-        region_us915 => blockchain_ct_utils:download_serialized_region(?region_us915_url),
-        regulatory_regions =>
-            <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
-    };
+    RegionURLs = region_urls(),
+    Regions = download_regions(RegionURLs),
+    maps:put(regulatory_regions, ?regulatory_region_bin_str, maps:from_list(Regions));
 extra_vars(without_h3_data) ->
     #{
-        regulatory_regions =>
-            <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
+        regulatory_regions => ?regulatory_region_bin_str
     };
 extra_vars(_) ->
     #{}.
+
+region_urls() ->
+    [
+        {region_as923_1, ?region_as923_1_url},
+        {region_as923_2, ?region_as923_2_url},
+        {region_as923_3, ?region_as923_3_url},
+        {region_au915, ?region_au915_url},
+        {region_cn779, ?region_cn779_url},
+        {region_eu433, ?region_eu433_url},
+        {region_eu868, ?region_eu868_url},
+        {region_in865, ?region_in865_url},
+        {region_kr920, ?region_kr920_url},
+        {region_ru864, ?region_ru864_url},
+        {region_us915, ?region_us915_url}
+    ].
+
+download_regions(RegionURLs) ->
+    blockchain_ct_utils:pmap(
+        fun({Region, URL}) ->
+            Ser = blockchain_ct_utils:download_serialized_region(URL),
+            {Region, Ser}
+        end,
+        RegionURLs
+    ).
