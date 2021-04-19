@@ -1091,54 +1091,64 @@ rewards_test() ->
     Tx = new(1, 30, []),
     ?assertEqual([], rewards(Tx)).
 
-consensus_members_rewards_test() ->
-    BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-    Ledger = blockchain:ledger(Chain),
-    Vars = #{
-        epoch_reward => 1000,
-        consensus_percent => 0.10
-    },
-    Rewards = #{
-        {gateway, consensus, <<"1">>} => 50,
-        {gateway, consensus, <<"2">>} => 50
-    },
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, [O || {gateway, consensus, O} <- maps:keys(Rewards)]}
-    end),
-    ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
-    test_utils:cleanup_tmp_dir(BaseDir).
+consensus_members_rewards_test() -> {
+    timeout,
+    30,
+    fun() ->
+        BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
+        Block = blockchain_block:new_genesis_block([]),
+        {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+        Ledger = blockchain:ledger(Chain),
+        Vars = #{
+            epoch_reward => 1000,
+            consensus_percent => 0.10
+        },
+        Rewards = #{
+            {gateway, consensus, <<"1">>} => 50,
+            {gateway, consensus, <<"2">>} => 50
+        },
+        meck:new(blockchain_ledger_v1, [passthrough]),
+        meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+            {ok, [O || {gateway, consensus, O} <- maps:keys(Rewards)]}
+        end),
+        ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
+        ?assert(meck:validate(blockchain_ledger_v1)),
+        meck:unload(blockchain_ledger_v1),
+        test_utils:cleanup_tmp_dir(BaseDir)
+    end
+    }.
 
 
 
-securities_rewards_test() ->
-    BaseDir = test_utils:tmp_dir("securities_rewards_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-    Ledger = blockchain:ledger(Chain),
-    Vars = #{
-        epoch_reward => 1000,
-        securities_percent => 0.35
-    },
-    Rewards = #{
-        {owner, securities, <<"1">>} => 175,
-        {owner, securities, <<"2">>} => 175
-    },
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, securities, fun(_) ->
-        #{
-            <<"1">> => blockchain_ledger_security_entry_v1:new(0, 2500),
-            <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
-        }
-    end),
-    ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
-    test_utils:cleanup_tmp_dir(BaseDir).
+securities_rewards_test() -> {
+    timeout,
+    30,
+    fun() ->
+        BaseDir = test_utils:tmp_dir("securities_rewards_test"),
+        Block = blockchain_block:new_genesis_block([]),
+        {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+        Ledger = blockchain:ledger(Chain),
+        Vars = #{
+            epoch_reward => 1000,
+            securities_percent => 0.35
+        },
+        Rewards = #{
+            {owner, securities, <<"1">>} => 175,
+            {owner, securities, <<"2">>} => 175
+        },
+        meck:new(blockchain_ledger_v1, [passthrough]),
+        meck:expect(blockchain_ledger_v1, securities, fun(_) ->
+            #{
+                <<"1">> => blockchain_ledger_security_entry_v1:new(0, 2500),
+                <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
+            }
+        end),
+        ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
+        ?assert(meck:validate(blockchain_ledger_v1)),
+        meck:unload(blockchain_ledger_v1),
+        test_utils:cleanup_tmp_dir(BaseDir)
+    end
+    }.
 
 poc_challengers_rewards_1_test() ->
     Txns = [
