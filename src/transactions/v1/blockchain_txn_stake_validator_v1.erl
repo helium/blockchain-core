@@ -31,6 +31,7 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([is_valid_owner/1]).
 -endif.
 
 -type txn_stake_validator() :: #blockchain_txn_stake_validator_v1_pb{}.
@@ -137,12 +138,12 @@ is_valid(Txn, Chain) ->
                 %% make sure that this validator doesn't already exist
                 case blockchain_ledger_v1:get_validator(Validator, Ledger) of
                     {ok, _} ->
-                        throw(already_exists);
+                        throw(validator_already_exists);
                     {error, not_found} ->
                         %% make sure the staking amount is high enough
                         case Stake == MinStake of
                             true -> ok;
-                            false -> throw({incorrect_stake, exp, MinStake, got, Stake})
+                            false -> throw({incorrect_stake, {exp, MinStake, got, Stake}})
                         end,
                         %% make sure that the owner has enough HNT to stake
                         case blockchain_ledger_v1:find_entry(Owner, Ledger) of
@@ -152,8 +153,10 @@ is_valid(Txn, Chain) ->
                                     true -> ok;
                                     false -> throw({balance_too_low, {bal, Balance, stk, Stake}})
                                 end;
-                            {error, _} ->
-                                throw(bad_owner_entry)
+                            {error, not_found} ->
+                                throw(unknown_owner);
+                            {error, Error} ->
+                                throw(Error)
                         end,
                         ok;
                     {error, Reason} -> throw({validator_fetch_error, Reason})
