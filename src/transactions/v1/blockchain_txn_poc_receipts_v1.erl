@@ -1369,8 +1369,8 @@ get_channels(Txn, Chain) ->
                                     blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
                                     blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
                             end,
-
-            {ok, Head} = blockchain:head_block(Chain),
+            {ok, CurrentHeight} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
+            {ok, Head} = blockchain:get_block(CurrentHeight, Chain),
             blockchain:fold_chain(fun(Block, undefined) ->
                                                       case blockchain_utils:find_txn(Block, RequestFilter) of
                                                           [_T] ->
