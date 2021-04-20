@@ -2102,7 +2102,7 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
             case (Balance - Fee) >= 0 of
                 true ->
                     case application:get_env(blockchain, store_implicit_burns, false) of
-                        true when TxnHash =:= undefined, Chain =:= undefined ->
+                        true when TxnHash =/= undefined, Chain =/= undefined ->
                             ImplicitBurn = blockchain_implicit_burn:new(
                                 Fee,
                                 Address
