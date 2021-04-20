@@ -27,9 +27,12 @@
 
 -export([
     all_regions_test/1,
+    as923_1_test/1,
     au915_test/1,
     cn779_test/1,
     us915_test/1,
+    ru864_test/1,
+    eu868_test/1,
     region_not_found_test/1
 ]).
 
@@ -39,10 +42,21 @@ all() ->
         {group, with_h3_data}
     ].
 
+with_h3_data_test_cases() ->
+    [
+        as923_1_test,
+        au915_test,
+        cn779_test,
+        us915_test,
+        region_not_found_test,
+        ru864_test,
+        eu868_test
+    ].
+
 groups() ->
     [
         {without_h3_data, [], [all_regions_test]},
-        {with_h3_data, [], [au915_test, cn779_test, us915_test, region_not_found_test]}
+        {with_h3_data, [], with_h3_data_test_cases()}
     ].
 
 %%--------------------------------------------------------------------
@@ -113,16 +127,16 @@ all_regions_test(Config) ->
     [] = Regions -- [list_to_atom(R) || R <- ?SUPPORTED_REGIONS],
     ok.
 
-%% as923_1_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     USH3 = 631183727389488639,
-%%     case blockchain:config(?region_us915, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(USH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+as923_1_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    JH3 = 631319855840474623,
+    case blockchain:config(?region_as923_1, Ledger) of
+        {ok, Bin} ->
+            {true, _Parent} = h3:contains(JH3, Bin),
+            ok;
+        _ ->
+            ct:fail("broken")
+    end.
 
 %% as923_2_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
@@ -185,16 +199,16 @@ cn779_test(Config) ->
 %%             ct:fail("broken")
 %%     end.
 
-%% eu868_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn779, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+eu868_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    EUH3 = 631051317836014591,
+    case blockchain:config(?region_eu868, Ledger) of
+        {ok, Bin} ->
+            {true, _Parent} = h3:contains(EUH3, Bin),
+            ok;
+        _ ->
+            ct:fail("broken")
+    end.
 
 %% in865_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
@@ -218,16 +232,17 @@ cn779_test(Config) ->
 %%             ct:fail("broken")
 %%     end.
 
-%% ru864_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn779, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+ru864_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% massive-crimson-cat
+    RUH3 = 630812791472857599,
+    case blockchain:config(?region_ru864, Ledger) of
+        {ok, Bin} ->
+            {true, _Parent} = h3:contains(RUH3, Bin),
+            ok;
+        _ ->
+            ct:fail("broken")
+    end.
 
 us915_test(Config) ->
     Ledger = ?config(ledger, Config),
