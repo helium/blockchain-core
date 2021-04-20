@@ -52,7 +52,7 @@ new(OldValidatorAddress, NewValidatorAddress,
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          non_neg_integer(), pos_integer(), pos_integer()) ->
+          non_neg_integer(), non_neg_integer(), pos_integer()) ->
           txn_transfer_validator_stake().
 new(OldValidatorAddress, NewValidatorAddress,
     OldOwnerAddress, NewOwnerAddress,

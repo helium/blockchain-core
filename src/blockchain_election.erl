@@ -16,8 +16,8 @@
 -record(val_v1,
         {
          prob :: float(),
-         heartbeat :: pos_integer(),
-         failures :: [{pos_integer(), pos_integer()}],
+         heartbeat :: pos_integer() | undefined,
+         failures :: [{pos_integer(), pos_integer()}] | undefined,
          addr :: libp2p_crypto:pubkey_bin()
         }).
 

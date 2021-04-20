@@ -220,7 +220,7 @@ ledger_val_fold(Verbose) ->
     blockchain_ledger_v1:cf_fold(
       validators,
       fun({Addr, BinVal}, Acc) ->
-              Val = blockchain_ledger_gateway_v1:deserialize(BinVal),
+              Val = blockchain_ledger_validator_v1:deserialize(BinVal),
               [format_ledger_validator(Addr, Val, Ledger, Verbose) | Acc]
       end,
       [],
