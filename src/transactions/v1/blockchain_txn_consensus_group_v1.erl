@@ -204,7 +204,6 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Height = ?MODULE:height(Txn),
-    %% Delay = delay(Txn),
     Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
     {Gen, Check} =
@@ -219,31 +218,35 @@ absorb(Txn, Chain) ->
         end,
     case Check of
         ok ->
-            %% record stuff for tenuring
             case blockchain_ledger_v1:config(?election_version, Ledger) of
                 {ok, N} when N >= 5 andalso Gen == false ->
+                    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
                     {ok, OldMembers0} = blockchain_ledger_v1:consensus_members(Ledger),
-                    %% filter out gatesways from both groups
+                    {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
+
                     OldMembers = lists:filter(fun(X) -> is_validator(X, Ledger) end, OldMembers0),
-                    Members1 = lists:filter(fun(X) -> is_validator(X, Ledger) end, Members),
-                    %% get elected out members
-                    OldMembers1 = OldMembers -- Members1,
+                    EpochPenalties =
+                        case OldMembers == OldMembers0 of
+                            %% no gateways to mess up the adjustment
+                            true ->
+                                blockchain_election:validator_penalties(OldMembers, Chain, Ledger);
+                            false -> #{}
+                        end,
+
                     lists:foreach(
                       fun(M) ->
                               {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
-                              Penalty = blockchain_ledger_validator_v1:penalty(V),
-                              V1 = blockchain_ledger_validator_v1:penalty(Penalty + 1.0, V),
-                              blockchain_ledger_v1:update_validator(M, V1, Ledger)
+                              V1 = blockchain_ledger_validator_v1:add_penalty(V, CurrHeight, tenure,
+                                                                              1.0, PenaltyLimit),
+                              V2 = case maps:get(M, EpochPenalties, none) of
+                                       none -> V1;
+                                       Penalty ->
+                                           blockchain_ledger_validator_v1:add_penalty(V1, CurrHeight, performance,
+                                                                                      Penalty, PenaltyLimit)
+                                   end,
+                              blockchain_ledger_v1:update_validator(M, V2, Ledger)
                       end,
-                      Members1),
-                    lists:foreach(
-                      fun(M) ->
-                              {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
-                              %% reset penalty when elected out
-                              V1 = blockchain_ledger_validator_v1:penalty(0.0, V),
-                              blockchain_ledger_v1:update_validator(M, V1, Ledger)
-                      end,
-                      OldMembers1);
+                      OldMembers);
                 _ -> ok
             end,
             {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),

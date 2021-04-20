@@ -11,14 +11,18 @@
          owner_address/1, owner_address/2,
          stake/1, stake/2,
          last_heartbeat/1, last_heartbeat/2,
-         penalty/1, penalty/2,
-         add_recent_failure/4,
-         recent_failures/1,
+         add_penalty/5,
+         penalties/1,
+         calculate_penalty_value/2,
          status/1, status/2,
          nonce/1, nonce/2,
          version/1, version/2,
          serialize/1, deserialize/1,
-         print/3
+         print/4,
+
+         penalty_type/1,
+         penalty_amount/1,
+         penalty_height/1
         ]).
 
 -include("blockchain.hrl").
@@ -28,6 +32,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type penalty() :: dkg | performance | tenure.
+
+-record(penalty,
+        {
+         type :: penalty(),
+         amount :: float(),
+         height :: pos_integer()
+        }).
 
 -record(validator_v1,
         {
@@ -38,16 +50,14 @@
          nonce = 1 :: pos_integer(),
          version = 1 :: pos_integer(),
          status = staked :: status(),
-         penalty = 0.0 :: float(),
-         recent_failures = [] :: [recent_failure()]
+         penalties = [] :: [#penalty{}]
         }).
 
 -type status() :: staked | unstaked | cooldown.
--type recent_failure() :: { Height :: pos_integer(), Delay :: pos_integer() }.
 
 -type validator() :: #validator_v1{}.
 
--export_type([validator/0]).
+-export_type([validator/0, penalty/0]).
 
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -123,29 +133,42 @@ status(Validator) ->
 status(Status, Validator) ->
     Validator#validator_v1{status = Status}.
 
--spec penalty(Validator :: validator()) -> float().
-penalty(Validator) ->
-    Validator#validator_v1.penalty.
-
--spec penalty(Penalty :: float(),
-              Validator :: validator()) -> validator().
-penalty(Penalty, Validator) ->
-    Validator#validator_v1{penalty = Penalty}.
-
--spec add_recent_failure(Validator :: validator(),
-                         Height :: pos_integer(),
-                         Delay :: pos_integer(),
-                         Ledger :: blockchain:ledger()) ->
+-spec add_penalty(Validator :: validator(),
+                  Height :: pos_integer(),
+                  Type :: penalty(),
+                  Amount :: float(),
+                  Limit :: pos_integer()) ->
           validator().
-add_recent_failure(Validator, Height, Delay, Ledger) ->
-    Recent0 = Validator#validator_v1.recent_failures,
-    {ok, Limit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
-    Recent = lists:filter(fun({H, _D}) -> (Height - H) =< Limit end, Recent0),
-    Validator#validator_v1{recent_failures = lists:sort([{Height, Delay} | Recent])}.
+add_penalty(Validator, Height, Type, Amount, Limit) ->
+    Recent0 = Validator#validator_v1.penalties,
+    Recent = lists:filter(fun(#penalty{height = H}) -> (Height - H) =< Limit end, Recent0),
+    Validator#validator_v1{penalties = lists:sort([#penalty{height = Height,
+                                                            type = Type,
+                                                            amount = Amount} | Recent])}.
 
--spec recent_failures(Validator :: validator()) -> [recent_failure()].
-recent_failures(Validator) ->
-    Validator#validator_v1.recent_failures.
+-spec penalties(Validator :: validator()) -> [pos_integer()].
+penalties(Validator) ->
+    Validator#validator_v1.penalties.
+
+-spec calculate_penalty_value(validator(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+calculate_penalty_value(Val, Ledger) ->
+    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Tot =
+        lists:foldl(
+          fun(#penalty{height = H, amount = Amt}, Acc) ->
+                  BlocksAgo = Height - H,
+                  case BlocksAgo >= PenaltyLimit of
+                      true ->
+                          Acc;
+                      _ ->
+                          %% 1 - ago/limit = linear inverse weighting for recency
+                          Acc + (Amt * (1 - (BlocksAgo/PenaltyLimit)))
+                  end
+          end,
+          0.0,
+          penalties(Val)),
+    blockchain_utils:normalize_float(Tot).
 
 -spec serialize(Validator :: validator()) -> binary().
 serialize(Validator) ->
@@ -158,8 +181,9 @@ deserialize(<<1, Bin/binary>>) ->
 
 -spec print(Validator :: validator(),
             Height :: pos_integer(),
-            Verbose :: boolean()) -> list().
-print(Validator, Height, Verbose) ->
+            Verbose :: boolean(),
+            Ledger :: blockchain_ledger_v1:ledger()) -> list().
+print(Validator, Height, Verbose, Ledger) ->
     case Verbose of
         true ->
             [{validator_address, libp2p_crypto:bin_to_b58(address(Validator))},
@@ -172,5 +196,14 @@ print(Validator, Height, Verbose) ->
          {stake, stake(Validator)},
          {status, status(Validator)},
          {version, version(Validator)},
-         {failures, length(recent_failures(Validator))}
+         {penalty, calculate_penalty_value(Validator, Ledger)}
         ].
+
+penalty_type(#penalty{type = Type}) ->
+    Type.
+
+penalty_amount(#penalty{amount = Amount}) ->
+    Amount.
+
+penalty_height(#penalty{height = Height}) ->
+    Height.

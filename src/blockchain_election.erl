@@ -6,7 +6,8 @@
          election_info/2,
          icdf_select/3,
          adjust_old_group/2,
-         adjust_old_group_v2/2
+         adjust_old_group_v2/2,
+         validator_penalties/3
         ]).
 
 -include("blockchain_vars.hrl").
@@ -17,7 +18,6 @@
         {
          prob :: float(),
          heartbeat :: pos_integer() | undefined,
-         failures :: [{pos_integer(), pos_integer()}] | undefined,
          addr :: libp2p_crypto:pubkey_bin()
         }).
 
@@ -280,43 +280,42 @@ adjust_old_group(Group, Ledger) ->
       Group).
 
 adjust_old_group_v2(Group, Ledger) ->
+    %% annotate the ledger group (which is ordered properly), with each one's index.
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
     %% ideally would not have to do this but don't want to change the
     %% interface.
     Chain = blockchain_worker:blockchain(),
-    #{start_height := Start,
-      curr_height := End} = election_info(Ledger, Chain),
-    %% annotate the ledger group (which is ordered properly), with each one's index.
-    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
-    {_, Addrs} =
-        lists:foldl(
-          fun(Addr, {Index, Acc}) ->
-                  {Index + 1, Acc#{Addr => Index}}
-          end,
-          {1, #{}},
-          OldGroup),
-
-    Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
-              || Ht <- lists:seq(Start + 2, End)],
-
-    Penalties = get_penalties_v2(Blocks, length(Group), Ledger),
+    Penalties = validator_penalties(OldGroup, Chain, Ledger),
     lager:debug("penalties ~p", [Penalties]),
 
-    %% {ok, Factor} = blockchain_cledger_v1:config(?election_replacement_factor, Ledger),
-    {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
-    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
     lists:map(
-      fun(#val_v1{prob = Prob, addr = Addr, failures = Failures}) ->
-              Index = maps:get(Addr, Addrs),
-              Penalty = maps:get(Index, Penalties, 0.0),
-
-              DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
-                                                     lists:map(fun({H, D}) -> H+D end, Failures)),
-              {Addr, normalize_float(Prob + Penalty + DKGPenalty)} % + TenurePenalty)}
+      fun(#val_v1{prob = Prob, addr = Addr}) ->
+              Penalty = maps:get(Addr, Penalties, 0.0),
+              {Addr, normalize_float(Prob + Penalty)}
       end,
       Group).
+
+validator_penalties(Group, Chain, Ledger) ->
+    {_, Addrs} =
+        lists:foldl(
+          fun(Addr, {Index, Acc}) ->
+                  {Index + 1, Acc#{Index => Addr}}
+          end,
+          {1, #{}},
+          Group),
+
+    #{start_height := Start,
+      curr_height := End} = election_info(Ledger, Chain),
+    Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
+              || Ht <- lists:seq(Start + 2, End)],
+
+    IndexedPenalties = get_penalties_v2(Blocks, length(Group), Ledger),
+    maps:fold(fun(I, Pen, Acc) ->
+                      Addr = maps:get(I, Addrs),
+                      Acc#{Addr => Pen}
+              end, #{}, IndexedPenalties).
 
 calc_age_weighted_penalty(Amt, Limit, Height, Instances) ->
     Tot =
@@ -796,16 +795,14 @@ validators_filter(Ledger) ->
               Stake = blockchain_ledger_validator_v1:stake(Val),
               Status = blockchain_ledger_validator_v1:status(Val),
               Version = blockchain_ledger_validator_v1:version(Val),
-              Penalty = blockchain_ledger_validator_v1:penalty(Val),
+              Penalty = blockchain_ledger_validator_v1:calculate_penalty_value(Val, Ledger),
               HB = blockchain_ledger_validator_v1:last_heartbeat(Val),
-              Failures = blockchain_ledger_validator_v1:recent_failures(Val),
               case Stake >= MinStake andalso Status == staked of
                   true ->
                       case LimitVersion == false orelse Version == AllowedVersion of
                           true ->
                               maps:put(Addr, #val_v1{addr = Addr,
                                                      heartbeat = HB,
-                                                     failures = Failures,
                                                      prob = Penalty}, Acc);
                           _ -> Acc
                       end;
@@ -820,14 +817,11 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
     {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
 
-    {ok, DKGPenaltyAmt} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
-    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
-
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {Group, Pool} =
         maps:fold(
-          fun(Addr, Val = #val_v1{heartbeat = Last, failures = Failures},
+          fun(Addr, Val = #val_v1{heartbeat = Last, prob = Prob},
               {Old, Candidates} = Acc) ->
                   Offline = (Height - Last) > (HBInterval + HBGrace),
                   case lists:member(Addr, OldGroup0) of
@@ -849,11 +843,8 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                               true ->
                                   Acc;
                               _ ->
-                                  DKGPenalty = calc_age_weighted_penalty(DKGPenaltyAmt, PenaltyLimit, Height,
-                                                                         lists:map(fun({H , D}) -> H+D end, Failures)),
-                                  %% prob coming in here is going to be 0.0 for non-group nodes
-                                  %% so don't use it
-                                  case max(0.0, 1.0 - DKGPenalty) of
+                                  %% use 5 instead of 1 to make things more lenient
+                                  case max(0.0, 5.0 - Prob) of
                                       %% don't even consider until some of these failures have aged out
                                       0.0 -> Acc;
                                       NewProb ->

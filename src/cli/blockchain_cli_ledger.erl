@@ -235,7 +235,7 @@ format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger, Verbose) ->
 format_ledger_validator(ValAddr, Validator, Ledger, Verbose) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     [{name, blockchain_utils:addr2name(ValAddr)} |
-     blockchain_ledger_validator_v1:print(Validator, Height, Verbose)].
+     blockchain_ledger_validator_v1:print(Validator, Height, Verbose, Ledger)].
 
 %% ledger variables
 

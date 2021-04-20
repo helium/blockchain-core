@@ -1893,7 +1893,7 @@ election_v5_test(Config) ->
 
     OldGroupVals =
         [begin
-             {val_v1, 1.0, 1, [], Addr}
+             {val_v1, 1.0, 1, Addr}
          end
          || Addr <- OldGroup],
 
