@@ -141,24 +141,29 @@ status(Status, Validator) ->
           validator().
 add_penalty(Validator, Height, Type, Amount, Limit) ->
     Recent0 = Validator#validator_v1.penalties,
+    %% discard penalties that are too old before adding the new one
     Recent = lists:filter(fun(#penalty{height = H}) -> (Height - H) =< Limit end, Recent0),
     Validator#validator_v1{penalties = lists:sort([#penalty{height = Height,
                                                             type = Type,
                                                             amount = Amount} | Recent])}.
 
--spec penalties(Validator :: validator()) -> [pos_integer()].
+-spec penalties(Validator :: validator()) -> [#penalty{}].
 penalties(Validator) ->
     Validator#validator_v1.penalties.
 
--spec calculate_penalty_value(validator(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+-spec calculate_penalty_value(validator(), blockchain_ledger_v1:ledger()) -> float().
 calculate_penalty_value(Val, Ledger) ->
     {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    %% the penalty at any given height is the sum of all the penalty amounts weighted linearly for
+    %% their age.  eventually all penalties age out.
     Tot =
         lists:foldl(
           fun(#penalty{height = H, amount = Amt}, Acc) ->
                   BlocksAgo = Height - H,
                   case BlocksAgo >= PenaltyLimit of
+                      %% ignore penalties that are too old in case they haven't been GC'd, otherwise
+                      %% we can apply a negative penalty
                       true ->
                           Acc;
                       _ ->

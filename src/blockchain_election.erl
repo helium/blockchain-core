@@ -177,7 +177,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     %% remove dupes, sort
     {OldGroupDeduped, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
 
-    %% random shuffle of all validators
+    %% random shuffle of all validators, and change format into something idcf can consume
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
@@ -195,8 +195,6 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                 OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
                 lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
 
-                lager:debug("no gateways ~p", [OldGroupAdjusted]),
-                OldLen = length(OldGroup0),
                 case NewLen == 0 of
                     %% moving down, we need remove bad nodes, not just take the first Size
                     true when OldLen > Size ->
@@ -825,17 +823,20 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
               {Old, Candidates} = Acc) ->
                   Offline = (Height - Last) > (HBInterval + HBGrace),
                   case lists:member(Addr, OldGroup0) of
+                      %% this clause keeps the old group out of the candidate list and additionally
+                      %% marks really bad nodes for removal
                       true ->
                           lager:debug("name ~p in off ~p", [blockchain_utils:addr2name(Addr), Offline]),
                           OldGw =
                               case Offline of
                                   true ->
                                       %% try and make sure offline nodes are selected
-                                      Val#val_v1{prob = 100.0};
+                                      Val#val_v1{prob = 200.0};
                                   _ ->
                                       Val
                               end,
                           {[OldGw | Old], Candidates};
+                      %% this clause handles generating the list of new nodes to potentially add (Candidates)
                       _ ->
                           lager:debug("name ~p out off ~p", [blockchain_utils:addr2name(Addr), Offline]),
                           case Offline of
