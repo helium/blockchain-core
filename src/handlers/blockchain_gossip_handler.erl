@@ -62,8 +62,9 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                 end
         end
     catch
-        _What:Why ->
-            lager:notice("gossip handler got bad data: ~p", [Why])
+        _What:Why:Stack ->
+            lager:notice("gossip handler got bad data: ~p", [Why]),
+            lager:debug("stack: ~p", [Stack])
     end,
     noreply.
 
