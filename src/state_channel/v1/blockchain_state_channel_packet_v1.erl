@@ -6,7 +6,7 @@
 -module(blockchain_state_channel_packet_v1).
 
 -export([
-    new/3,
+    new/3, new/4,
     packet/1, hotspot/1, region/1, signature/1,
     sign/2, validate/2,
     encode/1, decode/1
@@ -24,10 +24,15 @@
 
 -spec new(blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin(), atom()) -> packet().
 new(Packet, Hotspot, Region) ->
+    new(Packet, Hotspot, Region, 0).
+
+-spec new(blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin(), atom(), non_neg_integer()) -> packet().
+new(Packet, Hotspot, Region, HoldTime) ->
     #blockchain_state_channel_packet_v1_pb{
         packet=Packet,
         hotspot=Hotspot,
-        region=Region
+        region=Region,
+        hold_time=HoldTime
     }.
 
 -spec packet(packet()) -> blockchain_helium_packet_v1:packet().
