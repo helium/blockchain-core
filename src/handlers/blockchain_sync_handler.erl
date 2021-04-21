@@ -111,11 +111,20 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     lager:info("adding sync blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
-    case blockchain:add_blocks(Blocks, Chain) of
-        ok ->
+    %% do this in a spawn so that the connection dying does not stop adding blocks
+    {Pid, Ref} = spawn_monitor(fun() ->
+                          case blockchain:add_blocks(Blocks, Chain) of
+                              ok ->
+                                  ok;
+                              Error ->
+                                  lager:info("Error adding blocks ~p", [Error]),
+                                  erlang:error(Error)
+                          end
+                  end),
+    receive
+        {'DOWN', Ref, process, Pid, normal} ->
             {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
-        _Error ->
-            lager:info("Error adding blocks ~p", [_Error]),
+        {'DOWN', Ref, process, Pid, _Error} ->
             %% TODO: maybe dial for sync again?
             {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
     end;
