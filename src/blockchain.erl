@@ -182,16 +182,19 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
 process_upgrades([], _Ledger) ->
     ok;
 process_upgrades([{Key, Fun} | Tail], Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    case blockchain_ledger_v1:check_key(Key, Ledger1) of
+    case blockchain_ledger_v1:check_key(Key, Ledger) of
         true ->
-            process_upgrades(Tail, Ledger1);
+            ok;
         false ->
+            Ledger1 = blockchain_ledger_v1:new_context(Ledger),
             Fun(Ledger1),
-            blockchain_ledger_v1:mark_key(Key, Ledger1)
+            blockchain_ledger_v1:mark_key(Key, Ledger1),
+            Ledger2_0 = blockchain_ledger_v1:mode(delayed, Ledger),
+            Ledger2 = blockchain_ledger_v1:new_context(Ledger2_0),
+            Fun(Ledger2),
+            blockchain_ledger_v1:commit_context(Ledger2)
     end,
-    blockchain_ledger_v1:commit_context(Ledger1),
-    ok.
+    process_upgrades(Tail, Ledger).
 
 mark_upgrades(Upgrades, Ledger) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
@@ -202,13 +205,6 @@ mark_upgrades(Upgrades, Ledger) ->
     ok.
 
 upgrade_gateways_v2(Ledger) ->
-    upgrade_gateways_v2_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_v2_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-upgrade_gateways_v2_(Ledger) ->
     %% the initial load here will automatically convert these into v2 records
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     %% find all neighbors for everyone
@@ -225,13 +221,6 @@ upgrade_gateways_v2_(Ledger) ->
     ok.
 
 upgrade_gateways_lg(Ledger) ->
-    upgrade_gateways_lg_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_lg_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-upgrade_gateways_lg_(Ledger) ->
     blockchain_ledger_v1:cf_fold(
       active_gateways,
       fun({Addr, BinGw}, _) ->
@@ -248,13 +237,6 @@ upgrade_gateways_lg_(Ledger) ->
       Ledger).
 
 bootstrap_hexes(Ledger) ->
-    bootstrap_hexes_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    bootstrap_hexes_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-bootstrap_hexes_(Ledger) ->
     %% hardcode this until we have the var update hook.
     Res = 5,
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -278,13 +260,6 @@ bootstrap_hexes_(Ledger) ->
     ok.
 
 upgrade_gateways_oui(Ledger) ->
-    upgrade_gateways_oui_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_oui_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
-
-upgrade_gateways_oui_(Ledger) ->
     %% the initial load here will automatically convert these into
     %% records with oui slots
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -298,13 +273,6 @@ upgrade_gateways_oui_(Ledger) ->
 -spec bootstrap_h3dex(blockchain_ledger_v1:ledger()) -> ok.
 %% @doc Bootstrap the H3Dex for both the active and delayed ledgers
 bootstrap_h3dex(Ledger) ->
-   ok = do_bootstrap_h3dex(Ledger),
-   Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-   Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-   ok = do_bootstrap_h3dex(Ledger2),
-   blockchain_ledger_v1:commit_context(Ledger2).
-
-do_bootstrap_h3dex(Ledger) ->
     blockchain_ledger_v1:bootstrap_h3dex(Ledger).
 
 %%--------------------------------------------------------------------
@@ -959,29 +927,37 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
         false ->
             %% hash here is *pre*absorb.
             try
-                Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
-                case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
-                    {ok, Snap} ->
-                        case blockchain_ledger_snapshot_v1:hash(Snap) of
-                            ConsensusHash ->
-                                ok = blockchain:add_snapshot(Snap, Blockchain);
-                            OtherHash ->
-                                lager:info("bad snapshot hash: ~p good ~p",
-                                           [OtherHash, ConsensusHash]),
-                                case application:get_env(blockchain, save_bad_snapshot, false) of
-                                    true ->
-                                        lager:info("saving bad snapshot ~p", [OtherHash]),
+                case get_snapshot(ConsensusHash, Blockchain) of
+                    {ok, _Snap} ->
+                        %% already have this
+                        ok;
+                    {error, sentinel} ->
+                        lager:info("skipping previously failed snapshot at height ~p", [Height]);
+                    _ ->
+                        Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
+                        case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
+                            {ok, Snap} ->
+                                case blockchain_ledger_snapshot_v1:hash(Snap) of
+                                    ConsensusHash ->
                                         ok = blockchain:add_snapshot(Snap, Blockchain);
-                                    false ->
-                                        ok
-                                end,
-                                %% TODO: this is currently called basically for the
-                                %% logging. it does not reset, or halt
-                                blockchain_worker:async_reset(Height)
-                        end;
-                    {error, SnapReason} ->
-                        lager:info("error ~p taking snapshot", [SnapReason]),
-                        ok
+                                    OtherHash ->
+                                        lager:info("bad snapshot hash: ~p good ~p",
+                                                   [OtherHash, ConsensusHash]),
+                                        case application:get_env(blockchain, save_bad_snapshot, false) of
+                                            true ->
+                                                lager:info("saving bad snapshot ~p", [OtherHash]),
+                                                ok = blockchain:add_snapshot(Snap, Blockchain);
+                                            false ->
+                                                ok
+                                        end,
+                                        %% TODO: this is currently called basically for the
+                                        %% logging. it does not reset, or halt
+                                        blockchain_worker:async_reset(Height)
+                                end;
+                            {error, SnapReason} ->
+                                lager:info("error ~p taking snapshot", [SnapReason]),
+                                ok
+                        end
                 end
             catch What:Why ->
                     lager:info("error ~p taking snapshot", [{What, Why}]),
@@ -1645,6 +1621,14 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
         Height = blockchain_ledger_snapshot_v1:height(Snapshot),
         Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
+        %% write a sentinel value to mark we were trying to build this
+        %% so we can skip it next time if we crash out
+        {ok, Batch0} = rocksdb:batch(),
+        ok = rocksdb:batch_put(Batch0, SnapshotsCF, Hash, <<"__sentinel__">>),
+        %% lexiographic ordering works better with big endian
+        ok = rocksdb:batch_put(Batch0, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
+        ok = rocksdb:write_batch(DB, Batch0, []),
+
         {ok, Batch} = rocksdb:batch(),
         {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
@@ -1675,6 +1659,8 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF
                           {ok, blockchain_ledger_snapshot:snapshot()} | {error, any()}.
 get_snapshot(Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) when is_binary(Hash) ->
     case rocksdb:get(DB, SnapshotsCF, Hash, []) of
+        {ok, <<"__sentinel__">>} ->
+            {error, sentinel};
         {ok, Snap} ->
             {ok, Snap};
         not_found ->
@@ -2336,7 +2322,7 @@ run_gc_hooks(Blockchain, Hash) ->
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
-        ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain),
+        ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain, Ledger),
 
         ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
 

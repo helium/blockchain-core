@@ -105,23 +105,32 @@ init(Args) ->
         {base_dir, BaseDir},
         {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
+    GWCache =
+        case application:get_env(blockchain, disable_gateway_cache, false) of
+            false ->
+                [?WORKER(blockchain_gateway_cache, [])];
+            _ ->
+                []
+        end,
+
     BEventOpts = [],
     %% create the txn manager ets table under this supervisor and set ourselves as the heir
     %% we call `ets:give_away' every time we start_link the txn manager
     BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_table()},
     BTxnMgrSupOpts = [],
     StateChannelSupOpts = [BaseDir],
-    ChildSpecs = [
-        ?WORKER(blockchain_lock, []),
-        ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
-        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
-        ?WORKER(blockchain_gateway_cache, []),
-        ?WORKER(blockchain_score_cache, []),
-        ?WORKER(blockchain_worker, [BWorkerOpts]),
-        ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
-        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
-        ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])
-    ],
+    ChildSpecs =
+        [
+         ?WORKER(blockchain_lock, []),
+         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
+         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts])]
+        ++ GWCache ++
+        [?WORKER(blockchain_score_cache, []),
+         ?WORKER(blockchain_worker, [BWorkerOpts]),
+         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
+         ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
+         ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])
+        ],
     {ok, {?FLAGS, ChildSpecs}}.
 
 %% ------------------------------------------------------------------
