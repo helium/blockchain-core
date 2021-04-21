@@ -614,9 +614,9 @@ dial(Swarm, Route) ->
                   Packet :: blockchain_helium_packet_v1:packet(),
                   Region :: atom(),
                   ReceivedTime :: non_neg_integer()) -> ok.
-send_packet(PubkeyBin, SigFun, Stream, Packet, Region, _ReceivedTime) ->
-    % _HoldTime = erlang:system_time(millisecond) - ReceivedTime,
-    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region),
+send_packet(PubkeyBin, SigFun, Stream, Packet, Region, ReceivedTime) ->
+    HoldTime = erlang:system_time(millisecond) - ReceivedTime,
+    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region, HoldTime),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
 
