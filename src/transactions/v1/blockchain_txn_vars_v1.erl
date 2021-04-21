@@ -953,6 +953,13 @@ validate_var(?deprecate_payment_v1, Value) ->
         _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
     end;
 
+validate_var(?allow_payment_v2_memos, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_allow_payment_v2_memos, Value}})
+    end;
+
 validate_var(?allow_zero_amount, Value) ->
     case Value of
         true -> ok;
