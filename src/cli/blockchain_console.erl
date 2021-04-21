@@ -2,7 +2,7 @@
 
 -export([command/1]).
 
--spec command([string()]) -> ok.
+-spec command([string()]) -> rpc_ok | {rpc_error, non_neg_integer()}.
 command(Cmd) ->
     %% this is the contents of clique:run but
     %% we want to figure out if the command worked
@@ -14,10 +14,6 @@ command(Cmd) ->
     M4 = clique_command:run(M3),
     clique:print(M4, Cmd),
     case M4 of
-        usage ->
-            {rpc_error, 1};
-        {error, _} ->
-            {rpc_error, 2};
         {_Status, ExitCode, _} when ExitCode == 0 ->
             rpc_ok;
         {_Status, ExitCode, _} ->
