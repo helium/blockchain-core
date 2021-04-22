@@ -91,7 +91,7 @@ snapshot_take(Filename) ->
     Ledger = blockchain:ledger(Chain),
     Blocks = blockchain_ledger_snapshot_v1:get_blocks(Chain),
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks),
-    {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
+    BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
     file:write_file(Filename, BinSnap).
 
 snapshot_load_cmd() ->

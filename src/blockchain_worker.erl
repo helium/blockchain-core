@@ -384,10 +384,14 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
             try
-                %% there is a hole in the snapshot history where this will be true, but later it
-                %% will have come from the snap.
-                true = erlang:is_map(Snapshot), % fail into the catch if it's an older record
-                H3dex = maps:get(h3dex, Snapshot), % fail into the catch if it's missing
+                %% There is a hole in the snapshot history where this will be
+                %% true, but later it will have come from the snap.
+
+                %% fail into the catch if it's an older record
+                true = blockchain_ledger_snapshot_v1:is_v6(Snapshot),
+                %% fail into the catch if it's missing
+                H3dex = blockchain_ledger_snapshot_v1:get_h3dex(Snapshot),
+
                 case length(H3dex) > 0 of
                     true -> ok;
                     false -> throw(bootstrap) % fail into the catch it's an empty default value
