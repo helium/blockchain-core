@@ -1251,6 +1251,7 @@ snapshot_gateways(Ledger) ->
                     []
                    )).
 
+-spec snapshot_raw_gateways(ledger()) -> [{binary(), binary()}].
 snapshot_raw_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     snapshot_raw(AGwsCF, Ledger).
@@ -4549,7 +4550,8 @@ load_vars(Vars, Ledger) ->
     vars(maps:from_list(Vars), [], Ledger),
     ok.
 
--spec snapshot_delayed_vars(ledger()) -> [{binary(), binary()}].
+-spec snapshot_delayed_vars(ledger()) ->
+    [{integer(), [{TODO :: term(), TODO :: term()}]}].
 snapshot_delayed_vars(Ledger) ->
     CF = default_cf(Ledger),
     {ok, Height} = current_height(Ledger),
@@ -4659,27 +4661,15 @@ load_pocs(PoCs, Ledger) ->
       maps:from_list(PoCs)),
     ok.
 
--spec snapshot_raw({atom(), rocksdb:db_handle(), rocksdb:cf_handle()}, ledger()) ->
-          [{binary(), binary()}].
-snapshot_raw(CF, Ledger) ->
-    %% we can just reverse this since rocks folds are lexicographic
-    lists:reverse(
-      cache_fold(
-        Ledger,
-        CF,
-        fun(KV, Acc) ->
-                [KV | Acc]
-        end,
-        []
-       )).
+-spec snapshot_raw(rocksdb:cf_handle(), ledger()) -> [{binary(), binary()}].
+snapshot_raw(CF, L) ->
+    %% We can just reverse this since rocks folds are lexicographic.
+    %% TODO Why reverse at all? Why do we care about order?
+    lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
 
-load_raw(List, CF, Ledger) ->
-    lists:foreach(
-      fun({Key, Val}) ->
-              cache_put(Ledger, CF, Key, Val)
-      end,
-      List),
-    ok.
+-spec load_raw([{binary(), binary()}], rocksdb:cf_handle(), ledger()) -> ok.
+load_raw(KVL, CF, Ledger) ->
+    lists:foreach(fun({K, V}) -> cache_put(Ledger, CF, K, V) end, KVL).
 
 -spec snapshot_raw_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_raw_pocs(Ledger) ->
