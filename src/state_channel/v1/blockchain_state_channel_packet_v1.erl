@@ -7,7 +7,7 @@
 
 -export([
     new/3, new/4,
-    packet/1, hotspot/1, region/1, signature/1,
+    packet/1, hotspot/1, region/1, signature/1, hold_time/1,
     sign/2, validate/2,
     encode/1, decode/1
 ]).
@@ -50,6 +50,10 @@ region(#blockchain_state_channel_packet_v1_pb{region=Region}) ->
 -spec signature(packet()) -> binary().
 signature(#blockchain_state_channel_packet_v1_pb{signature=Signature}) ->
     Signature.
+
+-spec hold_time(packet()) -> binary().
+hold_time(#blockchain_state_channel_packet_v1_pb{hold_time=HoldTime}) ->
+    HoldTime.
 
 -spec sign(packet(), function()) -> packet().
 sign(Packet, SigFun) ->
