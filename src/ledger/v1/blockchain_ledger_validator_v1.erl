@@ -153,28 +153,34 @@ add_penalty(Validator, Height, Type, Amount, Limit) ->
 penalties(Validator) ->
     Validator#validator_v1.penalties.
 
--spec calculate_penalty_value(validator(), blockchain_ledger_v1:ledger()) -> float().
-calculate_penalty_value(Val, Ledger) ->
+-spec calculate_penalties(validator(), blockchain_ledger_v1:ledger()) -> #{penalty_type() => float()}.
+calculate_penalties(Val, Ledger) ->
     {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% the penalty at any given height is the sum of all the penalty amounts weighted linearly for
     %% their age.  eventually all penalties age out.
-    Tot =
-        lists:foldl(
-          fun(#penalty{height = H, amount = Amt}, Acc) ->
-                  BlocksAgo = Height - H,
-                  case BlocksAgo >= PenaltyLimit of
-                      %% ignore penalties that are too old in case they haven't been GC'd, otherwise
-                      %% we can apply a negative penalty
-                      true ->
-                          Acc;
-                      _ ->
-                          %% 1 - ago/limit = linear inverse weighting for recency
-                          Acc + (Amt * (1 - (BlocksAgo/PenaltyLimit)))
-                  end
+    lists:foldl(
+      fun(#penalty{height = H, type = Type, amount = Amt}, Acc) ->
+              BlocksAgo = Height - H,
+              case BlocksAgo >= PenaltyLimit of
+                  %% ignore penalties that are too old in case they haven't been GC'd, otherwise
+                  %% we can apply a negative penalty
+                  true ->
+                      Acc;
+                  _ ->
+                      %% 1 - ago/limit = linear inverse weighting for recency
+                      Weighted = (Amt * (1 - (BlocksAgo/PenaltyLimit))),
+                      maps:update_with(Type, fun(Pen) -> Pen + Weighted end,
+                                       Weighted, Acc)
+              end
           end,
-          0.0,
-          penalties(Val)),
+      #{},
+      penalties(Val)).
+
+-spec calculate_penalty_value(validator(), blockchain_ledger_v1:ledger()) -> float().
+calculate_penalty_value(Val, Ledger) ->
+    Penalties = calculate_penalties(Val, Ledger),
+    Tot = maps:fold(fun(_K, V, A) -> V + A end, 0.0, Penalties),
     blockchain_utils:normalize_float(Tot).
 
 -spec serialize(Validator :: validator()) -> binary().
@@ -191,6 +197,11 @@ deserialize(<<1, Bin/binary>>) ->
             Verbose :: boolean(),
             Ledger :: blockchain_ledger_v1:ledger()) -> list().
 print(Validator, Height, Verbose, Ledger) ->
+    Penalties = calculate_penalties(Validator, Ledger),
+    Tenure = maps:get(tenure, Penalties, 0.0),
+    DKG = maps:get(dkg, Penalties, 0.0),
+    Perf = maps:get(performance, Penalties, 0.0),
+
     case Verbose of
         true ->
             [{validator_address, libp2p_crypto:bin_to_b58(address(Validator))},
@@ -203,8 +214,14 @@ print(Validator, Height, Verbose, Ledger) ->
          {stake, stake(Validator)},
          {status, status(Validator)},
          {version, version(Validator)},
-         {penalty, calculate_penalty_value(Validator, Ledger)}
+         {tenure_penalty, flt(Tenure)},
+         {dkg_penalty, flt(DKG)},
+         {performance_penalty, flt(Perf)},
+         {total_penalty, flt(Tenure+Perf+DKG)}
         ].
+
+flt(F) ->
+    io_lib:format("~.2f", [F]).
 
 -spec penalty_type(penalty()) -> penalty_type().
 penalty_type(#penalty{type = Type}) ->
