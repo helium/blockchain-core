@@ -32,6 +32,7 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([is_valid_owner/1]).
 -endif.
 
 -type txn_unstake_validator() :: #blockchain_txn_unstake_validator_v1_pb{}.
@@ -150,7 +151,7 @@ is_valid(Txn, Chain) ->
                         end,
                         case blockchain_ledger_validator_v1:owner_address(V) of
                             Owner -> ok;
-                            _ -> throw(bad_owner)
+                            Other -> throw({not_owner, Other})
                         end,
                         {ok, Cooldown} = blockchain:config(?stake_withdrawl_cooldown, Ledger),
                         {ok, CooldownMax} = blockchain:config(?stake_withdrawal_max, Ledger),

@@ -3420,20 +3420,26 @@ validators_cf(Ledger) ->
 
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
-    {Cache, _GwCache} = context_cache(Ledger),
-    true = ets:insert(Cache, {{CF, Key}, Value}),
-    ok.
+    case context_cache(Ledger) of
+        {undefined, _GwCache} -> ok; %% needed for test cases
+        {Cache, _GwCache} ->
+            true = ets:insert(Cache, {{CF, Key}, Value}),
+            ok
+    end.
 
 -spec gateway_cache_put(libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway(), ledger()) -> ok.
 gateway_cache_put(Addr, Gw, Ledger) ->
-    {_Cache, GwCache} = context_cache(Ledger),
-    MaxSize = application:get_env(blockchain, gw_context_cache_max_size, 75),
-    case ets:info(GwCache, size) of
-        N when N > MaxSize ->
-            true = ets:insert(GwCache, {Addr, spillover});
-        _ ->
-            true = ets:insert(GwCache, {Addr, Gw}),
-            ok
+    case context_cache(Ledger) of
+        {_Cache, undefined} -> ok; %% needed for test cases
+        {_Cache, GwCache} ->
+            MaxSize = application:get_env(blockchain, gw_context_cache_max_size, 75),
+            case ets:info(GwCache, size) of
+                N when N > MaxSize ->
+                    true = ets:insert(GwCache, {Addr, spillover});
+                _ ->
+                    true = ets:insert(GwCache, {Addr, Gw}),
+                    ok
+            end
     end.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.

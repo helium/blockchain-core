@@ -36,6 +36,10 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([
+         is_valid_new_owner/1,
+         is_valid_old_owner/1
+        ]).
 -endif.
 
 -type txn_transfer_validator_stake() :: #blockchain_txn_transfer_validator_stake_v1_pb{}.
@@ -167,7 +171,7 @@ is_valid(Txn, Chain) ->
     Fee = fee(Txn),
     case is_valid_old_owner(Txn) of
         false ->
-            {error, bad_owner_signature};
+            {error, bad_old_owner_signature};
         true ->
             try
                 case blockchain:config(?validator_version, Ledger) of
@@ -197,8 +201,8 @@ is_valid(Txn, Chain) ->
                     true -> throw(cannot_transfer_while_in_consensus);
                     false -> ok
                 end,
-                %% make sure them amount is encoded correctly and is only specified in the correct
-                %% case
+                %% make sure the amount is encoded correctly
+                %% and is only specified in the correct case
                 case payment_amount(Txn) of
                     %% 0 is always ok
                     0 -> ok;
@@ -218,9 +222,9 @@ is_valid(Txn, Chain) ->
                 end,
                 %% make sure that this validator doesn't already exist
                 case blockchain_ledger_v1:get_validator(NewValidator, Ledger) of
-                    {ok, _} -> throw(already_exists);
+                    {ok, _} -> throw(new_validator_already_exists);
                     {error, not_found} -> ok;
-                    {error, Reason} -> throw({validator_fetch_error, Reason})
+                    {error, Reason} -> throw({new_validator_fetch_error, Reason})
                 end,
                 %% make sure that existing validator exists and is staked
                 case blockchain_ledger_v1:get_validator(OldValidator, Ledger) of
