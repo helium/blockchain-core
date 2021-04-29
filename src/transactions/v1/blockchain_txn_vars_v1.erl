@@ -1221,7 +1221,7 @@ validate_var(?validator_liveness_interval, Value) ->
 validate_var(?validator_liveness_grace_period, Value) ->
     validate_int(Value, "validator_liveness_grace_period", 1, 100, false);
 %% TODO fix this var
-validate_var(?stake_withdrawl_cooldown, Value) ->
+validate_var(?stake_withdrawal_cooldown, Value) ->
     %% maybe set this in the test
     validate_int(Value, "stake_withdrawal_cooldown", 5, 1000000, false);
 validate_var(?stake_withdrawal_max, Value) ->
