@@ -51,7 +51,7 @@ region(#blockchain_state_channel_packet_v1_pb{region=Region}) ->
 signature(#blockchain_state_channel_packet_v1_pb{signature=Signature}) ->
     Signature.
 
--spec hold_time(packet()) -> binary().
+-spec hold_time(packet()) -> non_neg_integer().
 hold_time(#blockchain_state_channel_packet_v1_pb{hold_time=HoldTime}) ->
     HoldTime.
 
