@@ -33,7 +33,8 @@
     us915_test/1,
     ru864_test/1,
     eu868_test/1,
-    region_not_found_test/1
+    region_not_found_test/1,
+    us915_region_param_test/1
 ]).
 
 all() ->
@@ -48,14 +49,20 @@ with_h3_data_test_cases() ->
         au915_test,
         cn779_test,
         us915_test,
-        region_not_found_test,
         ru864_test,
         eu868_test
     ].
 
+without_h3_data_test_cases() ->
+    [
+        all_regions_test,
+        region_param_serde_test,
+        us915_region_param_test
+    ].
+
 groups() ->
     [
-        {without_h3_data, [], [all_regions_test]},
+        {without_h3_data, [], without_h3_data_test_cases()},
         {with_h3_data, [], with_h3_data_test_cases()}
     ].
 
@@ -123,7 +130,7 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 all_regions_test(Config) ->
     Ledger = ?config(ledger, Config),
-    {ok, Regions} = blockchain_region:get_all_regions(Ledger),
+    {ok, Regions} = blockchain_region_v1:get_all_regions(Ledger),
     [] = Regions -- [list_to_atom(R) || R <- ?SUPPORTED_REGIONS],
     ok.
 
@@ -166,7 +173,7 @@ au915_test(Config) ->
     case blockchain:config(?region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(AUH3, Bin),
-            {ok, Region} = blockchain_region:region(AUH3, Ledger),
+            {ok, Region} = blockchain_region_v1:region(AUH3, Ledger),
             %% TODO: Fix me and do proper region_param checks
             true = au915 == Region,
             ok;
@@ -180,7 +187,7 @@ cn779_test(Config) ->
     case blockchain:config(?region_cn779, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(CNH3, Bin),
-            {ok, Region} = blockchain_region:region(CNH3, Ledger),
+            {ok, Region} = blockchain_region_v1:region(CNH3, Ledger),
             %% TODO: Fix me and do proper region_param checks
             true = cn779 == Region,
             ok;
@@ -250,7 +257,7 @@ us915_test(Config) ->
     case blockchain:config(?region_us915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(USH3, Bin),
-            {ok, Region} = blockchain_region:region(USH3, Ledger),
+            {ok, Region} = blockchain_region_v1:region(USH3, Ledger),
             %% TODO: Fix me and do proper region_param checks
             true = us915 == Region,
             ok;
@@ -261,8 +268,36 @@ us915_test(Config) ->
 region_not_found_test(Config) ->
     Ledger = ?config(ledger, Config),
     InvalidH3 = 11111111111111111111,
-    {error, {h3_contains_failed, _}} = blockchain_region:region(InvalidH3, Ledger),
+    {error, {h3_contains_failed, _}} = blockchain_region_v1:region(InvalidH3, Ledger),
     ok.
+
+us915_region_param_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    case blockchain:config(?region_params_us915, Ledger) of
+        {ok, Bin} ->
+            KnownParams = blockchain_region_param_v1:get_params(us915),
+            SerUS915 = blockchain_region_param_v1:serialized_us915(),
+            DeserUS915 = blockchain_region_param_v1:deserialize_params(SerUS915),
+            DeserUS915_FromVar = blockchain_region_param_v1:deserialize_params(Bin),
+            %% check that the chain var matches our known binary
+            true = Bin == SerUS915,
+            %% check that we can properly deserialize
+            true = DeserUS915 == KnownParams,
+            %% check that the deserialization from chain var also matches our known value
+            true = DeserUS915_FromVar == KnownParams,
+            ok;
+        _ ->
+            ct:fail("boom")
+    end.
+
+%% Ledger = ?config(ledger, Config),
+%% case blockchain:config(?region_params_us915, Ledger) of
+%%     {ok, V} ->
+%%         ct:pal("V: ~p", [V]),
+%%         ok;
+%%     _ ->
+%%         ct:fail("region param not defined")
+%% end.
 
 %%--------------------------------------------------------------------
 %% test case teardown
@@ -290,7 +325,8 @@ extra_vars(with_h3_data) ->
     maps:put(regulatory_regions, ?regulatory_region_bin_str, maps:from_list(Regions));
 extra_vars(without_h3_data) ->
     #{
-        regulatory_regions => ?regulatory_region_bin_str
+        regulatory_regions => ?regulatory_region_bin_str,
+        region_params_us915 => region_params_us915()
     };
 extra_vars(_) ->
     #{}.
@@ -318,3 +354,12 @@ download_regions(RegionURLs) ->
         end,
         RegionURLs
     ).
+
+region_params_us915() ->
+    <<10, 18, 8, 160, 144, 215, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 224,
+        245, 202, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 160, 219, 190, 175,
+        3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 224, 192, 178, 175, 3, 16, 125, 24,
+        36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 160, 166, 166, 175, 3, 16, 125, 24, 36, 34, 6, 10,
+        4, 4, 3, 2, 1, 10, 18, 8, 224, 139, 154, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1,
+        10, 18, 8, 160, 241, 141, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 224,
+        214, 129, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1>>.
