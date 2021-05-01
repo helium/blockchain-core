@@ -506,4 +506,6 @@
 %% -define(region_params_in865, region_params_in865).
 %% -define(region_params_kr920, region_params_kr920).
 %% -define(region_params_ru864, region_params_ru864).
-%% -define(region_params_us915, region_params_us915).
+
+%% US915 Channel parameters specification
+-define(region_params_us915, region_params_us915).

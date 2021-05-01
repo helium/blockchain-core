@@ -1276,7 +1276,7 @@ validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The only regulatory_regions value we support must look like this:
     %% <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
     %% The order does not matter in validation
-    case blockchain_region:get_regulatory_regions_var(Value) of
+    case blockchain_region_v1:get_regulatory_regions_var(Value) of
         {ok, ValueList} ->
             case ValueList -- ?SUPPORTED_REGIONS == [] of
                 true -> ok;
@@ -1310,6 +1310,19 @@ validate_var(?region_ru864, Value) ->
     validate_region_var(region_ru864, Value);
 validate_var(?region_us915, Value) ->
     validate_region_var(region_us915, Value);
+
+%% TODO: Revisit
+validate_var(?region_params_us915, Value) when is_binary(Value) ->
+    KnownUS915Bin = blockchain_region_param_v1:serialized_us915(),
+    C1 = Value == KnownUS915Bin,
+    C2 = blockchain_region_param_v1:deserialize_params(KnownUS915Bin) == blockchain_region_param_v1:deserialize_params(Value),
+    case {C1, C2} of
+        {true, true} -> ok;
+        _ -> throw({error, {unknown_value, Value}})
+    end;
+validate_var(?region_params_us915, Value) ->
+    throw({error, {invalid_region_params_us915_not_binary, Value}});
+
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

@@ -3,7 +3,7 @@
 %% == Blockchain Region API ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_region).
+-module(blockchain_region_v1).
 
 -include("blockchain_vars.hrl").
 
