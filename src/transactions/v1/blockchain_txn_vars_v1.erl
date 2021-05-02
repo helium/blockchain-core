@@ -8,6 +8,8 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+-include("blockchain.hrl").
+-include("blockchain_region.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 
@@ -1313,9 +1315,9 @@ validate_var(?region_us915, Value) ->
 
 %% TODO: Revisit
 validate_var(?region_params_us915, Value) when is_binary(Value) ->
-    KnownUS915Bin = blockchain_region_param_v1:serialized_us915(),
+    KnownUS915Bin = blockchain_region_params_v1:serialized_us915(),
     C1 = Value == KnownUS915Bin,
-    C2 = blockchain_region_param_v1:deserialize_params(KnownUS915Bin) == blockchain_region_param_v1:deserialize_params(Value),
+    C2 = blockchain_region_params_v1:deserialize(KnownUS915Bin) == blockchain_region_params_v1:deserialize(Value),
     case {C1, C2} of
         {true, true} -> ok;
         _ -> throw({error, {unknown_value, Value}})
