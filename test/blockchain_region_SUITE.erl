@@ -13,6 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -include("blockchain.hrl").
+-include("blockchain_region.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_ct_utils.hrl").
 
@@ -56,7 +57,6 @@ with_h3_data_test_cases() ->
 without_h3_data_test_cases() ->
     [
         all_regions_test,
-        region_param_serde_test,
         us915_region_param_test
     ].
 
@@ -275,16 +275,17 @@ us915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_us915, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_param_v1:get_params(us915),
-            SerUS915 = blockchain_region_param_v1:serialized_us915(),
-            DeserUS915 = blockchain_region_param_v1:deserialize_params(SerUS915),
-            DeserUS915_FromVar = blockchain_region_param_v1:deserialize_params(Bin),
+            KnownParams = blockchain_region_params_v1:fetch(us915),
+            SerUS915 = blockchain_region_params_v1:serialized_us915(),
+            DeserUS915 = blockchain_region_params_v1:deserialize(SerUS915),
+            DeserUS915_FromVar = blockchain_region_params_v1:deserialize(Bin),
             %% check that the chain var matches our known binary
             true = Bin == SerUS915,
             %% check that we can properly deserialize
             true = DeserUS915 == KnownParams,
             %% check that the deserialization from chain var also matches our known value
             true = DeserUS915_FromVar == KnownParams,
+            ct:pal("DeserUS915_FromVar: ~p", [DeserUS915_FromVar]),
             ok;
         _ ->
             ct:fail("boom")
