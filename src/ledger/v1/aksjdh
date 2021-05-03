@@ -1,0 +1,16 @@
+Transfer semantics meeting agenda:
+
+We need to work out the precise semantics of restaking and transfer during cooldown (and a few other cases).
+
+- Transfer questions:
+  - NO: Can transfer during cooldown (current feeling, no, just cancel and transfer)
+  - YES: Can transfer to another owner (currently it's just moving the stake from validator to validator in the same account)?
+  - NO: Can transfer stake partially (i.e. I overstake 20k and want to transfer 10k to another validator)? (limit to exact stake)
+- Restaking:
+  - YES: Do we want to allow cooldown cancel?
+  - If so how (current feeling: another stake transaction for the same owner/validator cancels cooldown)?
+- Understake:
+  - NO: Do we allow this?  It might be good for people who want be a proxy?
+  - If so what is the minimum stake for proxying?  move to v2? <- YES
+- Elections:
+  - do we allow people to be in the group while they're in unstaking cooldown?

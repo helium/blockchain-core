@@ -15,7 +15,7 @@
 -include_lib("helium_proto/include/blockchain_txn_unstake_validator_v1_pb.hrl").
 
 -export([
-         new/4,
+         new/5,
          hash/1,
          address/1,
          owner/1,
@@ -38,14 +38,16 @@
 -type txn_unstake_validator() :: #blockchain_txn_unstake_validator_v1_pb{}.
 -export_type([txn_unstake_validator/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
+          pos_integer(), pos_integer(), pos_integer()) ->
           txn_unstake_validator().
-new(ValidatorAddress, OwnerAddress, StakeAmount, StakeReleaseHeight) ->
+new(ValidatorAddress, OwnerAddress, StakeAmount, StakeReleaseHeight, Fee) ->
     #blockchain_txn_unstake_validator_v1_pb{
        address = ValidatorAddress,
        owner = OwnerAddress,
        stake_amount = StakeAmount,
-       stake_release_height = StakeReleaseHeight
+       stake_release_height = StakeReleaseHeight,
+       fee = Fee
     }.
 
 -spec hash(txn_unstake_validator()) -> blockchain_txn:hash().
@@ -215,7 +217,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, <<"owner_address">>, 10, 200),
+    Tx = new(<<"validator_address">>, <<"owner_address">>, 10, 200, 3000),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_unstake_validator_v1_pb))).

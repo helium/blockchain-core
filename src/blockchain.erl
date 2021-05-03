@@ -853,7 +853,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     Height = blockchain_block:height(Block),
                     Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
-                    MyAddress = blockchain_swarm:pubkey_bin(),
+                    MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
                     BeforeCommit = fun(FChain, FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
@@ -2313,7 +2313,11 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
             lager:error("Error creating snapshot, Reason: ~p", [Reason]),
             Error;
         {ok, NewLedger} ->
-            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+            case application:get_env(blockchain, test_mode, false) of
+                false ->
+                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
+                true -> ok
+            end
     end.
 
 %%--------------------------------------------------------------------
