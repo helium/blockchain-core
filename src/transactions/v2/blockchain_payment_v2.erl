@@ -84,7 +84,7 @@ to_json(Payment, _Opts) ->
     #{
       payee => ?BIN_TO_B58(payee(Payment)),
       amount => amount(Payment),
-      memo => ?MAYBE_UNDEFINED(memo(Payment))
+      memo => ?MAYBE_FN(fun (V) -> base64:encode(<<(V):64/unsigned-little-integer>>) end, memo(Payment))
      }.
 
 %% ------------------------------------------------------------------
