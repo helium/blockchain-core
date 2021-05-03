@@ -154,13 +154,11 @@
 
     add_validator/4,
     get_validator/2,
-    activate_validator/2,
     deactivate_validator/3,
     update_validator/3,
     fold_validators/3,
 
     cooldown_stake/5,
-    cancel_cooldown_stake/2,
     get_cooldown_stake/2,
 
     query_circulating_hnt/1,
@@ -289,6 +287,15 @@
           %% it provides this extra aux_heights column to differentiate actual
           %% rewards vs aux rewards (for now, but can be extended to show other differences)
           aux_heights :: rocksdb:cf_handle()
+         }).
+
+%% This record is for managing validator stake cooldown information in the
+%% ledger
+-record(validator_stake_v1, {
+          owner = undefined :: undefined | libp2p_crypto:pubkey_bin(),
+          validator = undefined :: undefined | libp2p_crypto:pubkey_bin(),
+          stake = 0 :: non_neg_integer(),
+          stake_release_height = 0 :: non_neg_integer() %% aka `target_block'
          }).
 
 -define(DB_FILE, "ledger.db").
@@ -921,21 +928,26 @@ process_delayed_actions(Block, Ledger, Chain) ->
             {error, Reason} -> error(Reason)
         end,
     lists:foreach(
-      fun({Owner, Validator, Stake}) ->
-              ok = finalize_validator(Validator, Ledger),
-              ok = credit_account(Owner, Stake, Ledger),
-              %% cleanup owner entry
-              {ok, OwnerEntry0} = cache_get(Ledger, DefaultCF, owner_name(Owner), []),
-              OwnerEntry = binary_to_term(OwnerEntry0),
+      fun(#validator_stake_v1{owner = O,
+                              validator = V,
+                              stake = S}) ->
+              ok = finalize_validator(V, Ledger),
+              ok = credit_account(O, S, Ledger),
+              %% cleanup stake records
+              {ok, BinStakeList} = cache_get(Ledger, DefaultCF, owner_name(O), []),
+              StakeList = binary_to_term(BinStakeList),
 
-              case lists:keydelete(Validator, 1, OwnerEntry) of
+              case lists:keydelete(V,
+                                   #validator_stake_v1.validator,
+                                   StakeList) of
                   [] ->
-                      cache_delete(Ledger, DefaultCF, owner_name(Owner));
-                  OwnerEntry1 ->
-                      cache_put(Ledger, DefaultCF, owner_name(Owner),
-                                term_to_binary(OwnerEntry1))
+                      cache_delete(Ledger, DefaultCF, owner_name(O));
+                  NewStakeList ->
+                      cache_put(Ledger, DefaultCF, owner_name(O),
+                                term_to_binary(NewStakeList))
               end
-      end, HeightEntries),
+      end,
+      HeightEntries),
     cache_delete(Ledger, DefaultCF, cd_block_name(Block)),
     ok.
 
@@ -3986,18 +3998,6 @@ finalize_validator(Address, Ledger) ->
     end.
 
 
--spec activate_validator(libp2p_crypto:pubkey_bin(), ledger()) ->
-          ok | {error, any()}.
-activate_validator(Address, Ledger) ->
-    case get_validator(Address, Ledger) of
-        {ok, Val} ->
-            Val1 = blockchain_ledger_validator_v1:status(staked, Val),
-            %% increment the nonce
-            ok = cancel_cooldown_stake(Val1, Ledger),
-            update_validator(Address, Val1, Ledger);
-        Error -> Error
-    end.
-
 -spec cooldown_stake(Owner :: libp2p_crypto:pubkey_bin(),
                      Validator :: libp2p_crypto:pubkey_bin(),
                      Stake :: non_neg_integer(),
@@ -4007,8 +4007,8 @@ activate_validator(Address, Ledger) ->
 cooldown_stake(Owner, Validator, Stake, StakeReleaseHeight, Ledger) ->
     DefaultCF = default_cf(Ledger),
 
-    %% make an entry for the owner with {validator, stake, target block}
-    OwnerEntry =
+    %% create or add an stake entry for the owner
+    StakeList =
         case cache_get(Ledger, DefaultCF, owner_name(Owner), []) of
             {ok, OE} ->
                 binary_to_term(OE);
@@ -4016,10 +4016,12 @@ cooldown_stake(Owner, Validator, Stake, StakeReleaseHeight, Ledger) ->
                 []
             %% just gonna function clause for now
         end,
-    OwnerEntry1 = OwnerEntry ++ [{Validator, Stake, StakeReleaseHeight}],
+    NewStakeRec = new_stake_record(Owner, Validator, Stake, StakeReleaseHeight),
+    NewStakeList = [ NewStakeRec | StakeList ],
     cache_put(Ledger, DefaultCF, owner_name(Owner),
-              term_to_binary(OwnerEntry1)),
-    %% make an entry for the return with {owner, validator, stake} at height
+              term_to_binary(NewStakeList)),
+
+    %% add a callback at stake release height block
     HeightEntry =
         case cache_get(Ledger, DefaultCF, cd_block_name(StakeReleaseHeight), []) of
             {ok, HE} ->
@@ -4028,46 +4030,15 @@ cooldown_stake(Owner, Validator, Stake, StakeReleaseHeight, Ledger) ->
                 []
             %% just gonna function clause for now
         end,
-    HeightEntry1 = HeightEntry ++ [{Owner, Validator, Stake}],
+    HeightEntry1 = [ NewStakeRec | HeightEntry ],
     cache_put(Ledger, DefaultCF, cd_block_name(StakeReleaseHeight),
               term_to_binary(HeightEntry1)).
 
-cancel_cooldown_stake(Val, Ledger) ->
-    Address = blockchain_ledger_validator_v1:address(Val),
-    Owner = blockchain_ledger_validator_v1:owner_address(Val),
-
-    CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, owner_name(Owner), []) of
-        {ok, OE} ->
-            Entries = binary_to_term(OE),
-            case lists:filter(fun({A, _S, _T}) ->
-                                      A == Address
-                              end, Entries) of
-                [] -> {error, not_found};
-                [{_, Stake, Target} = Entry] ->
-                    case lists:delete(Entry, Entries) of
-                        [] -> cache_delete(Ledger, CF, owner_name(Owner));
-                        Entries1 ->
-                            cache_put(Ledger, CF, owner_name(Owner),
-                                      term_to_binary(Entries1))
-                    end,
-                    case cache_get(Ledger, CF, cd_block_name(Target), []) of
-                        {ok, HE} ->
-                            HeightEntry = binary_to_term(HE),
-                            case lists:delete({Owner, Address, Stake}, HeightEntry) of
-                                [] -> cache_delete(Ledger, CF, cd_block_name(Target));
-                                HeightEntry1 ->
-                                    cache_put(Ledger, CF, cd_block_name(Target),
-                                              term_to_binary(HeightEntry1))
-                            end;
-                        not_found ->
-                            {error, missing_height_entry}
-                    end
-            end;
-        not_found ->
-            {error, not_found};
-        Err -> Err
-    end.
+new_stake_record(Owner, Validator, Stake, SRH) ->
+    #validator_stake_v1{owner = Owner,
+                        validator = Validator,
+                        stake = Stake,
+                        stake_release_height = SRH}.
 
 get_cooldown_stake(Val, Ledger) ->
     Address = blockchain_ledger_validator_v1:address(Val),
@@ -4075,13 +4046,11 @@ get_cooldown_stake(Val, Ledger) ->
 
     CF = default_cf(Ledger),
     case cache_get(Ledger, CF, owner_name(Owner), []) of
-        {ok, OE} ->
-            Entries = binary_to_term(OE),
-            case lists:filter(fun({A, _S, _T}) ->
-                                      A == Address
-                              end, Entries) of
-                [] -> {ok, 0};
-                [{_Addr, Stake, _TargetBlock}] -> {ok, Stake}
+        {ok, StakeList} ->
+            Stakes = binary_to_term(StakeList),
+            case lists:keyfind(Address, #validator_stake_v1.validator, Stakes) of
+                false -> {ok, 0};
+                #validator_stake_v1{stake = S} -> {ok, S}
             end;
         not_found ->
             {ok, 0};
