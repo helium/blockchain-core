@@ -827,6 +827,7 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
     {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
     {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
+    {ok, PenaltyFactor} = blockchain:config(?validator_penalty_probability_factor, Ledger),
 
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -849,17 +850,22 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                                       Val
                               end,
                           {[OldGw | Old], Candidates};
-                      %% this clause handles generating the list of new nodes to potentially add (Candidates)
+                      %% this clause handles generating the list of new nodes
+                      %% to potentially add (Candidates)
                       _ ->
-                          lager:debug("name ~p out off ~p", [blockchain_utils:addr2name(Addr), Offline]),
+                          lager:debug("name ~p out off ~p",
+                                      [blockchain_utils:addr2name(Addr), Offline]),
                           case Offline of
                               %% don't bother to add to the candidate list
                               true ->
                                   Acc;
                               _ ->
-                                  %% use 5 instead of 1 to make things more lenient
-                                  case max(0.0, 5.0 - Prob) of
-                                      %% don't even consider until some of these failures have aged out
+                                  %% the penalty factor makes higher penalty
+                                  %% scores more lenient than the original
+                                  %% 1.0 value
+                                  case max(0.0, PenaltyFactor - Prob) of
+                                      %% don't even consider until some of
+                                      %% these failures have aged out
                                       0.0 -> Acc;
                                       NewProb ->
                                           {Old, [Val#val_v1{prob = NewProb} | Candidates]}

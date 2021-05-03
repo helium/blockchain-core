@@ -1229,6 +1229,10 @@ validate_var(?stake_withdrawal_max, Value) ->
 
 validate_var(?dkg_penalty, Value) ->
     validate_float(Value, "dkg_penalty", 0.0, 5.0);
+validate_var(?tenure_penalty, Value) ->
+    validate_float(Value, "tenure_penalty", 0.0, 5.0);
+validate_var(?validator_penalty_probability_factor, Value) ->
+    validate_float(Value, "validator_penalty_probability_factor", 0.0, 10.0);
 validate_var(?penalty_history_limit, Value) ->
     %% low end is low for testing and an out if these become corrupted
     validate_int(Value, "penalty_history_limit", 10, 100000, false);

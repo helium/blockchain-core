@@ -221,6 +221,7 @@ absorb(Txn, Chain) ->
             case blockchain_ledger_v1:config(?election_version, Ledger) of
                 {ok, N} when N >= 5 andalso Gen == false ->
                     {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+                    {ok, TenurePenalty} = blockchain_ledger_v1:config(?tenure_penalty, Ledger),
                     {ok, OldMembers0} = blockchain_ledger_v1:consensus_members(Ledger),
                     {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -236,13 +237,18 @@ absorb(Txn, Chain) ->
                     lists:foreach(
                       fun(M) ->
                               {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
-                              V1 = blockchain_ledger_validator_v1:add_penalty(V, CurrHeight, tenure,
-                                                                              1.0, PenaltyLimit),
+                              V1 = blockchain_ledger_validator_v1:add_penalty(V, CurrHeight,
+                                                                              tenure,
+                                                                              TenurePenalty,
+                                                                              PenaltyLimit),
                               V2 = case maps:get(M, EpochPenalties, none) of
                                        none -> V1;
                                        Penalty ->
-                                           blockchain_ledger_validator_v1:add_penalty(V1, CurrHeight, performance,
-                                                                                      Penalty, PenaltyLimit)
+                                           blockchain_ledger_validator_v1:add_penalty(V1,
+                                                                                      CurrHeight,
+                                                                                      performance,
+                                                                                      Penalty,
+                                                                                      PenaltyLimit)
                                    end,
                               blockchain_ledger_v1:update_validator(M, V2, Ledger)
                       end,
