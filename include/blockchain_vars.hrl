@@ -352,12 +352,16 @@
 -define(txn_fees, txn_fees).
 %% valid staking server keys, encoded via <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
 -define(staking_keys, staking_keys).
+%% staking server keys with a mapping to gateway type ( full, light or non-consensus )
+-define(staking_keys_to_mode_mappings, staking_keys_to_mode_mappings).
 %% the staking fee in DC for each OUI
 -define(staking_fee_txn_oui_v1, staking_fee_txn_oui_v1).
 %% the staking fee in DC for each OUI/routing address
 -define(staking_fee_txn_oui_v1_per_address, staking_fee_txn_oui_v1_per_address).
-%% the staking fee in DC for adding a gateway
+%% the staking fee in DC for adding a full gateway
 -define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
+%% the staking fee in DC for adding a light gateway
+-define(staking_fee_txn_add_light_gateway_v1, staking_fee_txn_add_light_gateway_v1).
 %% the staking fee in DC for asserting a location
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
 %% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful
@@ -427,4 +431,11 @@
 %% Any gain value between min-max is acceptable
 -define(min_antenna_gain, min_antenna_gain).        %% Set to 10 (1 dBi)
 -define(max_antenna_gain, max_antenna_gain).        %% Set to 150 (15 dBi)
+
 %% ------------------------------------------------------------------
+%% the mask value to represent the capabilities of light gateways, defined as an integer and used as a bitmask
+-define(light_gateway_capabilities_mask, light_gateway_capabilities_mask).
+%% the mask value to represent the capabilities of non consensus gateways, defined as an integer and used as a bitmask
+-define(non_consensus_gateway_capabilities_mask, non_consensus_gateway_capabilities_mask).
+%% the mask value to represent the capabilities of full gateways, defined as an integer and used as a bitmask
+-define(full_gateway_capabilities_mask, full_gateway_capabilities_mask).

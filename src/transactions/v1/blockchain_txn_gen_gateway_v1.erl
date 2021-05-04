@@ -143,6 +143,7 @@ absorb(Txn, Chain) ->
                                      Gateway,
                                      Location,
                                      Nonce,
+                                     full,
                                      Ledger).
 
 %%--------------------------------------------------------------------

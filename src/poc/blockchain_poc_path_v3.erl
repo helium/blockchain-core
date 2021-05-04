@@ -22,6 +22,7 @@
 %%% - Next hop witness must not be in the same hex index as the target
 %%% - Every hop in the path must be unique
 %%% - Every hop in the path must have a minimum exclusion distance
+%%% - Next Hop witness must have the required capability
 %%%
 %%% The criteria for a potential next hop witness are biased like so:
 %%% - P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
@@ -45,6 +46,7 @@
 ]).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_caps.hrl").
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -280,15 +282,19 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                             true ->
                                 false;
                             false ->
-                                WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                                WitnessParent = h3:parent(WitnessLoc, ParentRes),
-                                %% Dont include any witnesses in any parent cell we've already visited
-                                not(lists:member(WitnessLoc, Indices)) andalso
-                                %% Don't include any witness whose parent is the same as the gateway we're looking at
-                                (GatewayParent /= WitnessParent) andalso
-                                %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                check_witness_bad_rssi(Witness, Vars)
+                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessGw, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                    false -> false;
+                                    true ->
+                                        WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                        WitnessParent = h3:parent(WitnessLoc, ParentRes),
+                                        %% Dont include any witnesses in any parent cell we've already visited
+                                        not(lists:member(WitnessLoc, Indices)) andalso
+                                        %% Don't include any witness whose parent is the same as the gateway we're looking at
+                                        (GatewayParent /= WitnessParent) andalso
+                                        %% Don't include any witness whose parent is too close to any of the indices we've already seen
+                                        check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                        check_witness_bad_rssi(Witness, Vars)
+                                end
                         end
                 end,
                 Witnesses).

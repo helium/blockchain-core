@@ -22,6 +22,7 @@
 %%% - Next hop witness must not be in the same hex index as the target
 %%% - Every hop in the path must be unique
 %%% - Every hop in the path must have a minimum exclusion distance
+%%% - Next Hop witness must have the required capability
 %%%
 %%% The criteria for a potential next hop witness are biased like so:
 %%% - P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
@@ -41,10 +42,11 @@
 -module(blockchain_poc_path_v2).
 
 -export([
-    build/5
+    build/6
 ]).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_caps.hrl").
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -56,8 +58,9 @@
             GatewayScoreMap :: blockchain_utils:gateway_score_map(),
             HeadBlockTime :: pos_integer(),
             Hash :: binary(),
-            Vars :: map()) -> path().
-build(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Hash, Vars) ->
+            Vars :: map(),
+            Ledger :: blockchain_ledger_v1:ledger()) -> path().
+build(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Hash, Vars, Ledger) ->
     true =  maps:is_key(TargetPubkeyBin, GatewayScoreMap),
     {TargetGw, _} = maps:get(TargetPubkeyBin, GatewayScoreMap),
     TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
@@ -68,7 +71,8 @@ build(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Hash, Vars) ->
            Vars,
            RandState,
            [TargetGwLoc],
-           [TargetPubkeyBin]).
+           [TargetPubkeyBin],
+           Ledger).
 
 %%%-------------------------------------------------------------------
 %% Helpers
@@ -79,17 +83,19 @@ build(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Hash, Vars) ->
              Vars :: map(),
              RandState :: rand:state(),
              Indices :: [h3:h3_index()],
-             Path :: path()) -> path().
+             Path :: path(),
+             Ledger :: blockchain_ledger_v1:ledger()) -> path().
 build_(TargetPubkeyBin,
        GatewayScoreMap,
        HeadBlockTime,
        #{poc_path_limit := Limit} = Vars,
        RandState,
        Indices,
-       Path) when length(Path) < Limit ->
+       Path,
+       Ledger) when length(Path) < Limit ->
     %% Try to find a next hop
     {NewRandVal, NewRandState} = rand:uniform_s(RandState),
-    case next_hop(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Vars, NewRandVal, Indices) of
+    case next_hop(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Vars, NewRandVal, Indices, Ledger) of
         {error, no_witness} ->
             lists:reverse(Path);
         {ok, WitnessPubkeyBin} ->
@@ -103,9 +109,10 @@ build_(TargetPubkeyBin,
                    Vars,
                    NewRandState,
                    [Index | Indices],
-                   NewPath)
+                   NewPath,
+                   Ledger)
     end;
-build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _Indices, Path) ->
+build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _Indices, Path, _Ledger) ->
     lists:reverse(Path).
 
 -spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
@@ -113,8 +120,9 @@ build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _I
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
                RandVal :: float(),
-               Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
-next_hop(GatewayBin, GatewayScoreMap, HeadBlockTime, Vars, RandVal, Indices) ->
+               Indices :: [h3:h3_index()],
+               Ledger :: blockchain_ledger_v1:ledger()) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
+next_hop(GatewayBin, GatewayScoreMap, HeadBlockTime, Vars, RandVal, Indices, Ledger) ->
     %% Get gateway
     {Gateway, _} = maps:get(GatewayBin, GatewayScoreMap),
     case blockchain_ledger_gateway_v2:witnesses(Gateway) of
@@ -124,7 +132,7 @@ next_hop(GatewayBin, GatewayScoreMap, HeadBlockTime, Vars, RandVal, Indices) ->
             %% If this gateway has witnesses, it is implied that it's location cannot be undefined
             GatewayLoc = blockchain_ledger_gateway_v2:location(Gateway),
             %% Filter witnesses
-            FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars),
+            FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars, Ledger),
             %% Assign probabilities to filtered witnesses
             %% P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
             PWitnessRSSI = rssi_probs(FilteredWitnesses, Vars),
@@ -270,8 +278,9 @@ select_witness([{_WitnessPubkeyBin, Prob} | Tail], Rnd, Vars) ->
                        Indices :: [h3:h3_index()],
                        Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
                        GatewayScoreMap :: blockchain_utils:gateway_score_map(),
-                       Vars :: map()) -> blockchain_ledger_gateway_v2:witnesses().
-filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars) ->
+                       Vars :: map(),
+                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_gateway_v2:witnesses().
+filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars, Ledger) ->
     ParentRes = parent_res(Vars),
     ExclusionCells = exclusion_cells(Vars),
     GatewayParent = h3:parent(GatewayLoc, ParentRes),
@@ -283,16 +292,20 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars) ->
                                 false;
                             true ->
                                 {WitnessGw, _} = maps:get(WitnessPubkeyBin, GatewayScoreMap),
-                                WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                                WitnessParent = h3:parent(WitnessLoc, ParentRes),
-                                %% Dont include any witnesses in any parent cell we've already visited
-                                not(lists:member(WitnessLoc, Indices)) andalso
-                                %% Don't include any witness whose parent is the same as the gateway we're looking at
-                                (GatewayParent /= WitnessParent) andalso
-                                %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                check_witness_inclusion(WitnessPubkeyBin, GatewayScoreMap, Vars) andalso
-                                check_witness_bad_rssi(Witness, Vars)
+                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessGw, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                    false -> false;
+                                    true ->
+                                        WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                        WitnessParent = h3:parent(WitnessLoc, ParentRes),
+                                        %% Dont include any witnesses in any parent cell we've already visited
+                                        not(lists:member(WitnessLoc, Indices)) andalso
+                                        %% Don't include any witness whose parent is the same as the gateway we're looking at
+                                        (GatewayParent /= WitnessParent) andalso
+                                        %% Don't include any witness whose parent is too close to any of the indices we've already seen
+                                        check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                        check_witness_inclusion(WitnessPubkeyBin, GatewayScoreMap, Vars) andalso
+                                        check_witness_bad_rssi(Witness, Vars)
+                                end
                         end
                 end,
                 Witnesses).

@@ -14,6 +14,7 @@
 %%% * Don't include any witness whose parent is too close to any of the indices we've already seen
 %%% * Don't include any witness who have bad rssi range
 %%% * Don't include any witness who are too far from the current gateway
+%%% * Dont include any witness who do not have the required capability
 %%%
 %%% We then assign cumulative probabilities to each filtered witness. Each of those
 %%% probabilities have an associated weight to them governed by chain variables.
@@ -39,6 +40,7 @@
 
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -297,18 +299,23 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                             false ->
                                 WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                 WitnessParent = h3:parent(WitnessLoc, ParentRes),
-                                %% Dont include any witnesses in any parent cell we've already visited
-                                not(lists:member(WitnessLoc, Indices)) andalso
-                                %% Don't include any witness whose parent is the same as the gateway we're looking at
-                                (GatewayParent /= WitnessParent) andalso
-                                %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                %% Don't include any witness who have a bad rssi
-                                check_witness_bad_rssi(Witness, Vars) andalso
-                                %% Don't include any witness who have bad rssi range
-                                check_witness_bad_rssi_centrality(Witness, Vars) andalso
-                                %% Don't include any witness who are too far from the current gateway
-                                check_witness_too_far(WitnessLoc, GatewayLoc, Vars)
+                                %% check the GW is allowed to witness, if not they dont do all the other checks
+                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessGw, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                    false -> false;
+                                    true ->
+                                        %% Dont include any witnesses in any parent cell we've already visited
+                                        not(lists:member(WitnessLoc, Indices)) andalso
+                                        %% Don't include any witness whose parent is the same as the gateway we're looking at
+                                        (GatewayParent /= WitnessParent) andalso
+                                        %% Don't include any witness whose parent is too close to any of the indices we've already seen
+                                        check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                        %% Don't include any witness who have a bad rssi
+                                        check_witness_bad_rssi(Witness, Vars) andalso
+                                        %% Don't include any witness who have bad rssi range
+                                        check_witness_bad_rssi_centrality(Witness, Vars) andalso
+                                        %% Don't include any witness who are too far from the current gateway
+                                        check_witness_too_far(WitnessLoc, GatewayLoc, Vars)
+                                end
                         end
                 end,
                 Witnesses).

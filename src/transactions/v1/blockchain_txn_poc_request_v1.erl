@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+-include("blockchain_caps.hrl").
 -include("blockchain_json.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
@@ -159,30 +160,35 @@ is_valid(Txn, Chain) ->
                         {error, _Reason}=Error ->
                             Error;
                         {ok, Info} ->
-                            case blockchain_ledger_gateway_v2:location(Info) of
-                                undefined ->
-                                    lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
-                                    {error, no_gateway_location};
-                                _Location ->
-                                    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                                    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
-                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                                    case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
-                                        false ->
-                                            {error, too_many_challenges};
-                                        true ->
-                                            BlockHash = ?MODULE:block_hash(Txn),
-                                            case blockchain:get_block(BlockHash, Chain) of
-                                                {error, _}=Error ->
-                                                    Error;
-                                                {ok, Block1} ->
-                                                    case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
-                                                        false ->
-                                                            {error, replaying_request};
-                                                        true ->
-                                                            Fee = ?MODULE:fee(Txn),
-                                                            Owner = blockchain_ledger_gateway_v2:owner_address(Info),
-                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+                            %% check the gateway mode to determine if its allowed to issue POC requests
+                            case blockchain_ledger_gateway_v2:is_valid_capability(Info, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
+                                false -> {error, {gateway_not_allowed, blockchain_ledger_gateway_v2:mode(Info)}};
+                                true ->
+                                    case blockchain_ledger_gateway_v2:location(Info) of
+                                        undefined ->
+                                            lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
+                                            {error, no_gateway_location};
+                                        _Location ->
+                                            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+                                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
+                                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
+                                                false ->
+                                                    {error, too_many_challenges};
+                                                true ->
+                                                    BlockHash = ?MODULE:block_hash(Txn),
+                                                    case blockchain:get_block(BlockHash, Chain) of
+                                                        {error, _}=Error ->
+                                                            Error;
+                                                        {ok, Block1} ->
+                                                            case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
+                                                                false ->
+                                                                    {error, replaying_request};
+                                                                true ->
+                                                                    Fee = ?MODULE:fee(Txn),
+                                                                    Owner = blockchain_ledger_gateway_v2:owner_address(Info),
+                                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+                                                            end
                                                     end
                                             end
                                     end
@@ -191,7 +197,6 @@ is_valid(Txn, Chain) ->
             end;
         Error -> Error
     end.
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
