@@ -19,7 +19,8 @@
     unstake_fail_already_cooldown/1,
     unstake_fail_already_unstaked/1,
     transfer_ok_in_account/1,
-    transfer_ok/1
+    transfer_ok/1,
+    unstake_ok_at_same_height/1
 ]).
 
 all() ->
@@ -35,7 +36,8 @@ all() ->
         unstake_fail_already_cooldown,
         unstake_fail_already_unstaked,
         transfer_ok_in_account,
-        transfer_ok
+        transfer_ok,
+        unstake_ok_at_same_height
     ].
 
 %%--------------------------------------------------------------------
@@ -428,3 +430,77 @@ transfer_ok(Config) ->
         ok -> ok;
         Error -> ct:fail("error: ~p", [Error])
     end.
+
+unstake_ok_at_same_height(Config) ->
+    Chain = ?config(chain, Config),
+
+    %% can't unstake validators in consensus
+    Genesis = ?config(genesis_members, Config),
+    Consensus = ?config(consensus_members, Config),
+    NonConsensus = Genesis -- Consensus,
+    [{Owner1PubkeyBin, {_Owner1Pub, _Owner1Priv, Owner1SigFun}},
+     {Owner2PubkeyBin, {_Owner2Pub, _Owner2Priv, Owner2SigFun}} | _] = NonConsensus,
+
+    ct:pal("Owner1PubkeyBin: ~p", [Owner1PubkeyBin]),
+    ct:pal("Owner2PubkeyBin: ~p", [Owner2PubkeyBin]),
+
+    {ok, Height} = blockchain:height(Chain),
+    ct:pal("height: ~p", [Height]),
+
+    Txn1 = blockchain_txn_unstake_validator_v1:new(
+        Owner1PubkeyBin,
+        Owner1PubkeyBin,
+        ?bones(10000),
+        Height + 10
+    ),
+    SignedTxn1 = blockchain_txn_unstake_validator_v1:sign(Txn1, Owner1SigFun),
+    ct:pal("SignedUnstakeTxn1: ~p", [SignedTxn1]),
+
+    ?assert(blockchain_txn_unstake_validator_v1:is_valid_owner(SignedTxn1)),
+    case blockchain_txn_unstake_validator_v1:is_valid(SignedTxn1, Chain) of
+        ok -> ok;
+        Error -> ct:fail("error: ~p", [Error])
+    end,
+
+    Txn2 = blockchain_txn_unstake_validator_v1:new(
+        Owner2PubkeyBin,
+        Owner2PubkeyBin,
+        ?bones(10000),
+        Height + 10
+    ),
+    SignedTxn2 = blockchain_txn_unstake_validator_v1:sign(Txn2, Owner2SigFun),
+    ct:pal("SignedUnstakeTxn2: ~p", [SignedTxn2]),
+
+    ?assert(blockchain_txn_unstake_validator_v1:is_valid_owner(SignedTxn2)),
+    case blockchain_txn_unstake_validator_v1:is_valid(SignedTxn2, Chain) of
+        ok -> ok;
+        Error1 -> ct:fail("error: ~p", [Error1])
+    end,
+
+
+    {ok, _Block} = test_utils:create_block(Consensus, [SignedTxn1, SignedTxn2]),
+
+    _ = lists:map(
+          fun(_) ->
+                  {ok, B} = test_utils:create_block(Consensus, []),
+                  blockchain:add_block(B, Chain)
+          end,
+          lists:seq(1, 11)),
+
+    ExpectedHeight = Height+11,
+    {ok, ExpectedHeight} = blockchain:height(Chain),
+
+    Ledger = blockchain:ledger(Chain),
+
+    {ok, Val1} = blockchain_ledger_v1:get_validator(Owner1PubkeyBin, Ledger),
+    ct:pal("Val1: ~p", [Val1]),
+    ?assertEqual(unstaked, blockchain_ledger_validator_v1:status(Val1)),
+    {ok, LedgerEntry1} = blockchain_ledger_v1:find_entry(Owner1PubkeyBin, Ledger),
+    ?assertEqual(?bones(15000), blockchain_ledger_entry_v1:balance(LedgerEntry1)),
+
+    {ok, Val2} = blockchain_ledger_v1:get_validator(Owner2PubkeyBin, Ledger),
+    ct:pal("Val2: ~p", [Val2]),
+    ?assertEqual(unstaked, blockchain_ledger_validator_v1:status(Val2)),
+    {ok, LedgerEntry2} = blockchain_ledger_v1:find_entry(Owner2PubkeyBin, Ledger),
+    ?assertEqual(?bones(15000), blockchain_ledger_entry_v1:balance(LedgerEntry2)),
+    ok.
