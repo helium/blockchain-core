@@ -294,7 +294,7 @@
 -define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
 -define(DEFAULT_ORACLE_PRICE, 0).
 
--type mode() :: active | delayed | aux.
+-type mode() :: active | delayed | aux | aux_load.
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type aux_ledger() :: #aux_ledger_v1{}.
@@ -424,7 +424,7 @@ bootstrap_aux(Path, Ledger) ->
             end
     end.
 
--spec mode(ledger()) -> active | delayed | aux.
+-spec mode(ledger()) -> active | delayed | aux | aux_load.
 mode(Ledger) ->
     Ledger#ledger_v1.mode.
 
@@ -432,8 +432,10 @@ mode(Ledger) ->
 has_aux(Ledger) ->
     Ledger#ledger_v1.aux /= undefined.
 
--spec mode(active | delayed | aux, ledger()) -> ledger().
+-spec mode(active | delayed | aux | aux_load, ledger()) -> ledger().
 mode(aux, #ledger_v1{aux=undefined}) ->
+    error(no_aux_ledger);
+mode(aux_load, #ledger_v1{aux=undefined}) ->
     error(no_aux_ledger);
 mode(Mode, Ledger) ->
     Ledger#ledger_v1{mode=Mode}.
@@ -614,7 +616,7 @@ subledger(Ledger = #ledger_v1{mode=Mode}) ->
     case Mode of
         active -> Ledger#ledger_v1.active;
         delayed -> Ledger#ledger_v1.delayed;
-        aux -> Ledger#ledger_v1.aux#aux_ledger_v1.aux
+        X when X == aux; X == aux_load -> Ledger#ledger_v1.aux#aux_ledger_v1.aux
     end.
 
 -spec subledger(ledger(), sub_ledger()) -> ledger().
@@ -622,7 +624,7 @@ subledger(Ledger = #ledger_v1{mode=Mode}, NewSubLedger) ->
     case Mode of
         active -> Ledger#ledger_v1{active=NewSubLedger};
         delayed -> Ledger#ledger_v1{delayed=NewSubLedger};
-        aux -> Ledger#ledger_v1{aux=Ledger#ledger_v1.aux#aux_ledger_v1{aux=NewSubLedger}}
+        X when X == aux; X == aux_load -> Ledger#ledger_v1{aux=Ledger#ledger_v1.aux#aux_ledger_v1{aux=NewSubLedger}}
     end.
 
 -spec db(ledger()) -> rocksdb:db_handle().
@@ -630,7 +632,7 @@ db(Ledger = #ledger_v1{mode=Mode}) ->
     case Mode of
         active -> Ledger#ledger_v1.db;
         delayed -> Ledger#ledger_v1.db;
-        aux -> Ledger#ledger_v1.aux#aux_ledger_v1.db
+        X when X == aux; X == aux_load -> Ledger#ledger_v1.aux#aux_ledger_v1.db
     end.
 
 

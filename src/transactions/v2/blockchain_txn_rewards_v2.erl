@@ -155,7 +155,7 @@ aux_absorb(Txn, AuxLedger, Chain) ->
     %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
     %% and do 0 verification for absorption
     case calculate_rewards_(Start, End, AuxLedger, Chain) of
-        {error, _}=E -> E;
+        {error, _}=_E -> ok;
         {ok, AuxRewards} ->
             TxnRewards = rewards(Txn),
             %% absorb the rewards attached to the txn (real)
@@ -182,7 +182,7 @@ calculate_rewards(Start, End, Chain) ->
         Ledger :: blockchain_ledger_v1:ledger(),
         Chain :: blockchain:blockchain()) -> {error, any()} | {ok, rewards()}.
 calculate_rewards_(Start, End, Ledger, Chain) ->
-    {ok, Results} = calculate_rewards_metadata(Start, End, Chain),
+    {ok, Results} = calculate_rewards_metadata(Start, End, blockchain:ledger(Ledger, Chain)),
     try
         {ok, prepare_rewards_v2_txns(Results, Ledger)}
     catch
