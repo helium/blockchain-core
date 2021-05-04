@@ -1278,7 +1278,7 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
 maybe_ledger_at(End, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, Height} when Height == End ->
+        {ok, Height} when Height == End + 1 ->
             {ok, Ledger};
         _ ->
             blockchain:ledger_at(End, Chain)
