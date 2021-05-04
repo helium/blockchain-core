@@ -1277,12 +1277,14 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
     {error, any()}.
 maybe_ledger_at(End, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, Height} when Height == End + 1 ->
+
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        true ->
             {ok, Ledger};
-        _ ->
+        false ->
             blockchain:ledger_at(End, Chain)
     end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
