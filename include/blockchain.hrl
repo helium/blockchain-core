@@ -27,4 +27,4 @@
 
 -define(BC_UPGRADE_NAMES, [<<"gateway_v2">>, <<"hex_targets">>, <<"gateway_oui">>,
                            <<"h3dex">>, <<"h3dex2">>,
-                           <<"gateway_lg">>]).
+                           <<"gateway_lg2">>]).

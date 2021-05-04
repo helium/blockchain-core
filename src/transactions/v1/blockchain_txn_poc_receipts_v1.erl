@@ -5,13 +5,13 @@
 -module(blockchain_txn_poc_receipts_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
--include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include("blockchain_json.hrl").
+-include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
     new/4,
@@ -157,25 +157,35 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
-
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
         true ->
-            case ?MODULE:path(Txn) =:= [] of
-                true ->
-                    {error, empty_path};
-                false ->
-                    case check_is_valid_poc(Txn, Chain) of
-                        ok -> ok;
-                        {ok, _} ->
-                            ok;
-                        Error -> Error
+            case blockchain_gateway_cache:get(Challenger, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, ChallengerGWInfo} ->
+                    %% check the challenger is allowed to issue POCs
+                    case blockchain_ledger_gateway_v2:is_valid_capability(ChallengerGWInfo, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
+                        false -> {error, {challenger_not_allowed, blockchain_ledger_gateway_v2:mode(ChallengerGWInfo)}};
+                        true ->
+                            case ?MODULE:path(Txn) =:= [] of
+                                true ->
+                                    {error, empty_path};
+                                false ->
+                                    case check_is_valid_poc(Txn, Chain) of
+                                        ok -> ok;
+                                        {ok, _} ->
+                                            ok;
+                                        Error -> Error
+                                    end
+                            end
                     end
             end
     end.
@@ -289,7 +299,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                            ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
                                                            {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                            StartFT = erlang:monotonic_time(millisecond),
-                                                           GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
+                                                           GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars, Ledger),
                                                            %% If we make it to this point, we are bound to have a target.
                                                            {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
                                                            maybe_log_duration(filter_target, StartFT),
@@ -297,9 +307,9 @@ check_is_valid_poc(Txn, Chain) ->
 
                                                            RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
                                                                       {ok, true} ->
-                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars);
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars, Ledger);
                                                                       _ ->
-                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars)
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars, Ledger)
                                                                   end,
                                                            maybe_log_duration(build, StartB),
                                                            RetB;
@@ -671,10 +681,10 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                     _ ->
                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                 end,
-        
+
                                 FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
                                 TaggedWitnesses = tagged_witnesses(Element, WitnessChannel, Ledger),
-        
+
                                 Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
         {error, request_block_hash_not_found} -> []
@@ -1087,7 +1097,7 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
                           false;
                       {ok, GWLoc} ->
                           GWLoc /= undefined andalso
-                          blockchain_poc_witness_v1:is_valid(Witness) andalso
+                          blockchain_poc_witness_v1:is_valid(Witness, OldLedger) andalso
                           blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
                   end
           end,

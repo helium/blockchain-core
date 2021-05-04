@@ -31,6 +31,8 @@
     approx_blocks_in_week/1,
     keys_list_to_bin/1,
     bin_keys_to_list/1,
+    prop_to_bin/1, prop_to_bin/2,
+    bin_to_prop/1, bin_to_prop/2,
     calculate_dc_amount/2, calculate_dc_amount/3,
     do_calculate_dc_amount/2,
     deterministic_subset/3,
@@ -380,6 +382,7 @@ approx_blocks_in_week(Ledger) ->
             10000
     end.
 
+
 -spec bin_keys_to_list( Data :: binary() ) -> [ binary() ].
 %% @doc Price oracle public keys and also staking keys are encoded like this
 %% <code>
@@ -401,6 +404,34 @@ bin_keys_to_list(Data) when is_binary(Data) ->
 %% @end
 keys_list_to_bin(Keys) ->
     << <<(byte_size(Key)):8/integer, Key/binary>> || Key <- Keys >>.
+
+-spec bin_to_prop( Data :: binary() ) -> [ {binary(), binary()} ].
+%% @doc staking key mode mappings are encoded like this
+%% <code>
+%% <<KeyLen1/integer, Key1/binary, ValueLen1/integer, Value1/binary, KeyLen2/integer, Key2/binary, ValueLen2/integer, Value2/binary...>>
+%% </code>
+%% This function takes the length tagged binary keys & values, removes the length tag
+%% and returns a binary keyed proplist
+%% @end
+bin_to_prop(Data) when is_binary(Data) ->
+    bin_to_prop(Data, 8).
+
+bin_to_prop(Data, Size) when is_binary(Data) ->
+    [ {Key, Value} || << KeyLen:Size/unsigned-integer, Key:KeyLen/binary, ValueLen:Size/unsigned-integer, Value:ValueLen/binary >> <= Data ].
+
+-spec prop_to_bin( [{binary(), binary()}] ) -> binary().
+%% @doc staking key mode mappings are encoded like this
+%% <code>
+%% <<KeyLen1/integer, Key1/binary, ValueLen1/integer, Value1/binary, KeyLen2/integer, Key2/binary, ValueLen2/integer, Value2/binary...>>
+%% </code>
+%% This function takes a binary keyed proplist, tags the key and values with the length
+%% and returns a list of binary keys
+%% @end
+prop_to_bin(Keys) ->
+    prop_to_bin(Keys, 8).
+
+prop_to_bin(Keys, Size) ->
+    << <<(byte_size(Key)):Size/unsigned-integer, Key/binary, (byte_size(Value)):Size/unsigned-integer, Value/binary>> || {Key, Value} <- Keys >>.
 
 %%--------------------------------------------------------------------
 %% @doc deterministic random subset from a random seed
@@ -554,6 +585,19 @@ oracle_keys_test() ->
     ?assertEqual([EccPK, EdPK], Results),
     Results1 = [ libp2p_crypto:bin_to_pubkey(K) || K <- Results ],
     ?assertEqual([RawEccPK, RawEdPK], Results1).
+
+staking_keys_to_mode_mappings_test() ->
+    #{ public := RawEccPK1 } = libp2p_crypto:generate_keys(ecc_compact),
+    #{ public := RawEccPK2 } = libp2p_crypto:generate_keys(ecc_compact),
+    #{ public := RawEdPK } = libp2p_crypto:generate_keys(ed25519),
+    EccPK1 = libp2p_crypto:pubkey_to_bin(RawEccPK1),
+    EccPK2 = libp2p_crypto:pubkey_to_bin(RawEccPK2),
+    EdPK = libp2p_crypto:pubkey_to_bin(RawEdPK),
+    BinMappings = prop_to_bin([{EccPK1, <<"light">>}, {EccPK2, <<"nonconsensus">>}, {EdPK, <<"full">>}]),
+    Results = bin_to_prop(BinMappings),
+    ?assertEqual([{EccPK1, <<"light">>}, {EccPK2, <<"nonconsensus">>}, {EdPK, <<"full">>}], Results),
+    Results1 = [ libp2p_crypto:bin_to_pubkey(K) || {K, _V} <- Results ],
+    ?assertEqual([RawEccPK1, RawEccPK2, RawEdPK], Results1).
 
 calculate_dc_amount_test() ->
     BaseDir = test_utils:tmp_dir("calculate_dc_amount_test"),
