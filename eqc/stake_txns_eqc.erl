@@ -20,12 +20,16 @@
         {
          init = false,
          chain,
-         validators,
+         pending_validators = [],
+         validators = [],
+         unstaked_validators = [],
          group,
          accounts,
 
          height = 1,
          pending_txns = #{},
+         prepending_unstake = #{},
+         pending_unstake = #{},
          txn_ctr = 1
         }).
 
@@ -45,7 +49,6 @@
          id,
          address,
          balance,
-         validators = [],
          sig_fun,
          pub,
          priv
@@ -60,8 +63,7 @@ initial_state() ->
     #s{
        accounts = maps:from_list(
                     lists:zip(lists:seq(1, 5),
-                              lists:duplicate(5, ?bones(10000)))),
-       validators = []
+                              lists:duplicate(5, ?bones(10000))))
       }.
 
 init_chain_env() ->
@@ -163,40 +165,52 @@ weight(_S, init) ->
     1;
 weight(_S, stake) ->
     4;
+weight(_S, unstake) ->
+    4;
 weight(_S, block) ->
     4.
 
-%% command(S) ->
-%%     frequency(
-%%       [
-%%        %% unstake
-%%        %% transfer
-%%        %% election -- maybe just handle this in next_state?
-
-%%        {1, {call, ?M, init, [{var, chain}]}},
-%%        {3, {call, ?M, block, [{var, chain}, {var, group}, S#s.pending_txns]}},
-%%        {1, {call, ?M, stake, [S#s.accounts, {var, accounts}, valid]}},
-%%        {1, {call, ?M, stake, [S#s.accounts, {var, accounts}, balance]}},
-%%        {1, {call, ?M, stake, [S#s.accounts, {var, accounts}, bad_sig]}},
-%%        {1, {call, ?M, stake, [S#s.accounts, {var, accounts}, bad_owner]}} %,
-
-%%        % {1, {call, ?M, unstake, [S#s.height, {var, accounts},  S#s.validators, {var, validators}, valid]}}%,
-%%        % {1, {call, ?M, stake, [S#s.accounts, bad_]}}%, dead
-%%        %{2, {call, ?M, close, [S#s.rc]}},
-%%       ]).
-
 command_precondition_common(S, Cmd) ->
-    S#s.init == false orelse Cmd == init.
+    S#s.init /= false orelse Cmd == init.
 
-%% invariant(#s{chain = undefined}) ->
-%%     true;
-%% invariant(#s{chain = Chain}) ->
-%%     Ledger = blockchain:ledger(Chain),
-%%     Circ = blockchain_ledger_v1:query_circulating_hnt(Ledger),
-%%     Cool = blockchain_ledger_v1:query_cooldown_hnt(Ledger),
-%%     Staked = blockchain_ledger_v1:query_staked_hnt(Ledger),
-%%     %% make this better.
-%%     ?bones(0000) == (Circ + Cool + Staked).
+invariant(#s{chain = undefined}) ->
+    true;
+invariant(#s{chain = Chain,
+             validators = Vals,
+             pending_unstake = Pends
+            }) ->
+    Ledger = blockchain:ledger(Chain),
+    Circ = blockchain_ledger_v1:query_circulating_hnt(Ledger),
+    Cool = blockchain_ledger_v1:query_cooldown_hnt(Ledger),
+    Staked = blockchain_ledger_v1:query_staked_hnt(Ledger),
+
+    Stake = ?bones(10000),
+
+    NumPends = length(lists:flatten(maps:values(Pends))),
+    NumVals = length(Vals),
+    lager:debug("circ ~p cool ~p staked ~p vals ~p pend ~p",
+                [Circ, Cool, Staked, NumVals, NumPends]),
+
+    try
+        ExpCool = NumPends * Stake,
+        case ExpCool == Cool of
+            false -> throw({cool, ExpCool, Cool});
+            _ -> ok
+        end,
+        ExpStaked = (4 + NumVals) * Stake,
+        case ExpStaked == Staked of
+            false -> throw({staked, ExpStaked, Cool});
+            _ -> ok
+        end,
+        ExpCirc = (5 - NumVals - NumPends) * Stake,
+        case ExpCirc == Circ of
+            false -> throw({circ, ExpCirc, Circ});
+            _ -> ok
+        end,
+        true
+    catch throw:E ->
+            E
+    end.
 
 add_block(Chain, {ok, _Valid, _Invalid, Block}) ->
     %% doing this for the side-effects, not sure if it's right :/
@@ -238,7 +252,10 @@ init_next(S, R, _) ->
         chain = R}.
 
 %% stake command
-stake_dynamicpre(_S, [Accounts, _DynAccts, balance]) ->
+stake_dynamicpre(#s{unstaked_validators = Dead0}, [_, _, _, bad_validator]) ->
+    Dead = lists:flatten(Dead0),
+    Dead /= [];
+stake_dynamicpre(_S, [Accounts, _Dead, _DynAccts, balance]) ->
     maps:size(
       maps:filter(
         fun(_, Bal) ->
@@ -246,7 +263,7 @@ stake_dynamicpre(_S, [Accounts, _DynAccts, balance]) ->
         end,
         Accounts)) =/= 0;
 %% we need at least one possible staker for these others to be reasonable
-stake_dynamicpre(_S, [Accounts, _DynAccts, _]) ->
+stake_dynamicpre(_S, [Accounts, _Dead, _DynAccts, _]) ->
     maps:size(
       maps:filter(
         fun(_, Bal) ->
@@ -255,12 +272,13 @@ stake_dynamicpre(_S, [Accounts, _DynAccts, _]) ->
         Accounts)) =/= 0.
 
 stake_args(S) ->
-    oneof([[S#s.accounts, {var, accounts}, valid],
-           [S#s.accounts, {var, accounts}, balance],
-           [S#s.accounts, {var, accounts}, bad_sig],
-           [S#s.accounts, {var, accounts}, bad_owner]]).
+    oneof([[S#s.accounts, S#s.unstaked_validators, {var, accounts}, valid],
+           [S#s.accounts, S#s.unstaked_validators, {var, accounts}, balance],
+           [S#s.accounts, S#s.unstaked_validators, {var, accounts}, bad_sig],
+           [S#s.accounts, S#s.unstaked_validators, {var, accounts}, bad_validator],
+           [S#s.accounts, S#s.unstaked_validators, {var, accounts}, bad_owner]]).
 
-stake(SymAccts, Accounts, Reason) ->
+stake(SymAccts, Dead, Accounts, Reason) ->
     %% todo rich accounts vs poor accounts
     Filter =
         case Reason of
@@ -273,9 +291,18 @@ stake(SymAccts, Accounts, Reason) ->
                         Bal >= ?bones(10000)
                 end
         end,
-    Account = select(maps:keys(maps:filter(Filter, SymAccts))),
-    [{Addr, _}] = test_utils:generate_keys(1),
-    Val = #validator{owner = Account, addr = Addr, stake = ?bones(10000)},
+    {Val, Addr, Account} =
+        case Reason of
+            bad_validator ->
+                V = select(Dead),
+                {V, V#validator.addr, V#validator.owner};
+              _ ->
+                Acct = select(maps:keys(maps:filter(Filter, SymAccts))),
+                [{Address, _}] = test_utils:generate_keys(1),
+                {#validator{owner = Acct, addr = Address, stake = ?bones(10000)},
+                 Address,
+                 Acct}
+        end,
     lager:info("val ~p acct ~p reason ~p", [Val, Account, Reason]),
     Txn = stake_txn(maps:get(Account, Accounts), Addr, Reason),
     {ok, Val, Txn}.
@@ -301,25 +328,76 @@ stake_txn(#account{address = Account0,
         _ ->
             STxn
     end.
-
+%% todo: try with mainnet/testnet keys
 stake_next(#s{} = S,
            V,
-           [SymAccounts, _Accounts, Reason]) ->
+           [SymAccounts, _Dead, _Accounts, Reason]) ->
     S#s{accounts = ?call(update_accounts, [stake, SymAccounts, Reason, V]),
+        pending_txns = ?call(add_pending, [V, S#s.txn_ctr, S#s.pending_txns, Reason]),
+        pending_validators = ?call(update_validators, [S#s.pending_validators, Reason, V]),
+        txn_ctr = S#s.txn_ctr + 1}.
+
+update_validators(Validators, Reason, {ok, Val, _Txn}) ->
+    case Reason of
+        valid -> Validators ++ [Val];
+        _ -> Validators
+    end.
+
+%% unstake command
+unstake_dynamicpre(#s{unstaked_validators = Dead0}, [_, _, _, _, _, bad_validator]) ->
+    Dead = lists:flatten(Dead0),
+    Dead /= [];
+unstake_dynamicpre(#s{prepending_unstake = Unstaked,
+                      validators = Validators}, _Args) ->
+    %% lager:info("dynamic pre ~p ~p", [Validators, maps:values(Unstaked)]),
+    (Validators -- lists:flatten(maps:values(Unstaked))) /= [].
+
+unstake_args(S) ->
+    oneof([
+           [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, valid],
+           [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, bad_account],
+           [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, bad_sig],
+           [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, wrong_account],
+           [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, bad_validator]
+          ]).
+
+unstake(Height, Accounts, Unstaked, SymVals, Dead, Reason) ->
+    Val = case Reason of
+              bad_validator -> select(Dead);
+              _ -> select(SymVals -- lists:flatten(maps:values(Unstaked)))
+          end,
+    lager:info("unstake ~p reas ~p ded ~p ok ~p",
+               [Val, Reason, Dead,
+                SymVals -- lists:flatten(maps:values(Unstaked))]),
+    Txn = unstake_txn(Val, Accounts, Height, Reason),
+    {ok, Val, Txn}.
+
+unstake_next(#s{} = S,
+             V,
+             [_Height, _Accounts, _Vals, _, _, Reason]) ->
+    S#s{prepending_unstake = ?call(update_preunstake, [S#s.prepending_unstake, Reason, V]),
         pending_txns = ?call(add_pending, [V, S#s.txn_ctr, S#s.pending_txns, Reason]),
         txn_ctr = S#s.txn_ctr + 1}.
 
-%% unstake command
-unstake_precondition(#s{validators = Validators}) ->
-    Validators /= [].
-
-unstake(Height, Accounts, SymVals, Validators, Reason) ->
-    Val = select(SymVals),
-    Txn = unstake_txn(maps:get(SymVals, Validators), Accounts, Height, Reason),
-    {ok, Val, Txn}.
+update_preunstake(Pending, valid, {ok, Val, Txn}) ->
+    UnstakeHeight = blockchain_txn_unstake_validator_v1:stake_release_height(Txn),
+    maps:update_with(UnstakeHeight, fun(X) -> [Val | X] end, [Val], Pending);
+update_preunstake(Pending, _Reason, _Res) ->
+    Pending.
 
 unstake_txn(#validator{owner = Owner, addr = Addr}, Accounts, Height, Reason) ->
-    Account = maps:get(Owner, Accounts),
+    Account =
+        case Reason of
+            %% make up a non-existent account
+            bad_account ->
+                [{Acct, {_, _, Sig}}] = test_utils:generate_keys(1),
+                #account{address = Acct, sig_fun = Sig};
+            %% use existing but non-owner account
+            wrong_account ->
+                element(2, hd(maps:to_list(maps:remove(Owner, Accounts))));
+            _ ->
+                maps:get(Owner, Accounts)
+        end,
 
     Txn = blockchain_txn_unstake_validator_v1:new(
             Addr, Account#account.address,
@@ -327,10 +405,10 @@ unstake_txn(#validator{owner = Owner, addr = Addr}, Accounts, Height, Reason) ->
             Height + 5 + 1,
             35000
            ),
-    STxn = blockchain_txn_stake_validator_v1:sign(Txn, Account#account.sig_fun),
+    STxn = blockchain_txn_unstake_validator_v1:sign(Txn, Account#account.sig_fun),
     case Reason of
         bad_sig ->
-            blockchain_txn_stake_validator_v1:owner_signature(<<0:512>>, Txn);
+            blockchain_txn_unstake_validator_v1:owner_signature(<<0:512>>, Txn);
         _ ->
             STxn
     end.
@@ -368,9 +446,42 @@ block(Chain, Group, Txns) ->
 block_next(#s{} = S,
            V,
            [Chain, _Group, _Transactions]) ->
+    NewHeight = S#s.height + 1,
     S#s{chain = ?call(add_block, [Chain, V]),
-        height = S#s.height + 1,
+        height = NewHeight,
+
+        accounts = ?call(block_update_accounts, [NewHeight, S#s.accounts, S#s.pending_unstake]),
+
+        pending_validators = [],
+        validators = ?call(block_update_validators, [S#s.pending_validators, S#s.prepending_unstake, S#s.validators]),
+
+        prepending_unstake = #{},
+        pending_unstake = ?call(update_unstake, [NewHeight, S#s.prepending_unstake, S#s.pending_unstake]),
+        unstaked_validators = S#s.unstaked_validators ++
+            lists:flatten([ ?call(update_dead_validators, [S#s.prepending_unstake])]),
+
         pending_txns = ?call(update_pending, [V, S#s.pending_txns])}.
+
+block_update_validators(PV, Unstakes, V) ->
+    (V ++ PV) -- lists:flatten(maps:values(Unstakes)).
+
+update_dead_validators(Unstakes) ->
+    lists:flatten(maps:values(Unstakes)).
+
+update_unstake(Height, PP, P) ->
+    maps:remove(Height, maps:merge(PP, P)).
+
+block_update_accounts(Height, Accounts, PendingUnstake) ->
+    case maps:find(Height, PendingUnstake) of
+        {ok, Vals} ->
+            lists:foldl(
+              fun(Val, Acc) ->
+                      Bal = maps:get(Val#validator.owner, Acc),
+                      Acc#{Val#validator.owner => Bal + ?bones(10000)}
+              end, Accounts,
+              Vals);
+        _ -> Accounts
+    end.
 
 block_post(#s{pending_txns = Pend,
               validators = _vals,
@@ -378,30 +489,41 @@ block_post(#s{pending_txns = Pend,
               _Args,
               {ok, Valid, Invalid0, _Block}) ->
     {Invalid, _Reasons} = lists:unzip(Invalid0),
-    maps:fold(
-      fun(_, _, false) ->
-              false;
-         (_ID, {valid, Txn}, _Acc) ->
-              %% we either need to be in the valid txns, or not in the invalid txns, i.e. not in the
-              %% list at all
-              lists:member(Txn, Valid) orelse
-                  not lists:member(Txn, Invalid);
-         %% all non-'valid' reason tags are invalid
-         (__ID, {_, Txn}, _Acc) ->
-              %% we either need to be in the valid txns, or not in the invalid txns, i.e. not in the
-              %% list at all
-              lists:member(Txn, Invalid) orelse
-                  not lists:member(Txn, Valid)
-      end,
-      true,
-      Pend).
+    Ret =
+        maps:fold(
+          fun(_ID, {valid, Txn}, Acc) ->
+                  %% we either need to be in the valid txns, or not in the invalid txns, i.e. not in the
+                  %% list at all
+                  case lists:member(Txn, Valid) orelse
+                      not lists:member(Txn, Invalid) of
+                      false ->
+                          [{valid, Txn}];
+                      _ -> Acc
+                  end;
+             %% all non-'valid' reason tags are invalid
+             (__ID, {Reason, Txn}, Acc) ->
+                  %% we either need to be in the valid txns, or not in the invalid txns, i.e. not in the
+                  %% list at all
+                  case lists:member(Txn, Invalid) orelse
+                      not lists:member(Txn, Valid) of
+                      false ->
+                          [{Reason, Txn}];
+                      _ -> Acc
+                  end
+          end,
+          [],
+          Pend),
+    case Ret of
+        [] -> true;
+        _ -> Ret
+    end.
 
 %% -- Property ---------------------------------------------------------------
 prop_stake() ->
     ?FORALL(
        %% default to longer commands sequences for better coverage
-       Cmds, commands(?M),
-       %% Cmds, noshrink(more_commands(5, commands(?M))),
+       %% Cmds, more_commands(5, commands(?M)),
+       Cmds, noshrink(more_commands(5, commands(?M))),
        with_parameters(
          [{show_states, false},  % make true to print state at each transition
           {print_counterexample, true}],
@@ -433,10 +555,12 @@ bugs(N) -> bugs(N, []).
 bugs(Time, Bugs) ->
     more_bugs(eqc:testing_time(Time, prop_stake()), 20, Bugs).
 
-
 %%% helpers
 
-select(Lst) ->
+select([]) ->
+    error(zero_len_list);
+select(Lst0) ->
+    Lst = lists:flatten(Lst0),
     Len = length(Lst),
     lists:nth(rand:uniform(Len), Lst).
 

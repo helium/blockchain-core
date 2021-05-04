@@ -21,7 +21,7 @@
          owner/1,
          stake_amount/1,
          stake_release_height/1,
-         owner_signature/1,
+         owner_signature/1, owner_signature/2,
          fee/1, calculate_fee/2, calculate_fee/5,
          sign/2,
          is_valid/2,
@@ -92,6 +92,10 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, _) ->
 -spec owner_signature(txn_unstake_validator()) -> binary().
 owner_signature(Txn) ->
     Txn#blockchain_txn_unstake_validator_v1_pb.owner_signature.
+
+-spec owner_signature(any(), txn_unstake_validator()) -> txn_unstake_validator().
+owner_signature(Sig, Txn) ->
+    Txn#blockchain_txn_unstake_validator_v1_pb{owner_signature = Sig}.
 
 -spec sign(txn_unstake_validator(), libp2p_crypto:sig_fun()) -> txn_unstake_validator().
 sign(Txn, SigFun) ->
