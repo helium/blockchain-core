@@ -478,16 +478,17 @@ unstake_ok_at_same_height(Config) ->
     end,
 
 
-    {ok, _Block} = test_utils:create_block(Consensus, [SignedTxn1, SignedTxn2]),
+    {ok, Block} = test_utils:create_block(Consensus, [SignedTxn1, SignedTxn2]),
+    _ = blockchain:add_block(Block, Chain),
 
     _ = lists:map(
           fun(_) ->
                   {ok, B} = test_utils:create_block(Consensus, []),
-                  blockchain:add_block(B, Chain)
+                  _ = blockchain:add_block(B, Chain)
           end,
           lists:seq(1, 11)),
 
-    ExpectedHeight = Height+11,
+    ExpectedHeight = Height+12, % 11 + 1 for the unstake txn block
     {ok, ExpectedHeight} = blockchain:height(Chain),
 
     Ledger = blockchain:ledger(Chain),
@@ -496,11 +497,11 @@ unstake_ok_at_same_height(Config) ->
     ct:pal("Val1: ~p", [Val1]),
     ?assertEqual(unstaked, blockchain_ledger_validator_v1:status(Val1)),
     {ok, LedgerEntry1} = blockchain_ledger_v1:find_entry(Owner1PubkeyBin, Ledger),
-    ?assertEqual(?bones(15000), blockchain_ledger_entry_v1:balance(LedgerEntry1)),
+    ?assertEqual(?bones(25000), blockchain_ledger_entry_v1:balance(LedgerEntry1)),
 
     {ok, Val2} = blockchain_ledger_v1:get_validator(Owner2PubkeyBin, Ledger),
     ct:pal("Val2: ~p", [Val2]),
     ?assertEqual(unstaked, blockchain_ledger_validator_v1:status(Val2)),
     {ok, LedgerEntry2} = blockchain_ledger_v1:find_entry(Owner2PubkeyBin, Ledger),
-    ?assertEqual(?bones(15000), blockchain_ledger_entry_v1:balance(LedgerEntry2)),
+    ?assertEqual(?bones(25000), blockchain_ledger_entry_v1:balance(LedgerEntry2)),
     ok.
