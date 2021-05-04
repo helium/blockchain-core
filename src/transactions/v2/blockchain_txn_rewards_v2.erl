@@ -173,7 +173,7 @@ aux_absorb(Txn, AuxLedger, Chain) ->
 %% rewards for use in a rewards_v2 transaction. Given how lists:sort/1 works,
 %% ordering will depend on (binary) account information.
 calculate_rewards(Start, End, Chain) ->
-    {ok, Ledger} = blockchain:ledger_at(End, Chain),
+    {ok, Ledger} = maybe_ledger_at(End, Chain),
     calculate_rewards_(Start, End, Ledger, Chain).
 
 -spec calculate_rewards_(
@@ -218,7 +218,7 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
 %% were used as bonus HNT rewards for the consensus members.
 %% @end
 calculate_rewards_metadata(Start, End, Chain) ->
-    {ok, Ledger} = blockchain:ledger_at(End, Chain),
+    {ok, Ledger} = maybe_ledger_at(End, Chain),
     Vars0 = get_reward_vars(Start, End, Ledger),
     VarMap = case blockchain_hex:var_map(Ledger) of
                  {error, _Reason} -> #{};
@@ -305,7 +305,7 @@ to_json(Txn, Opts) ->
         {chain, Chain} ->
             Start = blockchain_txn_rewards_v2:start_epoch(Txn),
             End = ?MODULE:end_epoch(Txn),
-            {ok, Ledger} = blockchain:ledger_at(End, Chain),
+            {ok, Ledger} = maybe_ledger_at(End, Chain),
             {ok, Metadata} = ?MODULE:calculate_rewards_metadata(Start, End, Chain),
             maps:fold(
                 fun(overages, Amount, Acc) ->
@@ -1269,6 +1269,20 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
                       + maps:get(poc_witnesses_percent, Vars))))
                 ).
 
+-spec maybe_ledger_at(
+    End :: pos_integer(),
+    Chain :: blockchain:blockchain()
+) ->
+    {ok, blockchain_ledger_v1:ledger()} |
+    {error, any()}.
+maybe_ledger_at(End, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, Height} when Height == End ->
+            {ok, Ledger};
+        _ ->
+            blockchain:ledger_at(End, Chain)
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
