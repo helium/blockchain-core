@@ -5,6 +5,9 @@
 %% - without_data: these don't
 %%
 %% However, data is fetched and stored once in group_init and passed along
+%%
+%%
+%%
 %%--------------------------------------------------------------------
 
 -module(blockchain_region_SUITE).
@@ -35,7 +38,8 @@
     ru864_test/1,
     eu868_test/1,
     region_not_found_test/1,
-    us915_region_param_test/1
+    us915_region_param_test/1,
+    eu868_region_param_test/1
 ]).
 
 all() ->
@@ -51,13 +55,15 @@ with_h3_data_test_cases() ->
         cn779_test,
         us915_test,
         ru864_test,
-        eu868_test
+        eu868_test,
+        region_not_found_test
     ].
 
 without_h3_data_test_cases() ->
     [
         all_regions_test,
-        us915_region_param_test
+        us915_region_param_test,
+        eu868_region_param_test
     ].
 
 groups() ->
@@ -269,23 +275,74 @@ region_not_found_test(Config) ->
     Ledger = ?config(ledger, Config),
     InvalidH3 = 11111111111111111111,
     {error, {h3_contains_failed, _}} = blockchain_region_v1:region(InvalidH3, Ledger),
+    Ser = blockchain_region_params_v1:serialized_eu868(),
+    ct:pal("Ser: ~p", [Ser]),
     ok.
 
 us915_region_param_test(Config) ->
+
+    %% US915 channel parameter specification deserialized:
+    %%
+    %% {blockchain_region_params_v1_pb,
+    %%  [{blockchain_region_param_v1_pb,905300000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,905100000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,904900000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,904700000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,904500000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,904300000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,904100000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}},
+    %%   {blockchain_region_param_v1_pb,903900000,125000,360,
+    %%    {blockchain_region_spreading_v1_pb,
+    %%     ['SF10','SF9','SF8','SF7']}}]}
+
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_us915, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_params_v1:fetch(us915),
-            SerUS915 = blockchain_region_params_v1:serialized_us915(),
-            DeserUS915 = blockchain_region_params_v1:deserialize(SerUS915),
-            DeserUS915_FromVar = blockchain_region_params_v1:deserialize(Bin),
+            Ser = blockchain_region_params_v1:serialized_us915(),
+            Deser = blockchain_region_params_v1:deserialize(Ser),
+            DeserFromVar = blockchain_region_params_v1:deserialize(Bin),
             %% check that the chain var matches our known binary
-            true = Bin == SerUS915,
+            true = Bin == Ser,
             %% check that we can properly deserialize
-            true = DeserUS915 == KnownParams,
+            true = Deser == KnownParams,
             %% check that the deserialization from chain var also matches our known value
-            true = DeserUS915_FromVar == KnownParams,
-            ct:pal("DeserUS915_FromVar: ~p", [DeserUS915_FromVar]),
+            true = DeserFromVar == KnownParams,
+            ct:pal("DeserFromVar: ~p", [DeserFromVar]),
+            ok;
+        _ ->
+            ct:fail("boom")
+    end.
+
+eu868_region_param_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    case blockchain:config(?region_params_eu868, Ledger) of
+        {ok, Bin} ->
+            KnownParams = blockchain_region_params_v1:fetch(eu868),
+            Ser = blockchain_region_params_v1:serialized_eu868(),
+            Deser = blockchain_region_params_v1:deserialize(Ser),
+            DeserFromVar = blockchain_region_params_v1:deserialize(Bin),
+            %% check that the chain var matches our known binary
+            true = Bin == Ser,
+            %% check that we can properly deserialize
+            true = Deser == KnownParams,
+            %% check that the deserialization from chain var also matches our known value
+            true = DeserFromVar == KnownParams,
+            ct:pal("DeserFromVar: ~p", [DeserFromVar]),
             ok;
         _ ->
             ct:fail("boom")
@@ -327,7 +384,8 @@ extra_vars(with_h3_data) ->
 extra_vars(without_h3_data) ->
     #{
         regulatory_regions => ?regulatory_region_bin_str,
-        region_params_us915 => region_params_us915()
+        region_params_us915 => region_params_us915(),
+        region_params_eu868 => region_params_eu868()
     };
 extra_vars(_) ->
     #{}.
@@ -357,10 +415,16 @@ download_regions(RegionURLs) ->
     ).
 
 region_params_us915() ->
-    <<10, 18, 8, 160, 144, 215, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 224,
-        245, 202, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 160, 219, 190, 175,
-        3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 224, 192, 178, 175, 3, 16, 125, 24,
-        36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 160, 166, 166, 175, 3, 16, 125, 24, 36, 34, 6, 10,
-        4, 4, 3, 2, 1, 10, 18, 8, 224, 139, 154, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1,
-        10, 18, 8, 160, 241, 141, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1, 10, 18, 8, 224,
-        214, 129, 175, 3, 16, 125, 24, 36, 34, 6, 10, 4, 4, 3, 2, 1>>.
+    <<10,21,8,160,144,215,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,224,245,202,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,160,219,190,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,224,192,178,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,160,166,166,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,224,139,154,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,160,241,141,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1,
+      10,21,8,224,214,129,175,3,16,200,208,7,24,232,2,34,6,10,4,4,3,2,1>>.
+
+region_params_eu868() ->
+    <<10,23,8,160,132,145,158,3,16,200,208,7,24,140,1,34,8,10,6,6,5,4,3,2,1,
+      10,23,8,224,233,132,158,3,16,200,208,7,24,140,1,34,8,10,6,6,5,4,3,2,1,
+      10,23,8,160,207,248,157,3,16,200,208,7,24,140,1,34,8,10,6,6,5,4,3,2,1>>.

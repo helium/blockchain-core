@@ -1316,15 +1316,14 @@ validate_var(?region_us915, Value) ->
 %% TODO: Revisit
 validate_var(?region_params_us915, Value) when is_binary(Value) ->
     KnownUS915Bin = blockchain_region_params_v1:serialized_us915(),
-    C1 = Value == KnownUS915Bin,
-    C2 = blockchain_region_params_v1:deserialize(KnownUS915Bin) == blockchain_region_params_v1:deserialize(Value),
-    case {C1, C2} of
-        {true, true} -> ok;
-        _ -> throw({error, {unknown_value, Value}})
-    end;
+    validate_region_params(KnownUS915Bin, Value);
 validate_var(?region_params_us915, Value) ->
     throw({error, {invalid_region_params_us915_not_binary, Value}});
-
+validate_var(?region_params_eu868, Value) when is_binary(Value) ->
+    KnownEU868Bin = blockchain_region_params_v1:serialized_eu868(),
+    validate_region_params(KnownEU868Bin, Value);
+validate_var(?region_params_eu868, Value) ->
+    throw({error, {invalid_region_params_eu868_not_binary, Value}});
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
@@ -1417,6 +1416,14 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+validate_region_params(KnownBin, Value) ->
+    C1 = Value == KnownBin,
+    C2 = blockchain_region_params_v1:deserialize(KnownBin) == blockchain_region_params_v1:deserialize(Value),
+    case {C1, C2} of
+        {true, true} -> ok;
+        _ -> throw({error, {unknown_value, Value}})
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

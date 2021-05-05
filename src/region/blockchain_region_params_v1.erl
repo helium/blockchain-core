@@ -16,6 +16,7 @@
 
 -export([
     serialized_us915/0,
+    serialized_eu868/0,
 
     new/1,
     fetch/1,
@@ -33,20 +34,16 @@
 serialized_us915() ->
     serialize(fetch(us915)).
 
+-spec serialized_eu868() -> binary().
+serialized_eu868() ->
+    serialize(fetch(eu868)).
+
 -spec fetch(atom()) -> region_params_v1().
 fetch(us915) ->
-    Params =
-        lists:foldl(
-            fun(P, Acc) ->
-                CF = proplists:get_value(<<"channel_frequency">>, P),
-                BW = proplists:get_value(<<"bandwidth">>, P),
-                MP = proplists:get_value(<<"max_power">>, P),
-                Spreading = blockchain_region_spreading_v1:new(proplists:get_value(<<"spreading">>, P)),
-                [blockchain_region_param_v1:new(CF, BW, MP, Spreading) | Acc]
-            end,
-            [],
-            ?REGION_PARAMS_US915
-        ),
+    Params = make_params(?REGION_PARAMS_US915),
+    new(Params);
+fetch(eu868) ->
+    Params = make_params(?REGION_PARAMS_EU868),
     new(Params).
 
 -spec new(RegionParams :: [blockchain_region_param_v1:region_param_v1()]) -> region_params_v1().
@@ -60,3 +57,25 @@ serialize(#blockchain_region_params_v1_pb{} = RegionParams) ->
 -spec deserialize(binary()) -> region_params_v1().
 deserialize(Bin) ->
     blockchain_region_param_v1_pb:decode_msg(Bin, blockchain_region_params_v1_pb).
+
+%%--------------------------------------------------------------------
+%% helpers
+%%--------------------------------------------------------------------
+
+make_params(RegionParams) ->
+    lists:foldl(
+        fun(P, Acc) ->
+            Param = construct_param(P),
+            [Param | Acc]
+        end,
+        [],
+        RegionParams
+    ).
+
+construct_param(P) ->
+    CF = proplists:get_value(<<"channel_frequency">>, P),
+    BW = proplists:get_value(<<"bandwidth">>, P),
+    MP = proplists:get_value(<<"max_power">>, P),
+    Spreading = blockchain_region_spreading_v1:new(proplists:get_value(<<"spreading">>, P)),
+    blockchain_region_param_v1:new(CF, BW, MP, Spreading).
+
