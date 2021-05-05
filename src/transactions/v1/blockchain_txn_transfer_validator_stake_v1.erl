@@ -21,7 +21,7 @@
          new_validator/1,
          old_owner/1,
          new_owner/1,
-         old_owner_signature/1,
+         old_owner_signature/1, old_owner_signature/2,
          new_owner_signature/1,
          stake_amount/1,
          payment_amount/1,
@@ -127,6 +127,10 @@ new_owner_signature(Txn) ->
 -spec old_owner_signature(txn_transfer_validator_stake()) -> binary().
 old_owner_signature(Txn) ->
     Txn#blockchain_txn_transfer_validator_stake_v1_pb.old_owner_signature.
+
+-spec old_owner_signature(any(), txn_transfer_validator_stake()) -> txn_transfer_validator_stake().
+old_owner_signature(Sig, Txn) ->
+    Txn#blockchain_txn_transfer_validator_stake_v1_pb{old_owner_signature = Sig}.
 
 -spec sign(txn_transfer_validator_stake(), libp2p_crypto:sig_fun()) -> txn_transfer_validator_stake().
 sign(Txn, SigFun) ->
