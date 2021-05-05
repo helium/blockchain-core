@@ -509,10 +509,18 @@
 %% -define(region_params_au915, region_params_au915).
 %% -define(region_params_cn779, region_params_cn779).
 %% -define(region_params_eu433, region_params_eu433).
-%% -define(region_params_eu868, region_params_eu868).
 %% -define(region_params_in865, region_params_in865).
 %% -define(region_params_kr920, region_params_kr920).
 %% -define(region_params_ru864, region_params_ru864).
 
-%% US915 Channel parameters specification
+%% The values these take is binary obtained by serializing
+%% a valid channel param specification.
+%%
+%% The validation of these is highly specific and will only
+%% validate a binary value we know beforehand, usually evaluated
+%% by hand. We don't expect these to change often but whence
+%% they do, we will re-evaluate accordingly.
+%%
+%% Refer to blockchain_region_SUITE for an example
 -define(region_params_us915, region_params_us915).
+-define(region_params_eu868, region_params_eu868).
