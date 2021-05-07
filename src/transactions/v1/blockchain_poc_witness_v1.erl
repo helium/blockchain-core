@@ -162,7 +162,8 @@ print(#blockchain_poc_witness_v1_pb{
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
                    Signal,
-                   Freq, SNR
+                   SNR,
+                   Freq
                   ]).
 json_type() ->
     undefined.
