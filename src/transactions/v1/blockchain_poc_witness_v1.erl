@@ -161,7 +161,8 @@ print(#blockchain_poc_witness_v1_pb{
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
                    Signal,
-                   Freq, SNR
+                   SNR,
+                   Freq
                   ]).
 
 -spec to_json(poc_witness(), blockchain_json:opts()) -> blockchain_json:json_object().
