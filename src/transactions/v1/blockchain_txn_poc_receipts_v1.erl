@@ -1159,7 +1159,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
-                    MinRcvSig = min_rcv_sig(Element, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
                     case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
@@ -1241,7 +1241,8 @@ valid_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 MinRcvSig = min_rcv_sig(Element, Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
+                                 Receipt = blockchain_poc_path_element_v1:receipt(Element),
+                                 MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
 
                                  case RSSI < MinRcvSig of
                                      false ->
@@ -1351,7 +1352,8 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 MinRcvSig = min_rcv_sig(Element, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                                 Receipt = blockchain_poc_path_element_v1:receipt(Element),
+                                 MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
 
                                  case RSSI < MinRcvSig of
                                      false ->
@@ -1481,33 +1483,25 @@ get_channels(Txn, Chain) ->
             {ok, Channels1}
     end.
 
-min_rcv_sig(Element, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+min_rcv_sig(undefined, _Ledger, _SourceLoc, _DstPubkeyBin, _DestinationLoc, _Freq) ->
+    %% TODO: no receipt, what to default?
+    0;
+min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
-            %% TODO:
-            %% - Get region for Src or Dst (at this point, it MUST be the same)
-            %% - Get channel params for region
-
-            case blockchain_poc_path_element_v1:receipt(Element) of
-                undefined ->
-                    %% no receipt, what's the min_rcv_sig?
-                    %% placeholder
-                    0;
-                Receipt ->
-                    TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
-                    SrcPubkeyBin = blockchain_poc_receipt_v1:gateway(Receipt),
-                    {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
-                    {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
-                    GT = blockchain_ledger_gateway_v2:gain(SrcGW),
-                    GR = blockchain_ledger_gateway_v2:gain(DstGW),
-                    {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
-                    blockchain_utils:min_rcv_sig(
-                        blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq),
-                        TxPower,
-                        GT,
-                        GR
-                    ) * Loss
-            end;
+            TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
+            SrcPubkeyBin = blockchain_poc_receipt_v1:gateway(Receipt),
+            {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
+            {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
+            GT = blockchain_ledger_gateway_v2:gain(SrcGW),
+            GR = blockchain_ledger_gateway_v2:gain(DstGW),
+            {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
+            blockchain_utils:min_rcv_sig(
+              blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq),
+              TxPower,
+              GT,
+              GR
+             ) * Loss;
         _ ->
             blockchain_utils:min_rcv_sig(
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
