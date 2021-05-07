@@ -1136,10 +1136,10 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             %% nothing to validate
             undefined;
         Receipt ->
+            DstPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
             {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(
                                 blockchain_poc_path_element_v1:challengee(PreviousElement), Ledger),
-            {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(
-                                     blockchain_poc_path_element_v1:challengee(Element), Ledger),
+            {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
@@ -1159,7 +1159,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
-                    MinRcvSig = min_rcv_sig(Ledger, SourceLoc, DestinationLoc, Freq),
+                    MinRcvSig = min_rcv_sig(Element, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
                     case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
@@ -1172,7 +1172,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                         true ->
                             case blockchain:config(?data_aggregation_version, Ledger) of
                                 {ok, 2} ->
-                                    case check_rssi_snr(Ledger, RSSI, SNR, Freq) of
+                                    case check_rssi_snr(Ledger, RSSI, SNR) of
                                         true ->
                                             case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
                                                 true ->
@@ -1220,8 +1220,8 @@ valid_witnesses(Element, Channel, Ledger) ->
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
 
     lists:filter(fun(Witness) ->
-                         {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(
-                                                  blockchain_poc_witness_v1:gateway(Witness), Ledger),
+                         WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
+                         {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(WitnessPubkeyBin, Ledger),
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
@@ -1241,7 +1241,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 MinRcvSig = min_rcv_sig(Ledger, SourceLoc, DestinationLoc, Freq),
+                                 MinRcvSig = min_rcv_sig(Element, Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
 
                                  case RSSI < MinRcvSig of
                                      false ->
@@ -1255,7 +1255,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                      true ->
                                          case blockchain:config(?data_aggregation_version, Ledger) of
                                              {ok, 2} ->
-                                                 case check_rssi_snr(Ledger, RSSI, SNR, Freq) of
+                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
                                                      true ->
                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                              true ->
@@ -1270,19 +1270,12 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                                                 RSSI, SNR]),
                                                                  false
                                                          end;
-                                                     {snr_rssi, LowerBound} ->
+                                                     {false, LowerBound} ->
                                                          lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
                                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
                                                                         RSSI, LowerBound, SNR]),
-                                                         false;
-                                                     {rssi_snr, MaxSNR} ->
-                                                         lager:debug("witness ~p -> ~p rejected at height ~p for SNR ~p above max of ~p at RSSI ~p",
-                                                                     [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                      ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                      element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                      SNR, MaxSNR, RSSI]),
                                                          false
                                                  end;
                                              _ ->
@@ -1335,7 +1328,8 @@ tagged_witnesses(Element, Channel, Ledger) ->
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
     lists:foldl(fun(Witness, Acc) ->
-                         {ok, Destination} = blockchain_gateway_cache:get(blockchain_poc_witness_v1:gateway(Witness), Ledger),
+                         DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
+                         {ok, Destination} = blockchain_gateway_cache:get(DstPubkeyBin, Ledger),
                          SourceLoc = blockchain_ledger_gateway_v2:location(Source),
                          DestinationLoc = blockchain_ledger_gateway_v2:location(Destination),
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
@@ -1357,7 +1351,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 MinRcvSig = min_rcv_sig(Ledger, SourceLoc, DestinationLoc, Freq),
+                                 MinRcvSig = min_rcv_sig(Element, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
 
                                  case RSSI < MinRcvSig of
                                      false ->
@@ -1371,7 +1365,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                      true ->
                                          case blockchain:config(?data_aggregation_version, Ledger) of
                                              {ok, 2} ->
-                                                 case check_rssi_snr(Ledger, RSSI, SNR, Freq) of
+                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
                                                      true ->
                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                              true ->
@@ -1386,20 +1380,13 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                                 RSSI, SNR]),
                                                                  [{false, <<"witness_on_incorrect_channel">>, Witness} | Acc]
                                                          end;
-                                                     {snr_rssi, LowerBound} ->
+                                                     {false, LowerBound} ->
                                                          lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
                                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
                                                                         RSSI, LowerBound, SNR]),
-                                                         [{false, <<"witness_rssi_below_lower_bound">>, Witness} | Acc];
-                                                     {rssi_snr, MaxSNR} ->
-                                                         lager:debug("witness ~p -> ~p rejected at height ~p for SNR ~p above max of ~p at RSSI ~p",
-                                                                     [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                      ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                      element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                      SNR, MaxSNR, RSSI]),
-                                                         [{false, <<"witness_snr_above_upper_bound">>, Witness} | Acc]
+                                                         [{false, <<"witness_rssi_below_lower_bound">>, Witness} | Acc]
                                                  end;
                                              _ ->
                                                  %% SNR+Freq+Channels not collected, nothing else we can check
@@ -1421,7 +1408,7 @@ scale_unknown_snr(UnknownSNR) ->
     {Low, High} = maps:get(Key, ?SNR_CURVE),
     {Low + (Low * ScaleFactor), High + (High * ScaleFactor)}.
 
-check_rssi_snr(Ledger, RSSI, SNR, Freq) ->
+check_rssi_snr(Ledger, RSSI, SNR) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
             %% no checks
@@ -1494,20 +1481,37 @@ get_channels(Txn, Chain) ->
             {ok, Channels1}
     end.
 
-min_rcv_sig(Ledger, SourceLoc, DestinationLoc, Freq) ->
+min_rcv_sig(Element, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
-            %% TODO: Fix me
-            TxPower = case Freq > 900 of
-                          true ->
-                              24;
-                          false ->
-                              14
-                      end,
-            {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
-            blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq), TxPower) * Loss;
+            %% TODO:
+            %% - Get region for Src or Dst (at this point, it MUST be the same)
+            %% - Get channel params for region
+
+            case blockchain_poc_path_element_v1:receipt(Element) of
+                undefined ->
+                    %% no receipt, what's the min_rcv_sig?
+                    %% placeholder
+                    0;
+                Receipt ->
+                    TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
+                    SrcPubkeyBin = blockchain_poc_receipt_v1:gateway(Receipt),
+                    {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
+                    {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
+                    GT = blockchain_ledger_gateway_v2:gain(SrcGW),
+                    GR = blockchain_ledger_gateway_v2:gain(DstGW),
+                    {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
+                    blockchain_utils:min_rcv_sig(
+                        blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq),
+                        TxPower,
+                        GT,
+                        GR
+                    ) * Loss
+            end;
         _ ->
-            blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq))
+            blockchain_utils:min_rcv_sig(
+                blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
+            )
     end.
 
 %% ------------------------------------------------------------------
