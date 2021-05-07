@@ -25,6 +25,7 @@
          unstaked_validators = [],
          group,
          accounts,
+         account_addrs,
 
          height = 1,
          pending_txns = #{},
@@ -61,6 +62,8 @@
 -define(min_stake, ?bones(10000)).
 -define(initial_balance, ?min_stake * 2).
 
+-define(val, blockchain_ledger_validator_v1).
+
 %% @doc Returns the state in which each test case starts. (Unless a different
 %%      initial state is supplied explicitly to, e.g. commands/2.)
 -spec initial_state() -> eqc_statem:symbolic_state().
@@ -81,20 +84,6 @@ init_chain_env() ->
     %% create a chain
     BaseDir = make_base_dir(),
 
-    %%% local is just a follower of the fake chain
-    %% LocalKeys = libp2p_crypto:generate_keys(ecc_compact),
-
-    %% SigFun = libp2p_crypto:mk_sig_fun(maps:get(secret, LocalKeys)),
-    %% ECDHFun = libp2p_crypto:mk_ecdh_fun(maps:get(secret, LocalKeys)),
-
-    %% Opts = [
-    %%     {key, {maps:get(public, LocalKeys), SigFun, ECDHFun}},
-    %%     {seed_nodes, []},
-    %%     {port, 0},
-    %%     {num_consensus_members, 4},
-    %%     {base_dir, BaseDir}
-    %% ],
-
     {no_genesis, Chain} = blockchain:new(BaseDir, "", undefined, undefined),
 
     {InitialVars, _MasterKeys} = blockchain_ct_utils:create_vars(val_vars()),
@@ -102,17 +91,16 @@ init_chain_env() ->
     GenesisMembers = test_utils:generate_keys(?initial_validators),
 
     Balance = ?initial_balance,
-    Accounts = [#account{id = ID,
-                         address = Addr,
-                         %% give all accounts 1 val stake
-                         balance = Balance,
-                         sig_fun = SigFun,
-                         pub = Pub,
-                         priv = Priv}
-                || {ID, {Addr, {Pub, Priv, SigFun}}} <- lists:zip(lists:seq(1, ?num_accounts),
-                                                                  test_utils:generate_keys(?num_accounts))],
-
-    GenOwner = hd(Accounts),
+    [GenOwner |
+     Accounts] = [#account{id = ID,
+                           address = Addr,
+                           %% give all accounts 1 val stake
+                           balance = Balance,
+                           sig_fun = SigFun,
+                           pub = Pub,
+                           priv = Priv}
+                  || {ID, {Addr, {Pub, Priv, SigFun}}} <- lists:zip(lists:seq(0, ?num_accounts),
+                                                                    test_utils:generate_keys(?num_accounts + 1))],
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || #account{address = Addr} <- Accounts],
@@ -170,13 +158,13 @@ val_vars() ->
 weight(_S, init) ->
     1;
 weight(_S, transfer) ->
-    5;
+    50;
 weight(_S, stake) ->
-    4;
+    30;
 weight(_S, unstake) ->
-    3;
+    30;
 weight(_S, block) ->
-    4.
+    10.  % hard to balance interesting interleavings with enough blocks to unstake 
 
 command_precondition_common(S, Cmd) ->
     S#s.init /= false orelse Cmd == init.
@@ -185,12 +173,19 @@ invariant(#s{chain = undefined}) ->
     true;
 invariant(#s{chain = Chain,
              validators = Vals,
-             pending_unstake = Pends
+             pending_unstake = Pends,
+             accounts = Accounts,
+             account_addrs = Addrs
             }) ->
     Ledger = blockchain:ledger(Chain),
     Circ = blockchain_ledger_v1:query_circulating_hnt(Ledger),
     Cool = blockchain_ledger_v1:query_cooldown_hnt(Ledger),
     Staked = blockchain_ledger_v1:query_staked_hnt(Ledger),
+    LedgerVals0 = blockchain_ledger_v1:snapshot_validators(Ledger),
+    LedgerVals =
+        lists:map(fun({Addr, BinVal}) ->
+                          {Addr, blockchain_ledger_validator_v1:deserialize(BinVal)}
+                  end, LedgerVals0),
 
     Stake = ?min_stake,
 
@@ -199,6 +194,7 @@ invariant(#s{chain = Chain,
     lager:debug("circ ~p cool ~p staked ~p vals ~p pend ~p",
                 [Circ, Cool, Staked, NumVals, NumPends]),
     try
+        %% check that the ledger amounts match the expected state from the model
         ExpCool = NumPends * Stake,
         case ExpCool == Cool of
             false -> throw({cool, ExpCool, Cool, Pends});
@@ -213,6 +209,48 @@ invariant(#s{chain = Chain,
         case ExpCirc == Circ of
             false -> throw({circ, ExpCirc, Circ});
             _ -> ok
+        end,
+
+        %% make sure that all balances are correct
+        ExpBals0 =
+            lists:foldl(
+              fun({_Addr, V}, Acc) ->
+                      StakeAmt = ?val:stake(V),
+                      Owner = ?val:owner_address(V),
+                      %% we have 4 initial validators not owned by modeled accounts who we don't
+                      %% care about from a balance perspective
+                      case maps:find(Owner, Acc) of
+                          {ok, {Bal, Tot}} ->
+                              case ?val:status(V) of
+                                  staked ->
+                                      Acc#{Owner => {Bal, Tot + StakeAmt}};
+                                  unstaked ->
+                                      Acc;
+                                  cooldown ->
+                                      Acc#{Owner => {Bal, Tot + StakeAmt}}
+                              end;
+                          _ -> Acc
+                      end
+              end,
+              maps:from_list([begin
+                                  {ok, Ent} = blockchain_ledger_v1:find_entry(Addr, Ledger),
+                                  Bal = blockchain_ledger_entry_v1:balance(Ent),
+                                  {Addr, {Bal, Bal}}
+                              end || Addr <- maps:keys(Addrs)]),
+              LedgerVals),
+        ExpBals =
+            maps:fold(fun(Addr, BalTot, Acc) ->
+                              case maps:find(Addr, Addrs) of
+                                  {ok, ID} ->
+                                      Acc#{ID => BalTot};
+                                  _ -> Acc
+                              end
+                      end, #{}, ExpBals0),
+        case ExpBals == Accounts of
+            true ->
+                ok;
+            false ->
+                throw({balance_issue, ExpBals, Accounts})
         end,
         true
     catch throw:E ->
@@ -236,27 +274,33 @@ update_pending({ok, Valid, Invalid0, _Block}, Pending) ->
               not lists:member(Txn, ToRemove)
       end, Pending).
 
-update_accounts(stake, SymAccts, valid,
-                {ok, #validator{owner = Owner,
-                                stake = Stake}, _}) ->
-    {OAcctAvailBal, OAcctTotal} = maps:get(Owner, SymAccts),
-    SymAccts#{Owner => {OAcctAvailBal - Stake, OAcctTotal}};
-update_accounts(_, SymAccts, _, _) ->
-    SymAccts.
+%% update_accounts(stake, SymAccts, valid,
+%%                 {ok, #validator{owner = Owner,
+%%                                 stake = Stake}, _}) ->
+%%     {OAcctAvailBal, OAcctTotal} = maps:get(Owner, SymAccts),
+%%     SymAccts#{Owner => {OAcctAvailBal - Stake, OAcctTotal}};
+%% update_accounts(_, SymAccts, _, _) ->
+%%     SymAccts.
 
 %% -- Commands ---------------------------------------------------------------
 init_pre(S, _) ->
     S#s.init == false.
 
 init_args(_S) ->
-    [{var, chain}].
+    [{var, chain}, {var, accounts}].
 
-init(Chain) ->
-    Chain.
+init(Chain, Accounts) ->
+    {Chain, Accounts}.
 
 init_next(S, R, _) ->
     S#s{init = true,
-        chain = R}.
+        chain = {call, erlang, element, [1, R]},
+        account_addrs = ?call(init_accts, [R])}.
+
+init_accts({_Chain, Accounts}) ->
+    maps:fold(fun(ID, #account{address = Addr}, Acc) ->
+                      Acc#{Addr => ID}
+              end, #{}, Accounts).
 
 lt_stake(_, {Bones, _}) ->
     Bones < ?min_stake.
@@ -327,8 +371,8 @@ stake_txn(#account{address = Account0,
 %% todo: try with mainnet/testnet keys
 stake_next(#s{} = S,
            V,
-           [SymAccounts, _Dead, _Accounts, Reason]) ->
-    S#s{accounts = ?call(update_accounts, [stake, SymAccounts, Reason, V]),
+           [_SymAccounts, _Dead, _Accounts, Reason]) ->
+    S#s{%% accounts = ?call(update_accounts, [stake, SymAccounts, Reason, V]),
         pending_txns = ?call(add_pending, [V, S#s.txn_ctr, S#s.pending_txns, Reason]),
         pending_validators = ?call(update_validators, [S#s.pending_validators, Reason, V]),
         txn_ctr = S#s.txn_ctr + 1}.
@@ -347,7 +391,7 @@ unstake_dynamicpre(#s{unstaked_validators = Dead0}, [_, _, _, _, _, _, bad_valid
 unstake_dynamicpre(#s{pretransfer = Pretransfer0,
                       prepending_unstake = Unstaked,
                       validators = Validators}, _Args) ->
-    {Pretransfer, _NewVals} = lists:unzip(Pretransfer0),
+    {Pretransfer, _Amts, _NewVals} = lists:unzip3(Pretransfer0),
     (Validators -- (Pretransfer ++ lists:flatten(maps:values(Unstaked)))) /= [].
 
 unstake_args(S) ->
@@ -365,7 +409,7 @@ unstake_args(S) ->
           ]).
 
 unstake(Height, Accounts, Unstaked, Pretransfer0, SymVals, Dead, Reason) ->
-    {Pretransfer, _NewVals} = lists:unzip(Pretransfer0),
+    {Pretransfer, _Amts, _NewVals} = lists:unzip3(Pretransfer0),
     Val = case Reason of
               bad_validator -> select(Dead);
               _ -> select(SymVals -- (Pretransfer ++ lists:flatten(maps:values(Unstaked))))
@@ -415,60 +459,86 @@ unstake_txn(#validator{owner = Owner, addr = Addr}, Accounts, Height, Reason) ->
             blockchain_txn_unstake_validator_v1:owner_signature(<<0:512>>, Txn);
         _ ->
             STxn
+
     end.
 %%%%
 %%% transfer command
 %%%%
 
-transfer_dynamicpre(#s{unstaked_validators = Dead0}, [_, _, _, _, _, bad_validator]) ->
+transfer_dynamicpre(#s{pretransfer = Pretransfer0,
+                       accounts = Accounts,
+                       prepending_unstake = Unstaked,
+                       validators = Validators,
+                       unstaked_validators = Dead0}, [_, _, _, _, _, InAddr, bad_validator]) ->
     Dead = lists:flatten(Dead0),
-    Dead /= [];
+    Amt = case InAddr of
+              true -> 0;
+              false -> 0;
+              amount -> ?bones(9000)
+          end,
+    {Pretransfer, _Amts, _NewVals} = lists:unzip3(Pretransfer0),
+    (Validators -- (Pretransfer ++ lists:flatten(maps:values(Unstaked)))) /= []
+        andalso maps:size(maps:filter(fun(_, {Bal, _Tot}) -> Bal >= Amt end, Accounts)) =/= 0
+        andalso Dead /= [];
+transfer_dynamicpre(#s{pretransfer = Pretransfer0,
+                       accounts = Accounts,
+                       prepending_unstake = Unstaked,
+                       validators = Validators}, [_, _, _, _, _, amount, valid]) ->
+    %% when amount + valid, we need to make sure that there is something it's possible to transfer
+    {Pretransfer, _Amts, _NewVals} = lists:unzip3(Pretransfer0),
+    (Validators -- (Pretransfer ++ lists:flatten(maps:values(Unstaked)))) /= []
+        andalso
+        %% and that there is an account with enough balance to cover the amount
+        maps:size(maps:filter(fun(_, {Bal, _Tot}) -> Bal > ?bones(9000) end, Accounts)) =/= 0;
 transfer_dynamicpre(#s{pretransfer = Pretransfer0,
                        prepending_unstake = Unstaked,
                        validators = Validators}, _Args) ->
-    lager:info("XXX pretrans ~p", [Pretransfer0]),
-    {Pretransfer, _NewVals} = lists:unzip(Pretransfer0),
+    {Pretransfer, _Amts, _NewVals} = lists:unzip3(Pretransfer0),
     (Validators -- (Pretransfer ++ lists:flatten(maps:values(Unstaked)))) /= [].
+
+acct_transfer() ->
+    oneof([true, false, amount]).
 
 transfer_args(S) ->
     oneof([
            [{var, accounts}, S#s.prepending_unstake, S#s.pretransfer,
-            S#s.validators, S#s.unstaked_validators, bool(), valid],
-           [{var, accounts}, S#s.prepending_unstake,  S#s.pretransfer,
-            S#s.validators, S#s.unstaked_validators, bool(), bad_sig]
-           %% [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, bad_account],
-           %% [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, wrong_account],
-           %% [S#s.height, {var, accounts}, S#s.prepending_unstake, S#s.validators, S#s.unstaked_validators, bad_validator]
+            S#s.validators, S#s.unstaked_validators, acct_transfer(), valid],
+           [{var, accounts}, S#s.prepending_unstake, S#s.pretransfer,
+            S#s.validators, S#s.unstaked_validators, acct_transfer(), bad_sig],
+           [{var, accounts}, S#s.prepending_unstake, S#s.pretransfer,
+            S#s.validators, S#s.unstaked_validators, acct_transfer(), bad_account],
+           [{var, accounts}, S#s.prepending_unstake, S#s.pretransfer,
+            S#s.validators, S#s.unstaked_validators, acct_transfer(), wrong_account],
+           [{var, accounts}, S#s.prepending_unstake, S#s.pretransfer,
+            S#s.validators, S#s.unstaked_validators, acct_transfer(), bad_validator]
           ]).
 
 transfer(Accounts, Unstaked, Pretransfer0, SymVals, Dead, IntraAddr, Reason) ->
-    {Pretransfer, _NewVals} = lists:unzip(Pretransfer0),
+    lager:info("xxx ~p",[Pretransfer0]),
+    {Pretransfer, _Amts, _NewVals} = lists:unzip3(Pretransfer0),
     OldVal = case Reason of
                  bad_validator -> select(Dead);
                  _ -> select(SymVals -- (Pretransfer ++ lists:flatten(maps:values(Unstaked))))
              end,
     [{Address, _}] = test_utils:generate_keys(1),
-    {Txn, NewVal} = transfer_txn(OldVal, Address, IntraAddr, Accounts, Reason),
-    {OldVal, NewVal, Txn}.
+    {Txn, Amt, NewVal} = transfer_txn(OldVal, Address, IntraAddr, Accounts, Reason),
+    {OldVal, NewVal, Amt, Txn}.
 
 transfer_next(#s{} = S,
               V,
               [_Accounts, _Vals, _, _, _, _IntraAddr, Reason]) ->
     S#s{pretransfer = ?call(update_pretransfer, [S#s.pretransfer, Reason, V]),
-        pending_txns = ?call(add_pending, [V, S#s.txn_ctr, S#s.pending_txns, Reason]),
+        pending_txns = ?call(add_trans_pending, [V, S#s.txn_ctr, S#s.pending_txns, Reason]),
         %% pending_validators = ?call(transfer_update_validators, [S#s.pending_validators, Reason, V]),
         txn_ctr = S#s.txn_ctr + 1}.
 
-update_pretransfer(Pretransfer, valid, {Val, NewVal, _Txn}) ->
-    [{Val, NewVal} | Pretransfer];
+add_trans_pending({_Old, _New, _Amt, Txn}, ID, Pending, Reason) ->
+    Pending#{ID => {Reason, Txn}}.
+
+update_pretransfer(Pretransfer, valid, {Val, NewVal, Amt, _Txn}) ->
+    [{Val, Amt, NewVal} | Pretransfer];
 update_pretransfer(Pretransfer, _Reason, _Res) ->
     Pretransfer.
-
-%% transfer_update_validators(Validators, Reason, {_OldVal, Val, _Txn}) ->
-%%     case Reason of
-%%         valid -> Validators ++ [Val];
-%%         _ -> Validators
-%%     end.
 
 transfer_txn(#validator{owner = Owner, addr = Addr},
              NewValAddr,
@@ -489,11 +559,11 @@ transfer_txn(#validator{owner = Owner, addr = Addr},
                 maps:get(Owner, Accounts)
         end,
 
-    {ID, NewAccount} =
+    {{ID, NewAccount}, Amt} =
         case IntraAddr of
-            false -> {Account#account.id, #account{address = <<>>}};
-            true ->
-                select(maps:to_list(maps:remove(Owner, Accounts)))
+            false -> {{Account#account.id, #account{address = <<>>}}, 0};
+            true -> {select(maps:to_list(maps:remove(Owner, Accounts))), 0};
+            amount -> {select(maps:to_list(maps:remove(Owner, Accounts))), ?bones(9000)}
         end,
 
     NewVal = #validator{owner = ID,
@@ -504,12 +574,12 @@ transfer_txn(#validator{owner = Owner, addr = Addr},
             Account#account.address,
             NewAccount#account.address,
             ?min_stake,
-            0, % transfer amount
+            Amt,
             35000
            ),
     STxn0 = blockchain_txn_transfer_validator_stake_v1:sign(Txn, Account#account.sig_fun),
     STxn = case IntraAddr of
-               true ->
+               OK when OK == true; OK == amount ->
                    blockchain_txn_transfer_validator_stake_v1:new_owner_sign(
                      STxn0,
                      NewAccount#account.sig_fun);
@@ -522,7 +592,7 @@ transfer_txn(#validator{owner = Owner, addr = Addr},
             _ ->
                 STxn
         end,
-    {FinalTxn, NewVal}.
+    {FinalTxn, Amt, NewVal}.
 
 %% block commands
 block_args(S) ->
@@ -561,7 +631,10 @@ block_next(#s{} = S,
     S#s{chain = ?call(add_block, [Chain, V]),
         height = NewHeight,
 
-        accounts = ?call(block_update_accounts, [NewHeight, S#s.accounts, S#s.pending_unstake]),
+        accounts = ?call(block_update_accounts, [NewHeight, S#s.accounts,
+                                                 S#s.pending_validators,
+                                                 S#s.pretransfer,
+                                                 S#s.pending_unstake]),
 
         pending_validators = [],
         validators = ?call(block_update_validators, [S#s.pending_validators,
@@ -578,7 +651,7 @@ block_next(#s{} = S,
         pending_txns = ?call(update_pending, [V, S#s.pending_txns])}.
 
 block_update_validators(PV, Unstakes, Pretransfer0, V) ->
-    {Pretransfer, NewVals} = lists:unzip(Pretransfer0),
+    {Pretransfer, _Amts, NewVals} = lists:unzip3(Pretransfer0),
     (V ++ PV ++ NewVals) -- (Pretransfer ++ lists:flatten(maps:values(Unstakes))).
 
 update_dead_validators(Unstakes) ->
@@ -587,7 +660,7 @@ update_dead_validators(Unstakes) ->
 update_unstake(Height, PP, P) ->
     maps:remove(Height, maps:merge(PP, P)).
 
-block_update_accounts(Height, Accounts, PendingUnstake) ->
+block_update_accounts(Height, Accounts, PendingValidators, PendingTransfer, PendingUnstake) ->
     Accounts1 =
         case maps:find(Height, PendingUnstake) of
             {ok, Vals} ->
@@ -599,24 +672,27 @@ block_update_accounts(Height, Accounts, PendingUnstake) ->
                   Vals);
             _ -> Accounts
         end,
-    case maps:find(transfer, PendingUnstake) of
-        {ok, TVals} ->
-            lists:foldl(
-              fun({OldVal, NewVal}, Acc) ->
-                      case OldVal#validator.owner == NewVal#validator.owner of
-                          true ->
-                              Acc; % no overall change
-                          false ->
-                              {OldBal, OldTot} = maps:get(OldVal#validator.owner, Acc),
-                              {NewBal, NewTot} = maps:get(NewVal#validator.owner, Acc),
-                              Acc#{OldVal#validator.owner => {OldBal, OldTot - ?min_stake},
-                                   NewVal#validator.owner => {NewBal, NewTot + ?min_stake}}
-                      end
-              end,
-              Accounts1,
-              TVals);
-        _ -> Accounts1
-    end.
+    Accounts2 =
+        lists:foldl(
+          fun(Val, Acc) ->
+                  {Bal, Tot} = maps:get(Val#validator.owner, Acc),
+                  Acc#{Val#validator.owner => {Bal - ?min_stake, Tot}}
+          end, Accounts1,
+          PendingValidators),
+    lists:foldl(
+      fun({OldVal, Amt, NewVal}, Acc) ->
+              case OldVal#validator.owner == NewVal#validator.owner of
+                  true ->
+                      Acc; % no overall change
+                  false ->
+                      {OldBal, OldTot} = maps:get(OldVal#validator.owner, Acc),
+                      {NewBal, NewTot} = maps:get(NewVal#validator.owner, Acc),
+                      Acc#{OldVal#validator.owner => {OldBal + Amt, OldTot + Amt - ?min_stake},
+                           NewVal#validator.owner => {NewBal - Amt, NewTot - Amt + ?min_stake}}
+              end
+      end,
+      Accounts2,
+      PendingTransfer).
 
 block_post(#s{pending_txns = Pend,
               validators = _vals,
@@ -657,7 +733,7 @@ block_post(#s{pending_txns = Pend,
 prop_stake() ->
     ?FORALL(
        %% default to longer commands sequences for better coverage
-       Cmds, more_commands(5, commands(?M)),
+       Cmds, more_commands(10, commands(?M)),
        %% Cmds, noshrink(more_commands(5, commands(?M))),
        with_parameters(
          [{show_states, false},  % make true to print state at each transition
