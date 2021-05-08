@@ -33,7 +33,7 @@
     all_regions_test/1,
     as923_1_test/1,
     au915_test/1,
-    cn779_test/1,
+    cn470_test/1,
     us915_test/1,
     ru864_test/1,
     eu868_test/1,
@@ -52,7 +52,7 @@ with_h3_data_test_cases() ->
     [
         as923_1_test,
         au915_test,
-        cn779_test,
+        cn470_test,
         us915_test,
         ru864_test,
         eu868_test,
@@ -187,15 +187,15 @@ au915_test(Config) ->
             ct:fail("broken")
     end.
 
-cn779_test(Config) ->
+cn470_test(Config) ->
     Ledger = ?config(ledger, Config),
     CNH3 = 631645363084543487,
-    case blockchain:config(?region_cn779, Ledger) of
+    case blockchain:config(?region_cn470, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(CNH3, Bin),
             {ok, Region} = blockchain_region_v1:region(CNH3, Ledger),
             %% TODO: Fix me and do proper region_param checks
-            true = cn779 == Region,
+            true = cn470 == Region,
             ok;
         _ ->
             ct:fail("broken")
@@ -204,7 +204,7 @@ cn779_test(Config) ->
 %% eu433_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
 %%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn779, Ledger) of
+%%     case blockchain:config(?region_cn470, Ledger) of
 %%         {ok, Bin} ->
 %%             {true, _Parent} = h3:contains(CAH3, Bin),
 %%             ok;
@@ -226,7 +226,7 @@ eu868_test(Config) ->
 %% in865_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
 %%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn779, Ledger) of
+%%     case blockchain:config(?region_cn470, Ledger) of
 %%         {ok, Bin} ->
 %%             {true, _Parent} = h3:contains(CAH3, Bin),
 %%             ok;
@@ -237,7 +237,7 @@ eu868_test(Config) ->
 %% kr920_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
 %%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn779, Ledger) of
+%%     case blockchain:config(?region_cn470, Ledger) of
 %%         {ok, Bin} ->
 %%             {true, _Parent} = h3:contains(CAH3, Bin),
 %%             ok;
@@ -396,7 +396,7 @@ region_urls() ->
         {region_as923_2, ?region_as923_2_url},
         {region_as923_3, ?region_as923_3_url},
         {region_au915, ?region_au915_url},
-        {region_cn779, ?region_cn779_url},
+        {region_cn470, ?region_cn470_url},
         {region_eu433, ?region_eu433_url},
         {region_eu868, ?region_eu868_url},
         {region_in865, ?region_in865_url},
