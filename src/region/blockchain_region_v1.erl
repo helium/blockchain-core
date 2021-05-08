@@ -63,7 +63,7 @@ actual_region_var(as923_1) -> ?region_as923_1;
 actual_region_var(as923_2) -> ?region_as923_2;
 actual_region_var(as923_3) -> ?region_as923_3;
 actual_region_var(au915) -> ?region_au915;
-actual_region_var(cn779) -> ?region_cn779;
+actual_region_var(cn470) -> ?region_cn470;
 actual_region_var(eu433) -> ?region_eu433;
 actual_region_var(eu868) -> ?region_eu868;
 actual_region_var(in865) -> ?region_in865;
