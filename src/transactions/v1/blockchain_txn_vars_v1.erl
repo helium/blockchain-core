@@ -1276,7 +1276,7 @@ validate_var(?penalty_history_limit, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The only regulatory_regions value we support must look like this:
-    %% <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
+    %% <<"as923_1,as923_2,as923_3,au915,cn470,eu433,eu868,in865,kr920,ru864,us915">>
     %% The order does not matter in validation
     case blockchain_region_v1:get_regulatory_regions_var(Value) of
         {ok, ValueList} ->
@@ -1298,8 +1298,8 @@ validate_var(?region_as923_3, Value) ->
     validate_region_var(region_as923_3, Value);
 validate_var(?region_au915, Value) ->
     validate_region_var(region_au915, Value);
-validate_var(?region_cn779, Value) ->
-    validate_region_var(region_cn779, Value);
+validate_var(?region_cn470, Value) ->
+    validate_region_var(region_cn470, Value);
 validate_var(?region_eu433, Value) ->
     validate_region_var(region_eu433, Value);
 validate_var(?region_eu868, Value) ->

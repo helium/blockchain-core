@@ -21,7 +21,9 @@
     "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/AU915.res7.h3idx?raw=true"
 ).
 
--define(region_cn779_url,
+%% NOTE: This is incorrect in the sense that we're using 779 as 470,
+%% we should fix it downstream in lorwawan regions
+-define(region_cn470_url,
     "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/CN779.res7.h3idx?raw=true"
 ).
 
@@ -50,5 +52,5 @@
 ).
 
 -define(regulatory_region_bin_str,
-    <<"as923_1,as923_2,as923_3,au915,cn779,eu433,eu868,in865,kr920,ru864,us915">>
+    <<"as923_1,as923_2,as923_3,au915,cn470,eu433,eu868,in865,kr920,ru864,us915">>
 ).

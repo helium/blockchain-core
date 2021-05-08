@@ -28,13 +28,13 @@
 -spec new(
     ChannelFreq :: undefined | non_neg_integer(),
     Bandwidth :: undefined | non_neg_integer(),
-    MaxPower :: undefined | non_neg_integer(),
+    MaxEIRP :: undefined | non_neg_integer(),
     Spreading :: undefined | blockchain_region_spreading_v1:spreading()
 ) -> region_param_v1().
-new(ChannelFreq, Bandwidth, MaxPower, Spreading) ->
+new(ChannelFreq, Bandwidth, MaxEIRP, Spreading) ->
     #blockchain_region_param_v1_pb{
         channel_frequency = ChannelFreq,
         bandwidth = Bandwidth,
-        max_power = MaxPower,
+        max_eirp = MaxEIRP,
         spreading = Spreading
     }.

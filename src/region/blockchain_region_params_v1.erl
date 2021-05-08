@@ -75,7 +75,7 @@ make_params(RegionParams) ->
 construct_param(P) ->
     CF = proplists:get_value(<<"channel_frequency">>, P),
     BW = proplists:get_value(<<"bandwidth">>, P),
-    MP = proplists:get_value(<<"max_power">>, P),
+    MaxEIRP = proplists:get_value(<<"max_eirp">>, P),
     Spreading = blockchain_region_spreading_v1:new(proplists:get_value(<<"spreading">>, P)),
-    blockchain_region_param_v1:new(CF, BW, MP, Spreading).
+    blockchain_region_param_v1:new(CF, BW, MaxEIRP, Spreading).
 
