@@ -126,7 +126,9 @@ encode_vars(Vars) ->
 encode_unsets(Unsets) ->
     lists:map(fun(U) -> atom_to_binary(U, utf8) end, Unsets).
 
-to_var(Name, V) when is_list(V) orelse is_binary(V) ->
+to_var(Name, V) when is_binary(V) ->
+    #blockchain_var_v1_pb{name = Name, type = "binary", value = V};
+to_var(Name, V) when is_list(V) ->
     #blockchain_var_v1_pb{name = Name, type = "string", value = iolist_to_binary(V)};
 to_var(Name, V) when is_integer(V) ->
     #blockchain_var_v1_pb{name = Name, type = "int", value = integer_to_binary(V)};
@@ -135,6 +137,7 @@ to_var(Name, V) when is_float(V) ->
 to_var(Name, V) when is_atom(V) ->
     #blockchain_var_v1_pb{name = Name, type = "atom", value = atom_to_binary(V, utf8)};
 to_var(_Name, _V) ->
+    lager:warning("bad var: ~p, value ~p", [_Name, _V]),
     error(bad_var_type).
 
 decode_vars(PBList) ->
@@ -147,6 +150,8 @@ decode_vars(PBList) ->
       #{},
       PBList).
 
+from_var(#blockchain_var_v1_pb{name = Name, type = "binary", value = V}) ->
+    {Name, V};
 from_var(#blockchain_var_v1_pb{name = Name, type = "string", value = V}) ->
     {Name, V};
 from_var(#blockchain_var_v1_pb{name = Name, type = "int", value = V}) ->
@@ -714,6 +719,31 @@ validate_staking_keys([H|T]) ->
             throw({error, {invalid_staking_pubkey, H}})
     end.
 
+validate_staking_keys_to_mode_mappings_format(Bin) when is_binary(Bin) ->
+    Mappings = blockchain_utils:bin_to_prop(Bin, 8),
+    validate_staking_keys_to_mode_mappings(Mappings);
+validate_staking_keys_to_mode_mappings_format(_Bin)  ->
+    throw({error, invalid_staking_to_mode_mappings_format}).
+
+validate_staking_keys_to_mode_mappings([]) -> ok;
+validate_staking_keys_to_mode_mappings([{PubKey, GWMode} | T]) ->
+    try
+        _ = libp2p_crypto:bin_to_pubkey(PubKey),
+        _ = validate_staking_key_mode_mapping_value(GWMode),
+        validate_staking_keys_to_mode_mappings(T)
+    catch
+        _C:_E:_St ->
+            throw({error, {invalid_staking_to_mode_mapping, {PubKey, GWMode}}})
+    end.
+
+validate_staking_key_mode_mapping_value(GWMode) when GWMode == <<"light">>;
+                                                     GWMode == <<"nonconsensus">>;
+                                                     GWMode == <<"full">> ->
+    ok;
+validate_staking_key_mode_mapping_value(GWMode) ->
+    throw({error, {invalid_staking_to_mode_mapping_value, GWMode}}).
+
+
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
 %% election vars
@@ -1054,6 +1084,10 @@ validate_var(?txn_fees, Value) ->
 validate_var(?staking_keys, Value) ->
     validate_staking_keys_format(Value);
 
+validate_var(?staking_keys_to_mode_mappings, Value) ->
+    %% the staking key mode mappings, a key value list of staking keys and their associated gateway types ( light, nonconsensus and full )
+    validate_staking_keys_to_mode_mappings_format(Value);
+
 %% txn fee vars below are in DC
 validate_var(?staking_fee_txn_oui_v1, Value) ->
     %% the staking fee price for an OUI, in DC
@@ -1066,6 +1100,10 @@ validate_var(?staking_fee_txn_oui_v1_per_address, Value) ->
 validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn, in DC
     validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_add_light_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn where the gateway is of mode light, in DC
+    validate_int(Value, "staking_fee_txn_add_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?staking_fee_txn_assert_location_v1, Value) ->
     %% the staking fee price for an assert location txn, in DC
@@ -1132,6 +1170,12 @@ validate_var(?min_antenna_gain, Value) ->
 validate_var(?max_antenna_gain, Value) ->
     %% Initially set to 150 to imply 15 dBi
     validate_int(Value, "max_antenna_gain", 10, 200, false);
+
+validate_var(?light_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a light gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "light_gateway_capabilities_mask", 0, 65536, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
