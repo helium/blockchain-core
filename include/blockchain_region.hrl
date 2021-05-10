@@ -19,10 +19,14 @@
 
 -define(REGION_PARAMS_US915, [
     [
-        {<<"channel_frequency">>, 903900000},                                   % in hz
-        {<<"bandwidth">>, 125000},                                              % in hz
-        {<<"max_eirp">>, 360},                                                  % dBi x 10
-        {<<"spreading">>, [<<"sf10">>, <<"sf9">>, <<"sf8">>, <<"sf7">>]}        % will be converted to atoms
+        % in hz
+        {<<"channel_frequency">>, 903900000},
+        % in hz
+        {<<"bandwidth">>, 125000},
+        % dBi x 10
+        {<<"max_eirp">>, 360},
+        % will be converted to atoms
+        {<<"spreading">>, [<<"sf10">>, <<"sf9">>, <<"sf8">>, <<"sf7">>]}
     ],
     [
         {<<"channel_frequency">>, 904100000},
@@ -444,7 +448,7 @@
         {<<"bandwidth">>, 125000},
         {<<"max_eirp">>, 121},
         {<<"spreading">>, [<<"sf12">>, <<"sf11">>, <<"sf10">>, <<"sf9">>, <<"sf8">>, <<"sf7">>]}
-    ],
+    ]
 ]).
 
 %% -define(REGION_PARAMS_CN779, [
