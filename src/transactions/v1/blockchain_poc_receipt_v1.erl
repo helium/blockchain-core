@@ -23,8 +23,8 @@
     frequency/1,
     channel/1,
     datarate/1,
-    addr_hash/1,
-    addr_hash/2,
+    addr_hash/1, addr_hash/2,
+    tx_power/1, tx_power/2,
     sign/2,
     is_valid/2,
     print/1,
@@ -142,6 +142,13 @@ addr_hash(Receipt) ->
 addr_hash(Receipt, Hash) when is_binary(Hash), byte_size(Hash) =< 32 ->
     Receipt#blockchain_poc_receipt_v1_pb{addr_hash = Hash}.
 
+-spec tx_power(Receipt :: poc_receipt()) -> 'undefined' | integer().
+tx_power(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.tx_power.
+
+-spec tx_power(Receipt :: poc_receipt(), TxPower :: integer()) -> poc_receipt().
+tx_power(Receipt, TxPower) ->
+    Receipt#blockchain_poc_receipt_v1_pb{tx_power = TxPower}.
 
 -spec channel(Receipt :: poc_receipt()) -> non_neg_integer().
 channel(Receipt) ->
