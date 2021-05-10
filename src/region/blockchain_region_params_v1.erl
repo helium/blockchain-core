@@ -15,6 +15,8 @@
 -include_lib("helium_proto/include/blockchain_region_param_v1_pb.hrl").
 
 -export([
+    params_for_region/2,
+
     serialized_us915/0,
     serialized_eu868/0,
     serialized_au915/0,
@@ -35,9 +37,34 @@
 
 -type region_params_v1() :: #blockchain_region_params_v1_pb{}.
 
+-define(REGION_PARAM_MAP, #{
+    us915 => ?region_params_us915,
+    eu868 => ?region_params_eu868,
+    as923_1 => ?region_params_as923_1,
+    as923_2 => ?region_params_as923_2,
+    as923_3 => ?region_params_as923_3,
+    au915 => ?region_params_au915,
+    ru864 => ?region_params_ru864,
+    cn470 => ?region_params_cn470,
+    in865 => ?region_params_in865,
+    kr920 => ?region_params_kr920,
+    eu433 => ?region_params_eu433
+}).
+
 %%--------------------------------------------------------------------
 %% api
 %%--------------------------------------------------------------------
+
+-spec params_for_region(Region :: atom(), Ledger :: blockchain_ledger_v1:ledger()) ->
+    {ok, region_params_v1()} | {error, any()}.
+params_for_region(Region, Ledger) ->
+    Var = maps:get(Region, ?REGION_PARAM_MAP),
+    case blockchain:config(Var, Ledger) of
+        {ok, Bin} ->
+            {ok, deserialize(Bin)};
+        _ ->
+            {error, {not_set, Var}}
+    end.
 
 -spec serialized_us915() -> binary().
 serialized_us915() ->
