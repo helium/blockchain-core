@@ -15,10 +15,16 @@
 -include_lib("helium_proto/include/blockchain_region_param_v1_pb.hrl").
 
 -export([
-    new/4
+    new/4,
+
+    channel_frequency/1,
+    bandwidth/1,
+    max_eirp/1,
+    spreading/1
 ]).
 
 -type region_param_v1() :: #blockchain_region_param_v1_pb{}.
+
 -export_type([region_param_v1/0]).
 
 %%--------------------------------------------------------------------
@@ -38,3 +44,20 @@ new(ChannelFreq, Bandwidth, MaxEIRP, Spreading) ->
         max_eirp = MaxEIRP,
         spreading = Spreading
     }.
+
+-spec channel_frequency(Param :: region_param_v1()) -> undefined | non_neg_integer().
+channel_frequency(Param) ->
+    Param#blockchain_region_param_v1_pb.channel_frequency.
+
+-spec bandwidth(Param :: region_param_v1()) -> undefined | non_neg_integer().
+bandwidth(Param) ->
+    Param#blockchain_region_param_v1_pb.bandwidth.
+
+-spec max_eirp(Param :: region_param_v1()) -> undefined | non_neg_integer().
+max_eirp(Param) ->
+    Param#blockchain_region_param_v1_pb.max_eirp.
+
+-spec spreading(Param :: region_param_v1()) ->
+    undefined | blockchain_region_spreading_v1:spreading().
+spreading(Param) ->
+    Param#blockchain_region_param_v1_pb.spreading.

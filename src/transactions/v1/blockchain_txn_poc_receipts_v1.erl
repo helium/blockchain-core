@@ -1483,13 +1483,10 @@ get_channels(Txn, Chain) ->
             {ok, Channels1}
     end.
 
-min_rcv_sig(undefined, _Ledger, _SourceLoc, _DstPubkeyBin, _DestinationLoc, _Freq) ->
-    %% TODO: no receipt, what to default?
-    0;
 min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
-            TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
+            TxPower = maybe_tx_power_from_receipt(Receipt, SourceLoc, Ledger),
             SrcPubkeyBin = blockchain_poc_receipt_v1:gateway(Receipt),
             {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
             {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
@@ -1507,6 +1504,16 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
     end.
+
+maybe_tx_power_from_receipt(undefined, SourceLoc, Ledger) ->
+    {ok, Region} = blockchain_region_v1:region(SourceLoc, Ledger),
+    {ok, RegionParams} = blockchain_region_params_v1:params_for_region(Region, Ledger),
+    %% NOTE: all region params have the same max_eirp afaict, just take one
+    %% TODO: maybe look at the freq of the source and match max_eirp if they ever differ?
+    Param = hd(RegionParams),
+    blockchain_region_param_v1:max_eirp(Param);
+maybe_tx_power_from_receipt(Receipt, _SourceLoc, _Ledger) ->
+    blockchain_poc_receipt_v1:tx_power(Receipt).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
