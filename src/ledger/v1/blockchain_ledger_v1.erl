@@ -481,15 +481,6 @@ get_context(Ledger) ->
 flatten_cache({Cache, GwCache}) ->
     {ets:tab2list(Cache), ets:tab2list(GwCache)}.
 
-install_context({FlatCache, FlatGwCache}, Ledger) ->
-    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
-    lager:info("rehydrating flattened snapshot of size ~p", [erts_debug:flat_size(FlatCache)]),
-    ets:insert(Cache, FlatCache),
-    lager:info("rehydrating flattened gw cache of size ~p", [erts_debug:flat_size(FlatGwCache)]),
-    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
-    ets:insert(GwCache, FlatGwCache),
-    context_cache(Cache, GwCache, Ledger).
-
 -spec delete_context(ledger()) -> ledger().
 delete_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
@@ -550,7 +541,6 @@ context_cache(Ledger) ->
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
 new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
-                        snapshots=Cache,
                         mode=active,
                         active=#sub_ledger_v1{cache=undefined},
                         delayed=#sub_ledger_v1{cache=undefined}}=Ledger) ->
@@ -561,25 +551,8 @@ new_snapshot(#ledger_v1{db=DB,
         ok ->
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             {ok, DelayedHeight} = current_height(DelayedLedger),
-            dets:insert(Cache, {Height, {checkpoint, CheckpointDir}}),
-            OldDir = case dets:lookup(Cache, DelayedHeight - 1) of
-                [{_, {context, OD, _}}] ->
-                    OD;
-                [{_, {checkpoint, OD}}] ->
-                    OD;
-                _ ->
-                    undefined
-            end,
-            dets:delete(Cache, DelayedHeight - 1),
-            case dets:lookup(Cache, DelayedHeight) of
-                [{DelayedHeight, {context, OldDir, _}}] ->
-                    %% next oldest snapshot has the same checkpoint dir; don'tdestroy it
-                    ok;
-                _ when OldDir /= undefined ->
-                    rocksdb:destroy(OldDir, []);
-                _ -> ok
-            end,
-            dets:sync(Cache),
+            OldDir = checkpoint_dir(DelayedHeight - 1),
+            rocksdb:destroy(OldDir, []),
             {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
             {ok, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}};
         {error, Reason}=Error ->
@@ -593,15 +566,14 @@ checkpoint_dir(Height) ->
     BaseDir = application:get_env(blockchain, base_dir, "data"),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height)]).
 
-context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
+context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
     %% get the height of the base ledger, ignoring context overlays
-    {ok, DBHeight} = current_height(remove_context(Ledger)),
     {ok, Height} = current_height(Ledger),
-    case dets:lookup(Cache, Height) of
-        [{_Height, _Snapshot}] ->
+    CheckpointDir = checkpoint_dir(Height),
+    case filelib:is_dir(CheckpointDir) of
+        true ->
             ok;
         _ ->
-            CheckpointDir = checkpoint_dir(DBHeight),
             Res = case filelib:is_dir(CheckpointDir) of
                 true ->
                     ok;
@@ -610,6 +582,13 @@ context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
                     ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
+                            Ledger2 = new(CheckpointDir),
+                            Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
+                            #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                            DL = subledger(Ledger3),
+                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}),
+                            close(Ledger3),
+                            file:write_file(filename:join(CheckpointDir, "delayed"), <<>>),
                             ok;
                         E ->
                             lager:warning("checkpoint rename failed ~p", [E]),
@@ -620,25 +599,25 @@ context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
             case Res of
                 ok ->
                     lager:info("storing flattened snapshot of size ~p", [erts_debug:flat_size(Context)]),
-                    dets:insert_new(Cache, {Height, {context, CheckpointDir, Context}}),
-                    dets:sync(Cache);
+                    ok;
                 {error, Reason} = Error ->
                     lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
                     Error
             end
     end.
 
-has_snapshot(Height, #ledger_v1{snapshots=Cache}=Ledger) ->
-    case dets:lookup(Cache, Height) of
-        [{Height, {checkpoint, CheckpointDir}}] ->
+has_snapshot(Height, Ledger) ->
+    CheckpointDir = checkpoint_dir(Height),
+    case filelib:is_dir(CheckpointDir) of
+        true ->
+            Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
+                true ->
+                    delayed;
+                false ->
+                    active
+            end,
             {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
-            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(active, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}))};
-        [{Height, {context, CheckpointDir, Context}}] ->
-            lager:info("has_snapshot backtrace ~p", [erlang:process_info(self(), [current_stacktrace])]),
-            %% context ledgers are always a lagging ledger snapshot with a set of overlay data in an ETS table
-            %% and therefore must be in delayed ledger mode
-            {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
-            {ok, install_context(Context, blockchain_ledger_v1:mode(delayed, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}))};
+            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}))};
         _ ->
             {error, snapshot_not_found}
     end.
