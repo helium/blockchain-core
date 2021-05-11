@@ -243,6 +243,7 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
             %% rewards transaction calculation, then we discard that work and avoid
             %% cache invalidation issues.
             true = blockchain_hex:destroy_memoization(),
+            blockchain_ledger_v1:delete_context(Ledger),
             {ok, Result}
     end.
 

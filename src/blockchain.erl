@@ -459,7 +459,13 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                     case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
                         {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
-                        _ ->
+                        R ->
+                            %% remove a context if we created one we don't need
+                            case R of
+                                {ok, UnusedLedger} -> blockchain_ledger_v1:delete_context(UnusedLedger);
+                                _ ->
+                                    ok
+                            end,
                             case fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) of
                                 {ok, Chain1} ->
                                     Ledger1 = ?MODULE:ledger(Chain1),
@@ -485,6 +491,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
     end.
 
 fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
+    lager:info("folding blocks to obtain height ~p from ~p", [Height, DelayedHeight]),
     %% to minimize work, check backwards for snapshots
     {HighestSnapHeight, HighestLedger} =
         lists:foldl(
@@ -789,6 +796,7 @@ can_add_block(Block, Blockchain) ->
                                     N = length(ConsensusAddrs),
                                     F = (N-1) div 3,
                                     {ok, KeyOrKeys} = get_key_or_keys(Ledger),
+                                    blockchain_ledger_v1:delete_context(Ledger),
                                     Txns = blockchain_block:transactions(Block),
                                     Sigs = blockchain_block:signatures(Block),
                                     case blockchain_block:verify_signatures(Block,
@@ -1790,7 +1798,9 @@ load(Dir, Mode) ->
                 {ok, ChainHeight} when ChainHeight > 2 andalso
                                        ChainHeight > SnapHeight andalso
                                        (not FollowMode) ->
-                    ledger_at(ChainHeight - 1, Blockchain);
+                    {ok, Ld} = ledger_at(ChainHeight - 1, Blockchain),
+                    blockchain_ledger_v1:delete_context(Ld),
+                    ok;
                 _ ->
                     ok
             end,

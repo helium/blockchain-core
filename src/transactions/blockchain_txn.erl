@@ -294,6 +294,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                             Start = erlang:monotonic_time(millisecond),
                             Ty = ?MODULE:type(T),
                             Ret = (catch Ty:is_valid(T, Chain)),
+                            lager:info("Is valid returned ~p", [Ret]),
                             maybe_log_duration(Ty, Start),
                             {T, Ret}
                     end, lists:reverse(PBuf)),

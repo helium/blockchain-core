@@ -261,6 +261,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                             maybe_log_duration(prelude, StartPre),
                                             StartLA = erlang:monotonic_time(millisecond),
+                                            lager:info("getting ledger_at ~p for ~p", [blockchain_block:height(Block1), Entropy]),
                                             {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                             maybe_log_duration(ledger_at, StartLA),
                                             Vars = vars(OldLedger),
@@ -346,12 +347,14 @@ check_is_valid_poc(Txn, Chain) ->
                                                                       true ->
                                                                           validate(Txn, Path, LayerData, LayerHashes, OldLedger);
                                                                       false ->
+                                                                          blockchain_ledger_v1:delete_context(OldLedger),
                                                                           {error, bad_poc_request_block_hash}
                                                                   end;
                                                               false ->
                                                                   validate(Txn, Path, LayerData, LayerHashes, OldLedger)
                                                           end,
                                                     maybe_log_duration(receipt_validation, StartV),
+                                                    lager:info("done with poc"),
                                                     case Ret of
                                                         ok ->
                                                             {ok, Channels};
@@ -360,6 +363,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                 _ ->
                                                     %% We are not on poc v9, just do old behavior
                                                     Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
+                                                    lager:info("done with poc"),
                                                     maybe_log_duration(receipt_validation, StartV),
                                                     Ret
                                             end
@@ -946,6 +950,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                           [TxnPathLength, RebuiltPathLength]),
             lager:warning([{poc_id, POCID}], "TxnPath: ~p", [HumanTxnPath]),
             lager:warning([{poc_id, POCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
+            blockchain_ledger_v1:delete_context(OldLedger),
             {error, path_length_mismatch};
         true ->
             %% Now check whether layers are of equal length
@@ -953,6 +958,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                 false ->
                     lager:error([{poc_id, POCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p",
                                 [TxnPathLength, ZippedLayersLength]),
+                    blockchain_ledger_v1:delete_context(OldLedger),
                     {error, zip_layer_length_mismatch};
                 true ->
                     Result = lists:foldl(
