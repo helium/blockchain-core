@@ -48,42 +48,8 @@ get(Addr, Ledger, true) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     get_at(Addr, Ledger, Height).
 
-get_at(Addr, Ledger, Height) ->
-    try
-        ets:update_counter(?MODULE, total, 1, {total, 0}),
-        %% first try the context cache
-        case blockchain_ledger_v1:gateway_cache_get(Addr, Ledger) of
-            spillover ->
-                blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
-            {ok, Gw} ->
-                lager:debug("new cache hit ~p ~p", [Addr, Height]),
-                ets:update_counter(?MODULE, hit, 1, {hit, 0}),
-                {ok, Gw};
-            _ ->
-                %% then try our cache
-                case cache_get(Addr, Height) of
-                    {ok, _} = Result ->
-                        ets:update_counter(?MODULE, hit, 1, {hit, 0}),
-                        lager:debug("get ~p at ~p hit", [Addr, Height]),
-                        Result;
-                    _ ->
-                        %% then back off finally to the disk
-                        case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
-                            {ok, DiskGw} = Result2 ->
-                                lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
-                                cache_put(Addr, DiskGw, Height),
-                                Result2;
-                            Else ->
-                                lager:debug("get ~p at ~p miss err", [Addr, Height]),
-                                Else
-                        end
-                end
-        end
-    catch C:E ->
-            lager:debug("error ~p:~p", [C, E]),
-            catch ets:update_counter(?MODULE, error, 1, {error, 0}),
-            blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
-    end.
+get_at(Addr, Ledger, _Height) ->
+    blockchain_ledger_v1:find_gateway_info(Addr, Ledger).
 
 stats() ->
     case ets:lookup(?MODULE, total) of
@@ -197,65 +163,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-cache_get(Addr, Height) ->
-    [{_, StartHeight}] = ets:lookup(?MODULE, start_height),
-    case ets:lookup(?MODULE, curr_height) of
-        [{_, CurrHeight}] ->
-            case ets:lookup(?MODULE, Addr) of
-                [] -> {error, not_found};
-                [{_, Updates}] ->
-                    case get_update(Height, CurrHeight, StartHeight, Updates) of
-                        none -> {error, not_found};
-                        Update ->
-                            case ets:lookup(?MODULE, {Addr, Update}) of
-                                [] ->
-                                    {error, not_found};
-                                [{_, Res}] ->
-                                    lager:debug("lastupdate ~p ~p ~p", [Addr, Update, Height]),
-                                    {ok, Res}
-                            end
-                    end
-            end;
-        _ -> {error, not_found}
-    end.
-
-cache_put(Addr, Gw, Height) ->
-    [{_, StartHeight}] = ets:lookup(?MODULE, start_height),
-    case Height =< StartHeight of
-        true ->
-            ok;
-        false ->
-            case ets:lookup(?MODULE, curr_height) of
-                [{_, CurrHeight}] ->
-                    case Height == CurrHeight of
-                        %% because of speculative absorbs, we cannot accept these, as
-                        %% they may be affected by transactions that will
-                        %% never land. They should mostly be covered by the
-                        %% context cache
-                        true ->
-                            lager:debug("get ~p at ~p miss *no* writeback", [Addr, Height]),
-                            ok;
-                        false ->
-                            case ets:lookup(?MODULE, Addr) of
-                                [] ->
-                                    add_height(Addr, Height);
-                                [{_, LastUpdate}] ->
-                                    case Height > LastUpdate of
-                                        true ->
-                                            add_height(Addr, Height);
-                                        false ->
-                                            ok
-                                    end
-                            end,
-                            lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
-                            ets:insert(?MODULE, {{Addr, Height}, Gw}),
-                            ok
-                    end;
-                [] ->
-                    %% not sure that it's safe to do anything here
-                    ok
-            end
-    end.
 
 add_height(Addr, Height) ->
     case ets:lookup(?MODULE, Addr) of
@@ -299,18 +206,3 @@ add_in_order(New, Heights) ->
     RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
     lists:filter(fun(X) -> X > Top - RetentionLimit end, Heights1).
 
-get_update(_Height, _CurrHeight, _StartHeight, []) ->
-    none;
-get_update(Height, CurrHeight, StartHeight, [H | T]) ->
-    case Height >= H of
-        true when H > (StartHeight + 1) ->
-            H;
-        %% it's not safe to use anything earlier than the starting
-        %% height, because the index may be incomplete, because it's
-        %% too expensive to rematerialize the whole index on startup.
-        %% so we start slow/nonoptimal, but safely.
-        true ->
-            none;
-        false ->
-            get_update(Height, CurrHeight, StartHeight, T)
-    end.

@@ -346,6 +346,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                                       true ->
                                                                           validate(Txn, Path, LayerData, LayerHashes, OldLedger);
                                                                       false ->
+                                                                          blockchain_ledger_v1:delete_context(OldLedger),
                                                                           {error, bad_poc_request_block_hash}
                                                                   end;
                                                               false ->
@@ -946,6 +947,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                           [TxnPathLength, RebuiltPathLength]),
             lager:warning([{poc_id, POCID}], "TxnPath: ~p", [HumanTxnPath]),
             lager:warning([{poc_id, POCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
+            blockchain_ledger_v1:delete_context(OldLedger),
             {error, path_length_mismatch};
         true ->
             %% Now check whether layers are of equal length
@@ -953,6 +955,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                 false ->
                     lager:error([{poc_id, POCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p",
                                 [TxnPathLength, ZippedLayersLength]),
+                    blockchain_ledger_v1:delete_context(OldLedger),
                     {error, zip_layer_length_mismatch};
                 true ->
                     Result = lists:foldl(
