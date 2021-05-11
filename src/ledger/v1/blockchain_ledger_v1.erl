@@ -574,7 +574,8 @@ new_snapshot(#ledger_v1{db=DB,
                     %% next oldest snapshot has the same checkpoint dir; don't destroy it
                     ok;
                 _ when OldDir /= undefined ->
-                    rocksdb:destroy(OldDir, []);
+                    %rocksdb:destroy(OldDir, []);
+                    ok;
                 _ -> ok
             end,
             {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
