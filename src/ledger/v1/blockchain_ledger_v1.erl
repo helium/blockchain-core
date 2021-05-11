@@ -605,7 +605,15 @@ context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
                     ok;
                 false ->
                     ok = filelib:ensure_dir(CheckpointDir),
-                    rocksdb:checkpoint(DB, CheckpointDir)
+                    ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
+                    case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
+                        ok ->
+                            ok;
+                        E ->
+                            lager:warning("checkpoint rename failed ~p", [E]),
+                            rocksdb:destroy(CheckpointDir++pid_to_list(self())),
+                            E
+                    end
             end,
             case Res of
                 ok ->
