@@ -565,6 +565,8 @@ new_snapshot(#ledger_v1{db=DB,
             OldDir = case dets:lookup(Cache, DelayedHeight - 1) of
                 [{_, {context, OD, _}}] ->
                     OD;
+                [{_, {checkpoint, OD}}] ->
+                    OD;
                 _ ->
                     undefined
             end,
@@ -574,10 +576,10 @@ new_snapshot(#ledger_v1{db=DB,
                     %% next oldest snapshot has the same checkpoint dir; don'tdestroy it
                     ok;
                 _ when OldDir /= undefined ->
-                    %rocksdb:destroy(OldDir, []);
-                    ok;
+                    rocksdb:destroy(OldDir, []);
                 _ -> ok
             end,
+            dets:sync(Cache),
             {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
             {ok, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}};
         {error, Reason}=Error ->
@@ -3087,14 +3089,9 @@ close(#ledger_v1{db=DB}=L) ->
 
 
 compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
-    %rocksdb:compact_range(DB, undefined, undefined, []),
-    case false of
-        true ->
-            compact_ledger(DB, Active),
-            compact_ledger(DB, Delayed);
-        false ->
-            ok
-    end,
+    rocksdb:compact_range(DB, undefined, undefined, []),
+    compact_ledger(DB, Active),
+    compact_ledger(DB, Delayed),
     ok.
 
 -spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
