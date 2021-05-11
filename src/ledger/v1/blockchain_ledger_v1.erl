@@ -611,7 +611,7 @@ context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
                             ok;
                         E ->
                             lager:warning("checkpoint rename failed ~p", [E]),
-                            rocksdb:destroy(CheckpointDir++pid_to_list(self())),
+                            rocksdb:destroy(CheckpointDir++pid_to_list(self()), []),
                             E
                     end
             end,
