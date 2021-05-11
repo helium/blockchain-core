@@ -2357,13 +2357,31 @@ debit_dc(Address, Nonce, Amount, Ledger) ->
             Error
     end.
 
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger()
+) -> ok | {error, any()}.
 debit_fee(_Address, Fee, _Ledger) ->
     debit_fee(_Address, Fee, _Ledger, false, undefined, undefined).
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean()) -> ok | {error, any()}.
-debit_fee(_Address, Fee,_Ledger, _MaybeTryImplicitBurn) ->
+
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger(),
+    MaybeTryImplicitBurn :: boolean()
+) -> ok | {error, any()}.
+debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn) ->
     debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn, undefined, undefined).
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean(), TxnHash :: any(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger(),
+    MaybeTryImplicitBurn :: boolean(),
+    TxnHash :: blockchain_txn:hash() | undefined,
+    Chain :: blockchain:blockchain() | undefined
+) -> ok | {error, any()}.
 debit_fee(_Address, 0, _Ledger, _MaybeTryImplicitBurn, _TxnHash, _Chain) ->
     ok;
 debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn, TxnHash, Chain) ->
