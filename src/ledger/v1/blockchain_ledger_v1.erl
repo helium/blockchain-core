@@ -571,7 +571,7 @@ new_snapshot(#ledger_v1{db=DB,
             dets:delete(Cache, DelayedHeight - 1),
             case dets:lookup(Cache, DelayedHeight) of
                 [{DelayedHeight, {context, OldDir, _}}] ->
-                    %% next oldest snapshot has the same checkpoint dir; don't destroy it
+                    %% next oldest snapshot has the same checkpoint dir; don'tdestroy it
                     ok;
                 _ when OldDir /= undefined ->
                     %rocksdb:destroy(OldDir, []);
@@ -3078,10 +3078,10 @@ close(#ledger_v1{db=DB}=L) ->
     end.
 
 
-compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
-    rocksdb:compact_range(DB, undefined, undefined, []),
-    compact_ledger(DB, Active),
-    compact_ledger(DB, Delayed),
+compact(#ledger_v1{db=_DB, active=_Active, delayed=_Delayed}) ->
+    %rocksdb:compact_range(DB, undefined, undefined, []),
+    %compact_ledger(DB, Active),
+    %compact_ledger(DB, Delayed),
     ok.
 
 -spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
