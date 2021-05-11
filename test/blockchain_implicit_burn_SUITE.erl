@@ -19,13 +19,16 @@ all() ->
 
 -define(MAX_PAYMENTS, 20).
 
+%% we use this to fund the accounts and mock some proper price for HNT ($15)
+-define(MULTIPLIER, 10000000).
+
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    Balance = 5000,
+    Balance = 5000 * ?MULTIPLIER,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
     ExtraVars = extra_vars(TestCase),
@@ -44,6 +47,8 @@ init_per_testcase(TestCase, Config) ->
                               Balance = blockchain_ledger_entry_v1:balance(Entry),
                               0 = blockchain_ledger_entry_v1:nonce(Entry)
                       end, maps:values(Entries)),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
 
     [
      {balance, Balance},
@@ -65,6 +70,7 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 end_per_testcase(_, Config) ->
+    meck:unload(blockchain_ledger_v1),
     Sup = ?config(sup, Config),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
@@ -85,6 +91,15 @@ enable_implicit_burn_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    meck:expect(
+        blockchain_ledger_v1,
+        current_oracle_price,
+        fun(_) ->
+                {ok, 15 * ?MULTIPLIER}
+        end
+    ),
 
     %% Set env to store implicit burn %%
     ok = application:set_env(blockchain, store_implicit_burns, true),
@@ -111,8 +126,14 @@ enable_implicit_burn_test(Config) ->
     TxHash = blockchain_txn:hash(SignedTx),
 
     %% Check that there is an implicit burn
-    {ok, {implicit_burn, _, _}} = blockchain:get_implicit_burn(TxHash, Chain),
-    ct:pal("implicit burn: ~p", [blockchain:get_implicit_burn(TxHash, Chain)]),
+    {ok, ImplicitBurn} = blockchain:get_implicit_burn(TxHash, Chain),
+    ct:pal("implicit burn: ~p", [ImplicitBurn]),
+    ct:pal("implicit burn fee: ~p", [blockchain_implicit_burn:fee(ImplicitBurn)]),
+    %% Check that the fee in implicit burn is as expected after conversion to
+    %% equivalent hnt depending on the mockoracle price
+    {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger),
+    true = FeeInHNT == blockchain_implicit_burn:fee(ImplicitBurn),
+
     ok.
 
 disabled_implicit_burn_test(Config) ->
