@@ -716,7 +716,7 @@ apply_raw_changes([{Atom, Changes}|Tail], Ledger, Batch) ->
 cf_fold(CF, F, Acc, Ledger) ->
     try
         CFRef = atom_to_cf(CF, Ledger),
-        cache_fold(Ledger, CFRef, F, Acc)
+        cache_fold(Ledger, {CF, db(Ledger), CFRef}, F, Acc)
     catch C:E:S ->
             {error, {could_not_fold, C, E, S}}
     end.
@@ -733,24 +733,11 @@ fingerprint(Ledger, Extended) ->
 
 raw_fingerprint(Ledger, Extended) ->
     try
-        SubLedger = subledger(Ledger),
-        #sub_ledger_v1{
-           default = DefaultCF,
-           active_gateways = AGwsCF,
-           entries = EntriesCF,
-           dc_entries = DCEntriesCF,
-           htlcs = HTLCsCF,
-           pocs = PoCsCF,
-           securities = SecuritiesCF,
-           routing = RoutingCF,
-           state_channels = SCsCF,
-           subnets = SubnetsCF
-          } = SubLedger,
         %% NB: remove multi_keys when they go live
         Filter = ?BC_UPGRADE_NAMES ++ [<<"transaction_fee">>, <<"multi_keys">>],
         DefaultHash0 =
             cache_fold(
-              Ledger, DefaultCF,
+              Ledger, default_cf(Ledger),
               %% if any of these are in the CF, it's a result of an
               %% old, fixed bug, they're safe to ignore.
               fun({<<"$block_", _/binary>>, _}, Acc) ->
@@ -776,15 +763,15 @@ raw_fingerprint(Ledger, Extended) ->
                         end,
                         crypto:hash_init(md5))
              || {CF, Mod} <-
-                    [{AGwsCF, blockchain_ledger_gateway_v2},
-                     {EntriesCF, blockchain_ledger_entry_v1},
-                     {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
-                     {HTLCsCF, blockchain_ledger_htlc_v1},
-                     {PoCsCF, t2b},
-                     {SecuritiesCF, blockchain_ledger_security_entry_v1},
-                     {RoutingCF, blockchain_ledger_routing_v1},
-                     {SCsCF, state_channel},
-                     {SubnetsCF, undefined}
+                    [{active_gateways_cf(Ledger), blockchain_ledger_gateway_v2},
+                     {entries_cf(Ledger), blockchain_ledger_entry_v1},
+                     {dc_entries_cf(Ledger), blockchain_ledger_data_credits_entry_v1},
+                     {htlcs_cf(Ledger), blockchain_ledger_htlc_v1},
+                     {pocs_cf(Ledger), t2b},
+                     {securities_cf(Ledger), blockchain_ledger_security_entry_v1},
+                     {routing_cf(Ledger), blockchain_ledger_routing_v1},
+                     {state_channels_cf(Ledger), state_channel},
+                     {subnets_cf(Ledger), undefined}
                     ]],
         L = [DefaultHash | lists:map(fun crypto:hash_final/1, L0)],
         LedgerHash = crypto:hash_final(
