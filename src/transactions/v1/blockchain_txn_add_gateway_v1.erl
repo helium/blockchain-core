@@ -69,7 +69,6 @@ new(OwnerAddress, GatewayAddress, Payer) ->
         fee=?LEGACY_TXN_FEE
     }.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -189,7 +188,14 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Fee = blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger),
+    Payer = ?MODULE:payer(Txn),
+    Owner = ?MODULE:owner(Txn),
+    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+        true -> Owner;
+        false -> Payer
+    end,
+    GWMode = gateway_mode(Ledger, ActualPayer),
+    Fee = staking_fee_for_gw_mode(GWMode, Ledger),
     calculate_staking_fee(Txn, Ledger, Fee, [], blockchain_ledger_v1:txn_fees_active(Ledger)).
 
 -spec calculate_staking_fee(txn_add_gateway(), blockchain_ledger_v1:ledger(), non_neg_integer(), [{atom(), non_neg_integer()}], boolean()) -> non_neg_integer().
@@ -197,7 +203,6 @@ calculate_staking_fee(_Txn, _Ledger, _Fee, _ExtraData, false) ->
     ?LEGACY_STAKING_FEE;
 calculate_staking_fee(_Txn, _Ledger, Fee, _ExtraData, true) ->
     Fee.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -312,6 +317,12 @@ is_valid(Txn, Chain) ->
             {error, payer_invalid_staking_key};
         {true, true, true, true} ->
             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            Payer = ?MODULE:payer(Txn),
+            Owner = ?MODULE:owner(Txn),
+            ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                true -> Owner;
+                false -> Payer
+            end,
             StakingFee = ?MODULE:staking_fee(Txn),
             ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
             TxnFee = ?MODULE:fee(Txn),
@@ -322,12 +333,6 @@ is_valid(Txn, Chain) ->
                 {_,false} ->
                     {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
                 {true, true} ->
-                    Payer = ?MODULE:payer(Txn),
-                    Owner = ?MODULE:owner(Txn),
-                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                        true -> Owner;
-                        false -> Payer
-                    end,
                     blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
             end
 
@@ -352,9 +357,24 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
+    GatewayMode = gateway_mode(Ledger, ActualPayer),
     case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error -> Error;
-        ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
+        ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, GatewayMode, Ledger)
+    end.
+
+-spec gateway_mode(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin())-> blockchain_ledger_gateway_v2:mode().
+gateway_mode(Ledger, Payer) ->
+    case blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger) of
+        not_found ->
+                full;
+        Mappings when is_list(Mappings) ->
+            %% check if there is an entry for the payer key, if not default to light gw
+            %% if a GW needs to be non light, its payer MUST have an entry in the staking key mappings table
+            case proplists:get_value(Payer, Mappings, not_found) of
+                not_found -> light;
+                GWMode -> binary_to_atom(GWMode, utf8)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -384,6 +404,13 @@ to_json(Txn, _Opts) ->
       staking_fee => staking_fee(Txn),
       fee => fee(Txn)
      }.
+
+-spec staking_fee_for_gw_mode(blockchain_ledger_gateway_v2:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+staking_fee_for_gw_mode(light, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_add_light_gateway_v1(Ledger);
+staking_fee_for_gw_mode(_, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

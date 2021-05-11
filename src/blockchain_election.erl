@@ -7,6 +7,7 @@
         ]).
 
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -import(blockchain_utils, [normalize_float/1]).
 
@@ -313,11 +314,17 @@ gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
-              Last = Height - Last0,
-              Loc = location(ClusterRes, Gw),
-              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
-              maps:put(Addr, {Last, Loc, Score}, Acc)
+              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+                  true ->
+                      Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+                      Last = Height - Last0,
+                      Loc = location(ClusterRes, Gw),
+                      {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+                      maps:put(Addr, {Last, Loc, Score}, Acc);
+                  false ->
+                      Acc
+
+              end
       end,
       #{},
       Ledger).
@@ -362,13 +369,19 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
-              Last = Height - Last0,
-              Loc = location(ClusterRes, Gw),
-              %% instead of getting the score, start at 1.0 for all spots
-              %% we need something like a score for sorting the existing consensus group members
-              %% for performance grading
-              maps:put(Addr, {Last, Loc, 1.0}, Acc)
+              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+                  true ->
+                      Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+                      Last = Height - Last0,
+                      Loc = location(ClusterRes, Gw),
+                      %% instead of getting the score, start at 1.0 for all spots
+                      %% we need something like a score for sorting the existing consensus group members
+                      %% for performance grading
+                      maps:put(Addr, {Last, Loc, 1.0}, Acc);
+                  false ->
+                      lager:debug("filtering gw due to invalid capability: ~p", [Addr]),
+                      Acc
+              end
       end,
       #{},
       Ledger).
