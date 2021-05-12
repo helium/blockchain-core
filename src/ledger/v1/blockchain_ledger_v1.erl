@@ -56,7 +56,6 @@
     find_gateway_last_challenge/2,
     %% todo add more here
 
-    gateway_cache_get/2,
     add_gateway/3, add_gateway/4, add_gateway/6,
     update_gateway/3,
     fixup_neighbors/4,
@@ -1241,25 +1240,6 @@ find_gateway_last_challenge(Address, Ledger) ->
             end
     end.
 
--spec gateway_cache_get(libp2p_crypto:pubkey_bin(), ledger()) ->
-                               {ok, blockchain_ledger_gateway_v2:gateway()} |
-                               spillover |
-                               {error, any()}.
-gateway_cache_get(Address, Ledger) ->
-    case context_cache(Ledger) of
-        {undefined, undefined} ->
-            {error, not_found};
-        {_Cache, GwCache} ->
-            case ets:lookup(GwCache, Address) of
-                [] ->
-                    {error, not_found};
-                [{_, spillover}] ->
-                    spillover;
-                [{_, Gw}] ->
-                    {ok, Gw}
-            end
-    end.
-
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     add_gateway(OwnerAddr, GatewayAddress, full, Ledger).
@@ -1357,7 +1337,6 @@ update_gateway(Gw, GwAddr, Ledger) ->
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
     GwDenormCF = gw_denorm_cf(Ledger),
-    gateway_cache_put(GwAddr, Gw, Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
     Location = blockchain_ledger_gateway_v2:location(Gw),
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
@@ -3403,18 +3382,6 @@ cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
     true = ets:insert(Cache, {{Name, Key}, Value}),
     ok.
-
--spec gateway_cache_put(libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway(), ledger()) -> ok.
-gateway_cache_put(Addr, Gw, Ledger) ->
-    {_Cache, GwCache} = context_cache(Ledger),
-    MaxSize = application:get_env(blockchain, gw_context_cache_max_size, 75),
-    case ets:info(GwCache, size) of
-        N when N > MaxSize ->
-            true = ets:insert(GwCache, {Addr, spillover});
-        _ ->
-            true = ets:insert(GwCache, {Addr, Gw}),
-            ok
-    end.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
