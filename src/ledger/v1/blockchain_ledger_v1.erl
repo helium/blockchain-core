@@ -593,7 +593,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                     file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
-                            Ledger2 = new(CheckpointDir),
+                            Ledger2 = new(filename:dirname(CheckpointDir)),
                             Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             DL = subledger(Ledger3),

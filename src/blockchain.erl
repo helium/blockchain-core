@@ -516,7 +516,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                                       %% take an intermediate snapshot here to
                                       %% make things faster in the future
                                       Ledger1 = ?MODULE:ledger(Chain1),
-                                      NewLedger = blockchain_ledger_v1:context_snapshot(Ledger1),
+                                      {ok, NewLedger} = blockchain_ledger_v1:context_snapshot(Ledger1),
                                       {ok, blockchain:ledger(NewLedger, Chain1)};
                                   _ ->
                                       {ok, Chain1}
