@@ -587,7 +587,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
     CheckpointDir = checkpoint_dir(Height),
     case filelib:is_dir(CheckpointDir) of
         true ->
-            has_snapshot(Height, Ledger);
+            {ok, Ledger};
         _ ->
             Res = case filelib:is_dir(CheckpointDir) of
                 true ->
@@ -596,17 +596,19 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                     ok = filelib:ensure_dir(CheckpointDir),
                     ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
                     file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
+                    #sub_ledger_v1{cache=ECache} = subledger(Ledger),
+                    ok = dets:from_ets(filename:join(CheckpointDir, "cache.dets"), ECache),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
-                            Ledger2 = new(filename:dirname(CheckpointDir), false),
-                            Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
-                            delayed = mode(Ledger),
-                            #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
-                            lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
-                            DL = subledger(Ledger3),
-                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
+                            %Ledger2 = new(filename:dirname(CheckpointDir), false),
+                            %Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
+                            %delayed = mode(Ledger),
+                            %#sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                            %lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
+                            %DL = subledger(Ledger3),
+                            %commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
                             %% close ledger 2 so we don't kill the ETS tables
-                            close(Ledger2),
+                            %close(Ledger2),
                             ok;
                         E ->
                             lager:warning("checkpoint rename failed ~p", [E]),
@@ -616,10 +618,11 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
             end,
             case Res of
                 ok ->
-                    has_snapshot(Height, Ledger);
+                    %has_snapshot(Height, Ledger);
+                    {ok, Ledger};
                 {error, Reason} = _Error ->
                     lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
-                    has_snapshot(Height, Ledger)
+                    {ok, Ledger}
             end
     end.
 
@@ -636,6 +639,14 @@ has_snapshot(Height, _Ledger) ->
             %% new/2 wants to add on the ledger.db part itself
             NewLedger = new(filename:dirname(CheckpointDir), true),
             NewLedger2 = blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger)),
+            case Mode == delayed of
+                true ->
+                    {ok, Dets} = dets:open_file(filename:join(CheckpointDir, "cache.dets"), []),
+                    #sub_ledger_v1{cache=ECache} = subledger(NewLedger2),
+                    dets:to_ets(Dets, ECache);
+                false ->
+                    ok
+            end,
             %% sanity check
             {ok, Height} = current_height(NewLedger2),
             {ok, NewLedger2};
