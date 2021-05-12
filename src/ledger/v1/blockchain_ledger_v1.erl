@@ -574,7 +574,7 @@ new_snapshot(#ledger_v1{}) ->
 
 checkpoint_dir(Height) ->
     BaseDir = application:get_env(blockchain, base_dir, "data"),
-    filename:join([BaseDir, "checkpoints", integer_to_list(Height)]).
+    filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
 context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
     %% get the height of the base ledger, ignoring context overlays
@@ -627,7 +627,8 @@ has_snapshot(Height, _Ledger) ->
                 false ->
                     active
             end,
-            NewLedger = new(CheckpointDir, true),
+            %% new/2 wants to add on the ledger.db part itself
+            NewLedger = new(filename:dirname(CheckpointDir), true),
             {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger))};
         _ ->
             {error, snapshot_not_found}
