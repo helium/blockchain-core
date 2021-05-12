@@ -236,6 +236,7 @@
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
+    snapshots :: ets:tid(),
     mode = active :: mode(),
     active :: sub_ledger(),
     delayed :: sub_ledger(),
@@ -337,6 +338,7 @@ new(Dir, ReadOnly) ->
     #ledger_v1{
         dir=Dir,
         db=DB,
+        snapshots = ets:new(snapshot_cache, [set, public, {keypos, 1}]),
         mode=active,
         active= #sub_ledger_v1{
             default=DefaultCF,
@@ -555,7 +557,7 @@ new_snapshot(#ledger_v1{db=DB,
                         active=#sub_ledger_v1{cache=undefined},
                         delayed=#sub_ledger_v1{cache=undefined}}=Ledger) ->
     {ok, Height} = current_height(Ledger),
-    CheckpointDir = checkpoint_dir(Height),
+    CheckpointDir = checkpoint_dir(Height, Ledger),
     ok = filelib:ensure_dir(CheckpointDir),
     case rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())) of
         ok ->
@@ -563,7 +565,7 @@ new_snapshot(#ledger_v1{db=DB,
                 ok ->
                     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                     {ok, DelayedHeight} = current_height(DelayedLedger),
-                    OldDir = checkpoint_dir(DelayedHeight - 1),
+                    OldDir = checkpoint_dir(DelayedHeight - 1, Ledger),
                     rocksdb:destroy(OldDir, []),
                     {ok, Ledger};
                 {error, Reason1}=Error1 ->
@@ -577,70 +579,106 @@ new_snapshot(#ledger_v1{db=DB,
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
-checkpoint_dir(Height) ->
-    BaseDir = application:get_env(blockchain, base_dir, "data"),
+checkpoint_dir(Height, Ledger) ->
+    BaseDir = Ledger#ledger_v1.dir,
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
-context_snapshot(#ledger_v1{db=DB} = Ledger) ->
+context_snapshot(#ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
     %% get the height of the base ledger, ignoring context overlays
     {ok, Height} = current_height(Ledger),
-    CheckpointDir = checkpoint_dir(Height),
-    case filelib:is_dir(CheckpointDir) of
-        true ->
+    CheckpointDir = checkpoint_dir(Height, Ledger),
+    case ets:lookup(Cache, Height) of
+        [{Height, {pending, _Pid}}] ->
             has_snapshot(Height, Ledger);
-        _ ->
-            Res = case filelib:is_dir(CheckpointDir) of
+        [{_Height, _SnapLedger}] ->
+            ok;
+        [] ->
+            case filelib:is_dir(CheckpointDir) of
                 true ->
-                    ok;
-                false ->
-                    ok = filelib:ensure_dir(CheckpointDir),
-                    ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
-                    file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
-                    case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
-                        ok ->
-                            Ledger2 = new(filename:dirname(CheckpointDir), false),
-                            Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
-                            delayed = mode(Ledger),
-                            #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
-                            lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
-                            DL = subledger(Ledger3),
-                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
-                            %% close ledger 2 so we don't kill the ETS tables
-                            close(Ledger2),
-                            ok;
-                        E ->
-                            lager:warning("checkpoint rename failed ~p", [E]),
-                            rocksdb:destroy(CheckpointDir++pid_to_list(self()), []),
-                            E
-                    end
-            end,
-            case Res of
-                ok ->
                     has_snapshot(Height, Ledger);
-                {error, Reason} = _Error ->
-                    lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
-                    has_snapshot(Height, Ledger)
+                _ ->
+                    Res = case filelib:is_dir(CheckpointDir) of
+                              true -> ok;
+                              false ->
+                                  Me = self(),
+                                  Old = {Height, {pending, Me}},
+                                  case ets:insert_new(Cache, Old) of
+                                      false -> ok;
+                                      _ ->
+                                          ok = filelib:ensure_dir(CheckpointDir),
+                                          ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
+                                          file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
+                                          case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
+                                              ok ->
+                                                  Ledger2 = new(filename:dirname(CheckpointDir), false),
+                                                  Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
+                                                  delayed = mode(Ledger),
+                                                  #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                                                  lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
+                                                  DL = subledger(Ledger3),
+                                                  commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
+                                                  %% TODO: determine what this means
+                                                  %% close ledger 2 so we don't kill the ETS tables
+                                                  close(Ledger2),
+                                                  ok;
+                                              E ->
+                                                  lager:warning("checkpoint rename failed ~p", [E]),
+                                                  rocksdb:destroy(CheckpointDir++pid_to_list(self()), []),
+                                                  E
+                                          end
+                                  end
+                          end,
+                    case Res of
+                        ok ->
+                            has_snapshot(Height, Ledger);
+                        {error, Reason} = _Error ->
+                            lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
+                            has_snapshot(Height, Ledger)
+                    end
             end
     end.
 
-has_snapshot(Height, _Ledger) ->
-    CheckpointDir = checkpoint_dir(Height),
-    case filelib:is_dir(CheckpointDir) of
-        true ->
-            Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
-                true ->
-                    delayed;
-                false ->
-                    active
+has_snapshot(Height, Ledger) ->
+    has_snapshot(Height, Ledger, 120).
+has_snapshot(_Height, _Ledger, 0) ->
+    {error, too_many_retries};
+has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
+    Me = self(),
+    case ets:lookup(Cache, Height) of
+        [{Height, {pending, _Pid}}] ->
+            timer:sleep(500),
+            has_snapshot(Height, Ledger, Retries - 1);
+        Res when Res == [] orelse Res == [{Height, {pending, Me}}] ->
+            %% try to mark pending since this can take a bit
+            Old = {Height, {pending, Me}},
+            case Res of
+                [] ->
+                    case ets:insert_new(Cache, Old) of
+                        true -> ok;
+                        _ -> has_snapshot(Height, Ledger, Retries)
+                    end;
+                _ -> ok
             end,
-            %% new/2 wants to add on the ledger.db part itself
-            NewLedger = new(filename:dirname(CheckpointDir), true),
-            NewLedger2 = blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger)),
-            %% sanity check
-            {ok, Height} = current_height(NewLedger2),
-            {ok, NewLedger2};
-        _ ->
-            {error, snapshot_not_found}
+            CheckpointDir = checkpoint_dir(Height, Ledger),
+            case filelib:is_dir(CheckpointDir) of
+                true ->
+                    Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
+                               true ->
+                                   delayed;
+                               false ->
+                                   active
+                           end,
+                    %% new/2 wants to add on the ledger.db part itself
+                    NewLedger = new(filename:dirname(CheckpointDir), true),
+                    NewLedger2 = blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger)),
+                    %% sanity check
+                    {ok, Height} = current_height(NewLedger2),
+                    1 =:= ets:select_replace(Cache, [{Old, [], [{const, {Height, NewLedger2}}]}]);
+                _ ->
+                    {error, snapshot_not_found}
+            end;
+        [{Height, SnapLedger}] ->
+            {ok, SnapLedger}
     end.
 
 -spec release_snapshot(ledger()) -> ok | {error, any()}.
