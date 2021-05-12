@@ -484,7 +484,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
     end.
 
 fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
-    lager:info("folding blocks to obtain height ~p from ~p", [Height, DelayedHeight]),
+    lager:info("folding blocks to obtain height ~p from ~p with force recalc ~p", [Height, DelayedHeight, ForceRecalc]),
     %% to minimize work, check backwards for snapshots
     {HighestSnapHeight, HighestLedger} =
         lists:foldl(
@@ -502,6 +502,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
           end,
           none,
           lists:seq(Height, DelayedHeight+1, -1)),
+    lager:info("starting from snapshot at ~p", [HighestSnapHeight]),
     lists:foldl(
       fun(H, {ok, ChainAcc}) ->
               case ?MODULE:get_block(H, Chain0) of

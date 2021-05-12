@@ -582,7 +582,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
     CheckpointDir = checkpoint_dir(Height),
     case filelib:is_dir(CheckpointDir) of
         true ->
-            ok;
+            has_snapshot(Height, Ledger);
         _ ->
             Res = case filelib:is_dir(CheckpointDir) of
                 true ->
