@@ -609,7 +609,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
             end,
             case Res of
                 ok ->
-                    ok;
+                    has_snapshot(Height, Ledger);
                 {error, Reason} = Error ->
                     lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
                     Error
