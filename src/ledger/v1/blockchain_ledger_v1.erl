@@ -3575,9 +3575,9 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly) ->
 
     {ok, DB, OpenedCFs} = case ReadOnly of
                               true ->
-                                  rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]);
+                                  rocksdb:open_with_cf_readonly(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]);
                               false ->
-                                  rocksdb:open_with_cf_readonly(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs])
+                                  rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs])
                           end,
 
     L1 = lists:zip(ExistingCFs, OpenedCFs),
