@@ -597,7 +597,10 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                     ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
                     file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
                     #sub_ledger_v1{cache=ECache} = subledger(Ledger),
-                    ok = dets:from_ets(filename:join(CheckpointDir, "cache.dets"), ECache),
+                    {ok, Dets} = dets:open_file(filename:join(CheckpointDir, "cache.dets"), []),
+                    ok = dets:from_ets(Dets, ECache),
+                    %% this is dumb but from_ets deletes
+                    dets:to_ets(Dets, ECache),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
                             %Ledger2 = new(filename:dirname(CheckpointDir), false),
