@@ -587,7 +587,8 @@ context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             DL = subledger(Ledger3),
                             commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}),
-                            close(Ledger3),
+                            %% close ledger 2 so we don't kill the ETS tables
+                            close(Ledger2),
                             file:write_file(filename:join(CheckpointDir, "delayed"), <<>>),
                             ok;
                         E ->
