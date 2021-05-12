@@ -475,9 +475,7 @@ load_blocks(Ledger, Chain, #{blocks:=Blocks}) ->
 load_blocks(Ledger0, Chain, Blocks) ->
     %% TODO: it might make more sense to do this block by block?  it will at least be
     %% cheaper to do it that way.
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
-    Chain1 = blockchain:ledger(Ledger2, Chain),
-    {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
+    {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
     lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
@@ -511,22 +509,28 @@ load_blocks(Ledger0, Chain, Blocks) ->
                           %% not on the ledger already
                           true ->
                               lager:info("loading block ~p", [Ht]),
+                              Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
+                              Chain1 = blockchain:ledger(Ledger2, Chain),
                               Rescue = blockchain_block:is_rescue_block(Block),
                               {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+
                               Hash = blockchain_block:hash_block(Block),
                               ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
 
                               ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
 
                               ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
-                              ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2);
+                              ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
+
+                              blockchain_ledger_v1:commit_context(Ledger2),
+
+                              blockchain_ledger_v1:new_snapshot(Ledger0);
                           _ ->
                               ok
                       end
               end,
               Blocks)
-    end,
-    blockchain_ledger_v1:commit_context(Ledger2).
+    end.
 
 
 -spec get_blocks(blockchain:blockchain()) ->
