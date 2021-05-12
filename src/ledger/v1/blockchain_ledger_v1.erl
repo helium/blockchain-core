@@ -516,13 +516,22 @@ reset_context(Ledger) ->
     end.
 
 -spec commit_context(ledger()) -> ok.
-commit_context(#ledger_v1{mode=Mode}=Ledger) ->
+commit_context(Ledger) ->
+    commit_context(Ledger, true).
+
+-spec commit_context(ledger(), boolean()) -> ok.
+commit_context(#ledger_v1{mode=Mode}=Ledger, Delete) ->
     DB = db(Ledger),
     {Cache, GwCache} = ?MODULE:context_cache(Ledger),
     {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
     {ok, Height} = current_height(Ledger),
     prewarm_gateways(Mode, Height, Ledger, GwCache),
-    delete_context(Ledger),
+    case Delete of
+        true ->
+            delete_context(Ledger);
+        false ->
+            ok
+    end,
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
     rocksdb:release_batch(Batch),
     Callbacks(),
@@ -586,7 +595,7 @@ context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
                             Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             DL = subledger(Ledger3),
-                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}),
+                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
                             %% close ledger 2 so we don't kill the ETS tables
                             close(Ledger2),
                             file:write_file(filename:join(CheckpointDir, "delayed"), <<>>),
