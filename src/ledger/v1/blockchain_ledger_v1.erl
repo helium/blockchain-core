@@ -581,7 +581,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
     CheckpointDir = checkpoint_dir(Height),
     case filelib:is_dir(CheckpointDir) of
         true ->
-            {ok, Ledger};
+            has_snapshot(Height, Ledger);
         _ ->
             Res = case filelib:is_dir(CheckpointDir) of
                 true ->
@@ -592,8 +592,9 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                     file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
-                            Ledger2 = new(filename:dirname(CheckpointDir)),
+                            Ledger2 = new(filename:dirname(CheckpointDir), false),
                             Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
+                            delayed = mode(Ledger),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
                             DL = subledger(Ledger3),
@@ -609,10 +610,10 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
             end,
             case Res of
                 ok ->
-                    {ok, Ledger};
+                    has_snapshot(Height, Ledger);
                 {error, Reason} = _Error ->
                     lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
-                    {ok, Ledger}
+                    has_snapshot(Height, Ledger)
             end
     end.
 
