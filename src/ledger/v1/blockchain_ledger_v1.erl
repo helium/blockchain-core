@@ -237,12 +237,11 @@
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
-    snapshots :: ets:tid(),
     mode = active :: mode(),
     active :: sub_ledger(),
     delayed :: sub_ledger(),
     snapshot :: undefined | {rocksdb:db_handle(), [{string(), rocksdb:cf_handle()}]},
-    commit_hooks :: [#hook{}],
+    commit_hooks = [] :: [#hook{}],
     aux :: undefined | aux_ledger()
 }).
 
@@ -318,24 +317,27 @@
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
-    {ok, DB, CFs} = open_db(active, Dir, true),
+    L = new(Dir, false),
 
     %% allow config-set commit hooks in case we're worried about something being racy
     Hooks =
         [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
          || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
+    maybe_load_aux(L#ledger_v1{
+        commit_hooks = Hooks
+    }).
+
+new(Dir, ReadOnly) ->
+    {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly),
+
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
-    BaseDir = application:get_env(blockchain, base_dir, "data"),
-    ok = filelib:ensure_dir(filename:join(BaseDir, "lol")),
-    {ok, Snapshots} = dets:open_file(filename:join(BaseDir, "snapshot_cache.dets"), [{type, set}, {keypos, 1}]),
-    maybe_load_aux(#ledger_v1{
+    #ledger_v1{
         dir=Dir,
         db=DB,
-        snapshots=Snapshots,
         mode=active,
         active= #sub_ledger_v1{
             default=DefaultCF,
@@ -364,9 +366,9 @@ new(Dir) ->
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF
-        },
-        commit_hooks = Hooks
-    }).
+        }
+    }.
+
 
 new_aux(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
@@ -377,7 +379,7 @@ new_aux(Ledger) ->
     end.
 
 new_aux(Path, Ledger) ->
-    {ok, DB, CFs} = open_db(aux, Path, false),
+    {ok, DB, CFs} = open_db(aux, Path, false, false),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, AuxHeightsCF] = CFs,
     Ledger#ledger_v1{aux=#aux_ledger_v1{
@@ -562,8 +564,7 @@ new_snapshot(#ledger_v1{db=DB,
             {ok, DelayedHeight} = current_height(DelayedLedger),
             OldDir = checkpoint_dir(DelayedHeight - 1),
             rocksdb:destroy(OldDir, []),
-            {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
-            {ok, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}};
+            {ok, Ledger};
         {error, Reason}=Error ->
             lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason]),
             Error
@@ -616,7 +617,7 @@ context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
             end
     end.
 
-has_snapshot(Height, Ledger) ->
+has_snapshot(Height, _Ledger) ->
     CheckpointDir = checkpoint_dir(Height),
     case filelib:is_dir(CheckpointDir) of
         true ->
@@ -626,8 +627,8 @@ has_snapshot(Height, Ledger) ->
                 false ->
                     active
             end,
-            {ok, SnapshotDB, SnapshotCFs} = open_checkpoint(CheckpointDir),
-            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, Ledger#ledger_v1{snapshot={SnapshotDB, SnapshotCFs}}))};
+            NewLedger = new(CheckpointDir, true),
+            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger))};
         _ ->
             {error, snapshot_not_found}
     end.
@@ -648,8 +649,7 @@ snapshot(Ledger) ->
     end.
 
 -spec drop_snapshots(ledger()) -> ok.
-drop_snapshots(#ledger_v1{snapshots=Cache}) ->
-    dets:delete_all_objects(Cache),
+drop_snapshots(_) ->
     ok.
 
 -spec subledger(ledger()) -> sub_ledger().
@@ -3541,46 +3541,29 @@ process_fun(ToProcess, Cache, CF,
 
 -spec open_db(Mode :: mode(),
               Dir :: file:filename_all(),
-              HasDelayed :: boolean()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
-open_db(active, Dir, true) ->
+              HasDelayed :: boolean(), ReadOnly :: boolean()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(active, Dir, true, ReadOnly) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ delayed_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts);
-open_db(aux, Dir, false) ->
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly);
+open_db(aux, Dir, false, ReadOnly) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ aux_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts);
-open_db(active, _Dir, false) ->
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly);
+open_db(active, _Dir, false, _) ->
     {error, not_opening_active_without_delayed};
-open_db(aux, _Dir, true) ->
+open_db(aux, _Dir, true, _) ->
     {error, not_opening_aux_with_delayed}.
 
-
-open_checkpoint(Dir) ->
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, false}, {atomic_flush, false}] ++ GlobalOpts,
-    CFOpts = GlobalOpts,
-    ExistingCFs =
-        case rocksdb:list_column_families(Dir, DBOptions) of
-            {ok, CFs0} ->
-                CFs0;
-            {error, _} ->
-                ["default"]
-        end,
-
-    {ok, DB, OpenedCFs} = rocksdb:open_readonly(Dir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]),
-
-    {ok, DB, lists:zip(ExistingCFs, OpenedCFs)}.
-
-open_db_(DBDir, DBOptions, DefaultCFs, CFOpts) ->
+open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly) ->
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3589,13 +3572,23 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts) ->
                 ["default"]
         end,
 
-    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]),
+    {ok, DB, OpenedCFs} = case ReadOnly of
+                              true ->
+                                  rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]);
+                              false ->
+                                  rocksdb:open_with_cf_readonly(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs])
+                          end,
 
     L1 = lists:zip(ExistingCFs, OpenedCFs),
     L2 = lists:map(
         fun(CF) ->
-            {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
-            {CF, CF1}
+                case ReadOnly of
+                    true ->
+                        {CF, undefined};
+                    false ->
+                        {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
+                        {CF, CF1}
+                end
         end,
         DefaultCFs -- ExistingCFs
     ),
