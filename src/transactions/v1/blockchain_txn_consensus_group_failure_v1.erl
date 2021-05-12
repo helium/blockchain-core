@@ -111,7 +111,7 @@ is_valid(Txn, Chain) ->
         election_height := ElectionHeight,
         start_height := StartHeight,
         election_delay := ElectionDelay
-    } = blockchain_election:election_info(CurrHeight, Chain),
+    } = blockchain_election:election_info(CurrHeight, Ledger),
 
     try
         case blockchain_ledger_v1:config(?election_version, Ledger) of

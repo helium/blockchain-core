@@ -5,7 +5,7 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/1,
+    new/1, new/4, new/5,
     new_aux/1,
     bootstrap_aux/2,
     mode/1, mode/2,
@@ -23,6 +23,8 @@
 
     new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
+
+    get_block/2,
 
     new_snapshot/1, context_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
 
@@ -252,6 +254,9 @@
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
+    blocks_db :: rocksdb:db_handle(),
+    blocks_cf :: rocksdb:cf_handle(),
+    heights_cf :: rocksdb:cf_handle(),
     snapshots :: ets:tid(),
     mode = active :: mode(),
     active :: sub_ledger(),
@@ -343,7 +348,15 @@
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
-    L = new(Dir, false),
+    new(Dir, false, undefined, undefined, undefined).
+
+-spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
+new(Dir, BlocksDB, BlocksCF, HeightsCF) ->
+    new(Dir, true, BlocksDB, BlocksCF, HeightsCF).
+
+-spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
+new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF) ->
+    L = new(Dir, ReadOnly),
 
     %% allow config-set commit hooks in case we're worried about something being racy
     Hooks =
@@ -351,6 +364,9 @@ new(Dir) ->
          || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
     Ledger = maybe_load_aux(L#ledger_v1{
+        blocks_db = BlocksDB,
+        blocks_cf = BlocksCF,
+        heights_cf = HeightsCF,
         commit_hooks = Hooks
     }),
     sweep_old_checkpoints(Ledger),
@@ -3383,6 +3399,32 @@ var_name(Name) when is_binary(Name) ->
 context_cache(Cache, GwCache, Ledger) ->
     SL = subledger(Ledger),
     subledger(Ledger, SL#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}).
+
+%% these ledger types don't allow fetching by hash
+-spec get_block(integer(), ledger()) ->
+          {ok, blockchain_block:block()} | {error, any()}.
+get_block(Height, #ledger_v1{blocks_db = DB,
+                             blocks_cf = BlocksCF,
+                             heights_cf = HeightsCF} = Ledger) ->
+    case Height > current_height(Ledger) of
+        true -> {error, too_new};
+        _ ->
+            case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+                {ok, Hash} ->
+                    case rocksdb:get(DB, BlocksCF, Hash, []) of
+                        {ok, BinBlock} ->
+                            {ok, blockchain_block:deserialize(BinBlock)};
+                        not_found ->
+                            {error, not_found};
+                        Error ->
+                            Error
+                    end;
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
 
 -spec default_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 default_cf(Ledger) ->

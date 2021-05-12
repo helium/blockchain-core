@@ -1750,13 +1750,13 @@ load(Dir, Mode) ->
                     blessed_snapshot when HonorQuickSync == true ->
                         %% use 1 as a noop, but this combo is poorly defined
                         Height = application:get_env(blockchain, blessed_snapshot_block_height, 1),
-                        L = blockchain_ledger_v1:new(Dir),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
                         case blockchain_ledger_v1:current_height(L) of
                             {ok, 1} ->
                                 L;
                             {ok, CHt} when CHt < Height ->
                                 blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir);
+                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF);
                             {ok, _} ->
                                 L;
                             %% if we can't open the ledger and we can
@@ -1764,10 +1764,10 @@ load(Dir, Mode) ->
                             %% just reload
                             {error, _} ->
                                 blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir)
+                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF)
                         end;
                     _ ->
-                        L = blockchain_ledger_v1:new(Dir),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
                         blockchain_ledger_v1:compact(L),
                         L
                 end,
