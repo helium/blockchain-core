@@ -25,7 +25,7 @@
     new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
-    new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
+    new_snapshot/1, context_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
 
     drop_snapshots/1,
 
@@ -576,7 +576,7 @@ checkpoint_dir(Height) ->
     BaseDir = application:get_env(blockchain, base_dir, "data"),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
-context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
+context_snapshot(#ledger_v1{db=DB} = Ledger) ->
     %% get the height of the base ledger, ignoring context overlays
     {ok, Height} = current_height(Ledger),
     CheckpointDir = checkpoint_dir(Height),
@@ -590,6 +590,7 @@ context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
                 false ->
                     ok = filelib:ensure_dir(CheckpointDir),
                     ok = rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())),
+                    file:write_file(filename:join(CheckpointDir++pid_to_list(self()), "delayed"), <<>>),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
                             Ledger2 = new(CheckpointDir),
@@ -599,7 +600,6 @@ context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
                             commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
                             %% close ledger 2 so we don't kill the ETS tables
                             close(Ledger2),
-                            file:write_file(filename:join(CheckpointDir, "delayed"), <<>>),
                             ok;
                         E ->
                             lager:warning("checkpoint rename failed ~p", [E]),
@@ -609,7 +609,6 @@ context_snapshot(Context, #ledger_v1{db=DB} = Ledger) ->
             end,
             case Res of
                 ok ->
-                    lager:info("storing flattened snapshot of size ~p", [erts_debug:flat_size(Context)]),
                     ok;
                 {error, Reason} = Error ->
                     lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
@@ -629,6 +628,7 @@ has_snapshot(Height, _Ledger) ->
             end,
             %% new/2 wants to add on the ledger.db part itself
             NewLedger = new(filename:dirname(CheckpointDir), true),
+            {ok, Height} = current_height(NewLedger),
             {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger))};
         _ ->
             {error, snapshot_not_found}

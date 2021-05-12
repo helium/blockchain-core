@@ -469,13 +469,6 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                             case fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) of
                                 {ok, Chain1} ->
                                     Ledger1 = ?MODULE:ledger(Chain1),
-                                    case ForceRecalc of
-                                        false ->
-                                            Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                                            blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1);
-                                        _ ->
-                                            ok
-                                    end,
                                     {ok, Ledger1};
                                 Error ->
                                     Error
@@ -523,12 +516,11 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                                       %% take an intermediate snapshot here to
                                       %% make things faster in the future
                                       Ledger1 = ?MODULE:ledger(Chain1),
-                                      Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                                      blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1);
+                                      NewLedger = blockchain_ledger_v1:context_snapshot(Ledger1),
+                                      {ok, blockchain:ledger(NewLedger, Chain1)};
                                   _ ->
-                                      ok
-                              end,
-                              {ok, Chain1};
+                                      {ok, Chain1}
+                              end;
                           {error, Reason} ->
                               {error, {block_absorb_failed, H, Reason}}
                       end;
