@@ -581,7 +581,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
     CheckpointDir = checkpoint_dir(Height),
     case filelib:is_dir(CheckpointDir) of
         true ->
-            has_snapshot(Height, Ledger);
+            {ok, Ledger};
         _ ->
             Res = case filelib:is_dir(CheckpointDir) of
                 true ->
@@ -597,7 +597,7 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
                             DL = subledger(Ledger3),
-                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}),
+                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
                             %% close ledger 2 so we don't kill the ETS tables
                             close(Ledger2),
                             ok;
@@ -609,10 +609,10 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
             end,
             case Res of
                 ok ->
-                    has_snapshot(Height, Ledger);
+                    {ok, Ledger};
                 {error, Reason} = _Error ->
                     lager:error("Error creating new checkpoint for context snapshot, reason: ~p", [Reason]),
-                    has_snapshot(Height, Ledger)
+                    {ok, Ledger}
             end
     end.
 
@@ -3873,7 +3873,7 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
           Hooks),
     {Batch, FilteredChanges} =
         ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
-                          lager:info("DEL ~p ~p", [CF, Key]),
+                          %lager:info("DEL ~p ~p", [CF, Key]),
                           rocksdb:batch_delete(B, atom_to_cf(CF, Ledger), Key),
                           Changes1 = case maps:is_key(CF, Filters) of
                                          true ->
@@ -3888,7 +3888,7 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
                                      end,
                           {B, Changes1};
                      ({{CF, Key}, Value}, {B, Changes}) ->
-                          lager:info("PUT ~p ~p", [CF, Key]),
+                          %lager:info("PUT ~p ~p", [CF, Key]),
                           rocksdb:batch_put(B, atom_to_cf(CF, Ledger), Key, Value),
                           Changes1 = case maps:is_key(CF, Filters) of
                                          true ->
