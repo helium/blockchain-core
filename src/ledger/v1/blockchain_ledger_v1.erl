@@ -557,13 +557,19 @@ new_snapshot(#ledger_v1{db=DB,
     {ok, Height} = current_height(Ledger),
     CheckpointDir = checkpoint_dir(Height),
     ok = filelib:ensure_dir(CheckpointDir),
-    case rocksdb:checkpoint(DB, CheckpointDir) of
+    case rocksdb:checkpoint(DB, CheckpointDir++pid_to_list(self())) of
         ok ->
-            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-            {ok, DelayedHeight} = current_height(DelayedLedger),
-            OldDir = checkpoint_dir(DelayedHeight - 1),
-            rocksdb:destroy(OldDir, []),
-            {ok, Ledger};
+            case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
+                ok ->
+                    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+                    {ok, DelayedHeight} = current_height(DelayedLedger),
+                    OldDir = checkpoint_dir(DelayedHeight - 1),
+                    rocksdb:destroy(OldDir, []),
+                    {ok, Ledger};
+                {error, Reason1}=Error1 ->
+                    lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
+                    Error1
+            end;
         {error, Reason}=Error ->
             lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason]),
             Error
