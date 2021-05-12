@@ -595,8 +595,9 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                             Ledger2 = new(filename:dirname(CheckpointDir)),
                             Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                            lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
                             DL = subledger(Ledger3),
-                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}, false),
+                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}),
                             %% close ledger 2 so we don't kill the ETS tables
                             close(Ledger2),
                             ok;

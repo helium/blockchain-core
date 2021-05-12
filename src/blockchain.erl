@@ -509,6 +509,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                   {ok, Block} ->
                       case blockchain_txn:absorb_block(Block, ChainAcc) of
                           {ok, Chain1} ->
+                              {ok, H} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain1)),
                               Hash = blockchain_block:hash_block(Block),
                               ok = run_gc_hooks(ChainAcc, Hash),
 
