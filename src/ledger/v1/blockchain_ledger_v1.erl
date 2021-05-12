@@ -601,6 +601,8 @@ context_snapshot(#ledger_v1{db=DB} = Ledger) ->
                     ok = dets:from_ets(Dets, ECache),
                     %% this is dumb but from_ets deletes
                     dets:to_ets(Dets, ECache),
+                    dets:sync(Dets),
+                    dets:close(Dets),
                     case file:rename(CheckpointDir++pid_to_list(self()), CheckpointDir) of
                         ok ->
                             %Ledger2 = new(filename:dirname(CheckpointDir), false),
@@ -646,7 +648,8 @@ has_snapshot(Height, _Ledger) ->
                 true ->
                     {ok, Dets} = dets:open_file(filename:join(CheckpointDir, "cache.dets"), []),
                     #sub_ledger_v1{cache=ECache} = subledger(NewLedger2),
-                    dets:to_ets(Dets, ECache);
+                    dets:to_ets(Dets, ECache),
+                    dets:close(Dets);
                 false ->
                     ok
             end,
