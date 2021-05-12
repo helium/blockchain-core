@@ -29,6 +29,9 @@
          to_json/2
         ]).
 
+-type txn_stake_validator() :: #blockchain_txn_stake_validator_v1_pb{}.
+-export_type([txn_stake_validator/0]).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -export([
@@ -41,9 +44,6 @@ owner_signature(Sig, Txn) ->
     Txn#blockchain_txn_stake_validator_v1_pb{owner_signature = Sig}.
 
 -endif.
-
--type txn_stake_validator() :: #blockchain_txn_stake_validator_v1_pb{}.
--export_type([txn_stake_validator/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           pos_integer(), non_neg_integer()) ->

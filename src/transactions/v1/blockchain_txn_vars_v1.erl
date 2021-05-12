@@ -688,7 +688,7 @@ validate_int(Value, Name, Min, Max, InfOK) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
                 _ -> ok
             end
     end.
@@ -702,7 +702,7 @@ validate_float(Value, Name, Min, Max) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
                 _ -> ok
             end
     end.
@@ -784,7 +784,7 @@ validate_var(?election_replacement_factor, Value) ->
 validate_var(?election_replacement_slope, Value) ->
     validate_int(Value, "election_replacement_slope", 1, 100, false);
 validate_var(?election_interval, Value) ->
-    validate_int(Value, "election_interval", 5, 100, true);
+    validate_int(Value, "election_interval", 3, 100, true);
 validate_var(?election_restart_interval, Value) ->
     validate_int(Value, "election_restart_interval", 5, 100, false);
 validate_var(?election_restart_interval_range, Value) ->
@@ -1217,9 +1217,9 @@ validate_var(?validator_version, Value) ->
 validate_var(?validator_minimum_stake, Value) ->
     validate_int(Value, "validator_minimum_stake", ?bones(5000), ?bones(100000), false);
 validate_var(?validator_liveness_interval, Value) ->
-    validate_int(Value, "validator_liveness_interval", 5, 200, false);
+    validate_int(Value, "validator_liveness_interval", 5, 2000, false);
 validate_var(?validator_liveness_grace_period, Value) ->
-    validate_int(Value, "validator_liveness_grace_period", 1, 100, false);
+    validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
 %% TODO fix this var
 validate_var(?stake_withdrawal_cooldown, Value) ->
     %% maybe set this in the test
@@ -1284,7 +1284,7 @@ validate_hip17_vars(Value, Var) ->
 
 validate_int_min_max(Value, Name, Min, Max) ->
     case Value >= Min andalso Value =< Max of
-        false -> {error, {list_to_atom(Name ++ "_out_of_range"), Value}};
+        false -> {error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}};
         _ -> ok
     end.
 
