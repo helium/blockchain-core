@@ -628,8 +628,10 @@ has_snapshot(Height, _Ledger) ->
             end,
             %% new/2 wants to add on the ledger.db part itself
             NewLedger = new(filename:dirname(CheckpointDir), true),
-            {ok, Height} = current_height(NewLedger),
-            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger))};
+            NewLedger2 = blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(Mode, NewLedger)),
+            %% sanity check
+            {ok, Height} = current_height(NewLedger2),
+            {ok, NewLedger2};
         _ ->
             {error, snapshot_not_found}
     end.
