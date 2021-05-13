@@ -1025,6 +1025,7 @@ get_sync_mode(Blockchain) ->
                             {snapshot, {Hash, Height}};
                         _Chain ->
                             {ok, CurrHeight} = blockchain:height(Blockchain),
+                            %% this should be height - 1, but it crashes badly if you set it
                             case CurrHeight >= Height of
                                 %% already loaded the snapshot
                                 true -> {normal, undefined};

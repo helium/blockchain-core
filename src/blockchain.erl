@@ -445,7 +445,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
     Ledger = ?MODULE:ledger(Chain0),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, CurrentHeight} when Height > CurrentHeight andalso not ForceRecalc ->
-            {error, invalid_height, Height, CurrentHeight};
+            {error, invalid_height};
         {ok, Height} when not ForceRecalc ->
             %% Current height is the height we want, just return a new context
             {ok, blockchain_ledger_v1:new_context(Ledger)};

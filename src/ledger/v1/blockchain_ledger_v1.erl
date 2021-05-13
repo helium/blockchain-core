@@ -645,10 +645,23 @@ has_snapshot(_Height, _Ledger, 0) ->
 has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
     Me = self(),
     case ets:lookup(Cache, Height) of
-        [{Height, {pending, _Pid}}] ->
-            timer:sleep(500),
-            has_snapshot(Height, Ledger, Retries - 1);
+        [{Height, {pending, Pid}} = OtherPend] when Pid /= Me ->
+            lager:info("other pid ~p has the snapshot lock for ~p", [Pid, Height]),
+            case is_process_alive(Pid) of
+                true ->
+                    timer:sleep(500),
+                    has_snapshot(Height, Ledger, Retries - 1);
+                false ->
+                    case ets:select_replace(Cache, [{OtherPend, [], [{const, {Height, {pending, Me}}}]}]) of
+                        %% we grabbed the lock, proceed by restarting
+                        1 -> has_snapshot(Height, Ledger, Retries);
+                        0 ->
+                            timer:sleep(500),
+                            has_snapshot(Height, Ledger, Retries - 1)
+                    end
+            end;
         Res when Res == [] orelse Res == [{Height, {pending, Me}}] ->
+            lager:info("~p has the snapshot lock for ~p", [Res, Height]),
             %% try to mark pending since this can take a bit
             Old = {Height, {pending, Me}},
             case Res of
@@ -675,9 +688,12 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                     {ok, Height} = current_height(NewLedger2),
                     1 =:= ets:select_replace(Cache, [{Old, [], [{const, {Height, NewLedger2}}]}]);
                 _ ->
+                    lager:info("couldn't find checkpoint dir?"),
+                    ets:delete(Cache, Height),
                     {error, snapshot_not_found}
             end;
         [{Height, SnapLedger}] ->
+            lager:info("snap for height ~p cached", [Height]),
             {ok, SnapLedger}
     end.
 
