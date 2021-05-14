@@ -243,14 +243,21 @@ calculate_rewards_metadata(Start, End, Chain) ->
     AccInit = #{ dc_rewards => PreviousGraceBlockDCRewards,
                  poc_challenger => #{},
                  poc_challengee => #{},
-                 poc_witness => #{} },
-
+                 poc_witness => #{},
+                 times => #{},
+                 counts => #{}
+               },
     try
         %% We only want to fold over the blocks and transaction in an epoch once,
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
-        Results0 = fold_blocks_for_rewards(Start, End, Chain,
-                                          Vars, Ledger, AccInit),
+        Results2 = fold_blocks_for_rewards(Start, End, Chain,
+                                           Vars, Ledger, AccInit),
+
+        {Counts, Results1} = maps:take(counts, Results2),
+        {Times, Results0} = maps:take(times, Results1),
+
+        lager:info("counts ~p times ~p", [Counts, Times]),
 
         %% Forcing calculation of the EpochReward amount for the CG to always
         %% be around ElectionInterval (30 blocks) so that there is less incentive
@@ -363,11 +370,21 @@ fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
         {error, _Reason} = Error -> throw(Error);
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
-            NewAcc = lists:foldl(fun(T, A) ->
-                                         calculate_reward_for_txn(blockchain_txn:type(T), T, End,
-                                                                  A, Chain, Ledger, Vars)
-                                 end,
-                                 Acc, Txns),
+            NewAcc
+                = lists:foldl(fun(T, A) ->
+                                      Times = maps:get(times, A),
+                                      Counts = maps:get(counts, A),
+                                      St = erlang:monotonic_time(millisecond),
+                                      A1 = calculate_reward_for_txn(blockchain_txn:type(T), T, End,
+                                                                    A, Chain, Ledger, Vars),
+                                      Ed = erlang:monotonic_time(millisecond),
+                                      Times1 = maps:update_with(blockchain_txn:type(T),
+                                                                fun(X) -> X + (Ed - St) end, (Ed - St), Times),
+                                      Counts1 = maps:update_with(blockchain_txn:type(T),
+                                                                 fun(X) -> X + 1 end, 1, Counts),
+                                      A1#{times => Times1, counts => Counts1}
+                              end,
+                              Acc, Txns),
             fold_blocks_for_rewards(Current+1, End, Chain, Vars, Ledger, NewAcc)
     end.
 

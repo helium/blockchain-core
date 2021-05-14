@@ -61,16 +61,15 @@ init_per_testcase(_TestCase, Config) ->
     NewDir = PrivDir ++ "/ledger/",
     ok = filelib:ensure_dir(NewDir),
 
-    os:cmd("wget https://blockchain-core.s3-us-west-1.amazonaws.com/snap-591841"),
+    os:cmd("wget https://blockchain-core.s3-us-west-1.amazonaws.com/snap-805681"),
 
-    Filename = Dir ++ "/snap-591841",
+    Filename = Dir ++ "/snap-805681",
 
     {ok, BinSnap} = file:read_file(Filename),
 
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
-    {ok, _GWCache} = blockchain_gateway_cache:start_link(),
     {ok, _Pid} = blockchain_score_cache:start_link(),
 
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
@@ -97,46 +96,16 @@ reward_perf_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    ct:pal("height ~p", [Height]),
 
     {Time, _} =
         timer:tc(
           fun() ->
-                  {ok, _} = blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
+                  {ok, _} = blockchain_txn_rewards_v2:calculate_rewards(Height - 15, Height, Chain)
           end),
     ct:pal("basic calc took: ~p ms", [Time div 1000]),
 
-    Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:vars(Vars, [], Ledger2),
-    blockchain:bootstrap_h3dex(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2),
-     
-    [erlang:garbage_collect(P) || P <- processes()],
-    timer:sleep(3000),
-    
-    {Time2, _} =
-        timer:tc(
-          fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
-          end),
-    ct:pal("basic calc 2 took: ~p ms", [Time2 div 1000]),
-
-    [erlang:garbage_collect(P) || P <- processes()],
-    timer:sleep(3000),
-
-    {Time3, _} =
-        timer:tc(
-          fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
-          end),
-    ct:pal("hip 17 calc took: ~p ms", [Time3 div 1000]),
-
-    Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    blockchain_ledger_v1:bootstrap_gw_denorm(Ledger1),
-    blockchain_ledger_v1:commit_context(Ledger1),
-
-    %% error(print),
+   error(print),
     ok.
 
 
