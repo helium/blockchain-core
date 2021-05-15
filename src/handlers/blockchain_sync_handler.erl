@@ -116,6 +116,8 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
                           case blockchain:add_blocks(Blocks, Chain) of
                               ok ->
                                   ok;
+                              exists ->
+                                  ok;
                               Error ->
                                   lager:info("Error adding blocks ~p", [Error]),
                                   erlang:error(Error)

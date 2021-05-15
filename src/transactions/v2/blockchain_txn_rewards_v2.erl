@@ -967,11 +967,9 @@ poc_witness_reward(Txn, AccIn,
                                            fun(WitnessRecord, Acc2) ->
                                                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
                                                    %% This must always be {ok, ...}
-                                                   {ok, ChallengeeGw} =
-                                                      blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
                                                    %% Challengee must have a location
-                                                   ChallengeeLoc =
-                                                      blockchain_ledger_gateway_v2:location(ChallengeeGw),
+                                                   {ok, ChallengeeLoc} =
+                                                      blockchain_ledger_v1:find_gateway_location(Challengee, Ledger),
                                                    Witness =
                                                       blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                    %% The witnesses get scaled by the value of their transmitters

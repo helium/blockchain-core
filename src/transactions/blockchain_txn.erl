@@ -382,8 +382,11 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
 
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
+    Start = erlang:monotonic_time(millisecond),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
+            End = erlang:monotonic_time(millisecond),
+            lager:info("took ~p ms", [End - Start]),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),

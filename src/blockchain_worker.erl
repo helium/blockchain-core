@@ -280,12 +280,14 @@ signed_metadata_fun() ->
                                Ht0 = maps:get(<<"height">>, HeightMD, 1),
                                Ht = max(1, Ht0 - (Ht0 rem 40)),
                                {ok, LedgerAt} = blockchain:ledger_at(Ht, Chain),
-                               case blockchain_ledger_v1:fingerprint(LedgerAt) of
+                               Res = case blockchain_ledger_v1:fingerprint(LedgerAt) of
                                    {ok, Fingerprint} ->
                                        maps:merge(HeightMD, Fingerprint);
                                    _ ->
                                        HeightMD
-                               end;
+                               end,
+                               blockchain_ledger_v1:delete_context(LedgerAt),
+                               Res;
                            false ->
                                %% if the chain height and the ledger height diverge we can't meaningfully
                                %% report fingerprint hashes, so skip it here
@@ -1023,6 +1025,7 @@ get_sync_mode(Blockchain) ->
                             {snapshot, {Hash, Height}};
                         _Chain ->
                             {ok, CurrHeight} = blockchain:height(Blockchain),
+                            %% this should be height - 1, but it crashes badly if you set it
                             case CurrHeight >= Height of
                                 %% already loaded the snapshot
                                 true -> {normal, undefined};
