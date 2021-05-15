@@ -463,17 +463,16 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                     case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
                         {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
-                        _ ->
+                        R ->
+                            %% remove a context if we created one we don't need
+                            case R of
+                                {ok, UnusedLedger} -> blockchain_ledger_v1:delete_context(UnusedLedger);
+                                _ ->
+                                    ok
+                            end,
                             case fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) of
                                 {ok, Chain1} ->
                                     Ledger1 = ?MODULE:ledger(Chain1),
-                                    case ForceRecalc of
-                                        false ->
-                                            Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                                            blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1);
-                                        _ ->
-                                            ok
-                                    end,
                                     {ok, Ledger1};
                                 Error ->
                                     Error
@@ -512,6 +511,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                   {ok, Block} ->
                       case blockchain_txn:absorb_block(Block, ChainAcc) of
                           {ok, Chain1} ->
+                              {ok, H} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain1)),
                               Hash = blockchain_block:hash_block(Block),
                               ok = run_gc_hooks(ChainAcc, Hash),
 
@@ -520,12 +520,12 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                                       %% take an intermediate snapshot here to
                                       %% make things faster in the future
                                       Ledger1 = ?MODULE:ledger(Chain1),
-                                      Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                                      blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1);
+                                      {ok, NewLedger} = blockchain_ledger_v1:context_snapshot(Ledger1),
+                                      delayed = blockchain_ledger_v1:mode(NewLedger),
+                                      {ok, blockchain:ledger(NewLedger, Chain1)};
                                   _ ->
-                                      ok
-                              end,
-                              {ok, Chain1};
+                                      {ok, Chain1}
+                              end;
                           {error, Reason} ->
                               {error, {block_absorb_failed, H, Reason}}
                       end;
@@ -793,6 +793,7 @@ can_add_block(Block, Blockchain) ->
                                     N = length(ConsensusAddrs),
                                     F = (N-1) div 3,
                                     {ok, KeyOrKeys} = get_key_or_keys(Ledger),
+                                    blockchain_ledger_v1:delete_context(Ledger),
                                     Txns = blockchain_block:transactions(Block),
                                     Sigs = blockchain_block:signatures(Block),
                                     case blockchain_block:verify_signatures(Block,
@@ -1817,7 +1818,9 @@ load(Dir, Mode) ->
                 {ok, ChainHeight} when ChainHeight > 2 andalso
                                        ChainHeight > SnapHeight andalso
                                        (not FollowMode) ->
-                    ledger_at(ChainHeight - 1, Blockchain);
+                    {ok, Ld} = ledger_at(ChainHeight - 1, Blockchain),
+                    blockchain_ledger_v1:delete_context(Ld),
+                    ok;
                 _ ->
                     ok
             end,

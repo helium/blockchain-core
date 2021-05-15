@@ -395,6 +395,7 @@ init_base_dir_config(Mod, TestCase, Config)->
     BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     LogDir = PrivDir ++ "logs/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     SimDir = BaseDir ++ "_sim",
+    application:set_env(blockchain, base_dir, BaseDir),
     [
         {base_dir, BaseDir},
         {sim_dir, SimDir},
