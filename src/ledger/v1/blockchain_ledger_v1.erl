@@ -628,6 +628,11 @@ checkpoint_dir(Height) ->
     BaseDir = application:get_env(blockchain, base_dir, "data"),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
+remove_checkpoint(CheckpointDir) ->
+    file:delete(filename:join(CheckpointDir, "delayed")),
+    rocksdb:destroy(CheckpointDir, []),
+    file:del_dir(filename:dirname(CheckpointDir)).
+
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
     {ok, Height} = current_height(Ledger),
     CheckpointDir = checkpoint_dir(Height),
@@ -648,13 +653,14 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
                             %% this should be quite unlikely
                             has_snapshot(Height, Ledger);
                         false ->
+                            %% this must be on a delayed ledger, so crash out early if it isn't
+                            delayed = mode(Ledger),
                             ok = filelib:ensure_dir(CheckpointDir),
                             ok = rocksdb:checkpoint(DB, CheckpointDir),
                             file:write_file(filename:join(CheckpointDir, "delayed"), <<>>),
                             %% open the checkpoint read-write and commit the changes in the ETS table into it
                             Ledger2 = new(filename:dirname(CheckpointDir), false),
                             Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
-                            delayed = mode(Ledger),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
                             DL = subledger(Ledger3),
@@ -713,23 +719,28 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                        false ->
                                            active
                                    end,
-                            %% new/2 wants to add on the ledger.db part itself
-                            NewLedger = new(filename:dirname(CheckpointDir), true),
-                            %% share the snapshot cache with the new ledger
-                            NewLedger2 = blockchain_ledger_v1:mode(Mode, NewLedger#ledger_v1{snapshots=Cache}),
-                            %% sanity check
-                            case current_height(NewLedger2) of
-                                {ok, Height} ->
-                                    1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
-                                    {ok, new_context(NewLedger2)};
-                                {ok, OtherHeight} ->
-                                    lager:warning("expected checkpoint ledger at height ~p but got height ~p", [Height, OtherHeight]),
-                                    %% just blow it away and let it get re-calculated
-                                    file:delete(filename:join(CheckpointDir, "delayed")),
-                                    rocksdb:destroy(CheckpointDir, []),
-                                    file:del_dir(filename:dirname(CheckpointDir)),
-                                    ets:delete(Cache, Height),
-                                    {error, snapshot_not_found}
+                            try
+                                %% new/2 wants to add on the ledger.db part itself
+                                NewLedger = new(filename:dirname(CheckpointDir), true),
+                                %% share the snapshot cache with the new ledger
+                                NewLedger2 = blockchain_ledger_v1:mode(Mode, NewLedger#ledger_v1{snapshots=Cache}),
+                                %% sanity check
+                                case current_height(NewLedger2) of
+                                    {ok, Height} ->
+                                        1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
+                                        {ok, new_context(NewLedger2)};
+                                    {ok, OtherHeight} ->
+                                        lager:warning("expected checkpoint ledger at height ~p but got height ~p", [Height, OtherHeight]),
+                                        %% just blow it away and let it get re-calculated
+                                        remove_checkpoint(CheckpointDir),
+                                        ets:delete(Cache, Height),
+                                        {error, snapshot_not_found}
+                                end
+                            catch What:Why ->
+                                      lager:warning("error opening checkpoint: ~p ~p", [What, Why]),
+                                      remove_checkpoint(CheckpointDir),
+                                      ets:delete(Cache, Height),
+                                      {error, snapshot_not_found}
                             end;
                         _ ->
                             lager:info("couldn't find checkpoint dir? for ~p", [Height]),
