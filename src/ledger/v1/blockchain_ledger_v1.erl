@@ -390,7 +390,7 @@ sweep_old_checkpoints(Ledger) ->
                       end
               end, Subdirs),
         lists:map(fun(Dir) ->
-                          file:delete(filename:join([BaseDir, "checkpoints", Dir, "delayed"])),
+                          file:delete(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE, "delayed"])),
                           rocksdb:destroy(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]), []),
                           file:del_dir(filename:join([BaseDir, "checkpoints", Dir]))
                   end,
