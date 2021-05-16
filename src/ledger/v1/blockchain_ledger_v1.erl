@@ -633,7 +633,7 @@ remove_checkpoint(CheckpointDir) ->
     rocksdb:destroy(CheckpointDir, []),
     file:del_dir(filename:dirname(CheckpointDir)).
 
-context_snapshot(#ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
+context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
     {ok, Height} = current_height(Ledger),
     CheckpointDir = checkpoint_dir(Height),
     case ets:lookup(Cache, Height) of
@@ -653,18 +653,20 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
                             %% this should be quite unlikely
                             has_snapshot(Height, Ledger);
                         false ->
-                            %% this must be on a delayed ledger, so crash out early if it isn't
-                            delayed = mode(Ledger),
                             ok = filelib:ensure_dir(CheckpointDir),
                             ok = rocksdb:checkpoint(DB, CheckpointDir),
-                            file:write_file(filename:join(CheckpointDir, "delayed"), <<>>),
+                            case Mode of
+                                delayed ->
+                                    file:write_file(filename:join(CheckpointDir, "delayed"), <<>>);
+                                active ->
+                                    ok
+                            end,
                             %% open the checkpoint read-write and commit the changes in the ETS table into it
                             Ledger2 = new(filename:dirname(CheckpointDir), false),
-                            Ledger3 = blockchain_ledger_v1:mode(delayed, Ledger2),
+                            Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
-                            DL = subledger(Ledger3),
-                            commit_context(Ledger3#ledger_v1{delayed=DL#sub_ledger_v1{cache=ECache, gateway_cache=GwCache}}),
+                            commit_context(context_cache(ECache, GwCache, Ledger3)),
                             close(Ledger3),
                             has_snapshot(Height, Ledger)
                     end
