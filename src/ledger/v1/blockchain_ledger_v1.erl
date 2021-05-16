@@ -324,9 +324,11 @@ new(Dir) ->
         [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
          || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
 
-    maybe_load_aux(L#ledger_v1{
+    Ledger = maybe_load_aux(L#ledger_v1{
         commit_hooks = Hooks
-    }).
+    }),
+    sweep_old_checkpoints(Ledger),
+    Ledger.
 
 new(Dir, ReadOnly) ->
     {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly),
@@ -370,7 +372,6 @@ new(Dir, ReadOnly) ->
             h3dex=DelayedH3DexCF
         }
     },
-    sweep_old_checkpoints(Ledger),
     Ledger.
 
 sweep_old_checkpoints(Ledger) ->
@@ -717,9 +718,19 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                             %% share the snapshot cache with the new ledger
                             NewLedger2 = blockchain_ledger_v1:mode(Mode, NewLedger#ledger_v1{snapshots=Cache}),
                             %% sanity check
-                            {ok, Height} = current_height(NewLedger2),
-                            1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
-                            {ok, new_context(NewLedger2)};
+                            case current_height(NewLedger2) of
+                                {ok, Height} ->
+                                    1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
+                                    {ok, new_context(NewLedger2)};
+                                {ok, OtherHeight} ->
+                                    lager:warning("expected checkpoint ledger at height ~p but got height ~p", [Height, OtherHeight]),
+                                    %% just blow it away and let it get re-calculated
+                                    file:delete(filename:join(CheckpointDir, "delayed")),
+                                    rocksdb:destroy(CheckpointDir, []),
+                                    file:del_dir(filename:dirname(CheckpointDir)),
+                                    ets:delete(Cache, Height),
+                                    {error, snapshot_not_found}
+                            end;
                         _ ->
                             lager:info("couldn't find checkpoint dir? for ~p", [Height]),
                             ets:delete(Cache, Height),
