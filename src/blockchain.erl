@@ -648,7 +648,7 @@ find_first_block_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}=Blockcha
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
+-spec add_blocks([blockchain_block:block()], blockchain()) -> ok | exists | plausible | {error, any()}.
 add_blocks(Blocks, Chain) ->
     blockchain_lock:acquire(),
     try

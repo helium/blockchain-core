@@ -390,8 +390,9 @@ sweep_old_checkpoints(Ledger) ->
                       end
               end, Subdirs),
         lists:map(fun(Dir) ->
-                          file:del_dir_r(
-                            filename:join([BaseDir, "checkpoints", Dir]))
+                          file:delete(filename:join([BaseDir, "checkpoints", Dir, "delayed"])),
+                          rocksdb:destroy(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]), []),
+                          file:del_dir(filename:join([BaseDir, "checkpoints", Dir]))
                   end,
                   ToDelete)
     catch _:_ ->
@@ -606,8 +607,9 @@ new_snapshot(#ledger_v1{db=DB,
                             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                             {ok, DelayedHeight} = current_height(DelayedLedger),
                             OldDir = checkpoint_dir(DeleteHeight),
+                            file:delete(filename:join(OldDir, "delayed")),
                             rocksdb:destroy(OldDir, []),
-                            file:del_dir_r(OldDir),
+                            file:del_dir(filename:dirname(OldDir)),
                             {ok, Ledger};
                         {error, Reason1}=Error1 ->
                             lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
