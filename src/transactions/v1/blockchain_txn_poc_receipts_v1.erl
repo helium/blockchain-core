@@ -1512,7 +1512,7 @@ maybe_tx_power_from_receipt(undefined, SourceLoc, Ledger) ->
     {ok, RegionParams} = blockchain_region_params_v1:params_for_region(Region, Ledger),
     %% NOTE: all region params have the same max_eirp afaict, just take one
     %% TODO: maybe look at the freq of the source and match max_eirp if they ever differ?
-    Param = hd(RegionParams),
+    Param = hd(blockchain_region_params_v1:region_params(RegionParams)),
     blockchain_region_param_v1:max_eirp(Param);
 maybe_tx_power_from_receipt(Receipt, _SourceLoc, _Ledger) ->
     blockchain_poc_receipt_v1:tx_power(Receipt).
