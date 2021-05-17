@@ -5021,7 +5021,7 @@ find_scs_by_owner_test() ->
 subnet_allocation_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation_test"),
     Ledger = new(BaseDir),
-    SubnetCF = subnets_cf(Ledger),
+    {subnets, _DB, SubnetCF} = subnets_cf(Ledger),
     Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
     Mask16 = blockchain_ledger_routing_v1:subnet_size_to_mask(16),
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
@@ -5067,7 +5067,7 @@ subnet_allocation_test() ->
 subnet_allocation2_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation2_test"),
     Ledger = new(BaseDir),
-    SubnetCF = subnets_cf(Ledger),
+    {subnets, _DB, SubnetCF} = subnets_cf(Ledger),
     Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
     {ok, Subnet} = allocate_subnet(8, Ledger),
