@@ -402,6 +402,23 @@ sweep_old_checkpoints(Ledger) ->
     end,
     ok.
 
+clean_checkpoints() ->
+    try
+        BaseDir = application:get_env(blockchain, base_dir, "data"),
+        CPs = filename:join([BaseDir, "checkpoints"]),
+        {ok, Subdirs} = file:list_dir(CPs),
+        lists:map(fun(Dir) ->
+                          file:delete(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE, "delayed"])),
+                          rocksdb:destroy(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]), []),
+                          file:del_dir(filename:join([BaseDir, "checkpoints", Dir]))
+                  end,
+                  Subdirs)
+    catch _:_ ->
+            %% this crashes on clean startup, just ignore it
+            ok
+    end,
+    ok.
+
 new_aux(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
         undefined ->
@@ -2809,12 +2826,11 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 -spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
                                Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_devaddr(DevAddr0, Ledger) ->
-    DB = db(Ledger),
     DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
     case <<DevAddr0:32/integer-unsigned-little>> of
         <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
             %% use the subnets
-            SubnetCF = subnets_cf(Ledger),
+            {_name, DB, SubnetCF} = subnets_cf(Ledger),
             {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
             Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
             catch rocksdb:iterator_close(Itr),
@@ -3162,6 +3178,7 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []),
+    clean_checkpoints(),
     clean_aux(L).
 
 clean_aux(L) ->
