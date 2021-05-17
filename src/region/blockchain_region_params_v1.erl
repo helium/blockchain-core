@@ -32,7 +32,8 @@
     new/1,
     fetch/1,
     serialize/1,
-    deserialize/1
+    deserialize/1,
+    region_params/1
 ]).
 
 -type region_params_v1() :: #blockchain_region_params_v1_pb{}.
@@ -156,6 +157,10 @@ serialize(#blockchain_region_params_v1_pb{} = RegionParams) ->
 -spec deserialize(binary()) -> region_params_v1().
 deserialize(Bin) ->
     blockchain_region_param_v1_pb:decode_msg(Bin, blockchain_region_params_v1_pb).
+
+-spec region_params(RegionParams :: region_params_v1()) -> [blockchain_region_param_v1:region_params_v1()].
+region_params(RegionParams) ->
+    RegionParams#blockchain_region_params_v1_pb.region_params.
 
 %%--------------------------------------------------------------------
 %% helpers
