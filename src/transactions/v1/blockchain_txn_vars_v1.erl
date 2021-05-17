@@ -1177,6 +1177,18 @@ validate_var(?light_gateway_capabilities_mask, Value) ->
     %% TODO - allow for > 16 bit mask here?
     validate_int(Value, "light_gateway_capabilities_mask", 0, 65536, false);
 
+validate_var(?non_consensus_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a non consensus gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "non_consensus_gateway_capabilities_mask", 0, 65536, false);
+
+validate_var(?full_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a full gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "full_gateway_capabilities_mask", 0, 65536, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
