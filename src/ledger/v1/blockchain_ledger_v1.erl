@@ -601,7 +601,7 @@ new_snapshot(#ledger_v1{db=DB,
     case ets:insert_new(Cache, Old) of
         false -> {ok, Ledger};
         _ ->
-            CheckpointDir = checkpoint_dir(Height),
+            CheckpointDir = checkpoint_dir(Ledger, Height),
             ok = filelib:ensure_dir(CheckpointDir),
             %% take a real rocksdb snaoshot here and put that in the cache
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
@@ -624,7 +624,7 @@ new_snapshot(#ledger_v1{db=DB,
                         ok ->
                             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                             {ok, DelayedHeight} = current_height(DelayedLedger),
-                            OldDir = checkpoint_dir(DeleteHeight),
+                            OldDir = checkpoint_dir(Ledger, DeleteHeight),
                             file:delete(filename:join(OldDir, "delayed")),
                             rocksdb:destroy(OldDir, []),
                             file:del_dir(filename:dirname(OldDir)),
@@ -641,8 +641,15 @@ new_snapshot(#ledger_v1{db=DB,
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
-checkpoint_dir(Height) ->
-    BaseDir = application:get_env(blockchain, base_dir, "data"),
+checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
+    BaseDir = try {list_to_integer(filename:basename(Dir)), filename:basename(filename:dirname(Dir))} of
+                  {X, "checkpoints"} when is_integer(X) ->
+                      filename:dirname(filename:dirname(Dir));
+                  _ ->
+                      Dir
+              catch _:_ ->
+                        Dir
+              end,
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
 remove_checkpoint(CheckpointDir) ->
@@ -652,7 +659,7 @@ remove_checkpoint(CheckpointDir) ->
 
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
     {ok, Height} = current_height(Ledger),
-    CheckpointDir = checkpoint_dir(Height),
+    CheckpointDir = checkpoint_dir(Ledger, Height),
     case ets:lookup(Cache, Height) of
         [{Height, {pending, _Pid}}] ->
             has_snapshot(Height, Ledger);
@@ -729,7 +736,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                     has_snapshot(Height, Ledger);
                 true ->
                     lager:info("uncached checkpoint @ ~p", [Height]),
-                    CheckpointDir = checkpoint_dir(Height),
+                    CheckpointDir = checkpoint_dir(Ledger, Height),
                     case filelib:is_dir(CheckpointDir) of
                         true ->
                             Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
