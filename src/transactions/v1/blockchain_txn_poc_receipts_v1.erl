@@ -1149,7 +1149,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
 
             SameRegion = is_same_region(Ledger, SourceLoc, DestinationLoc),
 
-            try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
+            try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                 Dist when Dist >= ExclusionCells andalso SameRegion andalso not TooFar ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
@@ -1713,4 +1713,3 @@ to_json_test() ->
 
 
 -endif.
-
