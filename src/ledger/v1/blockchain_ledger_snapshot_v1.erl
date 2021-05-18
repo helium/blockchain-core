@@ -547,9 +547,9 @@ get_blocks(Chain) ->
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
 
     %% We need _at least_ the grace blocks before current election
-    %% or the delayed ledger height less 181 blocks, whichever is
+    %% or the delayed ledger height less than last poc_challenge_interval blocks, whichever is
     %% lower.
-    LoadBlockStart = min(DHeight - (2 * POCChallengeInterval + 1), ElectionHeight - GraceBlocks),
+    LoadBlockStart = min(DHeight - (POCChallengeInterval + 1), ElectionHeight - GraceBlocks),
 
     [begin
          {ok, B} = blockchain:get_raw_block(N, Chain),
