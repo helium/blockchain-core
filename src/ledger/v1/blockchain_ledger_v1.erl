@@ -802,7 +802,7 @@ snapshot(Ledger) ->
             {ok, S}
     end.
 
--spec drop_snapshots(ledger()) -> ok.
+-spec drop_snapshots(ledger()) -> true.
 drop_snapshots(#ledger_v1{snapshots=Cache}) ->
     ets:delete_all_objects(Cache).
 
