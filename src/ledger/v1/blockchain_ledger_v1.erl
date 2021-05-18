@@ -3264,86 +3264,62 @@ context_cache(Cache, GwCache, Ledger) ->
     subledger(Ledger, SL#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}).
 
 -spec default_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-default_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {default, DB, proplists:get_value(cf_name(default, Ledger), CFs)};
 default_cf(Ledger) ->
     SL = subledger(Ledger),
     {default, db(Ledger), SL#sub_ledger_v1.default}.
 
 -spec active_gateways_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-active_gateways_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {active_gateways, DB, proplists:get_value(cf_name(active_gateways, Ledger), CFs)};
 active_gateways_cf(Ledger) ->
     SL = subledger(Ledger),
     {active_gateways, db(Ledger), SL#sub_ledger_v1.active_gateways}.
 
 -spec gw_denorm_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-gw_denorm_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {gw_denorm, DB, proplists:get_value(cf_name(gw_denorm, Ledger), CFs)};
 gw_denorm_cf(Ledger) ->
     SL = subledger(Ledger),
     {gw_denorm, db(Ledger), SL#sub_ledger_v1.gw_denorm}.
 
 -spec entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-entries_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {entries, DB, proplists:get_value(cf_name(entries, Ledger), CFs)};
 entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries, db(Ledger), SL#sub_ledger_v1.entries}.
 
 -spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-dc_entries_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {dc_entries, DB, proplists:get_value(cf_name(dc_entries, Ledger), CFs)};
 dc_entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {dc_entries, db(Ledger), SL#sub_ledger_v1.dc_entries}.
 
 -spec htlcs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-htlcs_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {htlcs, DB, proplists:get_value(cf_name(htlcs, Ledger), CFs)};
 htlcs_cf(Ledger) ->
     SL = subledger(Ledger),
     {htlcs, db(Ledger), SL#sub_ledger_v1.htlcs}.
 
 -spec pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-pocs_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {pocs, DB, proplists:get_value(cf_name(pocs, Ledger), CFs)};
 pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
 
 -spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-securities_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {securities, DB, proplists:get_value(cf_name(securities, Ledger), CFs)};
 securities_cf(Ledger) ->
     SL = subledger(Ledger),
     {securities, db(Ledger), SL#sub_ledger_v1.securities}.
 
 
 -spec routing_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-routing_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {routing, DB, proplists:get_value(cf_name(routing, Ledger), CFs)};
 routing_cf(Ledger) ->
     SL = subledger(Ledger),
     {routing, db(Ledger), SL#sub_ledger_v1.routing}.
 
 -spec subnets_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-subnets_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {subnets, DB, proplists:get_value(cf_name(subnets, Ledger), CFs)};
 subnets_cf(Ledger) ->
     SL = subledger(Ledger),
     {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
 
 -spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-state_channels_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {state_channels, DB, proplists:get_value(cf_name(state_channels, Ledger), CFs)};
 state_channels_cf(Ledger) ->
     SL = subledger(Ledger),
     {state_channels, db(Ledger), SL#sub_ledger_v1.state_channels}.
 
 -spec h3dex_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-h3dex_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {h3dex, DB, proplists:get_value(cf_name(h3dex, Ledger), CFs)};
 h3dex_cf(Ledger) ->
     SL = subledger(Ledger),
     {h3dex, db(Ledger), SL#sub_ledger_v1.h3dex}.
@@ -3360,14 +3336,6 @@ aux_db(Ledger) ->
     case has_aux(Ledger) of
         false -> undefined;
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.db
-    end.
-
-cf_name(Name, Ledger) ->
-    case mode(Ledger) of
-        delayed ->
-            "delayed_"++atom_to_list(Name);
-        _ ->
-            atom_to_list(Name)
     end.
 
 -spec set_aux_rewards(Height :: non_neg_integer(),
@@ -3588,7 +3556,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
             Fun = mk_cache_fold_fun(Cache, CFName, Start, End, Fun0),
             Keys = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CFName}],['$2']}])),
             {TrailingKeys, Res0} = rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}),
-            process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
+            process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
     end.
 
 rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
