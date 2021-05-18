@@ -4029,9 +4029,9 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
           #{},
           Hooks),
     {Batch, FilteredChanges} =
-        ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
-                          %lager:info("DEL ~p ~p", [CF, Key]),
-                          rocksdb:batch_delete(B, atom_to_cf(CF, Ledger), Key),
+        ets:foldl(fun({{CFName, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
+                          CF = atom_to_cf(CFName, Ledger),
+                          rocksdb:batch_delete(B, CF, Key),
                           Changes1 = case maps:is_key(CF, Filters) of
                                          true ->
                                              case apply_filters(CF, Filters, Key, deleted) of
@@ -4044,9 +4044,9 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
                                              Changes
                                      end,
                           {B, Changes1};
-                     ({{CF, Key}, Value}, {B, Changes}) ->
-                          %lager:info("PUT ~p ~p", [CF, Key]),
-                          rocksdb:batch_put(B, atom_to_cf(CF, Ledger), Key, Value),
+                     ({{CFName, Key}, Value}, {B, Changes}) ->
+                          CF = atom_to_cf(CFName, Ledger),
+                          rocksdb:batch_put(B, CF, Key, Value),
                           Changes1 = case maps:is_key(CF, Filters) of
                                          true ->
                                              case apply_filters(CF, Filters, Key, Value) of
