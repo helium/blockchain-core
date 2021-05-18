@@ -402,6 +402,23 @@ sweep_old_checkpoints(Ledger) ->
     end,
     ok.
 
+clean_checkpoints(#ledger_v1{dir = RecordDir}) ->
+    try
+        BaseDir = checkpoint_base(RecordDir),
+        CPs = filename:join([BaseDir, "checkpoints"]),
+        {ok, Subdirs} = file:list_dir(CPs),
+        lists:map(fun(Dir) ->
+                          file:delete(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE, "delayed"])),
+                          rocksdb:destroy(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]), []),
+                          file:del_dir(filename:join([BaseDir, "checkpoints", Dir]))
+                  end,
+                  Subdirs)
+    catch _:_ ->
+            %% this crashes on clean startup, just ignore it
+            ok
+    end,
+    ok.
+
 new_aux(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
         undefined ->
@@ -584,7 +601,7 @@ new_snapshot(#ledger_v1{db=DB,
     case ets:insert_new(Cache, Old) of
         false -> {ok, Ledger};
         _ ->
-            CheckpointDir = checkpoint_dir(Height),
+            CheckpointDir = checkpoint_dir(Ledger, Height),
             ok = filelib:ensure_dir(CheckpointDir),
             %% take a real rocksdb snaoshot here and put that in the cache
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
@@ -607,7 +624,7 @@ new_snapshot(#ledger_v1{db=DB,
                         ok ->
                             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                             {ok, DelayedHeight} = current_height(DelayedLedger),
-                            OldDir = checkpoint_dir(DeleteHeight),
+                            OldDir = checkpoint_dir(Ledger, DeleteHeight),
                             file:delete(filename:join(OldDir, "delayed")),
                             rocksdb:destroy(OldDir, []),
                             file:del_dir(filename:dirname(OldDir)),
@@ -624,8 +641,18 @@ new_snapshot(#ledger_v1{db=DB,
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
-checkpoint_dir(Height) ->
-    BaseDir = application:get_env(blockchain, base_dir, "data"),
+checkpoint_base(Dir) ->
+    try {list_to_integer(filename:basename(Dir)), filename:basename(filename:dirname(Dir))} of
+        {X, "checkpoints"} when is_integer(X) ->
+            filename:dirname(filename:dirname(Dir));
+        _ ->
+            Dir
+    catch _:_ ->
+            Dir
+    end.
+
+checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
+    BaseDir = checkpoint_base(Dir),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
 remove_checkpoint(CheckpointDir) ->
@@ -635,7 +662,7 @@ remove_checkpoint(CheckpointDir) ->
 
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
     {ok, Height} = current_height(Ledger),
-    CheckpointDir = checkpoint_dir(Height),
+    CheckpointDir = checkpoint_dir(Ledger, Height),
     case ets:lookup(Cache, Height) of
         [{Height, {pending, _Pid}}] ->
             has_snapshot(Height, Ledger);
@@ -712,7 +739,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                     has_snapshot(Height, Ledger);
                 true ->
                     lager:info("uncached checkpoint @ ~p", [Height]),
-                    CheckpointDir = checkpoint_dir(Height),
+                    CheckpointDir = checkpoint_dir(Ledger, Height),
                     case filelib:is_dir(CheckpointDir) of
                         true ->
                             Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
@@ -775,9 +802,9 @@ snapshot(Ledger) ->
             {ok, S}
     end.
 
--spec drop_snapshots(ledger()) -> ok.
-drop_snapshots(_) ->
-    ok.
+-spec drop_snapshots(ledger()) -> true.
+drop_snapshots(#ledger_v1{snapshots=Cache}) ->
+    ets:delete_all_objects(Cache).
 
 -spec subledger(ledger()) -> sub_ledger().
 subledger(Ledger = #ledger_v1{mode=Mode}) ->
@@ -2809,12 +2836,11 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 -spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
                                Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_devaddr(DevAddr0, Ledger) ->
-    DB = db(Ledger),
     DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
     case <<DevAddr0:32/integer-unsigned-little>> of
         <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
             %% use the subnets
-            SubnetCF = subnets_cf(Ledger),
+            {_name, DB, SubnetCF} = subnets_cf(Ledger),
             {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
             Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
             catch rocksdb:iterator_close(Itr),
@@ -3162,6 +3188,7 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []),
+    clean_checkpoints(L),
     clean_aux(L).
 
 clean_aux(L) ->
@@ -3237,86 +3264,62 @@ context_cache(Cache, GwCache, Ledger) ->
     subledger(Ledger, SL#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}).
 
 -spec default_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-default_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {default, DB, proplists:get_value(cf_name(default, Ledger), CFs)};
 default_cf(Ledger) ->
     SL = subledger(Ledger),
     {default, db(Ledger), SL#sub_ledger_v1.default}.
 
 -spec active_gateways_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-active_gateways_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {active_gateways, DB, proplists:get_value(cf_name(active_gateways, Ledger), CFs)};
 active_gateways_cf(Ledger) ->
     SL = subledger(Ledger),
     {active_gateways, db(Ledger), SL#sub_ledger_v1.active_gateways}.
 
 -spec gw_denorm_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-gw_denorm_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {gw_denorm, DB, proplists:get_value(cf_name(gw_denorm, Ledger), CFs)};
 gw_denorm_cf(Ledger) ->
     SL = subledger(Ledger),
     {gw_denorm, db(Ledger), SL#sub_ledger_v1.gw_denorm}.
 
 -spec entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-entries_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {entries, DB, proplists:get_value(cf_name(entries, Ledger), CFs)};
 entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries, db(Ledger), SL#sub_ledger_v1.entries}.
 
 -spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-dc_entries_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {dc_entries, DB, proplists:get_value(cf_name(dc_entries, Ledger), CFs)};
 dc_entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {dc_entries, db(Ledger), SL#sub_ledger_v1.dc_entries}.
 
 -spec htlcs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-htlcs_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {htlcs, DB, proplists:get_value(cf_name(htlcs, Ledger), CFs)};
 htlcs_cf(Ledger) ->
     SL = subledger(Ledger),
     {htlcs, db(Ledger), SL#sub_ledger_v1.htlcs}.
 
 -spec pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-pocs_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {pocs, DB, proplists:get_value(cf_name(pocs, Ledger), CFs)};
 pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
 
 -spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-securities_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {securities, DB, proplists:get_value(cf_name(securities, Ledger), CFs)};
 securities_cf(Ledger) ->
     SL = subledger(Ledger),
     {securities, db(Ledger), SL#sub_ledger_v1.securities}.
 
 
 -spec routing_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-routing_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {routing, DB, proplists:get_value(cf_name(routing, Ledger), CFs)};
 routing_cf(Ledger) ->
     SL = subledger(Ledger),
     {routing, db(Ledger), SL#sub_ledger_v1.routing}.
 
 -spec subnets_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-subnets_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {subnets, DB, proplists:get_value(cf_name(subnets, Ledger), CFs)};
 subnets_cf(Ledger) ->
     SL = subledger(Ledger),
     {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
 
 -spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-state_channels_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {state_channels, DB, proplists:get_value(cf_name(state_channels, Ledger), CFs)};
 state_channels_cf(Ledger) ->
     SL = subledger(Ledger),
     {state_channels, db(Ledger), SL#sub_ledger_v1.state_channels}.
 
 -spec h3dex_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-h3dex_cf(Ledger=#ledger_v1{snapshot={DB, CFs}}) ->
-    {h3dex, DB, proplists:get_value(cf_name(h3dex, Ledger), CFs)};
 h3dex_cf(Ledger) ->
     SL = subledger(Ledger),
     {h3dex, db(Ledger), SL#sub_ledger_v1.h3dex}.
@@ -3333,14 +3336,6 @@ aux_db(Ledger) ->
     case has_aux(Ledger) of
         false -> undefined;
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.db
-    end.
-
-cf_name(Name, Ledger) ->
-    case mode(Ledger) of
-        delayed ->
-            "delayed_"++atom_to_list(Name);
-        _ ->
-            atom_to_list(Name)
     end.
 
 -spec set_aux_rewards(Height :: non_neg_integer(),
@@ -3561,7 +3556,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
             Fun = mk_cache_fold_fun(Cache, CFName, Start, End, Fun0),
             Keys = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CFName}],['$2']}])),
             {TrailingKeys, Res0} = rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}),
-            process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
+            process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
     end.
 
 rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
@@ -4005,9 +4000,9 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
           #{},
           Hooks),
     {Batch, FilteredChanges} =
-        ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
-                          %lager:info("DEL ~p ~p", [CF, Key]),
-                          rocksdb:batch_delete(B, atom_to_cf(CF, Ledger), Key),
+        ets:foldl(fun({{CFName, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
+                          CF = atom_to_cf(CFName, Ledger),
+                          rocksdb:batch_delete(B, CF, Key),
                           Changes1 = case maps:is_key(CF, Filters) of
                                          true ->
                                              case apply_filters(CF, Filters, Key, deleted) of
@@ -4020,9 +4015,9 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
                                              Changes
                                      end,
                           {B, Changes1};
-                     ({{CF, Key}, Value}, {B, Changes}) ->
-                          %lager:info("PUT ~p ~p", [CF, Key]),
-                          rocksdb:batch_put(B, atom_to_cf(CF, Ledger), Key, Value),
+                     ({{CFName, Key}, Value}, {B, Changes}) ->
+                          CF = atom_to_cf(CFName, Ledger),
+                          rocksdb:batch_put(B, CF, Key, Value),
                           Changes1 = case maps:is_key(CF, Filters) of
                                          true ->
                                              case apply_filters(CF, Filters, Key, Value) of
@@ -5004,7 +4999,7 @@ find_scs_by_owner_test() ->
 subnet_allocation_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation_test"),
     Ledger = new(BaseDir),
-    SubnetCF = subnets_cf(Ledger),
+    {subnets, _DB, SubnetCF} = subnets_cf(Ledger),
     Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
     Mask16 = blockchain_ledger_routing_v1:subnet_size_to_mask(16),
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
@@ -5050,7 +5045,7 @@ subnet_allocation_test() ->
 subnet_allocation2_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation2_test"),
     Ledger = new(BaseDir),
-    SubnetCF = subnets_cf(Ledger),
+    {subnets, _DB, SubnetCF} = subnets_cf(Ledger),
     Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
     {ok, Subnet} = allocate_subnet(8, Ledger),

@@ -1791,9 +1791,12 @@ load(Dir, Mode) ->
                 {ok, ChainHeight} when ChainHeight > 2 andalso
                                        ChainHeight > SnapHeight andalso
                                        (not FollowMode) ->
-                    {ok, Ld} = ledger_at(ChainHeight - 1, Blockchain),
-                    blockchain_ledger_v1:delete_context(Ld),
-                    ok;
+                    case ledger_at(ChainHeight - 1, Blockchain) of
+                        {ok, Ld} ->
+                            blockchain_ledger_v1:delete_context(Ld);
+                        _ ->
+                            ok
+                    end;
                 _ ->
                     ok
             end,
