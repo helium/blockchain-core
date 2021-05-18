@@ -83,6 +83,7 @@ basic(Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
+    erlang:garbage_collect(),
     {ok, Chain} = blockchain:new(SimDir, Genesis, assumed_valid, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -165,6 +166,7 @@ blockchain_restart(Config) ->
     %% sanity check the old chain
     ?assertEqual({ok, BlocksN + 1}, blockchain:height(Chain0)),
 
+    erlang:garbage_collect(),
     {ok, Chain} = blockchain:new(SimDir, Genesis, assumed_valid, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -173,6 +175,7 @@ blockchain_restart(Config) ->
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain)),
     %% simulate the node stopping or crashing
     blockchain:close(Chain),
+    erlang:garbage_collect(),
     {ok, Chain1} = blockchain:new(SimDir, Genesis, assumed_valid, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
     ?assertEqual({ok, 1}, blockchain:height(Chain1)),
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain1)),
@@ -365,7 +368,7 @@ blockchain_crash_while_absorbing_then_resync(Config) ->
 
     Balance = 5000,
     BlocksN = 100,
-    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     sys:suspend(blockchain_txn_mgr),
     sys:suspend(blockchain_score_cache),
     {ok, _GenesisMembers, _, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
@@ -426,9 +429,11 @@ blockchain_crash_while_absorbing_then_resync(Config) ->
     erlang:garbage_collect(),
     meck:unload(blockchain_txn),
     catch gen_server:stop(blockchain_sup),
-    timer:sleep(500),
+    ok = blockchain_ct_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
+    timer:sleep(1000),
+
     {ok, _Sup2, {PrivKey, PubKey}, _Opts2} = test_utils:init(SimDir, {PrivKey, PubKey}),
-    erlang:garbage_collect(),
+
     Chain1 = blockchain_worker:blockchain(),
     %% the actual height should be right before the explode block
     ?assertEqual({ok, 50}, blockchain:height(Chain1)),
@@ -443,7 +448,7 @@ blockchain_crash_while_absorbing_then_resync(Config) ->
     application:set_env(blockchain, assumed_valid_block_hash, blockchain_block:hash_block(LastBlock)),
     application:set_env(blockchain, assumed_valid_block_height, blockchain_block:height(LastBlock)),
     application:set_env(blockchain, honor_quick_sync, true),
-
+    erlang:garbage_collect(),
     {ok, Chain2} = blockchain:new(SimDir, Genesis, assumed_valid,
                                   {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
     blockchain_worker:blockchain(Chain2),
@@ -485,6 +490,7 @@ overlapping_streams(Config) ->
     ?assertEqual({ok, 16}, blockchain:height(Chain1)),
     blockchain:close(Chain1),
 
+    erlang:garbage_collect(),
     {ok, Chain} = blockchain:new(SimDir, Genesis, assumed_valid, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
     %% this should fail without all the supporting blocks
     blockchain:add_block(LastBlock, Chain),
