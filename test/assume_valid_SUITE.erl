@@ -38,10 +38,7 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    Config1 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    BaseDir = ?config(base_dir, Config1),
-    application:set_env(blockchain, base_dir, BaseDir),
-    Config1.
+    blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN

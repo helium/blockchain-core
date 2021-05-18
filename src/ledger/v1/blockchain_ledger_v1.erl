@@ -402,9 +402,9 @@ sweep_old_checkpoints(Ledger) ->
     end,
     ok.
 
-clean_checkpoints() ->
+clean_checkpoints(#ledger_v1{dir = RecordDir}) ->
     try
-        BaseDir = application:get_env(blockchain, base_dir, "data"),
+        BaseDir = checkpoint_base(RecordDir),
         CPs = filename:join([BaseDir, "checkpoints"]),
         {ok, Subdirs} = file:list_dir(CPs),
         lists:map(fun(Dir) ->
@@ -641,15 +641,18 @@ new_snapshot(#ledger_v1{db=DB,
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
+checkpoint_base(Dir) ->
+    try {list_to_integer(filename:basename(Dir)), filename:basename(filename:dirname(Dir))} of
+        {X, "checkpoints"} when is_integer(X) ->
+            filename:dirname(filename:dirname(Dir));
+        _ ->
+            Dir
+    catch _:_ ->
+            Dir
+    end.
+
 checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
-    BaseDir = try {list_to_integer(filename:basename(Dir)), filename:basename(filename:dirname(Dir))} of
-                  {X, "checkpoints"} when is_integer(X) ->
-                      filename:dirname(filename:dirname(Dir));
-                  _ ->
-                      Dir
-              catch _:_ ->
-                        Dir
-              end,
+    BaseDir = checkpoint_base(Dir),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
 
 remove_checkpoint(CheckpointDir) ->
@@ -800,8 +803,8 @@ snapshot(Ledger) ->
     end.
 
 -spec drop_snapshots(ledger()) -> ok.
-drop_snapshots(_) ->
-    ok.
+drop_snapshots(#ledger_v1{snapshots=Cache}) ->
+    ets:delete_all_objects(Cache).
 
 -spec subledger(ledger()) -> sub_ledger().
 subledger(Ledger = #ledger_v1{mode=Mode}) ->
@@ -3185,7 +3188,7 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []),
-    clean_checkpoints(),
+    clean_checkpoints(L),
     clean_aux(L).
 
 clean_aux(L) ->
