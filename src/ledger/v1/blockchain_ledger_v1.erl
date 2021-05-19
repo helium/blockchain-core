@@ -4164,7 +4164,7 @@ deactivate_validator(Address, StakeReleaseHeight, Ledger) ->
             Stake = blockchain_ledger_validator_v1:stake(Val),
             Owner = blockchain_ledger_validator_v1:owner_address(Val),
 
-            %% set status to unstaked
+            %% set status to cooldown
             Val1 = blockchain_ledger_validator_v1:status(cooldown, Val),
             %% put the stake HNT into cooldown
             ok = cooldown_stake(Owner, Address, Stake, StakeReleaseHeight, Ledger),
