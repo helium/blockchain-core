@@ -187,4 +187,4 @@ disabled_implicit_burn_test(Config) ->
 %% HELPERS
 %%--------------------------------------------------------------------
 extra_vars(_) ->
-    #{?txn_fees => true, ?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false}.
+    #{?txn_fees => true, ?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?txn_fee_multiplier => 5000}.
