@@ -31,6 +31,8 @@
     sign_payer/2,
     is_valid_owner/1,
     is_valid_payer/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
@@ -177,6 +179,33 @@ is_valid_payer(#blockchain_txn_oui_v1_pb{payer=PubKeyBin,
     EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+
+is_well_formed(Txn) ->
+    case blockchain_txn:validate_fields([{{owner, owner(Txn)}, {address, libp2p}}] ++
+                                        [{{payer, payer(Txn)}, {address, libp2p}} || byte_size(payer(Txn)) > 0 ]) of
+        ok ->
+            case validate_addresses(addresses(Txn)) of
+                false ->
+                    {error, invalid_addresses};
+                true ->
+                    case validate_filter(filter(Txn)) of
+                        false ->
+                            {error, invalid_filter};
+                        true ->
+                            case validate_subnet_size(requested_subnet_size(Txn)) of
+                                false ->
+                                    {error, invalid_subnet_size};
+                                true ->
+                                    ok
+                            end
+                    end
+            end;
+        Error ->
+            Error
+    end.
+
+is_absorbable(Txn, Chain) ->
+    validate_oui(oui(Txn), blockchain:ledger(Chain)).
 
 -spec is_valid(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->

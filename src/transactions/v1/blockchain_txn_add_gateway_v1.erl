@@ -32,12 +32,19 @@
     is_valid_owner/1,
     is_valid_payer/1,
     is_valid_staking_key/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -290,6 +297,19 @@ is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger
         Keys -> lists:member(Payer, Keys)
     end.
 
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{owner, owner(Txn)}, {address, libp2p}},
+                                    {{gateway, gateway(Txn)}, {address, libp2p}}] ++
+                                   [{{payer, payer(Txn)}, {address, libp2p}} || byte_size(payer(Txn)) > 0 ]).
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_gateway_info(gateway(Txn), Ledger) of
+        {ok, _} ->
+            false;
+        {error, _} ->
+            true
+    end.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -503,5 +523,22 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, fee, staking_fee])).
 
+
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    eqc_gen:oneof([
+    {fun(Owner, Gateway, Payer) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            #{secret := GatewaySK, public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Payer),
+            sign_payer(sign_request(sign(new(libp2p_crypto:pubkey_to_bin(OwnerPK), libp2p_crypto:pubkey_to_bin(GatewayPK),  libp2p_crypto:pubkey_to_bin(PayerPK)), libp2p_crypto:mk_sig_fun(OwnerSK)), libp2p_crypto:mk_sig_fun(GatewaySK)), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(Keys)]},
+    {fun(Owner, Gateway) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            #{secret := GatewaySK, public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            sign_request(sign(new(libp2p_crypto:pubkey_to_bin(OwnerPK), libp2p_crypto:pubkey_to_bin(GatewayPK)), libp2p_crypto:mk_sig_fun(OwnerSK)), libp2p_crypto:mk_sig_fun(GatewaySK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys)]}]).
 
 -endif.

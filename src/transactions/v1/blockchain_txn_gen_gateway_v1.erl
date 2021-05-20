@@ -21,6 +21,8 @@
     location/1,
     nonce/1,
     fee/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -113,20 +115,31 @@ nonce(Txn) ->
 fee(_Txn) ->
     0.
 
+-spec is_well_formed(txn_genesis_gateway()) -> ok | {error, atom()}.
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{owner, owner(Txn)}, {address, libp2p}},
+                                    {{gateway, gateway(Txn)}, {address, libp2p}},
+                                    {{nonce, nonce(Txn)}, {is_integer, 0}}] ++
+                                   [{{location, location(Txn)}, is_h3} || location(Txn) /= undefined]).
+
+-spec is_absorbable(txn_genesis_gateway(), blockchain:blockchain()) -> boolean().
+is_absorbable(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            true;
+        _ ->
+            false
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(_Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            ok;
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+-spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok.
+is_valid(_Txn, _Chain) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc

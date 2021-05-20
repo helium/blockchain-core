@@ -28,6 +28,8 @@
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -121,6 +123,13 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     0;
 calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, true) ->
     0.  %% for now we are defaulting close fees to 0
+
+is_well_formed(_Txn) ->
+    %% TODO
+    ok.
+
+is_absorbable(_Txn, _Chain) ->
+    true.
 
 -spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->

@@ -25,11 +25,18 @@
     nonce/1,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -168,6 +175,29 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_security_exchange_v1_pb{fee=0, signature= <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
+is_well_formed(Txn) ->
+    case blockchain_txn:validate_fields([{{payee, payee(Txn)}, {address, libp2p}},
+                                    {{payer, payer(Txn)}, {address, libp2p}},
+                                    {{amount, amount(Txn)}, {is_integer, 1}},
+                                    {{nonce, nonce(Txn)}, {is_integer, 1}}]) of
+        ok ->
+            case payer(Txn) == payee(Txn) of
+                true ->
+                    {error, invalid_transaction_self_payment};
+                false ->
+                    ok
+            end
+    end.
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_security_entry(payer(Txn), Ledger) of
+        {ok, Entry} ->
+            nonce(Txn) == blockchain_ledger_security_entry_v1:nonce(Entry) + 1;
+        _ ->
+            false
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -176,39 +206,29 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
-    Payee = ?MODULE:payee(Txn),
     TxnFee = ?MODULE:fee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_security_exchange_v1_pb:encode_msg(BaseTxn),
-    case blockchain_txn:validate_fields([{{payee, Payee}, {address, libp2p}}]) of
-        ok ->
-            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                false ->
-                    {error, bad_signature};
-                true ->
-                    case Payer == Payee of
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            Amount = ?MODULE:amount(Txn),
+            case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
+                ok ->
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                         false ->
-                            Amount = ?MODULE:amount(Txn),
-                            case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
-                                ok ->
-                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                        false ->
-                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                        true ->
-                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                    end;
-                                Error ->
-                                    Error
-                            end;
+                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                         true ->
-                            {error, invalid_transaction_self_payment}
-                    end
-            end;
-        Error -> Error
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                    end;
+                Error ->
+                    Error
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -292,4 +312,14 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).
 
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    ?SUCHTHAT({_, [P1, P2|_]}, {fun(Payer, Payee, Amount, Nonce) ->
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Payer),
+            #{public := PayeePK} = libp2p_crypto:keys_from_bin(Payee),
+            %% XXX note that 0 or negative nonces/amounts are allowed
+            sign(new(libp2p_crypto:pubkey_to_bin(PayerPK), libp2p_crypto:pubkey_to_bin(PayeePK), abs(Amount)+1, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:int(), eqc_gen:int()]}, P1 /= P2).
 -endif.

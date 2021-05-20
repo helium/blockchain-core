@@ -29,7 +29,6 @@
              | blockchain_txn_rewards_v1:txn_rewards()
              | blockchain_txn_token_burn_v1:txn_token_burn()
              | blockchain_txn_dc_coinbase_v1:txn_dc_coinbase()
-             | blockchain_txn_token_burn_exchange_rate_v1:txn_token_burn_exchange_rate()
              | blockchain_txn_bundle_v1:txn_bundle()
              | blockchain_txn_payment_v2:txn_payment_v2()
              | blockchain_txn_state_channel_open_v1:txn_state_channel_open()
@@ -48,6 +47,14 @@
 -callback fee(txn()) -> non_neg_integer().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+%% check the transaction has the required fields and they're well formed and in-bounds
+%% use blockchain_txn:validate_fields heavily here
+-callback is_well_formed(txn()) -> ok | {error, any()}.
+%% check the txn has the right causal information (nonce, block height, etc) to be absorbed
+%% this should be quick
+-callback is_absorbable(txn(), blockchain:blockchain()) -> boolean().
+%% final heavy-weight validity checks, including signature verification and other complex
+%% calculations
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
@@ -97,7 +104,6 @@
     {blockchain_txn_security_coinbase_v1, 5},
     {blockchain_txn_dc_coinbase_v1, 6},
     {blockchain_txn_gen_gateway_v1, 7},
-    {blockchain_txn_token_burn_exchange_rate_v1, 8},
     {blockchain_txn_oui_v1, 9},
     {blockchain_txn_routing_v1, 10},
     {blockchain_txn_create_htlc_v1, 11},
@@ -179,8 +185,6 @@ wrap_txn(#blockchain_txn_token_burn_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={token_burn, Txn}};
 wrap_txn(#blockchain_txn_dc_coinbase_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={dc_coinbase, Txn}};
-wrap_txn(#blockchain_txn_token_burn_exchange_rate_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={token_burn_exchange_rate, Txn}};
 wrap_txn(#blockchain_txn_payment_v2_pb{}=Txn) ->
     #blockchain_txn_pb{txn={payment_v2, Txn}};
 wrap_txn(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn) ->
@@ -237,7 +241,7 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
                         fun(T) ->
                                 Start = erlang:monotonic_time(millisecond),
                                 Type = ?MODULE:type(T),
-                                Ret = (catch Type:is_valid(T, Chain)),
+                                Ret = is_valid(T, Chain),
                                 maybe_log_duration(Type, Start),
                                 {T, Ret}
                         end, lists:reverse(PBuf)),
@@ -256,7 +260,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             Start = erlang:monotonic_time(millisecond),
-            case catch Type:is_valid(Txn, Chain) of
+            case is_valid(Txn, Chain) of
                 ok ->
                     case ?MODULE:absorb(Txn, Chain) of
                         ok ->
@@ -293,7 +297,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     fun(T) ->
                             Start = erlang:monotonic_time(millisecond),
                             Ty = ?MODULE:type(T),
-                            Ret = (catch Ty:is_valid(T, Chain)),
+                            Ret = is_valid(T, Chain),
                             maybe_log_duration(Ty, Start),
                             {T, Ret}
                     end, lists:reverse(PBuf)),
@@ -513,9 +517,18 @@ is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
         {value, _} ->
-            try Type:is_valid(Txn, Chain) of
-                Res ->
-                    Res
+            try 
+                case Type:is_well_formed(Txn) of
+                    ok ->
+                        case Type:is_absorbable(Txn, Chain) of
+                            true ->
+                                Type:is_valid(Txn, Chain);
+                            _ ->
+                                {error, not_absorbable}
+                        end;
+                    Error ->
+                        Error
+                end
             catch
                 What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),
@@ -575,8 +588,6 @@ type(#blockchain_txn_token_burn_v1_pb{}) ->
     blockchain_txn_token_burn_v1;
 type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
     blockchain_txn_dc_coinbase_v1;
-type(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
-    blockchain_txn_token_burn_exchange_rate_v1;
 type(#blockchain_txn_bundle_v1_pb{}) ->
     blockchain_txn_bundle_v1;
 type(#blockchain_txn_payment_v2_pb{}) ->
@@ -598,11 +609,12 @@ type(#blockchain_txn_rewards_v2_pb{}) ->
 type(#blockchain_txn_assert_location_v2_pb{}) ->
     blockchain_txn_assert_location_v2.
 
--spec validate_fields([{{atom(), iodata() | undefined},
+-spec validate_fields([{{atom(), integer() | iodata() | undefined},
                         {binary, pos_integer()} |
                         {binary, pos_integer(), pos_integer()} |
-                        {is_integer, non_neg_integer()} |
+                        {is_integer, integer()} |
                         {member, list()} |
+                        is_h3 |
                         {address, libp2p}}]) -> ok | {error, any()}.
 validate_fields([]) ->
     ok;
@@ -642,6 +654,24 @@ validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Fiel
 validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
                                                          andalso Field < Min ->
     {error, {integer_too_small, {Name, Field, Min}}};
+validate_fields([{{Name, Field}, is_h3}|Tail]) when is_list(Field) ->
+    %% XXX a better h3 check would be good
+    try h3:from_string(Field) of
+        _ ->
+            validate_fields(Tail)
+    catch
+        _:_ ->
+            {error, {invalid_h3, {Name, Field}}}
+    end;
+validate_fields([{{Name, Field}, is_h3}|Tail]) when is_integer(Field) ->
+    %% XXX a better h3 check would be good
+    try h3:to_string(Field) of
+        _ ->
+            validate_fields(Tail)
+    catch
+        _:_ ->
+            {error, {invalid_h3, {Name, Field}}}
+    end;
 validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
     {error, {not_an_integer, {Name, Field}}};
 validate_fields([{{Name, undefined}, _}|_Tail]) ->

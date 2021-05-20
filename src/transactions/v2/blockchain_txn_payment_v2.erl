@@ -30,11 +30,18 @@
          nonce/1,
          signature/1,
          sign/2,
+         is_well_formed/1,
+         is_absorbable/2,
          is_valid/2,
          absorb/2,
          print/1,
          to_json/2
         ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -119,17 +126,46 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_payment_v2_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
+is_well_formed(Txn) ->
+    Payments = ?MODULE:payments(Txn),
+    case blockchain_txn:validate_fields([{{payee, P}, {address, libp2p}} || P <- ?MODULE:payees(Txn)] ++
+                                       [{{payer, payer(Txn)}, {address, libp2p}},
+                                       {{nonce, nonce(Txn)}, {is_integer, 1}},
+                                       {{payment_count, length(Payments)}, {is_integer, 1}}]) of
+        ok ->
+            case lists:member(payer(Txn), payees(Txn)) of
+                false ->
+                    %% check that every payee is unique
+                    case has_unique_payees(Payments) of
+                        false ->
+                            {error, duplicate_payees};
+                        true ->
+                            ok
+                    end;
+                true ->
+                    {error, self_payment}
+            end;
+        Error -> Error
+    end.
+
+-spec is_absorbable(txn_payment_v2(), blockchain:blockchain()) -> boolean().
+is_absorbable(Txn, Chain) ->
+    Payer = ?MODULE:payer(Txn),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {ok, Entry} ->
+            %% nonce must be 1 past the current one
+            nonce(Txn) == blockchain_ledger_entry_v1:nonce(Entry) + 1;
+        _ ->
+            false
+    end.
+
 -spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
-            case blockchain_txn:validate_fields([{{payee, P}, {address, libp2p}} || P <- ?MODULE:payees(Txn)]) of
-                ok ->
-                    do_is_valid_checks(Txn, Chain, M);
-                Error ->
-                    Error
-            end;
+            do_is_valid_checks(Txn, Chain, M);
         _ ->
             {error, {invalid, max_payments_not_set}}
     end.
@@ -207,49 +243,32 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
             {error, bad_signature};
         true ->
             LengthPayments = length(Payments),
-            case LengthPayments == 0 of
+            case LengthPayments > MaxPayments of
+                %% Check that we don't exceed max payments
                 true ->
-                    %% Check that there are payments
-                    {error, zero_payees};
+                    {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
                 false ->
-                    case LengthPayments > MaxPayments of
-                        %% Check that we don't exceed max payments
-                        true ->
-                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
+                    TotAmount = ?MODULE:total_amount(Txn),
+                    TxnFee = ?MODULE:fee(Txn),
+                    AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                      {ok, false} ->
+                                          %% check that none of the payments have a zero amount
+                                          has_non_zero_amounts(Payments);
+                                      _ ->
+                                          %% if undefined or true, use the old check
+                                          (TotAmount >= 0)
+                                  end,
+                    case AmountCheck of
                         false ->
-                            case lists:member(Payer, ?MODULE:payees(Txn)) of
+                            {error, invalid_transaction};
+                        true ->
+                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                 false ->
-                                    %% check that every payee is unique
-                                    case has_unique_payees(Payments) of
-                                        false ->
-                                            {error, duplicate_payees};
-                                        true ->
-                                            TotAmount = ?MODULE:total_amount(Txn),
-                                            TxnFee = ?MODULE:fee(Txn),
-                                            AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
-                                                              {ok, false} ->
-                                                                  %% check that none of the payments have a zero amount
-                                                                  has_non_zero_amounts(Payments);
-                                                              _ ->
-                                                                  %% if undefined or true, use the old check
-                                                                  (TotAmount >= 0)
-                                                          end,
-                                            case AmountCheck of
-                                                false ->
-                                                    {error, invalid_transaction};
-                                                true ->
-                                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                        false ->
-                                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                        true ->
-                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                                    end
-                                            end
-                                    end;
+                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                 true ->
-                                    {error, self_payment}
+                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
                             end
                     end
             end
@@ -373,4 +392,13 @@ to_json_test() ->
                       [type, payer, payments, fee, nonce])).
 
 
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    ?SUCHTHAT({_, [P1, P2|_]}, {fun(Payer, Payees, Amount, Nonce) ->
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Payer),
+            Payments = [blockchain_payment_v2:new(libp2p_crypto:pubkey_to_bin(maps:get(public, libp2p_crypto:keys_from_bin(K))), abs(Amount)+1) || K <- lists:usort(Payees)],
+            sign(new(libp2p_crypto:pubkey_to_bin(PayerPK), Payments, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:list(5, eqc_gen:oneof(Keys)), eqc_gen:int(), eqc_gen:int()]}, not lists:member(P1, P2) andalso length(P2) > 0).
 -endif.

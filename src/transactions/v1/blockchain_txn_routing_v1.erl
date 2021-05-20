@@ -29,6 +29,8 @@
     nonce/1,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -184,6 +186,14 @@ calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, Su
     Fee * SubnetSize;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Ledger, _Fee, _ExtraData, true) ->
     0.
+
+is_well_formed(_Txn) ->
+    %% TODO
+    ok.
+
+is_absorbable(_Txn, _Chain) ->
+    %% TODO
+    true.
 
 %%--------------------------------------------------------------------
 %% @doc

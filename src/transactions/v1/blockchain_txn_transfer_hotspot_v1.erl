@@ -10,6 +10,11 @@
 
 -define(STALE_POC_DEFAULT, 0).
 
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -29,6 +34,8 @@
          sign/2,
          sign_seller/2,
          sign_buyer/2,
+         is_well_formed/1,
+         is_absorbable/2,
          is_valid/2,
          is_valid_seller/1,
          is_valid_buyer/1,
@@ -163,15 +170,31 @@ is_valid_buyer(#blockchain_txn_transfer_hotspot_v1_pb{buyer=Buyer,
     Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
     libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
+is_well_formed(Txn) ->
+    case blockchain_txn:validate_fields([{{seller, seller(Txn)}, {address, libp2p}},
+                                    {{buyer, buyer(Txn)}, {address, libp2p}},
+                                    {{buyer_nonce, buyer_nonce(Txn)}, {is_integer, 1}}]) of
+        ok ->
+            case buyer(Txn) == seller(Txn) of
+                true ->
+                    {error, seller_is_buyer};
+                false ->
+                    ok
+            end;
+        Error ->
+            Error
+    end.
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    buyer_nonce_correct(Txn, Ledger).
+
 -spec is_valid(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
-                                                buyer=Buyer,
-                                                amount_to_seller=Bones}=Txn,
+is_valid(#blockchain_txn_transfer_hotspot_v1_pb{amount_to_seller=Bones}=Txn,
          Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    Conditions = [{fun() -> Seller /= Buyer end, {error, seller_is_buyer}},
-                  {fun() -> ?MODULE:is_valid_seller(Txn) end,
+    Conditions = [{fun() -> ?MODULE:is_valid_seller(Txn) end,
                                           {error, bad_seller_signature}},
                   {fun() -> ?MODULE:is_valid_buyer(Txn) end,
                                           {error, bad_buyer_signature}},
@@ -181,8 +204,6 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                                           {error, gateway_too_stale}},
                   {fun() -> seller_owns_gateway(Txn, Ledger) end,
                                           {error, gateway_not_owned_by_seller}},
-                  {fun() -> buyer_nonce_correct(Txn, Ledger) end,
-                                          {error, wrong_buyer_nonce}},
                   {fun() -> txn_fee_valid(Txn, Chain, AreFeesEnabled) end,
                                           {error, wrong_txn_fee}},
                   {fun() -> buyer_has_enough_hnt(Txn, Ledger) end,
@@ -364,4 +385,14 @@ to_json_test() ->
                       [type, hash, gateway, seller, buyer, buyer_nonce, amount_to_seller, fee])).
 
 
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    ?SUCHTHAT({_, [P1, P2, P3|_]}, {fun(Gateway, Seller, Buyer, Nonce, Amount) ->
+            #{secret := SellerSK, public := SellerPK} = libp2p_crypto:keys_from_bin(Seller),
+            #{secret := BuyerSK, public := BuyerPK} = libp2p_crypto:keys_from_bin(Buyer),
+            #{public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            sign_buyer(sign_seller(new(libp2p_crypto:pubkey_to_bin(GatewayPK), libp2p_crypto:pubkey_to_bin(SellerPK), libp2p_crypto:pubkey_to_bin(BuyerPK), abs(Nonce)+1, abs(Amount)), libp2p_crypto:mk_sig_fun(SellerSK)), libp2p_crypto:mk_sig_fun(BuyerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:int(), eqc_gen:int()]}, length(lists:usort([P1, P2, P3])) == 3).
 -endif.

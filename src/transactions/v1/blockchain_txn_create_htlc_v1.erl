@@ -31,11 +31,18 @@
     nonce/1,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -138,18 +145,22 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(Txn),
     Txn#blockchain_txn_create_htlc_v1_pb{signature=SigFun(EncodedTxn)}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is_valid(txn_create_htlc(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
+is_well_formed(Txn) ->
+    %% limited by what we can validate here because of bugs in the past
+    case blockchain_txn:validate_fields([{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
+                               {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32}},
+                               {{address, ?MODULE:address(Txn)}, {address, libp2p}}]) of
+        ok ->
+            ok;
+        _Error ->
+            %% try older, looser validation
+            blockchain_txn:validate_fields([{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
+                               {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32, 64}},
+                               {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}])
+    end.
+
+is_absorbable(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Payer = ?MODULE:payer(Txn),
-    Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
-    BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
     FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
                           {ok, 1} ->
                               [{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
@@ -167,51 +178,62 @@ is_valid(Txn, Chain) ->
                 {ok, _HTLC} ->
                     {error, htlc_address_already_in_use};
                 {error, _} ->
-                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                        false ->
-                            {error, bad_signature};
-                        true ->
-                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
-                                {error, _}=Error0 ->
-                                    Error0;
-                                {ok, Entry} ->
-                                    TxnNonce = ?MODULE:nonce(Txn),
-                                    NextLedgerNonce = blockchain_ledger_entry_v1:nonce(Entry) +1,
-                                    case TxnNonce =:= NextLedgerNonce of
+                    case blockchain_ledger_v1:find_entry(payer(Txn), Ledger) of
+                        {error, _}=Error0 ->
+                            Error0;
+                        {ok, Entry} ->
+                            TxnNonce = ?MODULE:nonce(Txn),
+                            NextLedgerNonce = blockchain_ledger_entry_v1:nonce(Entry) +1,
+                            case TxnNonce =:= NextLedgerNonce of
+                                false ->
+                                    {error, {bad_nonce, {create_htlc, TxnNonce, NextLedgerNonce}}};
+                                true ->
+                                    AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                      {ok, false} ->
+                                                          %% check that amount is greater than 0
+                                                          amount(Txn) > 0;
+                                                      _ ->
+                                                          %% if undefined or true, use the old check
+                                                          amount(Txn) >= 0
+                                                  end,
+                                    case AmountCheck of
                                         false ->
-                                            {error, {bad_nonce, {create_htlc, TxnNonce, NextLedgerNonce}}};
+                                            lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
+                                            {error, invalid_transaction};
                                         true ->
-                                            Amount = ?MODULE:amount(Txn),
-                                            TxnFee = ?MODULE:fee(Txn),
-                                            AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
-                                                              {ok, false} ->
-                                                                  %% check that amount is greater than 0
-                                                                  Amount > 0;
-                                                              _ ->
-                                                                  %% if undefined or true, use the old check
-                                                                  Amount >= 0
-                                                          end,
-                                            case AmountCheck of
-                                                false ->
-                                                    lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
-                                                    {error, invalid_transaction};
-                                                true ->
-                                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                    TxnFee = ?MODULE:fee(Txn),
-                                                    ExpectedTxnFee = calculate_fee(Txn, Chain),
-                                                    case (ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled) of
-                                                        false ->
-                                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                        true ->
-                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                                    end
-                                            end
+                                            true
                                     end
                             end
                     end
-            end;
-        Error ->
-            Error
+            end
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid(txn_create_htlc(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    Signature = ?MODULE:signature(Txn),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            TxnFee = ?MODULE:fee(Txn),
+            ExpectedTxnFee = calculate_fee(Txn, Chain),
+            case (ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled) of
+                false ->
+                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                true ->
+                    blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -372,21 +394,31 @@ is_valid_with_extended_validation_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx = sign(new(Payer, <<"payee">>, <<"address">>, crypto:strong_rand_bytes(32), 0, 666, 1), SigFun),
-    ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx, Chain)),
+    ?assertEqual({error, {invalid_address, payee}}, blockchain_txn:is_valid(Tx, Chain)),
 
     Tx1 = sign(new(Payer, libp2p_crypto:b58_to_bin("1BR9RgYoP5psbcw9aKh1cDskLaGMBmkb8"), <<"address">>, crypto:strong_rand_bytes(32), 0, 666, 1), SigFun),
-    ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx1, Chain)),
+    ?assertEqual({error, {invalid_address, payee}}, blockchain_txn:is_valid(Tx1, Chain)),
 
     #{public := PayeePubkey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     ValidPayee = libp2p_crypto:pubkey_to_bin(PayeePubkey),
     Tx2 = sign(new(Payer, ValidPayee, ValidPayee, crypto:strong_rand_bytes(32), 0, 666, 1), SigFun),
     %% This check can be improved but whatever (it fails on fee)
-    ?assertNotEqual({error, {invalid_address, payee}}, is_valid(Tx2, Chain)),
+    ?assertNotEqual({error, {invalid_address, payee}}, blockchain_txn:is_valid(Tx2, Chain)),
 
     Tx3 = sign(new(Payer, ValidPayee, <<"address">>, crypto:strong_rand_bytes(32), 0, 666, 1), SigFun),
-    ?assertEqual({error, {invalid_address, address}}, is_valid(Tx3, Chain)),
+    ?assertEqual({error,{field_wrong_size,{address,{32,33},7}}}, blockchain_txn:is_valid(Tx3, Chain)),
 
     meck:unload(blockchain_ledger_v1),
     test_utils:cleanup_tmp_dir(BaseDir).
 
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    ?SUCHTHAT({_, [P1, P2, P3|_]}, {fun(Payer, Payee, Address, HashLock, TimeLock, Amount, Nonce) ->
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Payer),
+            #{public := PayeePK} = libp2p_crypto:keys_from_bin(Payee),
+            #{public := AddressPK} = libp2p_crypto:keys_from_bin(Address),
+            sign(new(libp2p_crypto:pubkey_to_bin(PayerPK), libp2p_crypto:pubkey_to_bin(PayeePK), libp2p_crypto:pubkey_to_bin(AddressPK), crypto:hash(sha256, HashLock), abs(TimeLock), Amount, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:binary(), eqc_gen:int(), eqc_gen:int(), eqc_gen:int()]}, length(lists:usort([P1, P2, P3])) == 3).
 -endif.

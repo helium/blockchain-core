@@ -21,6 +21,8 @@
     rewards/1,
     sign/2,
     fee/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     calculate_rewards/3,
@@ -101,6 +103,14 @@ sign(Txn, _SigFun) ->
 -spec fee(txn_rewards()) -> 0.
 fee(_Txn) ->
     0.
+
+is_well_formed(_Txn) ->
+    %% TODO not sure there's a lot we can do here
+    ok.
+
+is_absorbable(_Txn, _Chain) ->
+    %% TODO not sure there's a lot we can do here
+    true.
 
 %%--------------------------------------------------------------------
 %% @doc

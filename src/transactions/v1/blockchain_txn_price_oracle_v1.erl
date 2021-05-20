@@ -26,11 +26,18 @@
     signature/1,
     fee/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -133,6 +140,38 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(Zeroed),
     Txn#blockchain_txn_price_oracle_v1_pb{signature=SigFun(EncodedTxn)}.
 
+is_well_formed(Txn) ->
+    Signature = ?MODULE:signature(Txn),
+    RawTxnPK = ?MODULE:public_key(Txn),
+    TxnPK = libp2p_crypto:bin_to_pubkey(RawTxnPK),
+    BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
+
+    case blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {address, libp2p}},
+                                         {{height, block_height(Txn)}, {is_integer, 1}},
+                                         {{price, price(Txn)}, {is_integer, 1}}]) of
+        ok ->
+            case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of
+                false ->
+                    {error, bad_signature};
+                true ->
+                    ok
+            end;
+        Error ->
+            Error
+    end.
+
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    RawTxnPK = ?MODULE:public_key(Txn),
+    BlockHeight = ?MODULE:block_height(Txn),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
+
+    validate_block_height(RawTxnPK, BlockHeight, LedgerHeight, MaxHeight, Ledger).
+
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Validate that this txn has a valid oracle public key, that the
@@ -148,36 +187,11 @@ sign(Txn, SigFun) ->
 -spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Price = ?MODULE:price(Txn),
-    Signature = ?MODULE:signature(Txn),
     RawTxnPK = ?MODULE:public_key(Txn),
-    TxnPK = libp2p_crypto:bin_to_pubkey(RawTxnPK),
-    BlockHeight = ?MODULE:block_height(Txn),
-    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
     {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
-    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
     OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
 
-    case blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {member, OracleKeys}},
-                                         {{price, Price}, {is_integer, 0}}]) of
-        ok ->
-            case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of
-                false ->
-                    {error, bad_signature};
-                true ->
-                    case validate_block_height(RawTxnPK, BlockHeight,
-                                               LedgerHeight, MaxHeight, Ledger) of
-                        false ->
-                            {error, bad_block_height};
-                        true ->
-                            ok
-                    end
-            end;
-        Error ->
-            Error
-    end.
+    blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {member, OracleKeys}}]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -268,4 +282,12 @@ block_height_test() ->
     Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(2, block_height(Tx)).
 
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    ?SUCHTHAT({_, [_, Pr, He|_]}, {fun(Oracle, Price, Height) ->
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Oracle),
+            sign(new(libp2p_crypto:pubkey_to_bin(PayerPK), Price, Height), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:int(), eqc_gen:int()]}, Pr > 0 andalso He > 0).
 -endif.

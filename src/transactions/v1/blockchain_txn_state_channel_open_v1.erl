@@ -27,11 +27,18 @@
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -123,6 +130,22 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
+
+is_well_formed(Txn) ->
+    %% TODO we can probably check more here
+    blockchain_txn:validate_fields([{{owner, owner(Txn)}, {address, libp2p}}]).
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Nonce = ?MODULE:nonce(Txn),
+    case blockchain_ledger_v1:find_dc_entry(owner(Txn), Ledger) of
+        {error, dc_entry_not_found} when Nonce == 1 ->
+            true;
+        {ok, DCEntry} ->
+            Nonce == blockchain_ledger_data_credits_entry_v1:nonce(DCEntry) + 1;
+        _ ->
+            false
+    end.
 
 -spec is_valid(Txn :: txn_state_channel_open(),
                Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -324,4 +347,13 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
 
+-endif.
+
+
+-ifdef(EQC).
+gen(Keys) ->
+    {fun(Id, Owner, ExpireWithin, OUI, Nonce, Amount) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            sign(new(Id, libp2p_crypto:pubkey_to_bin(OwnerPK), abs(ExpireWithin), abs(OUI), abs(Nonce), abs(Amount)), libp2p_crypto:mk_sig_fun(OwnerSK))
+    end, [eqc_gen:binary(), eqc_gen:oneof(Keys), eqc_gen:int(), eqc_gen:int(), eqc_gen:int(), eqc_gen:int()]}.
 -endif.

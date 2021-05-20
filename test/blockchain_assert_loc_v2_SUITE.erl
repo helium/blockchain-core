@@ -469,7 +469,7 @@ bad_nonce_test(Config) ->
     STxn1 = blockchain_txn_assert_location_v2:sign_payer(STxn0, OwnerSigFun),
 
     %% This transaction should be valid
-    {error, {bad_nonce, {assert_location_v2, BadNonce, 0}}} = blockchain_txn_assert_location_v2:is_valid(
+    {error, {bad_nonce, {assert_location_v2, BadNonce, 0}}} = blockchain_txn:is_valid(
         STxn1,
         Chain
     ),

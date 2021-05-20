@@ -26,6 +26,8 @@
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -133,44 +135,65 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_token_burn_v1_pb{fee=0, signature= <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
 
--spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+-spec is_well_formed(txn_token_burn()) -> ok | {error, atom()}.
+is_well_formed(Txn) ->
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_token_burn_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_token_burn_v1_pb:encode_msg(BaseTxn),
-    case blockchain_txn:validate_fields([{{payee, ?MODULE:payee(Txn)}, {address, libp2p}}]) of
+    case blockchain_txn:validate_fields([{{payer, ?MODULE:payer(Txn)}, {address, libp2p}},
+                                         {{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
+                                         {{nonce, nonce(Txn)}, {is_integer, 1}},
+                                         {{amount, amount(Txn)}, {is_integer, 1}}]) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->
                     {error, bad_signature};
                 true ->
-                    case blockchain_ledger_v1:current_oracle_price_list(Ledger) of
-                        {ok, []} ->
-                            %% no oracle price exists
-                            {error, no_oracle_prices};
-                        _ ->
-                            HNTAmount = ?MODULE:amount(Txn),
-                            case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
-                                {error, _}=Error ->
-                                    Error;
-                                ok ->
-                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                    TxnFee = ?MODULE:fee(Txn),
-                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                        false ->
-                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                        true ->
-                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                    end
-                            end
-                    end
+                    ok
             end;
         Error ->
             Error
+    end.
+
+-spec is_absorbable(txn_token_burn(), blockchain:blockchain()) -> boolean().
+is_absorbable(Txn, Chain) ->
+    Payer = ?MODULE:payer(Txn),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {ok, Entry} ->
+            %% nonce must be 1 past the current one
+            nonce(Txn) == blockchain_ledger_entry_v1:nonce(Entry) + 1;
+        _ ->
+            false
+    end.
+
+
+-spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    case blockchain_ledger_v1:current_oracle_price_list(Ledger) of
+        {ok, []} ->
+            %% no oracle price exists
+            {error, no_oracle_prices};
+        _ ->
+            HNTAmount = ?MODULE:amount(Txn),
+            case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                    TxnFee = ?MODULE:fee(Txn),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                        false ->
+                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                        true ->
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                    end
+            end
     end.
 
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

@@ -21,6 +21,8 @@
     height/1,
     delay/1,
     fee/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -107,6 +109,58 @@ delay(Txn) ->
 fee(_Txn) ->
     0.
 
+is_well_formed(Txn) ->
+    case length(members(Txn)) > 0 of
+        true ->
+            blockchain_txn:validate_fields([{{members, P}, {address, libp2p}} || P <- ?MODULE:members(Txn)] ++
+                                           [{{height, height(Txn)}, {is_integer, 1}},
+                                            {{proof, proof(Txn)}, {binary, 5, 1024*1024}}]);
+        false ->
+            {error, no_members}
+    end.
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        %% no chain, genesis block
+        {ok, 0} ->
+            true;
+        {ok, CurrHeight} ->
+            {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+            TxnHeight = ?MODULE:height(Txn),
+            Delay = ?MODULE:delay(Txn),
+            case blockchain_ledger_v1:election_height(Ledger) of
+                {ok, BaseHeight} when TxnHeight =< BaseHeight ->
+                    false;
+                _ ->
+                    %% either genesis block or election is not too old
+                    {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
+                    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+                    %% The next election should be at least ElectionInterval blocks past the last election
+                    %% This check prevents elections ahead of schedule
+                    case TxnHeight >= LastElectionHeight + ElectionInterval of
+                        true ->
+                            IntervalRange =
+                            case blockchain:config(?election_restart_interval_range, Ledger) of
+                                {ok, IR} -> IR;
+                                _ -> 1
+                            end,
+                            {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
+                            %% The next election should occur within RestartInterval blocks of when the election started
+                            NextRestart = LastElectionHeight + ElectionInterval + Delay +
+                            (RestartInterval * IntervalRange),
+                            case CurrHeight > NextRestart of
+                                true ->
+                                    false;
+                                _ ->
+                                    true
+                            end;
+                        false ->
+                            false
+                    end
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -118,71 +172,31 @@ is_valid(Txn, Chain) ->
     Delay = ?MODULE:delay(Txn),
     Proof0 = ?MODULE:proof(Txn),
     try
-        case Members of
-            [] ->
-                throw({error, no_members});
-            _ ->
-                ok
-        end,
-        TxnHeight = ?MODULE:height(Txn),
         case blockchain_ledger_v1:current_height(Ledger) of
             %% no chain, genesis block
             {ok, 0} ->
                 ok;
             {ok, CurrHeight} ->
                 {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
-
-                case blockchain_ledger_v1:election_height(Ledger) of
-                    %% no chain, genesis block
-                    {error, not_found} ->
-                        ok;
-                    {ok, BaseHeight} when TxnHeight > BaseHeight ->
-                        ok;
-                    {ok, BaseHeight} ->
-                        throw({error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}})
-                end,
                 {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
                 {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
-                %% The next election should be at least ElectionInterval blocks past the last election
-                %% This check prevents elections ahead of schedule
-                case TxnHeight >= LastElectionHeight + ElectionInterval of
-                    true ->
-                        Proof = binary_to_term(Proof0),
-                        EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
-                        {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                        {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
-                        IntervalRange =
-                            case blockchain:config(?election_restart_interval_range, Ledger) of
-                                {ok, IR} -> IR;
-                                _ -> 1
-                            end,
-                        %% The next election should occur within RestartInterval blocks of when the election started
-                        NextRestart = LastElectionHeight + ElectionInterval + Delay +
-                            (RestartInterval * IntervalRange),
-                        case CurrHeight > NextRestart of
-                            true ->
-                                throw({error, {txn_too_old, {CurrHeight, NextRestart}}});
-                            _ ->
-                                ok
-                        end,
-                        {ok, N} = blockchain:config(?num_consensus_members, Ledger),
-                        case length(Members) == N of
-                            true -> ok;
-                            _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
-                        end,
-                        Hash = blockchain_block:hash_block(Block),
-                        {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
-                        case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
-                            ok -> ok;
-                            {error, _} = VerifyErr -> throw(VerifyErr)
-                        end;
-                    _ ->
-                        throw({error, {election_too_early, {TxnHeight,
-                                       LastElectionHeight + ElectionInterval}}})
+                Proof = binary_to_term(Proof0),
+                EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
+                {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
+                {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+                case length(Members) == N of
+                    true -> ok;
+                    _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
+                end,
+                Hash = blockchain_block:hash_block(Block),
+                {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
+                case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
+                    ok -> ok;
+                    {error, _} = VerifyErr -> throw(VerifyErr)
                 end
         end
     catch throw:E ->
-            E
+              E
     end.
 
 %%--------------------------------------------------------------------

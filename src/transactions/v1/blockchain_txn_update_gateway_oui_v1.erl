@@ -28,6 +28,8 @@
     oui_owner_sign/2,
     is_valid_gateway_owner/2,
     is_valid_oui_owner/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -141,6 +143,24 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=0, gateway_owner_signature = <<0:512>>, oui_owner_signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{gateway, gateway(Txn)}, {address, libp2p}},
+                                    {{oui, oui(Txn)}, {is_integer, 1}},
+                                    {{nonce, nonce(Txn)}, {is_integer, 1}}]).
+
+is_absorbable(Txn, Chain) ->
+    Gateway = ?MODULE:gateway(Txn),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {error, not_found} ->
+            {error, gateway_not_found};
+        {error, _Reason}=Error ->
+            Error;
+        {ok, GWInfo} ->
+            LedgerNonce = blockchain_ledger_gateway_v2:nonce(GWInfo),
+            Nonce = ?MODULE:nonce(Txn),
+            Nonce == LedgerNonce + 1
+    end.
 
 -spec is_valid(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->

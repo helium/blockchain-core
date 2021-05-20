@@ -18,6 +18,8 @@
          new/2, new/3,
          hash/1,
          fee/1,
+         is_well_formed/1,
+         is_absorbable/2,
          is_valid/2,
          master_key/1,
          multi_keys/1,
@@ -227,6 +229,31 @@ cancels(Txn) ->
 nonce(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.nonce.
 
+is_well_formed(_Txn) ->
+    %% TODO
+    ok.
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Nonce = nonce(Txn),
+    Gen =
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            true;
+        _ ->
+            false
+    end,
+    case blockchain_ledger_v1:vars_nonce(Ledger) of
+        {ok, LedgerNonce} when Nonce == (LedgerNonce + 1) ->
+            true;
+        {error, not_found} when Gen == true ->
+            true;
+        {error, not_found} ->
+            {error, missing_ledger_nonce};
+        {ok, LedgerNonce} ->
+            {error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}}
+    end.
+
 -spec is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -254,18 +281,6 @@ is_valid(Txn, Chain) ->
             Artifact = create_artifact(Txn),
             lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
             try
-                Nonce = nonce(Txn),
-                case blockchain_ledger_v1:vars_nonce(Ledger) of
-                    {ok, LedgerNonce} when Nonce == (LedgerNonce + 1) ->
-                        ok;
-                    {error, not_found} when Gen == true ->
-                        ok;
-                    {error, not_found} ->
-                        throw({error, missing_ledger_nonce});
-                    {ok, LedgerNonce} ->
-                        throw({error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}})
-                end,
-
                 %% do these before the proof, so we can check validation on unsigned txns
                 maps:map(fun validate_var/2, Vars),
                 lists:foreach(

@@ -30,6 +30,8 @@
     sign_request/2,
     sign_payer/2,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid_owner/1,
     is_valid_gateway/1,
     is_valid_location/2,
@@ -40,6 +42,11 @@
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -229,6 +236,25 @@ sign(Txn, SigFun) ->
     BinTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
     Txn#blockchain_txn_assert_location_v1_pb{owner_signature=SigFun(BinTxn)}.
 
+is_well_formed(Txn) ->
+    Payer = payer(Txn),
+    blockchain_txn:validate_fields([{{owner, owner(Txn)}, {address, libp2p}},
+                                    {{gateway, gateway(Txn)}, {address, libp2p}},
+                                    {{nonce, nonce(Txn)}, {is_integer, 1}},
+                                    {{location, catch(location(Txn))}, is_h3}] ++
+                                  [{{payer, Payer}, {address, libp2p}} || byte_size(Payer) > 0]).
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_gateway_cache:get(gateway(Txn), Ledger) of
+        {error, _} ->
+            false;
+        {ok, GwInfo} ->
+            GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
+            LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
+            owner(Txn) == GwOwner andalso nonce(Txn) == LedgerNonce + 1
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -301,7 +327,6 @@ is_valid(Txn, Chain) ->
             {error, bad_payer_signature};
         {true, true, true} ->
             Owner = ?MODULE:owner(Txn),
-            Nonce = ?MODULE:nonce(Txn),
             Payer = ?MODULE:payer(Txn),
             ActualPayer = case Payer == undefined orelse Payer == <<>> of
                 true -> Owner;
@@ -323,30 +348,13 @@ is_valid(Txn, Chain) ->
                             Error;
                         ok ->
                             Gateway = ?MODULE:gateway(Txn),
-                            case blockchain_gateway_cache:get(Gateway, Ledger) of
-                                {error, _} ->
-                                    {error, {unknown_gateway, {Gateway, Ledger}}};
-                                {ok, GwInfo} ->
-                                    GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
-                                    case Owner == GwOwner of
-                                        false ->
-                                            {error, {bad_owner, {assert_location, Owner, GwOwner}}};
-                                        true ->
-                                            {ok, MinAssertH3Res} = blockchain:config(?min_assert_h3_res, Ledger),
-                                            Location = ?MODULE:location(Txn),
-                                            case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
-                                                false ->
-                                                    {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
-                                                true ->
-                                                    LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
-                                                    case Nonce =:= LedgerNonce + 1 of
-                                                        false ->
-                                                            {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
-                                                        true ->
-                                                            ok
-                                                    end
-                                            end
-                                    end
+                            {ok, MinAssertH3Res} = blockchain:config(?min_assert_h3_res, Ledger),
+                            Location = ?MODULE:location(Txn),
+                            case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
+                                false ->
+                                    {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
+                                true ->
+                                    ok
                             end
                     end
             end
@@ -613,5 +621,23 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, location, nonce, staking_fee, fee])).
+
+-endif.
+
+-ifdef(EQC).
+-define(LOCATIONS, [631210968910285823, 631210968909003263, 631210968912894463, 631210968907949567,631243922668565503, 631243922671147007, 631243922895615999, 631243922665907711]).
+gen(Keys) ->
+    eqc_gen:oneof([
+    {fun(Owner, Gateway, Payer, Location, Nonce) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            #{secret := GatewaySK, public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Payer),
+            sign_payer(sign_request(sign(new(libp2p_crypto:pubkey_to_bin(GatewayPK), libp2p_crypto:pubkey_to_bin(OwnerPK),  libp2p_crypto:pubkey_to_bin(PayerPK), Location, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(OwnerSK)), libp2p_crypto:mk_sig_fun(GatewaySK)), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(?LOCATIONS), eqc_gen:int()]},
+    {fun(Owner, Gateway, Location, Nonce) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            #{secret := GatewaySK, public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            sign_request(sign(new(libp2p_crypto:pubkey_to_bin(GatewayPK), libp2p_crypto:pubkey_to_bin(OwnerPK), Location, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(OwnerSK)), libp2p_crypto:mk_sig_fun(GatewaySK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(?LOCATIONS), eqc_gen:int()]}]).
 
 -endif.

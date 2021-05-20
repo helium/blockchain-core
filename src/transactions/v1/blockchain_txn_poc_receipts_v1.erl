@@ -25,6 +25,8 @@
     request_block_hash/1,
     signature/1,
     sign/2,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     create_secret_hash/2,
@@ -150,6 +152,51 @@ sign(Txn, SigFun) ->
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
     Txn#blockchain_txn_poc_receipts_v1_pb{signature=SigFun(EncodedTxn)}.
+
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{challenger, challenger(Txn)}, {address, libp2p}},
+                                    {{onion_key_hash, onion_key_hash(Txn)}, {binary, 32}},
+                                    {{request_block_hash, request_block_hash(Txn)}, {binary, 32}}]).
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Challenger = ?MODULE:challenger(Txn),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    POCID = ?MODULE:poc_id(Txn),
+
+    case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
+        {error, Reason}=Error ->
+            lager:warning([{poc_id, POCID}],
+                          "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
+                          [POCOnionKeyHash, Reason]),
+            Error;
+        {ok, PoCs} ->
+            Secret = ?MODULE:secret(Txn),
+            case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
+                {error, _} ->
+                    {error, poc_not_found};
+                {ok, _PoC} ->
+                    {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
+                    %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
+                    case blockchain:get_block(LastChallenge, Chain) of
+                        {error, Reason}=Error ->
+                            lager:error([{poc_id, POCID}],
+                                        "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                        [LastChallenge, Reason]),
+                            Error;
+                        {ok, _Block1} ->
+                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                            case LastChallenge + PoCInterval >= Height of
+                                false ->
+                                    lager:info("challenge too old ~p ~p", [Challenger, LastChallenge]),
+                                    {error, challenge_too_old};
+                                true ->
+                                    true
+                            end
+                    end
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

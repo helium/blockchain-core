@@ -22,6 +22,8 @@
     sign/2,
     fee/1,
     txns/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     print/1,
     to_json/2
@@ -56,37 +58,50 @@ fee(_TxnBundle) ->
 txns(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
     Txns.
 
+is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn) ->
+    %% check that the bundle contains minimum two transactions
+    TxnBundleSize = length(Txns),
+    case TxnBundleSize < 2 of
+        true ->
+            {error, {invalid_min_bundle_size, Txn}};
+        false ->
+            %% check that there are no bundles in the bundle txn
+            case lists:any(fun(T) ->
+                                   blockchain_txn:type(T) == blockchain_txn_bundle_v1
+                           end,
+                           Txns) of
+                true ->
+                    {error, {invalid_bundleception, Txn}};
+                false ->
+                    %% check the bundled txns themselves are well formed
+                    case lists:all(fun(T) -> (blockchain_txn:type(T)):is_well_formed(T) end, Txns) of
+                        true ->
+                            ok;
+                        false ->
+                            {error, malformed_transaction_in_bundle}
+                    end
+            end
+    end.
+
+is_absorbable(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain) ->
+    lists:all(fun(T) -> (blockchain_txn:type(T)):is_absorbable(T, Chain) end, Txns).
+
 -spec is_valid(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     TxnBundleSize = length(Txns),
     MaxBundleSize = max_bundle_size(Chain),
 
-    %% check that the bundle contains minimum two transactions
-    case TxnBundleSize < 2 of
+    %% check that the bundle size doesn't exceed allowed max_bundle_size var
+    case TxnBundleSize > MaxBundleSize of
         true ->
-            {error, {invalid_min_bundle_size, Txn}};
+            {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
         false ->
-            %% check that the bundle size doesn't exceed allowed max_bundle_size var
-            case TxnBundleSize > MaxBundleSize of
-                true ->
-                    {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
-                false ->
-                    %% check that there are no bundles in the bundle txn
-                    case lists:any(fun(T) ->
-                                           blockchain_txn:type(T) == blockchain_txn_bundle_v1
-                                   end,
-                                   Txns) of
-                        true ->
-                            {error, {invalid_bundleception, Txn}};
-                        false ->
-                            %% speculative check whether the bundle is valid
-                            case speculative_absorb(Txn, Chain) of
-                                [] ->
-                                    ok;
-                                List ->
-                                    {error, {invalid_bundled_txns, List}}
-                            end
-                    end
+            %% speculative check whether the bundle is valid
+            case speculative_absorb(Txn, Chain) of
+                [] ->
+                    ok;
+                List ->
+                    {error, {invalid_bundled_txns, List}}
             end
     end.
 

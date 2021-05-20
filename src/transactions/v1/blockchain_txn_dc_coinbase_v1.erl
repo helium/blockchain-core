@@ -19,12 +19,19 @@
     payee/1,
     amount/1,
     fee/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     sign/2,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -84,26 +91,27 @@ amount(Txn) ->
 fee(_Txn) ->
     0.
 
+
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{payee, payee(Txn)}, {address, libp2p}}, {{amount, amount(Txn)}, {is_integer, 1}}]).
+
+is_absorbable(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            true;
+        _ ->
+            false
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_dc_coinbase(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            Amount = ?MODULE:amount(Txn),
-            case Amount > 0 of
-                true ->
-                    ok;
-                false ->
-                    {error, zero_or_negative_amount}
-            end;
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+is_valid(_Txn, _Chain) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -161,4 +169,13 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, amount])).
 
+-endif.
+
+-ifdef(EQC).
+gen(Keys) ->
+    ?SUCHTHAT({_, [_, Amt]}, {fun(Payee, Amount) ->
+            #{public := PayeePK} = libp2p_crypto:keys_from_bin(Payee),
+            %% not signed
+            new(libp2p_crypto:pubkey_to_bin(PayeePK), abs(Amount))
+    end, [eqc_gen:oneof(Keys), eqc_gen:int()]}, Amt > 0).
 -endif.

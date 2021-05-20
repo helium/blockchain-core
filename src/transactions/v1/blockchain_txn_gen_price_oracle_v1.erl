@@ -18,6 +18,8 @@
     sign/2,
     price/1,
     fee/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -77,23 +79,28 @@ price(Txn) ->
 fee(_Txn) ->
     0.
 
+
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{price, price(Txn)}, {is_integer, 1}}]).
+
+is_absorbable(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            true;
+        _ ->
+            false
+    end.
+
+
 %%--------------------------------------------------------------------
 %% @doc
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Price = price(Txn),
-    case {blockchain_ledger_v1:current_height(Ledger), Price > 0} of
-        {{ok, 0}, true} ->
-            ok;
-        {{ok, 0}, false} ->
-            {error, invalid_oracle_price};
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+is_valid(_Txn, _Chain) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc

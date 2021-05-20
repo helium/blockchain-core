@@ -34,12 +34,20 @@
     is_valid_owner/1,
     is_valid_location/2,
     is_valid_payer/1,
+    is_well_formed/1,
+    is_absorbable/2,
     is_valid/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
     to_json/2
 ]).
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([gen/1]).
+-endif.
+
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -260,14 +268,32 @@ is_valid_payer(#blockchain_txn_assert_location_v2_pb{payer=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
+is_well_formed(Txn) ->
+    blockchain_txn:validate_fields([{{gateway, gateway(Txn)}, {address, libp2p}},
+                                    {{owner, owner(Txn)}, {address, libp2p}},
+                                    {{location, Txn#blockchain_txn_assert_location_v2_pb.location}, is_h3},
+                                    {{elevation, elevation(Txn)}, {is_integer, -2147483648}}] ++
+                                   [{{payer, payer(Txn)}, {address, libp2p}} || byte_size(payer(Txn)) > 0]).
+
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = ?MODULE:gateway(Txn),
+    case blockchain_gateway_cache:get(Gateway, Ledger) of
+        {error, _} ->
+            {error, {unknown_gateway, {assert_location_v2, Gateway, Ledger}}};
+        {ok, GwInfo} ->
+            LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
+            case nonce(Txn) == LedgerNonce + 1 of
+                false ->
+                    {error, {bad_nonce, {assert_location_v2, nonce(Txn), LedgerNonce}}};
+                true ->
+                    true
+            end
+    end.
+
 -spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    Gateway = ?MODULE:gateway(Txn),
-    Owner = ?MODULE:owner(Txn),
-    Payer = ?MODULE:payer(Txn),
-    Location = ?MODULE:location(Txn),
     Gain = ?MODULE:gain(Txn),
-    Elevation = ?MODULE:elevation(Txn),
     Ledger = blockchain:ledger(Chain),
 
     case blockchain:config(?assert_loc_txn_version, Ledger) of
@@ -280,18 +306,7 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {invalid_assert_loc_txn_v2, {invalid_antenna_gain, Gain, MinGain, MaxGain}}};
                                 true ->
-                                    Res = blockchain_txn:validate_fields([{{gateway, Gateway}, {address, libp2p}},
-                                                                          {{owner, Owner}, {address, libp2p}},
-                                                                          {{payer, Payer}, {address, libp2p}},
-                                                                          {{location, Location}, {is_integer, 0}},
-                                                                          {{elevation, Elevation}, {is_integer, -2147483648}}
-                                                                         ]),
-
-                                    case Res of
-                                        {error, _}=E -> E;
-                                        ok ->
-                                            do_is_valid_checks(Txn, Chain)
-                                    end
+                                    do_is_valid_checks(Txn, Chain)
                             end;
                         _ ->
                             {error, {invalid_assert_loc_txn_v2, max_antenna_gain_not_set}}
@@ -343,7 +358,6 @@ is_new_location(Txn, Ledger) ->
                           Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 do_remaining_checks(Txn, TotalFee, Ledger) ->
     Owner = ?MODULE:owner(Txn),
-    Nonce = ?MODULE:nonce(Txn),
     Payer = ?MODULE:payer(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
@@ -370,13 +384,7 @@ do_remaining_checks(Txn, TotalFee, Ledger) ->
                                 false ->
                                     {error, {insufficient_assert_res, {assert_location_v2, Location, Gateway}}};
                                 true ->
-                                    LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
-                                    case Nonce =:= LedgerNonce + 1 of
-                                        false ->
-                                            {error, {bad_nonce, {assert_location_v2, Nonce, LedgerNonce}}};
-                                        true ->
-                                            ok
-                                    end
+                                    ok
                             end
                     end
             end
@@ -660,5 +668,23 @@ is_valid_gain_test() ->
     ?assert(is_valid_gain(ValidT2, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT3, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT4, MinGain, MaxGain)).
+
+-endif.
+
+-ifdef(EQC).
+-define(LOCATIONS, [631210968910285823, 631210968909003263, 631210968912894463, 631210968907949567,631243922668565503, 631243922671147007, 631243922895615999, 631243922665907711]).
+gen(Keys) ->
+    eqc_gen:oneof([
+    {fun(Owner, Gateway, Payer, Location, Nonce) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            #{public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            #{secret := PayerSK, public := PayerPK} = libp2p_crypto:keys_from_bin(Payer),
+            sign_payer(sign(new(libp2p_crypto:pubkey_to_bin(GatewayPK), libp2p_crypto:pubkey_to_bin(OwnerPK),  libp2p_crypto:pubkey_to_bin(PayerPK), Location, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(OwnerSK)), libp2p_crypto:mk_sig_fun(PayerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(?LOCATIONS), eqc_gen:int()]},
+    {fun(Owner, Gateway, Location, Nonce) ->
+            #{secret := OwnerSK, public := OwnerPK} = libp2p_crypto:keys_from_bin(Owner),
+            #{public := GatewayPK} = libp2p_crypto:keys_from_bin(Gateway),
+            sign(new(libp2p_crypto:pubkey_to_bin(GatewayPK), libp2p_crypto:pubkey_to_bin(OwnerPK), Location, abs(Nonce)+1), libp2p_crypto:mk_sig_fun(OwnerSK))
+    end, [eqc_gen:oneof(Keys), eqc_gen:oneof(Keys), eqc_gen:oneof(?LOCATIONS), eqc_gen:int()]}]).
 
 -endif.
