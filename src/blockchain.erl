@@ -25,7 +25,7 @@
     find_first_block_after/2,
 
     add_blocks/2, add_blocks/3, add_block/2, add_block/3,
-    delete_block/2, gc/2,
+    delete_block/2, rocksdb_gc/2,
     config/2,
     fees_since/2,
     build/3,
@@ -1942,18 +1942,18 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
             {error, Why}
     end.
 
-gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
+rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     {ok, Height} = blockchain:height(Blockchain),
     CutoffHeight = max(2, Height - 100000),
     %% start at 2 here so we don't GC the genesis block
     {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_lower_bound, <<2:64/integer-unsigned-big>>}, {iterate_upper_bound, <<CutoffHeight:64/integer-unsigned-big>>}]),
-    gc(BytesToDrop, Itr, Blockchain,  rocksdb:iterator_move(Itr, first)).
+    do_rocksdb_gc(BytesToDrop, Itr, Blockchain,  rocksdb:iterator_move(Itr, first)).
 
-gc(_Bytes, _Itr, _Blockchain, {error, _}) ->
+do_rocksdb_gc(_Bytes, _Itr, _Blockchain, {error, _}) ->
     ok;
-gc(Bytes, _Itr, _Blockchain, _Res) when Bytes < 1 ->
+do_rocksdb_gc(Bytes, _Itr, _Blockchain, _Res) when Bytes < 1 ->
     ok;
-gc(Bytes, Itr, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
+do_rocksdb_gc(Bytes, Itr, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
     lager:info("GCing block at height ~p", [IntHeight]),
     BytesRemoved0 = case rocksdb:get(DB, BlocksCF, Hash, []) of
                         {ok, Block} -> byte_size(Block);
@@ -1975,7 +1975,7 @@ gc(Bytes, Itr, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=
             0
     end,
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
-    gc(Bytes - BytesRemoved0 - BytesRemoved1, Itr, Blockchain, rocksdb:iterator_move(Itr, next)).
+    do_rocksdb_gc(Bytes - BytesRemoved0 - BytesRemoved1, Itr, Blockchain, rocksdb:iterator_move(Itr, next)).
 
 
 -spec get_snapshot(blockchain_block:hash() | integer(), blockchain()) ->
@@ -2156,13 +2156,15 @@ load(Dir, Mode) ->
             },
             %% check if we need to GC some blocks to keep disk space free
             %% note that this will temporarily increase disk usage
-            case os:getenv("BLOCKCHAIN_GC_BYTES") of
+            case os:getenv("BLOCKCHAIN_ROCKSDB_GC_BYTES") of
                 false -> ok;
                 ValString ->
                     try list_to_integer(ValString, 10) of
                         BytesToGC ->
                             lager:notice("System requested we free ~b bytes of disk space"),
-                            spawn(fun() -> gc(BytesToGC, Blockchain) end)
+                            Pid = spawn(fun() -> rocksdb_gc(BytesToGC, Blockchain) end),
+                            lager:info("Starting rocksdb gc on pid ~p", [Pid]),
+                            ok = blockchain_worker:monitor_rocksdb_gc(Pid);
                     catch _:_ ->
                               ok
                     end
