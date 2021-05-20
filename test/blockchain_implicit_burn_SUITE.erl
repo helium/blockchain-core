@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -19,16 +20,13 @@ all() ->
 
 -define(MAX_PAYMENTS, 20).
 
-%% we use this to fund the accounts and mock some proper price for HNT ($15)
--define(MULTIPLIER, 10000000).
-
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    Balance = 5000 * ?MULTIPLIER,
+    Balance = 5000 * ?BONES_PER_HNT,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
     ExtraVars = extra_vars(TestCase),
@@ -87,9 +85,8 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 
 enable_implicit_burn_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
+    Balance0 = ?config(balance, Config),
     Chain = ?config(chain, Config),
     Ledger = blockchain:ledger(Chain),
 
@@ -97,7 +94,7 @@ enable_implicit_burn_test(Config) ->
         blockchain_ledger_v1,
         current_oracle_price,
         fun(_) ->
-                {ok, 15 * ?MULTIPLIER}
+                {ok, 15 * ?BONES_PER_HNT}
         end
     ),
 
@@ -127,19 +124,34 @@ enable_implicit_burn_test(Config) ->
 
     %% Check that there is an implicit burn
     {ok, ImplicitBurn} = blockchain:get_implicit_burn(TxHash, Chain),
+
     ct:pal("implicit burn: ~p", [ImplicitBurn]),
     ct:pal("implicit burn fee: ~p", [blockchain_implicit_burn:fee(ImplicitBurn)]),
+
     %% Check that the fee in implicit burn is as expected after conversion to
     %% equivalent hnt depending on the mockoracle price
     {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger),
     true = FeeInHNT == blockchain_implicit_burn:fee(ImplicitBurn),
 
+    %% Check that the payer and recipient balances align
+    ExpectedPayerBalance = Balance0 - Amount - FeeInHNT,
+    {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    PayerBalance = blockchain_ledger_entry_v1:balance(PayerEntry),
+    true = ExpectedPayerBalance == PayerBalance,
+    ct:pal("ExpectedPayerBalance: ~p", [ExpectedPayerBalance]),
+    ct:pal("PayerBalance: ~p", [PayerBalance]),
+
+    ExpectedRecipientBalance = Balance0 + Amount,
+    {ok, RecipientEntry} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
+    ReceipientBalance = blockchain_ledger_entry_v1:balance(RecipientEntry),
+    true = ExpectedRecipientBalance == ReceipientBalance,
+    ct:pal("ExpectedRecipientBalance: ~p", [ExpectedRecipientBalance]),
+    ct:pal("ReceipientBalance: ~p", [ReceipientBalance]),
+
     ok.
 
 disabled_implicit_burn_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Set env to store implicit burn %%
