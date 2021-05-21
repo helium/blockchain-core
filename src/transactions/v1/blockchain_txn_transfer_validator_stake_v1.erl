@@ -209,7 +209,7 @@ is_valid(Txn, Chain) ->
                     N when is_integer(N) andalso N >= 0 ->
                         case new_owner(Txn) /= <<>> of
                             true -> ok;
-                            false -> throw(amount_set_for_inter_account_transfer)
+                            false -> throw(amount_set_for_intra_account_transfer)
                         end;
                     N -> throw({bad_amount, N})
                 end,

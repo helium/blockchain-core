@@ -1235,6 +1235,7 @@ validate_var(?validator_penalty_probability_factor, Value) ->
     validate_float(Value, "validator_penalty_probability_factor", 0.0, 10.0);
 validate_var(?penalty_history_limit, Value) ->
     %% low end is low for testing and an out if these become corrupted
+    %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
 validate_var(?election_allowed_version, Value) ->
