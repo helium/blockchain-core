@@ -352,7 +352,7 @@ new(Dir) ->
 
 -spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
 new(Dir, BlocksDB, BlocksCF, HeightsCF) ->
-    new(Dir, true, BlocksDB, BlocksCF, HeightsCF).
+    new(Dir, false, BlocksDB, BlocksCF, HeightsCF).
 
 -spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
 new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF) ->

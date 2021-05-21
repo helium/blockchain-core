@@ -145,13 +145,15 @@ val_vars() ->
       ?validator_minimum_stake => ?min_stake,
       ?validator_liveness_grace_period => 100,
       ?validator_liveness_interval => 2000,
-      ?stake_withdrawl_cooldown => 5,
+      ?stake_withdrawal_cooldown => 5,
       ?stake_withdrawal_max => 500,
       %?tenure_penalty => 1.0,
       ?dkg_penalty => 1.0,
       ?num_consensus_members => 4,
       ?election_bba_penalty => 0.5,
       ?election_seen_penalty => 0.5,
+      ?tenure_penalty => 0.5,
+      ?validator_penalty_probability_factor => 1.0,
       ?penalty_history_limit => 100,
       ?election_interval => 3
      }.
