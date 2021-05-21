@@ -33,10 +33,6 @@
 -type txn_genesis_validator() :: #blockchain_txn_gen_validator_v1_pb{}.
 -export_type([txn_genesis_validator/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Stake :: pos_integer()) -> txn_genesis_validator().
@@ -46,27 +42,15 @@ new(Address, Owner, Stake) ->
                                         stake = Stake}.
 
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_genesis_validator()) -> blockchain_txn:hash().
 hash(Txn) ->
     EncodedTxn = blockchain_txn_gen_validator_v1_pb:encode_msg(Txn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec sign(txn_genesis_validator(), libp2p_crypto:sig_fun()) -> txn_genesis_validator().
 sign(Txn, _SigFun) ->
     Txn.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec address(txn_genesis_validator()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#blockchain_txn_gen_validator_v1_pb.address.
@@ -98,10 +82,6 @@ is_valid(_Txn, Chain) ->
             {error, not_in_genesis_block}
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -113,10 +93,6 @@ absorb(Txn, Chain) ->
                                        Stake,
                                        Ledger).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec print(txn_genesis_validator()) -> iodata().
 print(undefined) -> <<"type=genesis_validator, undefined">>;
 print(#blockchain_txn_gen_validator_v1_pb{

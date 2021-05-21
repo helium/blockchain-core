@@ -159,6 +159,11 @@ new_group_v4(Ledger, Hash, Size, Delay) ->
     Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
     Rem ++ New.
 
+-spec new_group_v5(Ledger :: blockchain_ledger_v1:ledger(),
+                   Hash :: binary(),
+                   Size :: non_neg_integer(),
+                   Delay :: non_neg_integer()) ->
+          [libp2p_crypto:pubkey_bin()].
 new_group_v5(Ledger, Hash, Size, Delay) ->
     %% some complications here in the transfer.
 
@@ -184,10 +189,12 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
 
     lager:debug("validators ~p ~p", [min(Replace, length(Validators1)), an2(Validators1)]),
 
-    %% replace select with iterative icdf
+    %% select replacement nodes from the candidate pool using iterative icdf
     New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
     lager:debug("validators new ~p", [an(New)]),
 
+    %% limit the number removed to the number of replacement nodes in the case that we're changing
+    %% size this election and it would end us up with an undersized group
     NewLen = min(Remove, length(New)),
     ToRem =
         case have_gateways(OldGroup0, Ledger) of
@@ -211,6 +218,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                 lists:sublist(lists:sort(Gateways), 1, NewLen)
         end,
     lager:debug("to rem ~p", [an(ToRem)]),
+    %% shuffle the order to diffuse any ordering effects over time
     blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
 
 an(M) ->
@@ -792,31 +800,19 @@ get_election_txn(Block) ->
 
 validators_filter(Ledger) ->
     {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
-    {LimitVersion, AllowedVersion} =
-        case blockchain:config(?election_allowed_version, Ledger) of
-            {ok, Vers} ->
-                {true, Vers};
-            _ ->
-                {false, undefined}
-        end,
     blockchain_ledger_v1:cf_fold(
       validators,
       fun({Addr, BinVal}, Acc) ->
               Val = blockchain_ledger_validator_v1:deserialize(BinVal),
               Stake = blockchain_ledger_validator_v1:stake(Val),
               Status = blockchain_ledger_validator_v1:status(Val),
-              Version = blockchain_ledger_validator_v1:version(Val),
               Penalty = blockchain_ledger_validator_v1:calculate_penalty_value(Val, Ledger),
               HB = blockchain_ledger_validator_v1:last_heartbeat(Val),
               case Stake >= MinStake andalso Status == staked of
                   true ->
-                      case LimitVersion == false orelse Version == AllowedVersion of
-                          true ->
-                              maps:put(Addr, #val_v1{addr = Addr,
-                                                     heartbeat = HB,
-                                                     prob = Penalty}, Acc);
-                          _ -> Acc
-                      end;
+                      maps:put(Addr, #val_v1{addr = Addr,
+                                             heartbeat = HB,
+                                             prob = Penalty}, Acc);
                   _ -> Acc
               end
       end,

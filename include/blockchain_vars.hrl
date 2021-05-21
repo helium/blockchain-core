@@ -445,7 +445,7 @@
 %%%
 
 -define(validator_version, validator_version).
--define(validator_minimum_stake, validator_minimum_stake).  % HNT
+-define(validator_minimum_stake, validator_minimum_stake).  % bones
 -define(validator_liveness_interval, validator_liveness_interval).  % blocks
 -define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
 -define(validator_penalty_probability_factor, validator_penalty_probability_factor). % float
@@ -456,5 +456,3 @@
 -define(penalty_history_limit, penalty_history_limit). % blocks
 -define(dkg_penalty, dkg_penalty). % float
 -define(tenure_penalty, tenure_penalty). % float
-
--define(election_allowed_version, election_allowed_version). % int

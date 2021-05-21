@@ -243,6 +243,7 @@ absorb(Txn, Chain) ->
                                                                               PenaltyLimit),
                               V2 = case maps:get(M, EpochPenalties, none) of
                                        none -> V1;
+                                       0.0 -> V1;
                                        Penalty ->
                                            blockchain_ledger_validator_v1:add_penalty(V1,
                                                                                       CurrHeight,

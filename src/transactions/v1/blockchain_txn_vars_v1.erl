@@ -1238,9 +1238,6 @@ validate_var(?penalty_history_limit, Value) ->
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
-validate_var(?election_allowed_version, Value) ->
-    validate_int(Value, "election_allowed_version", 1, 100000000000000000, false);
-
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
