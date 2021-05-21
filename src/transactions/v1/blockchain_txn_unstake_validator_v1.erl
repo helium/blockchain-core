@@ -153,7 +153,7 @@ is_valid(Txn, Chain) ->
                             Owner -> ok;
                             Other -> throw({not_owner, Other})
                         end,
-                        {ok, Cooldown} = blockchain:config(?stake_withdrawl_cooldown, Ledger),
+                        {ok, Cooldown} = blockchain:config(?stake_withdrawal_cooldown, Ledger),
                         {ok, CooldownMax} = blockchain:config(?stake_withdrawal_max, Ledger),
                         {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
                         case StakeReleaseHeight >= (CurrentHeight + Cooldown) andalso
