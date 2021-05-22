@@ -708,13 +708,15 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
     Me = self(),
     case ets:lookup(Cache, Height) of
         [{Height, {pending, Pid}} = OtherPend] when Pid /= Me ->
-            lager:info("other pid ~p has the snapshot lock for ~p", [Pid, Height]),
+            lager:debug("other pid ~p has the snapshot lock for ~p", [Pid, Height]),
             case is_process_alive(Pid) of
                 true ->
                     timer:sleep(500),
                     has_snapshot(Height, Ledger, Retries - 1);
                 false ->
-                    case ets:select_replace(Cache, [{OtherPend, [], [{const, {Height, {pending, Me}}}]}]) of
+                    case ets:select_replace(Cache,
+                                            [{OtherPend, [],
+                                              [{const, {Height, {pending, Me}}}]}]) of
                         %% we grabbed the lock, proceed by restarting
                         1 -> has_snapshot(Height, Ledger, Retries);
                         0 ->
@@ -738,7 +740,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                     %% wait on whoever has the lock
                     has_snapshot(Height, Ledger);
                 true ->
-                    lager:info("uncached checkpoint @ ~p", [Height]),
+                    lager:debug("uncached checkpoint @ ~p", [Height]),
                     CheckpointDir = checkpoint_dir(Ledger, Height),
                     case filelib:is_dir(CheckpointDir) of
                         true ->
@@ -752,14 +754,17 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                 %% new/2 wants to add on the ledger.db part itself
                                 NewLedger = new(filename:dirname(CheckpointDir), true),
                                 %% share the snapshot cache with the new ledger
-                                NewLedger2 = blockchain_ledger_v1:mode(Mode, NewLedger#ledger_v1{snapshots=Cache}),
+                                NewLedger2 = blockchain_ledger_v1:mode(Mode,
+                                                                       NewLedger#ledger_v1{
+                                                                         snapshots=Cache}),
                                 %% sanity check
                                 case current_height(NewLedger2) of
                                     {ok, Height} ->
                                         1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
                                         {ok, new_context(NewLedger2)};
                                     {ok, OtherHeight} ->
-                                        lager:warning("expected checkpoint ledger at height ~p but got height ~p", [Height, OtherHeight]),
+                                        lager:warning("expected checkpoint ledger at height ~p but got height ~p",
+                                                      [Height, OtherHeight]),
                                         %% just blow it away and let it get re-calculated
                                         remove_checkpoint(CheckpointDir),
                                         ets:delete(Cache, Height),
@@ -772,18 +777,21 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                       {error, snapshot_not_found}
                             end;
                         _ ->
-                            lager:info("couldn't find checkpoint dir? for ~p", [Height]),
+                            lager:warning("couldn't find checkpoint dir? for ~p", [Height]),
                             ets:delete(Cache, Height),
                             {error, snapshot_not_found}
                     end
             end;
         [{Height, {snapshot, SnapshotHandle}}] ->
-            lager:info("snapshot @ ~p", [Height]),
+            lager:debug("snapshot @ ~p", [Height]),
             %% because the snapshot was taken as we ingested a block to the leading ledger we need to query it
             %% as an active ledger to get the right information at this desired height
-            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(active, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
+            {ok, blockchain_ledger_v1:new_context(
+                   blockchain_ledger_v1:mode(active,
+                                             Ledger#ledger_v1{snapshot=SnapshotHandle}))
+            };
         [{Height, {ledger, SnapLedger}}] ->
-            lager:info("cached checkpoint @ ~p", [Height]),
+            lager:debug("cached checkpoint @ ~p", [Height]),
             {ok, new_context(SnapLedger)}
     end.
 
