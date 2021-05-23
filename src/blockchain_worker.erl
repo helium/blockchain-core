@@ -887,15 +887,12 @@ grab_snapshot(Height, Hash) ->
                     {ok, Snapshot};
                 {error, not_found} ->
                     {error, not_found};
-                cancel ->
-                    lager:info("snapshot sync cancelled"),
-                    libp2p_framed_stream:close(Stream);
                 {'DOWN', Ref1, process, Stream, normal} ->
                     {error, down};
                 {'DOWN', Ref1, process, Stream, Reason} ->
                     lager:info("snapshot sync failed with error ~p", [Reason]),
                     {error, down, Reason}
-            after timer:minutes(1) ->
+            after timer:seconds(application:get_env(blockchain, snapshot_grab_timeout, 60)) ->
                     {error, timeout}
             end;
         _ ->
