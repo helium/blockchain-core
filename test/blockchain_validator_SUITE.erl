@@ -454,7 +454,8 @@ unstake_ok_at_same_height(Config) ->
         Owner1PubkeyBin,
         Owner1PubkeyBin,
         ?bones(10000),
-        Height + 10
+        Height + 10,
+        35000
     ),
     SignedTxn1 = blockchain_txn_unstake_validator_v1:sign(Txn1, Owner1SigFun),
     ct:pal("SignedUnstakeTxn1: ~p", [SignedTxn1]),
@@ -469,7 +470,8 @@ unstake_ok_at_same_height(Config) ->
         Owner2PubkeyBin,
         Owner2PubkeyBin,
         ?bones(10000),
-        Height + 10
+        Height + 10,
+        35000
     ),
     SignedTxn2 = blockchain_txn_unstake_validator_v1:sign(Txn2, Owner2SigFun),
     ct:pal("SignedUnstakeTxn2: ~p", [SignedTxn2]),
