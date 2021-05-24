@@ -181,16 +181,25 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     Validators0 = validators_filter(Ledger),
 
     %% remove dupes, sort
-    {OldGroupDeduped, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
-
+    {OldGroupDeduped0, Offline, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
     %% random shuffle of all validators, and change format into something idcf can consume
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
     lager:debug("validators ~p ~p", [min(Replace, length(Validators1)), an2(Validators1)]),
 
+    ReplaceCt = min(Replace, length(Validators1)),
+    {New0, OldGroupDeduped, ReplaceFinal} =
+        case length(Offline) of
+            N when N > ReplaceCt ->
+                {ToReplace, Rem} = lists:split(ReplaceCt, Offline),
+                {ToReplace, OldGroupDeduped0 ++ Rem, 0};
+            Len ->
+                {Offline, OldGroupDeduped0, ReplaceCt - Len}
+        end,
+
     %% select replacement nodes from the candidate pool using iterative icdf
-    New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
+    New = New0 ++ icdf_select(Validators1, ReplaceFinal, []),
     lager:debug("validators new ~p", [an(New)]),
 
     %% limit the number removed to the number of replacement nodes in the case that we're changing
@@ -827,22 +836,20 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     {Group, Pool} =
         maps:fold(
           fun(Addr, Val = #val_v1{heartbeat = Last, prob = Prob},
-              {Old, Candidates} = Acc) ->
+              {Old, Off, Candidates} = Acc) ->
                   Offline = (Height - Last) > (HBInterval + HBGrace),
                   case lists:member(Addr, OldGroup0) of
                       %% this clause keeps the old group out of the candidate list and additionally
                       %% marks really bad nodes for removal
                       true ->
                           lager:debug("name ~p in off ~p", [blockchain_utils:addr2name(Addr), Offline]),
-                          OldGw =
-                              case Offline of
-                                  true ->
-                                      %% try and make sure offline nodes are selected
-                                      Val#val_v1{prob = 200.0};
-                                  _ ->
-                                      Val
-                              end,
-                          {[OldGw | Old], Candidates};
+                          case Offline of
+                              true ->
+                                  %% try and make sure offline nodes are selected
+                                  {Old, [Val | Off], Candidates};
+                              _ ->
+                                  {[Val | Old], Off, Candidates}
+                          end;
                       %% this clause handles generating the list of new nodes
                       %% to potentially add (Candidates)
                       _ ->
@@ -857,7 +864,7 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                                       %% don't even consider until some of
                                       %% these failures have aged out
                                       true -> Acc;
-                                      false -> {Old, [Val | Candidates]}
+                                      false -> {Old, Off, [Val | Candidates]}
                                   end
                           end
                   end
