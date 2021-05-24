@@ -963,8 +963,8 @@ attempt_fetch_s3_snapshot(Url) ->
                {"user-agent", "blockchain-worker-1"}
               ],
     HTTPOptions = [
-                   {timeout, 60000}, % milliseconds, 60 sec overall request timeout
-                   {connect_timeout, 15000} % milliseconds, 15 second connection timeout
+                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
+                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
                   ],
     Options = [
                {body_format, binary}, % return body as a binary
