@@ -1134,20 +1134,7 @@ process_delayed_actions(Block, Ledger, Chain) ->
                               validator = V,
                               stake = S}) ->
               ok = finalize_validator(V, Ledger),
-              ok = credit_account(O, S, Ledger),
-              %% cleanup stake records
-              {ok, BinStakeList} = cache_get(Ledger, DefaultCF, owner_name(O), []),
-              StakeList = binary_to_term(BinStakeList),
-
-              case lists:keydelete(V,
-                                   #validator_stake_v1.validator,
-                                   StakeList) of
-                  [] ->
-                      cache_delete(Ledger, DefaultCF, owner_name(O));
-                  NewStakeList ->
-                      cache_put(Ledger, DefaultCF, owner_name(O),
-                                term_to_binary(NewStakeList))
-              end
+              ok = credit_account(O, S, Ledger)
       end,
       HeightEntries),
     cache_delete(Ledger, DefaultCF, cd_block_name(Block)),
@@ -1178,9 +1165,6 @@ block_name(Block) ->
 
 cd_block_name(Block) ->
     <<"$cd_block_", (integer_to_binary(Block))/binary>>.
-
-owner_name(Owner) ->
-    <<"$owner_", Owner/binary>>.
 
 -spec save_threshold_txn(blockchain_txn_vars_v1:txn_vars(), ledger()) ->  ok | {error, any()}.
 save_threshold_txn(Txn, Ledger) ->
@@ -4208,9 +4192,10 @@ deactivate_validator(Address, StakeReleaseHeight, Ledger) ->
 
             %% set status to cooldown
             Val1 = blockchain_ledger_validator_v1:status(cooldown, Val),
+            Val2 = blockchain_ledger_validator_v1:release_height(StakeReleaseHeight, Val1),
             %% put the stake HNT into cooldown
             ok = cooldown_stake(Owner, Address, Stake, StakeReleaseHeight, Ledger),
-            update_validator(Address, Val1, Ledger);
+            update_validator(Address, Val2, Ledger);
         Error -> Error
     end.
 
@@ -4235,19 +4220,7 @@ finalize_validator(Address, Ledger) ->
 cooldown_stake(Owner, Validator, Stake, StakeReleaseHeight, Ledger) ->
     DefaultCF = default_cf(Ledger),
 
-    %% create or add an stake entry for the owner
-    StakeList =
-        case cache_get(Ledger, DefaultCF, owner_name(Owner), []) of
-            {ok, OE} ->
-                binary_to_term(OE);
-            not_found ->
-                []
-            %% just gonna function clause for now
-        end,
     NewStakeRec = new_stake_record(Owner, Validator, Stake, StakeReleaseHeight),
-    NewStakeList = [ NewStakeRec | StakeList ],
-    cache_put(Ledger, DefaultCF, owner_name(Owner),
-              term_to_binary(NewStakeList)),
 
     %% add a callback at stake release height block
     HeightEntry =
@@ -4270,18 +4243,18 @@ new_stake_record(Owner, Validator, Stake, SRH) ->
 
 get_cooldown_stake(Val, Ledger) ->
     Address = blockchain_ledger_validator_v1:address(Val),
-    Owner = blockchain_ledger_validator_v1:owner_address(Val),
+    ReleaseHeight = blockchain_ledger_validator_v1:release_height(Val),
 
     CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, owner_name(Owner), []) of
+    case cache_get(Ledger, CF, cd_block_name(ReleaseHeight), []) of
         {ok, StakeList} ->
             Stakes = binary_to_term(StakeList),
             case lists:keyfind(Address, #validator_stake_v1.validator, Stakes) of
-                false -> {ok, 0};
+                false -> {error, not_found};
                 #validator_stake_v1{stake = S} -> {ok, S}
             end;
         not_found ->
-            {ok, 0};
+            {error, not_found};
         Err -> Err
     end.
 

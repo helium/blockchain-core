@@ -10,6 +10,7 @@
          address/1, address/2,
          owner_address/1, owner_address/2,
          stake/1, stake/2,
+         release_height/1, release_height/2,
          last_heartbeat/1, last_heartbeat/2,
          add_penalty/5,
          penalties/1,
@@ -52,6 +53,7 @@
          nonce = 1 :: pos_integer(),
          version = 1 :: pos_integer(),
          status = staked :: status(),
+         release_height = 1 :: pos_integer(),
          penalties = [] :: [penalty()]
         }).
 
@@ -134,6 +136,15 @@ status(Validator) ->
             Validator :: validator()) -> validator().
 status(Status, Validator) ->
     Validator#validator_v1{status = Status}.
+
+-spec release_height(Validator :: validator()) -> pos_integer().
+release_height(Validator) ->
+    Validator#validator_v1.release_height.
+
+-spec release_height(ReleaseHeight :: non_neg_integer(),
+            Validator :: validator()) -> validator().
+release_height(ReleaseHeight, Validator) ->
+    Validator#validator_v1{release_height = ReleaseHeight}.
 
 -spec add_penalty(Validator :: validator(),
                   Height :: pos_integer(),
