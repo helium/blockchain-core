@@ -48,7 +48,7 @@
     reset_ledger_to_snap/2,
     async_reset/1,
 
-    grab_snapshot/2,
+    grab_snapshot/3,
 
     add_commit_hook/3, add_commit_hook/4,
     remove_commit_hook/1
@@ -867,7 +867,7 @@ start_block_sync(Swarm, Chain, Peer) ->
         end,
     spawn_monitor(fun() -> DialFun() end).
 
-grab_snapshot(Height, Hash) ->
+grab_snapshot(Height, Hash, Timeout) ->
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
     SwarmTID = libp2p_swarm:tid(Swarm),
@@ -892,7 +892,7 @@ grab_snapshot(Height, Hash) ->
                 {'DOWN', Ref1, process, Stream, Reason} ->
                     lager:info("snapshot sync failed with error ~p", [Reason]),
                     {error, down, Reason}
-            after timer:seconds(application:get_env(blockchain, snapshot_grab_timeout, 60)) ->
+            after Timeout ->
                     {error, timeout}
             end;
         _ ->

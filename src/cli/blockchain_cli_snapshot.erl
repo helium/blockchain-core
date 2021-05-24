@@ -129,14 +129,26 @@ snapshot_grab_usage() ->
 
 snapshot_grab_cmd() ->
     [
+     [["snapshot", "grab", '*', '*', '*', '*' ], [], [], fun snapshot_grab/3],
      [["snapshot", "grab", '*', '*', '*' ], [], [], fun snapshot_grab/3]
     ].
 
+snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename, TimeoutStr], [], []) ->
+    try
+        Height = list_to_integer(HeightStr),
+        Hash = hex_to_binary(HashStr),
+        Timeout = list_to_integer(TimeoutStr),
+        {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash, Timeout),
+        file:write_file(Filename, Snapshot)
+    catch
+        _Type:Error ->
+            [clique_status:text(io_lib:format("failed: ~p", [Error]))]
+    end;
 snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], []) ->
     try
         Height = list_to_integer(HeightStr),
         Hash = hex_to_binary(HashStr),
-        {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash),
+        {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash, timer:seconds(60)),
         file:write_file(Filename, Snapshot)
     catch
         _Type:Error ->
