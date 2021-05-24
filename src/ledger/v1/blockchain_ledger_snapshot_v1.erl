@@ -388,7 +388,7 @@ import(Chain, SHA,
             %% store the snapshot if we don't have it already
             case blockchain:get_snapshot(SHA, Chain) of
                 {ok, _Snap} -> ok;
-                {error, not_found} ->
+                {error, _} ->
                     blockchain:add_snapshot(Snapshot, Chain)
             end,
 
