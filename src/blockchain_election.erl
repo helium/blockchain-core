@@ -3,11 +3,11 @@
 -export([
          new_group/4,
          has_new_group/1,
-         election_info/2,
+         election_info/1, election_info/2,
          icdf_select/3,
          adjust_old_group/2,
          adjust_old_group_v2/2,
-         validator_penalties/3
+         validator_penalties/2
         ]).
 
 -include("blockchain_vars.hrl").
@@ -256,9 +256,8 @@ have_gateways(List, Ledger) ->
 adjust_old_group(Group, Ledger) ->
     %% ideally would not have to do this but don't want to change the
     %% interface.
-    Chain = blockchain_worker:blockchain(),
     #{start_height := Start,
-      curr_height := End} = election_info(Ledger, Chain),
+      curr_height := End} = election_info(Ledger),
     %% annotate the ledger group (which is ordered properly), with each one's index.
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
     {_, Addrs} =
@@ -269,7 +268,7 @@ adjust_old_group(Group, Ledger) ->
           {1, #{}},
           OldGroup),
 
-    Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
+    Blocks = [begin {ok, Block} = blockchain_ledger_v1:get_block(Ht, Ledger), Block end
               || Ht <- lists:seq(Start + 1, End)],
 
     Penalties = get_penalties(Blocks, length(Group), Ledger),
@@ -289,10 +288,7 @@ adjust_old_group(Group, Ledger) ->
 adjust_old_group_v2(Group, Ledger) ->
     %% annotate the ledger group (which is ordered properly), with each one's index.
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
-    %% ideally would not have to do this but don't want to change the
-    %% interface.
-    Chain = blockchain_worker:blockchain(),
-    Penalties = validator_penalties(OldGroup, Chain, Ledger),
+    Penalties = validator_penalties(OldGroup, Ledger),
     lager:debug("penalties ~p", [Penalties]),
 
     %% now that we've accumulated all of the penalties, apply them to
@@ -304,7 +300,7 @@ adjust_old_group_v2(Group, Ledger) ->
       end,
       Group).
 
-validator_penalties(Group, Chain, Ledger) ->
+validator_penalties(Group, Ledger) ->
     {_, Addrs} =
         lists:foldl(
           fun(Addr, {Index, Acc}) ->
@@ -314,8 +310,8 @@ validator_penalties(Group, Chain, Ledger) ->
           Group),
 
     #{start_height := Start,
-      curr_height := End} = election_info(Ledger, Chain),
-    Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
+      curr_height := End} = election_info(Ledger),
+    Blocks = [begin {ok, Block} = blockchain_ledger_v1:get_block(Ht, Ledger), Block end
               || Ht <- lists:seq(Start + 2, End)],
 
     IndexedPenalties = get_penalties_v2(Blocks, length(Group), Ledger),
@@ -755,8 +751,13 @@ has_new_group(Txns) ->
             false
     end.
 
-election_info(Height, Chain) when is_integer(Height) ->
-    {ok, Block} = blockchain:get_block(Height, Chain),
+election_info(Ledger) ->
+    %% grab the current height and get the block.
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    election_info(Height, Ledger).
+
+election_info(Height, Ledger) when is_integer(Height) ->
+    {ok, Block} = blockchain_ledger_v1:get_block(Height, Ledger),
 
     %% get the election info
     {Epoch, StartHeight0} = blockchain_block_v1:election_info(Block),
@@ -766,7 +767,7 @@ election_info(Height, Chain) when is_integer(Height) ->
     StartHeight = max(1, StartHeight0),
 
     %% get the election txn
-    {ok, StartBlock} = blockchain:get_block(StartHeight, Chain),
+    {ok, StartBlock} = blockchain_ledger_v1:get_block(StartHeight, Ledger),
     {ok, Txn} = get_election_txn(StartBlock),
     lager:debug("txn ~s", [blockchain_txn:print(Txn)]),
     ElectionHeight = blockchain_txn_consensus_group_v1:height(Txn),
@@ -780,11 +781,7 @@ election_info(Height, Chain) when is_integer(Height) ->
       start_height => StartHeight,
       election_height => ElectionHeight,
       election_delay => ElectionDelay
-     };
-election_info(Ledger, Chain) ->
-    %% grab the current height and get the block.
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    election_info(Height, Chain).
+     }.
 
 get_election_txn(Block) ->
     Txns = blockchain_block:transactions(Block),

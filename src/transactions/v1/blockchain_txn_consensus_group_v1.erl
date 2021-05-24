@@ -230,7 +230,7 @@ absorb(Txn, Chain) ->
                         case OldMembers == OldMembers0 of
                             %% no gateways to mess up the adjustment
                             true ->
-                                blockchain_election:validator_penalties(OldMembers, Chain, Ledger);
+                                blockchain_election:validator_penalties(OldMembers, Ledger);
                             false -> #{}
                         end,
 

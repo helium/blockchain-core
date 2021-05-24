@@ -554,7 +554,7 @@ get_blocks(Chain) ->
 
     %% this is for rewards calculation when an epoch ends
     %% see https://github.com/helium/blockchain-core/pull/627
-    #{ election_height := ElectionHeight } = blockchain_election:election_info(Ledger, Chain),
+    #{ election_height := ElectionHeight } = blockchain_election:election_info(Ledger),
     GraceBlocks =
         case blockchain:config(?sc_grace_blocks, Ledger) of
             {ok, GBs} ->
