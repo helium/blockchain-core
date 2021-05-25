@@ -180,7 +180,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
 
     Validators0 = validators_filter(Ledger),
 
-    %% remove dupes, sort
+    %% remove dupes, sort, gather offline nodes.
     {OldGroupDeduped0, Offline, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
     %% random shuffle of all candidate validators, and change format into something idcf can consume
     Validators1 = [{Addr, Prob}
@@ -205,12 +205,17 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                         true -> 0;
                         false -> NewLen
                     end,
+                %% if there are too many offline nodes, just pick those and re-add the remainder to
+                %% the group.  ideally there would be a clean way to just cancel here, but I'm not
+                %% sure that's plumbed through well enough.
                 {Offline1, OldGroupDeduped, ReplaceFinal} =
                     case length(Offline) of
                         N when N > RepLen ->
                             {ToRemove, Rem} = lists:split(RepLen, Offline),
                             {ToRemove, OldGroupDeduped0 ++ Rem, 0};
                         Len ->
+                            %% otherwise just adjust the size for removal selection and use the
+                            %% groups as-is
                             {Offline, OldGroupDeduped0, RepLen - Len}
                     end,
                 %% adjust for bbas and seen votes
@@ -879,6 +884,6 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                                            not lists:keymember(A, #val_v1.addr, Group)
                                    end, OldGroup0),
             {Group,
-             OfflineGroup ++ [#val_v1{addr = MAddr} || MAddr <- Missing],
+             OfflineGroup ++ [#val_v1{addr = MAddr, prob = 1.0} || MAddr <- Missing],
              Pool}
     end.
