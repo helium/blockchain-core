@@ -180,26 +180,16 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
 
     Validators0 = validators_filter(Ledger),
 
-    %% remove dupes, sort
+    %% remove dupes, sort, gather offline nodes.
     {OldGroupDeduped0, Offline, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
-    %% random shuffle of all validators, and change format into something idcf can consume
+    %% random shuffle of all candidate validators, and change format into something idcf can consume
     Validators1 = [{Addr, Prob}
                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
     lager:debug("validators ~p ~p", [min(Replace, length(Validators1)), an2(Validators1)]),
 
-    ReplaceCt = min(Replace, length(Validators1)),
-    {New0, OldGroupDeduped, ReplaceFinal} =
-        case length(Offline) of
-            N when N > ReplaceCt ->
-                {ToReplace, Rem} = lists:split(ReplaceCt, Offline),
-                {ToReplace, OldGroupDeduped0 ++ Rem, 0};
-            Len ->
-                {Offline, OldGroupDeduped0, ReplaceCt - Len}
-        end,
-
     %% select replacement nodes from the candidate pool using iterative icdf
-    New = New0 ++ icdf_select(Validators1, ReplaceFinal, []),
+    New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
     lager:debug("validators new ~p", [an(New)]),
 
     %% limit the number removed to the number of replacement nodes in the case that we're changing
@@ -208,19 +198,31 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     ToRem =
         case have_gateways(OldGroup0, Ledger) of
             [] ->
+                RepLen =
+                    case NewLen == 0 of
+                        %% moving down, we need remove bad nodes, not just take the first Size
+                        true when OldLen > Size -> OldLen - Size;
+                        true -> 0;
+                        false -> NewLen
+                    end,
+                %% if there are too many offline nodes, just pick those and re-add the remainder to
+                %% the group.  ideally there would be a clean way to just cancel here, but I'm not
+                %% sure that's plumbed through well enough.
+                {Offline1, OldGroupDeduped, ReplaceFinal} =
+                    case length(Offline) of
+                        N when N > RepLen ->
+                            {ToRemove, Rem} = lists:split(RepLen, Offline),
+                            {ToRemove, OldGroupDeduped0 ++ Rem, 0};
+                        Len ->
+                            %% otherwise just adjust the size for removal selection and use the
+                            %% groups as-is
+                            {Offline, OldGroupDeduped0, RepLen - Len}
+                    end,
                 %% adjust for bbas and seen votes
                 OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
                 lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
-
-                case NewLen == 0 of
-                    %% moving down, we need remove bad nodes, not just take the first Size
-                    true when OldLen > Size ->
-                        icdf_select(lists:keysort(1, OldGroupAdjusted), OldLen - Size, []);
-                    true ->
-                        [];
-                    false ->
-                        icdf_select(lists:keysort(1, OldGroupAdjusted), NewLen, [])
-                end;
+                OfflineAddrs = [A || #val_v1{addr = A} <- Offline1],
+                OfflineAddrs ++ icdf_select(lists:keysort(1, OldGroupAdjusted), ReplaceFinal, []);
             Gateways ->
                 %% just sort and remove the first removal amount rather than selecting, leaving
                 %% validators in to make up the number on the last round if needed.
@@ -818,7 +820,7 @@ validators_filter(Ledger) ->
                   true ->
                       maps:put(Addr, #val_v1{addr = Addr,
                                              heartbeat = HB,
-                                             prob = Penalty}, Acc);
+                                             prob = max(1.0, Penalty)}, Acc);
                   _ -> Acc
               end
       end,
@@ -833,7 +835,7 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
 
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
-    {Group, Pool} =
+    {Group, OfflineGroup, Pool} =
         maps:fold(
           fun(Addr, Val = #val_v1{heartbeat = Last, prob = Prob},
               {Old, Off, Candidates} = Acc) ->
@@ -869,18 +871,19 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                           end
                   end
           end,
-          {[], []},
+          {[], [], []},
           Validators0),
 
     %% there have been buggy cases where an unstaked validator has somehow made it into the
     %% group. when this happens, it won't make it into the group, because it has been filtered out
     %% of the broader pool.  in this case, make a new record for it with an extreme chance of being removed.
-    case length(Group) < length(OldGroup0) of
-        false -> {Group, Pool};
+    case length(Group ++ OfflineGroup) < length(OldGroup0) of
+        false -> {Group, OfflineGroup, Pool};
         true ->
             Missing = lists:filter(fun(A) ->
                                            not lists:keymember(A, #val_v1.addr, Group)
                                    end, OldGroup0),
-            {Group ++ [#val_v1{prob = 200.0, addr = MAddr} || MAddr <- Missing],
+            {Group,
+             OfflineGroup ++ [#val_v1{addr = MAddr, prob = 1.0} || MAddr <- Missing],
              Pool}
     end.
