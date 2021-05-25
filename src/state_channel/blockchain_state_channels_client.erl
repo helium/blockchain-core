@@ -90,7 +90,7 @@ get_known_channels(SCID) ->
 -spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                HandlerPid :: pid()) -> ok.
 purchase(Purchase, HandlerPid) ->
-    gen_server:call(?SERVER, {purchase, Purchase, HandlerPid}, infinity).
+    gen_server:cast(?SERVER, {purchase, Purchase, HandlerPid}).
 
 -spec banner(Banner :: blockchain_state_channel_banner_v1:banner(),
              HandlerPid :: pid()) -> ok.
@@ -174,13 +174,13 @@ handle_cast({gc_state_channels, SCIDs}, #state{pending_closes=P, db=DB, cf=CF}=S
                           rocksdb:delete(DB, CF, SCID, [])
                   end, SCIDs),
     {noreply, State#state{pending_closes=P -- SCIDs}};
+handle_cast({purchase, Purchase, HandlerPid}, State) ->
+    NewState = handle_purchase(Purchase, HandlerPid, State),
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
-handle_call({purchase, Purchase, HandlerPid}, _From, State) ->
-    NewState = handle_purchase(Purchase, HandlerPid, State),
-    {reply, ok, NewState};
 handle_call({get_known_channels, SCID}, _From, State) ->
     {reply, get_state_channels(SCID, State), State};
 handle_call(_, _, State) ->
@@ -832,7 +832,7 @@ get_previous_total_dcs(SC, State) ->
                          State :: state()) ->
     {ok, [blockchain_state_channel_v1:state_channel()]} | {error, any()}.
 get_state_channels(SCID, #state{db=DB, cf=CF}) ->
-    case rocksdb:get(DB, CF, SCID, [{sync, true}]) of
+    case rocksdb:get(DB, CF, SCID, []) of
         {ok, Bin} ->
             {ok, erlang:binary_to_term(Bin)};
         not_found ->
@@ -849,10 +849,10 @@ append_state_channel(SC, #state{db=DB, cf=CF}=State) ->
     case get_state_channels(SCID, State) of
         {ok, SCs} ->
             ToInsert = erlang:term_to_binary([SC | SCs]),
-            rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]);
+            rocksdb:put(DB, CF, SCID, ToInsert, []);
         {error, not_found} ->
             ToInsert = erlang:term_to_binary([SC]),
-            rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]);
+            rocksdb:put(DB, CF, SCID, ToInsert, []);
         {error, _}=E ->
             E
     end.
@@ -887,7 +887,7 @@ overwrite_state_channel(SC, State) ->
 write_sc(SC, #state{db=DB, cf=CF}) ->
     SCID = blockchain_state_channel_v1:id(SC),
     ToInsert = erlang:term_to_binary([SC]),
-    rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]).
+    rocksdb:put(DB, CF, SCID, ToInsert, []).
 
 -spec close_state_channel(SC :: blockchain_state_channel_v1:state_channel(), State :: state()) -> ok.
 close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
