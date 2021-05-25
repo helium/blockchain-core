@@ -14,6 +14,8 @@ command(Cmd) ->
     M4 = clique_command:run(M3),
     clique:print(M4, Cmd),
     case M4 of
+        {error, {no_matching_spec, _Spec}} ->
+            {rpc_error, 1};
         {_Status, ExitCode, _} when ExitCode == 0 ->
             rpc_ok;
         {_Status, ExitCode, _} ->
