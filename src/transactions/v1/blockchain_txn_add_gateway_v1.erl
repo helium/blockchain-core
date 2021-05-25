@@ -316,27 +316,33 @@ is_valid(Txn, Chain) ->
         {_, _, _, false} ->
             {error, payer_invalid_staking_key};
         {true, true, true, true} ->
-            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            Payer = ?MODULE:payer(Txn),
-            Owner = ?MODULE:owner(Txn),
-            ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                true -> Owner;
-                false -> Payer
-            end,
-            StakingFee = ?MODULE:staking_fee(Txn),
-            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
-            TxnFee = ?MODULE:fee(Txn),
-            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-            case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
-                {false,_} ->
-                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                {_,false} ->
-                    {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
-                {true, true} ->
-                    blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
+
+            %% check this is not also a validator
+            case blockchain_ledger_v1:get_validator(gateway(Txn), Ledger) of
+                {ok, _} ->
+                    %% already a validator
+                    {error, is_validator};
+                _ ->
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                    Payer = ?MODULE:payer(Txn),
+                    Owner = ?MODULE:owner(Txn),
+                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                                      true -> Owner;
+                                      false -> Payer
+                                  end,
+                    StakingFee = ?MODULE:staking_fee(Txn),
+                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                    TxnFee = ?MODULE:fee(Txn),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                        {false,_} ->
+                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                        {_,false} ->
+                            {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
+                        {true, true} ->
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
+                    end
             end
-
-
     end.
 
 %%--------------------------------------------------------------------

@@ -439,3 +439,20 @@
 -define(non_consensus_gateway_capabilities_mask, non_consensus_gateway_capabilities_mask).
 %% the mask value to represent the capabilities of full gateways, defined as an integer and used as a bitmask
 -define(full_gateway_capabilities_mask, full_gateway_capabilities_mask).
+
+%%%
+%%% validators variables
+%%%
+
+-define(validator_version, validator_version).
+-define(validator_minimum_stake, validator_minimum_stake).  % bones
+-define(validator_liveness_interval, validator_liveness_interval).  % blocks
+-define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
+-define(validator_penalty_probability_factor, validator_penalty_probability_factor). % float
+-define(stake_withdrawal_cooldown, stake_withdrawal_cooldown). % blocks
+-define(stake_withdrawal_max, stake_withdrawal_max). % blocks
+%% -define(maximum_overstake, maximum_overstake). % float multiple of min stake
+
+-define(penalty_history_limit, penalty_history_limit). % blocks
+-define(dkg_penalty, dkg_penalty). % float
+-define(tenure_penalty, tenure_penalty). % float
