@@ -8,7 +8,6 @@
 %% TODO
 %% -behavior(blockchain_json).
 
--include("blockchain_region.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_vars.hrl").
 

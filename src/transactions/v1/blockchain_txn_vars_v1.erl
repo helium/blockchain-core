@@ -9,7 +9,6 @@
 
 -behavior(blockchain_json).
 -include("blockchain.hrl").
--include("blockchain_region.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
@@ -1274,18 +1273,22 @@ validate_var(?penalty_history_limit, Value) ->
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
-    %% The only regulatory_regions value we support must look like this:
+    %% The regulatory_regions value we support must look like this:
     %% <<"as923_1,as923_2,as923_3,au915,cn470,eu433,eu868,in865,kr920,ru864,us915">>
     %% The order does not matter in validation
-    case blockchain_region_v1:get_regulatory_regions_var(Value) of
-        {ok, ValueList} ->
-            case ValueList -- ?SUPPORTED_REGIONS == [] of
-                true -> ok;
-                false -> throw({error, {invalid_regulatory_regions_unexpected_region, Value}})
-            end;
-        {error, _}=E ->
-            E
+
+    %% First check is a relatively conservative byte_size check on the value
+    C1 = byte_size(Value) =< 80,
+    %% Second check is that we're able to get the regions and it's not some random data
+    %% And it's atleast >= 11 (the number of regions we know about)
+    C2 = length(string:tokens(binary:bin_to_list(Value), ",")) >= 11,
+
+    case {C1, C2} of
+        {true, true} -> ok;
+        {false, _} -> throw({error, {invalid_byte_size, Value}});
+        {_, false} -> throw({error, {invalid_region_list, Value}})
     end;
+
 validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
 
