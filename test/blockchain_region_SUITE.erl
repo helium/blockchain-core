@@ -13,7 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -include("blockchain.hrl").
--include("blockchain_region.hrl").
+-include("blockchain_region_test.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_ct_utils.hrl").
 
