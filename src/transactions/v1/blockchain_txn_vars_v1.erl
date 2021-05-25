@@ -12,10 +12,9 @@
 -include("blockchain_region.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_vars.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
--include("blockchain_vars.hrl").
--include("blockchain.hrl").
 
 -export([
          new/2, new/3,
