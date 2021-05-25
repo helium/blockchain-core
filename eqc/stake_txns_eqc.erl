@@ -153,7 +153,7 @@ val_vars() ->
       ?election_bba_penalty => 0.5,
       ?election_seen_penalty => 0.5,
       ?tenure_penalty => 0.5,
-      ?validator_penalty_probability_factor => 1.0,
+      ?validator_penalty_filter => 1.0,
       ?penalty_history_limit => 100,
       ?election_interval => 3
      }.
