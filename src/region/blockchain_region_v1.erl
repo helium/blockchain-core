@@ -7,10 +7,9 @@
 
 -include("blockchain_vars.hrl").
 
--export([get_all_regions/1, region/2, get_regulatory_regions_var/1]).
+-export([get_all_regions/1, region/2]).
 
 %% [us915, au915, .... ]
--type str_regions() :: [string()].
 -type regions() :: [atom()].
 
 %%--------------------------------------------------------------------
@@ -20,15 +19,8 @@
 -spec get_all_regions(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, regions()} | {error, any()}.
 get_all_regions(Ledger) ->
     case blockchain:config(?regulatory_regions, Ledger) of
-        {ok, RegionStr} ->
-            case get_regulatory_regions_var(RegionStr) of
-                {ok, RegionStrList} ->
-                    %% NOTE: There isn't much value to convert these to atoms probably but
-                    %% it makes things easy to pattern match on
-                    {ok, [list_to_atom(R) || R <- RegionStrList]};
-                {error, _} = E ->
-                    E
-            end;
+        {ok, Bin} ->
+            {ok, [list_to_atom(I) || I <- string:tokens(Bin, ",")]};
         _ ->
             {error, regulatory_regions_not_set}
     end.
@@ -38,21 +30,6 @@ get_all_regions(Ledger) ->
 region(H3, Ledger) ->
     {ok, Regions} = get_all_regions(Ledger),
     region_(Regions, H3, Ledger).
-
--spec get_regulatory_regions_var(Value :: binary()) -> {ok, str_regions()} | {error, any()}.
-get_regulatory_regions_var(Value) ->
-    try
-        ValueList = string:tokens(binary:bin_to_list(Value), ","),
-        {ok, ValueList}
-    catch
-        What:Why:Stack ->
-            lager:error("Unable to get_regulatory_regions_var, What: ~p, Why: ~p, Stack: ~p", [
-                What,
-                Why,
-                Stack
-            ]),
-            {error, {unable_to_get_regulatory_regions_var, Value}}
-    end.
 
 %%--------------------------------------------------------------------
 %% helpers
