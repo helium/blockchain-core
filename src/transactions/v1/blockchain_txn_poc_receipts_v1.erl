@@ -1503,7 +1503,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
             {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
             GT = blockchain_ledger_gateway_v2:gain(SrcGW),
             GR = blockchain_ledger_gateway_v2:gain(DstGW),
-            %% {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
+            {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
             FSPL = blockchain_utils:free_space_path_loss(
                      SourceLoc,
                      DestinationLoc,
@@ -1511,7 +1511,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
                      GT,
                      GR
                     ),
-            blockchain_utils:min_rcv_sig(FSPL, TxPower);
+            blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
         _ ->
             blockchain_utils:min_rcv_sig(
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
