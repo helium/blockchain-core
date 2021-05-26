@@ -20,7 +20,7 @@
 get_all_regions(Ledger) ->
     case blockchain:config(?regulatory_regions, Ledger) of
         {ok, Bin} ->
-            {ok, [list_to_atom(I) || I <- string:tokens(Bin, ",")]};
+            {ok, [list_to_atom(I) || I <- string:tokens(binary:bin_to_list(Bin), ",")]};
         _ ->
             {error, regulatory_regions_not_set}
     end.
