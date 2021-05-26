@@ -158,13 +158,9 @@ all_regions_test(Config) ->
 as923_1_test(Config) ->
     Ledger = ?config(ledger, Config),
     JH3 = 631319855840474623,
-    case blockchain:config(?region_as923_1, Ledger) of
-        {ok, Bin} ->
-            {true, _Parent} = h3:contains(JH3, Bin),
-            ok;
-        _ ->
-            ct:fail("broken")
-    end.
+    {ok, true} = blockchain_region_v1:h3_in_region(JH3, ?region_as923_1, Ledger),
+    {ok, false} = blockchain_region_v1:h3_in_region(JH3, ?region_us915, Ledger),
+    ok.
 
 %% as923_2_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
@@ -194,9 +190,7 @@ au915_test(Config) ->
     case blockchain:config(?region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(AUH3, Bin),
-            {ok, Region} = blockchain_region_v1:region(AUH3, Ledger),
-            %% TODO: Fix me and do proper region_param checks
-            true = au915 == Region,
+            {ok, ?region_au915} = blockchain_region_v1:h3_to_region(AUH3, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -205,16 +199,9 @@ au915_test(Config) ->
 cn470_test(Config) ->
     Ledger = ?config(ledger, Config),
     CNH3 = 631645363084543487,
-    case blockchain:config(?region_cn470, Ledger) of
-        {ok, Bin} ->
-            {true, _Parent} = h3:contains(CNH3, Bin),
-            {ok, Region} = blockchain_region_v1:region(CNH3, Ledger),
-            %% TODO: Fix me and do proper region_param checks
-            true = cn470 == Region,
-            ok;
-        _ ->
-            ct:fail("broken")
-    end.
+    {ok, true} = blockchain_region_v1:h3_in_region(CNH3, ?region_cn470, Ledger),
+    {ok, false} = blockchain_region_v1:h3_in_region(CNH3, ?region_us915, Ledger),
+    ok.
 
 %% eu433_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
@@ -230,13 +217,9 @@ cn470_test(Config) ->
 eu868_test(Config) ->
     Ledger = ?config(ledger, Config),
     EUH3 = 631051317836014591,
-    case blockchain:config(?region_eu868, Ledger) of
-        {ok, Bin} ->
-            {true, _Parent} = h3:contains(EUH3, Bin),
-            ok;
-        _ ->
-            ct:fail("broken")
-    end.
+    {ok, true} = blockchain_region_v1:h3_in_region(EUH3, ?region_eu868, Ledger),
+    {ok, false} = blockchain_region_v1:h3_in_region(EUH3, ?region_us915, Ledger),
+    ok.
 
 %% in865_test(Config) ->
 %%     Ledger = ?config(ledger, Config),
@@ -264,40 +247,29 @@ ru864_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% massive-crimson-cat
     RUH3 = 630812791472857599,
-    case blockchain:config(?region_ru864, Ledger) of
-        {ok, Bin} ->
-            {true, _Parent} = h3:contains(RUH3, Bin),
-            ok;
-        _ ->
-            ct:fail("broken")
-    end.
+    {ok, true} = blockchain_region_v1:h3_in_region(RUH3, ?region_ru864, Ledger),
+    {ok, false} = blockchain_region_v1:h3_in_region(RUH3, ?region_us915, Ledger),
+    ok.
 
 us915_test(Config) ->
     Ledger = ?config(ledger, Config),
     USH3 = 631183727389488639,
-    case blockchain:config(?region_us915, Ledger) of
-        {ok, Bin} ->
-            {true, _Parent} = h3:contains(USH3, Bin),
-            {ok, Region} = blockchain_region_v1:region(USH3, Ledger),
-            %% TODO: Fix me and do proper region_param checks
-            true = us915 == Region,
-            ok;
-        _ ->
-            ct:fail("broken")
-    end.
+    {ok, true} = blockchain_region_v1:h3_in_region(USH3, ?region_us915, Ledger),
+    {ok, false} = blockchain_region_v1:h3_in_region(USH3, ?region_in865, Ledger),
+    ok.
 
 region_not_found_test(Config) ->
     Ledger = ?config(ledger, Config),
     InvalidH3 = 11111111111111111111,
-    {error, {h3_contains_failed, _}} = blockchain_region_v1:region(InvalidH3, Ledger),
+    {error, {h3_contains_failed, _}} = blockchain_region_v1:h3_to_region(InvalidH3, Ledger),
     ok.
 
 us915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_us915, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(us915),
-            Ser = blockchain_region_params_v1:serialized_us915(),
+            KnownParams = blockchain_region_suite_helper:fetch(us915),
+            Ser = blockchain_region_suite_helper:serialized_us915(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -308,8 +280,8 @@ eu868_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_eu868, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(eu868),
-            Ser = blockchain_region_params_v1:serialized_eu868(),
+            KnownParams = blockchain_region_suite_helper:fetch(eu868),
+            Ser = blockchain_region_suite_helper:serialized_eu868(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -320,8 +292,8 @@ au915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_au915, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(au915),
-            Ser = blockchain_region_params_v1:serialized_au915(),
+            KnownParams = blockchain_region_suite_helper:fetch(au915),
+            Ser = blockchain_region_suite_helper:serialized_au915(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -332,8 +304,8 @@ as923_1_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_as923_1, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(as923_1),
-            Ser = blockchain_region_params_v1:serialized_as923_1(),
+            KnownParams = blockchain_region_suite_helper:fetch(as923_1),
+            Ser = blockchain_region_suite_helper:serialized_as923_1(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -344,8 +316,8 @@ as923_2_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_as923_2, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(as923_2),
-            Ser = blockchain_region_params_v1:serialized_as923_2(),
+            KnownParams = blockchain_region_suite_helper:fetch(as923_2),
+            Ser = blockchain_region_suite_helper:serialized_as923_2(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -356,8 +328,8 @@ as923_3_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_as923_3, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(as923_3),
-            Ser = blockchain_region_params_v1:serialized_as923_3(),
+            KnownParams = blockchain_region_suite_helper:fetch(as923_3),
+            Ser = blockchain_region_suite_helper:serialized_as923_3(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -368,8 +340,8 @@ ru864_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_ru864, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(ru864),
-            Ser = blockchain_region_params_v1:serialized_ru864(),
+            KnownParams = blockchain_region_suite_helper:fetch(ru864),
+            Ser = blockchain_region_suite_helper:serialized_ru864(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -380,8 +352,8 @@ cn470_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_cn470, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(cn470),
-            Ser = blockchain_region_params_v1:serialized_cn470(),
+            KnownParams = blockchain_region_suite_helper:fetch(cn470),
+            Ser = blockchain_region_suite_helper:serialized_cn470(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -392,8 +364,8 @@ in865_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_in865, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(in865),
-            Ser = blockchain_region_params_v1:serialized_in865(),
+            KnownParams = blockchain_region_suite_helper:fetch(in865),
+            Ser = blockchain_region_suite_helper:serialized_in865(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -404,8 +376,8 @@ kr920_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_kr920, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(kr920),
-            Ser = blockchain_region_params_v1:serialized_kr920(),
+            KnownParams = blockchain_region_suite_helper:fetch(kr920),
+            Ser = blockchain_region_suite_helper:serialized_kr920(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -416,8 +388,8 @@ eu433_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_eu433, Ledger) of
         {ok, Bin} ->
-            KnownParams = blockchain_region_params_v1:fetch(eu433),
-            Ser = blockchain_region_params_v1:serialized_eu433(),
+            KnownParams = blockchain_region_suite_helper:fetch(eu433),
+            Ser = blockchain_region_suite_helper:serialized_eu433(),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -600,3 +572,4 @@ region_params_eu433() ->
     <<10, 21, 8, 188, 170, 214, 20, 16, 200, 208, 7, 24, 121, 34, 8, 10, 6, 6, 5, 4, 3, 2, 1, 10,
         21, 8, 156, 142, 213, 20, 16, 200, 208, 7, 24, 121, 34, 8, 10, 6, 6, 5, 4, 3, 2, 1, 10, 21,
         8, 252, 241, 211, 20, 16, 200, 208, 7, 24, 121, 34, 8, 10, 6, 6, 5, 4, 3, 2, 1>>.
+

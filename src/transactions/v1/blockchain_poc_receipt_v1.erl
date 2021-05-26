@@ -199,15 +199,16 @@ print(#blockchain_poc_receipt_v1_pb{
          frequency=Freq,
          snr=SNR,
          origin=Origin
-        }) ->
-    io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b snr: ~p freq: ~p origin: ~p",
+        }=Receipt) ->
+    io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b snr: ~p freq: ~p origin: ~p, tx_power: ~p",
                   [
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
                    Signal,
                    SNR,
                    Freq,
-                   Origin
+                   Origin,
+                   tx_power(Receipt)
                   ]).
 
 json_type() ->
@@ -226,7 +227,8 @@ to_json(Receipt, _Opts) ->
       snr => ?MAYBE_UNDEFINED(snr(Receipt)),
       frequency => ?MAYBE_UNDEFINED(frequency(Receipt)),
       channel => ?MAYBE_UNDEFINED(channel(Receipt)),
-      datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt)))
+      datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt))),
+      tx_power => ?MAYBE_UNDEFINED(tx_power(Receipt))
      }.
 
 %% ------------------------------------------------------------------

@@ -1305,17 +1305,24 @@ valid_witnesses(Element, Channel, Ledger) ->
     DstLoc :: h3:h3_index()
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
-    case blockchain_region_v1:region(SourceLoc, Ledger) of
-        {ok, R1} ->
-            case blockchain_region_v1:region(DstLoc, Ledger) of
-                {ok, R1} ->
-                    %% same regions
-                    true;
-                {ok, _} ->
-                    %% different regions
+    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
+        {ok, SrcRegionVar} ->
+            %% This call should work as-is without case-clausing
+            {ok, SrcRegionBin} = blockchain_ledger_v1:config(SrcRegionVar, Ledger),
+            try h3:contains(DstLoc, SrcRegionBin) of
+                false ->
+                    %% NOTE: This is the only false scenario
                     false;
-                _ ->
-                    %% var not set, true
+                {true, _Parent} ->
+                    true
+            catch
+                What:Why:Stack ->
+                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
+                        What,
+                        Why,
+                        Stack
+                    ]),
+                    %% XXX: We could not check h3 membership for dst, default to true
                     true
             end;
         _ ->
@@ -1492,13 +1499,13 @@ get_channels(Txn, Chain) ->
 min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
-            TxPower = maybe_tx_power_from_receipt(Receipt, SourceLoc, Ledger),
+            TxPower = maybe_tx_power_from_receipt(Receipt, SourceLoc, Freq, Ledger),
             SrcPubkeyBin = blockchain_poc_receipt_v1:gateway(Receipt),
             {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
             {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
             GT = blockchain_ledger_gateway_v2:gain(SrcGW),
             GR = blockchain_ledger_gateway_v2:gain(DstGW),
-            %% {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
+            {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
             FSPL = blockchain_utils:free_space_path_loss(
                      SourceLoc,
                      DestinationLoc,
@@ -1506,22 +1513,34 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
                      GT,
                      GR
                     ),
-            blockchain_utils:min_rcv_sig(FSPL, TxPower);
+            blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
         _ ->
             blockchain_utils:min_rcv_sig(
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
     end.
 
-maybe_tx_power_from_receipt(undefined, SourceLoc, Ledger) ->
-    {ok, Region} = blockchain_region_v1:region(SourceLoc, Ledger),
-    {ok, RegionParams} = blockchain_region_params_v1:for_region(Region, Ledger),
-    %% NOTE: all region params have the same max_eirp afaict, just take one
-    %% TODO: maybe look at the freq of the source and match max_eirp if they ever differ?
-    Param = hd(blockchain_region_params_v1:region_params(RegionParams)),
-    blockchain_region_param_v1:max_eirp(Param);
-maybe_tx_power_from_receipt(Receipt, _SourceLoc, _Ledger) ->
+maybe_tx_power_from_receipt(undefined, SourceLoc, Freq, Ledger) ->
+    {ok, Region} = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
+    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+    FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),
+                  blockchain_region_param_v1:max_eirp(I)} || I <- Params],
+    %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
+    eirp_from_closest_freq(Freq * ?MHzToHzMultiplier, FreqEirps);
+maybe_tx_power_from_receipt(Receipt, _SourceLoc, _Freq, _Ledger) ->
     blockchain_poc_receipt_v1:tx_power(Receipt).
+
+eirp_from_closest_freq(Freq, [Head | Tail]) ->
+    eirp_from_closest_freq(Freq, Tail, Head).
+
+eirp_from_closest_freq(_Freq, [], {_BestFreq, BestEIRP}) -> BestEIRP;
+eirp_from_closest_freq(Freq, [ {NFreq, NEirp} | Rest ], {BestFreq, BestEIRP}) ->
+    case abs(Freq - NFreq) =< abs(Freq - BestFreq) of
+        true ->
+            eirp_from_closest_freq(Freq, Rest, {NFreq, NEirp});
+        false ->
+            eirp_from_closest_freq(Freq, Rest, {BestFreq, BestEIRP})
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1699,5 +1718,10 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, secret, onion_key_hash, request_block_hash, path, fee, challenger])).
 
+
+eirp_from_closest_freq_test() ->
+    FreqEirps = [{915.8, 10}, {915.3, 20}, {914.9, 30}, {915.2, 15}, {915.7, 12}, {916.9, 100}],
+    EIRP = eirp_from_closest_freq(915.1, FreqEirps),
+    ?assertEqual(15, EIRP).
 
 -endif.
