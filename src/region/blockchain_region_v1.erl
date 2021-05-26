@@ -7,7 +7,7 @@
 
 -include("blockchain_vars.hrl").
 
--export([get_all_regions/1, region/2]).
+-export([get_all_regions/1, h3_to_region/2, h3_in_region/3]).
 
 %% [us915, au915, .... ]
 -type regions() :: [atom()].
@@ -25,11 +25,35 @@ get_all_regions(Ledger) ->
             {error, regulatory_regions_not_set}
     end.
 
--spec region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
+-spec h3_to_region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, atom()} | {error, any()}.
-region(H3, Ledger) ->
+h3_to_region(H3, Ledger) ->
     {ok, Regions} = get_all_regions(Ledger),
     region_(Regions, H3, Ledger).
+
+-spec h3_in_region(H3 :: h3:h3_index(),
+                   RegionVar :: atom(),
+                   Ledger :: blockchain_ledger_v1:ledger()) -> {ok, boolean()} | {error, any()}.
+h3_in_region(H3, RegionVar, Ledger) ->
+    case blockchain:config(RegionVar, Ledger) of
+        {ok, Bin} ->
+            try h3:contains(H3, Bin) of
+                false ->
+                    {ok, false};
+                {true, _Parent} ->
+                    {ok, true}
+            catch
+                What:Why:Stack ->
+                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
+                        What,
+                        Why,
+                        Stack
+                    ]),
+                    {error, {h3_contains_failed, Why}}
+            end;
+        _ ->
+            {error, {region_char_var_not_set, RegionVar}}
+    end.
 
 %%--------------------------------------------------------------------
 %% helpers
@@ -54,22 +78,8 @@ region_([], _H3, _Ledger) ->
     {error, not_found};
 region_([ToCheck | Remaining], H3, Ledger) ->
     RegionVar = atom_to_region_var(ToCheck),
-    case blockchain:config(RegionVar, Ledger) of
-        {ok, Bin} ->
-            try h3:contains(H3, Bin) of
-                false ->
-                    region_(Remaining, H3, Ledger);
-                {true, _Parent} ->
-                    {ok, RegionVar}
-            catch
-                What:Why:Stack ->
-                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
-                        What,
-                        Why,
-                        Stack
-                    ]),
-                    {error, {h3_contains_failed, Why}}
-            end;
-        _ ->
-            {error, {region_char_var_not_set, RegionVar}}
+    case h3_in_region(H3, RegionVar, Ledger) of
+        {ok, false} -> region_(Remaining, H3, Ledger);
+        {ok, true} -> {ok, RegionVar};
+        Other -> Other
     end.

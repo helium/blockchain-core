@@ -1299,7 +1299,7 @@ valid_witnesses(Element, Channel, Ledger) ->
     DstLoc :: h3:h3_index()
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
-    case blockchain_region_v1:region(SourceLoc, Ledger) of
+    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
         {ok, SrcRegionVar} ->
             %% This call should work as-is without case-clausing
             {ok, SrcRegionBin} = blockchain_ledger_v1:config(SrcRegionVar, Ledger),
@@ -1515,7 +1515,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     end.
 
 maybe_tx_power_from_receipt(undefined, SourceLoc, Ledger) ->
-    {ok, Region} = blockchain_region_v1:region(SourceLoc, Ledger),
+    {ok, Region} = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
     {ok, RegionParams} = blockchain_region_params_v1:for_region(Region, Ledger),
     %% NOTE: all region params have the same max_eirp afaict, just take one
     %% TODO: maybe look at the freq of the source and match max_eirp if they ever differ?
