@@ -35,34 +35,32 @@ region(H3, Ledger) ->
 %% helpers
 %%--------------------------------------------------------------------
 
--spec actual_region_var(atom()) -> atom().
-actual_region_var(as923_1) -> ?region_as923_1;
-actual_region_var(as923_2) -> ?region_as923_2;
-actual_region_var(as923_3) -> ?region_as923_3;
-actual_region_var(au915) -> ?region_au915;
-actual_region_var(cn470) -> ?region_cn470;
-actual_region_var(eu433) -> ?region_eu433;
-actual_region_var(eu868) -> ?region_eu868;
-actual_region_var(in865) -> ?region_in865;
-actual_region_var(kr920) -> ?region_kr920;
-actual_region_var(ru864) -> ?region_ru864;
-actual_region_var(us915) -> ?region_us915.
+-spec atom_to_region_var(atom()) -> atom().
+atom_to_region_var(as923_1) -> ?region_as923_1;
+atom_to_region_var(as923_2) -> ?region_as923_2;
+atom_to_region_var(as923_3) -> ?region_as923_3;
+atom_to_region_var(au915) -> ?region_au915;
+atom_to_region_var(cn470) -> ?region_cn470;
+atom_to_region_var(eu433) -> ?region_eu433;
+atom_to_region_var(eu868) -> ?region_eu868;
+atom_to_region_var(in865) -> ?region_in865;
+atom_to_region_var(kr920) -> ?region_kr920;
+atom_to_region_var(ru864) -> ?region_ru864;
+atom_to_region_var(us915) -> ?region_us915.
 
 -spec region_(Regions :: regions(), H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, atom()} | {error, any()}.
 region_([], _H3, _Ledger) ->
     {error, not_found};
 region_([ToCheck | Remaining], H3, Ledger) ->
-    RegionVar = actual_region_var(ToCheck),
+    RegionVar = atom_to_region_var(ToCheck),
     case blockchain:config(RegionVar, Ledger) of
         {ok, Bin} ->
             try h3:contains(H3, Bin) of
                 false ->
                     region_(Remaining, H3, Ledger);
                 {true, _Parent} ->
-                    %% TODO: This return string is just a placeholder, return something more
-                    %% meaningful here, perhaps region_params(ToCheck)
-                    {ok, ToCheck}
+                    {ok, RegionVar}
             catch
                 What:Why:Stack ->
                     lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [

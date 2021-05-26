@@ -1300,16 +1300,23 @@ valid_witnesses(Element, Channel, Ledger) ->
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
     case blockchain_region_v1:region(SourceLoc, Ledger) of
-        {ok, R1} ->
-            case blockchain_region_v1:region(DstLoc, Ledger) of
-                {ok, R1} ->
-                    %% same regions
-                    true;
-                {ok, _} ->
-                    %% different regions
+        {ok, SrcRegionVar} ->
+            %% This call should work as-is without case-clausing
+            {ok, SrcRegionBin} = blockchain_ledger_v1:config(SrcRegionVar, Ledger),
+            try h3:contains(DstLoc, SrcRegionBin) of
+                false ->
+                    %% NOTE: This is the only false scenario
                     false;
-                _ ->
-                    %% var not set, true
+                {true, _Parent} ->
+                    true
+            catch
+                What:Why:Stack ->
+                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
+                        What,
+                        Why,
+                        Stack
+                    ]),
+                    %% XXX: We could not check h3 membership for dst, default to true
                     true
             end;
         _ ->
