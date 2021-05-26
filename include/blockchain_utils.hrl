@@ -53,3 +53,5 @@
 -define(DEFAULT_ELEVATION, 0). %% as AGL (above ground level) in meters
 
 -define(SC_MAX_ACTORS, 1100).
+
+-define(MHzToHzMultiplier, 1000000). %% Hz -> MHz multiplier
