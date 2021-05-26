@@ -1288,89 +1288,55 @@ validate_var(?regulatory_regions, Value) when is_binary(Value) ->
         {false, _} -> throw({error, {invalid_byte_size, Value}});
         {_, false} -> throw({error, {invalid_region_list, Value}})
     end;
-
 validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
 
 validate_var(?region_as923_1, Value) ->
-    validate_region_var(region_as923_1, Value);
+    validate_region_var(?region_as923_1, Value);
 validate_var(?region_as923_2, Value) ->
-    validate_region_var(region_as923_2, Value);
+    validate_region_var(?region_as923_2, Value);
 validate_var(?region_as923_3, Value) ->
-    validate_region_var(region_as923_3, Value);
+    validate_region_var(?region_as923_3, Value);
 validate_var(?region_au915, Value) ->
-    validate_region_var(region_au915, Value);
+    validate_region_var(?region_au915, Value);
 validate_var(?region_cn470, Value) ->
-    validate_region_var(region_cn470, Value);
+    validate_region_var(?region_cn470, Value);
 validate_var(?region_eu433, Value) ->
-    validate_region_var(region_eu433, Value);
+    validate_region_var(?region_eu433, Value);
 validate_var(?region_eu868, Value) ->
-    validate_region_var(region_eu868, Value);
+    validate_region_var(?region_eu868, Value);
 validate_var(?region_in865, Value) ->
-    validate_region_var(region_in865, Value);
+    validate_region_var(?region_in865, Value);
 validate_var(?region_kr920, Value) ->
-    validate_region_var(region_kr920, Value);
+    validate_region_var(?region_kr920, Value);
 validate_var(?region_ru864, Value) ->
-    validate_region_var(region_ru864, Value);
+    validate_region_var(?region_ru864, Value);
 validate_var(?region_us915, Value) ->
-    validate_region_var(region_us915, Value);
+    validate_region_var(?region_us915, Value);
 
 %% TODO: Revisit
-validate_var(?region_params_us915, Value) when is_binary(Value) ->
-    KnownUS915Bin = blockchain_region_params_v1:serialized_us915(),
-    validate_region_params(KnownUS915Bin, Value);
 validate_var(?region_params_us915, Value) ->
-    throw({error, {invalid_region_params_us915_not_binary, Value}});
-validate_var(?region_params_eu868, Value) when is_binary(Value) ->
-    KnownEU868Bin = blockchain_region_params_v1:serialized_eu868(),
-    validate_region_params(KnownEU868Bin, Value);
+    validate_region_params(?region_params_us915, Value);
 validate_var(?region_params_eu868, Value) ->
-    throw({error, {invalid_region_params_eu868_not_binary, Value}});
-validate_var(?region_params_au915, Value) when is_binary(Value) ->
-    KnownAU915Bin = blockchain_region_params_v1:serialized_au915(),
-    validate_region_params(KnownAU915Bin, Value);
+    validate_region_params(?region_params_eu868, Value);
 validate_var(?region_params_au915, Value) ->
-    throw({error, {invalid_region_params_au915_not_binary, Value}});
-validate_var(?region_params_as923_1, Value) when is_binary(Value) ->
-    KnownAS923_1Bin = blockchain_region_params_v1:serialized_as923_1(),
-    validate_region_params(KnownAS923_1Bin, Value);
+    validate_region_params(?region_params_au915, Value);
 validate_var(?region_params_as923_1, Value) ->
-    throw({error, {invalid_region_params_as923_1_not_binary, Value}});
-validate_var(?region_params_as923_2, Value) when is_binary(Value) ->
-    KnownAS923_2Bin = blockchain_region_params_v1:serialized_as923_2(),
-    validate_region_params(KnownAS923_2Bin, Value);
+    validate_region_params(?region_params_as923_1, Value);
 validate_var(?region_params_as923_2, Value) ->
-    throw({error, {invalid_region_params_as923_2_not_binary, Value}});
-validate_var(?region_params_as923_3, Value) when is_binary(Value) ->
-    KnownAS923_3Bin = blockchain_region_params_v1:serialized_as923_3(),
-    validate_region_params(KnownAS923_3Bin, Value);
+    validate_region_params(?region_params_as923_2, Value);
 validate_var(?region_params_as923_3, Value) ->
-    throw({error, {invalid_region_params_as923_3_not_binary, Value}});
-validate_var(?region_params_ru864, Value) when is_binary(Value) ->
-    KnownRU864Bin = blockchain_region_params_v1:serialized_ru864(),
-    validate_region_params(KnownRU864Bin, Value);
+    validate_region_params(?region_params_as923_3, Value);
 validate_var(?region_params_ru864, Value) ->
-    throw({error, {invalid_region_params_ru864_not_binary, Value}});
-validate_var(?region_params_cn470, Value) when is_binary(Value) ->
-    KnownCN470Bin = blockchain_region_params_v1:serialized_cn470(),
-    validate_region_params(KnownCN470Bin, Value);
+    validate_region_params(?region_params_ru864, Value);
 validate_var(?region_params_cn470, Value) ->
-    throw({error, {invalid_region_params_cn470_not_binary, Value}});
-validate_var(?region_params_in865, Value) when is_binary(Value) ->
-    KnownIN865Bin = blockchain_region_params_v1:serialized_in865(),
-    validate_region_params(KnownIN865Bin, Value);
+    validate_region_params(?region_params_cn470, Value);
 validate_var(?region_params_in865, Value) ->
-    throw({error, {invalid_region_params_in865_not_binary, Value}});
-validate_var(?region_params_kr920, Value) when is_binary(Value) ->
-    KnownKR920Bin = blockchain_region_params_v1:serialized_kr920(),
-    validate_region_params(KnownKR920Bin, Value);
+    validate_region_params(?region_params_in865, Value);
 validate_var(?region_params_kr920, Value) ->
-    throw({error, {invalid_region_params_kr920_not_binary, Value}});
-validate_var(?region_params_eu433, Value) when is_binary(Value) ->
-    KnownEU433Bin = blockchain_region_params_v1:serialized_eu433(),
-    validate_region_params(KnownEU433Bin, Value);
+    validate_region_params(?region_params_kr920, Value);
 validate_var(?region_params_eu433, Value) ->
-    throw({error, {invalid_region_params_eu433_not_binary, Value}});
+    validate_region_params(?region_params_eu433, Value);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
@@ -1464,13 +1430,18 @@ invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
 
-validate_region_params(KnownBin, Value) ->
-    C1 = Value == KnownBin,
-    C2 = blockchain_region_params_v1:deserialize(KnownBin) == blockchain_region_params_v1:deserialize(Value),
-    case {C1, C2} of
-        {true, true} -> ok;
-        _ -> throw({error, {unknown_value, Value}})
-    end.
+validate_region_params(Var, Value) when is_binary(Value) ->
+    Deser = blockchain_region_params_v1:deserialize(Value),
+    Ser = blockchain_region_params_v1:serialize(Deser),
+    case Ser == Value of
+        true ->
+            %% TODO: Maybe add some checks around deserialized key-values
+            ok;
+        _ -> throw({error, {invalid_region_param_roundtrip, Var, Value}})
+    end;
+validate_region_params(Var, Value) ->
+    throw({error, {invalid_region_param_not_binary, Var, Value}}).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
