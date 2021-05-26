@@ -194,9 +194,7 @@ au915_test(Config) ->
     case blockchain:config(?region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(AUH3, Bin),
-            {ok, Region} = blockchain_region_v1:region(AUH3, Ledger),
-            %% TODO: Fix me and do proper region_param checks
-            true = au915 == Region,
+            {ok, ?region_au915} = blockchain_region_v1:region(AUH3, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -208,9 +206,7 @@ cn470_test(Config) ->
     case blockchain:config(?region_cn470, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(CNH3, Bin),
-            {ok, Region} = blockchain_region_v1:region(CNH3, Ledger),
-            %% TODO: Fix me and do proper region_param checks
-            true = cn470 == Region,
+            {ok, ?region_cn470} = blockchain_region_v1:region(CNH3, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -278,9 +274,7 @@ us915_test(Config) ->
     case blockchain:config(?region_us915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(USH3, Bin),
-            {ok, Region} = blockchain_region_v1:region(USH3, Ledger),
-            %% TODO: Fix me and do proper region_param checks
-            true = us915 == Region,
+            {ok, ?region_us915} = blockchain_region_v1:region(USH3, Ledger),
             ok;
         _ ->
             ct:fail("broken")
