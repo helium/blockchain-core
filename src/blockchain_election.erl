@@ -22,6 +22,20 @@
          addr :: libp2p_crypto:pubkey_bin()
         }).
 
+-ifdef(TEST).
+
+-export([
+         val/3,
+         determine_sizes_v2_math/6
+        ]).
+
+val(Prob, HB, Addr) ->
+    #val_v1{prob = Prob,
+            heartbeat = HB,
+            addr = Addr}.
+
+-endif.
+
 new_group(Ledger, Hash, Size, Delay) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
         {ok, N} when N >= 5 ->
@@ -539,6 +553,15 @@ determine_sizes_v2(Size, OldLen, Delay, Ledger) ->
     %% increase this to make removal more gradual, decrease to make it less so
     {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
     {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
+    determine_sizes_v2_math(Size, OldLen, Delay,
+                            ReplacementFactor, ReplacementSlope, Interval).
+
+determine_sizes_v2_math(Size,
+                        OldLen,
+                        Delay,
+                        ReplacementFactor,
+                        ReplacementSlope,
+                        Interval) ->
     case Size == OldLen of
         true ->
             %% lower the replacement ceiling because in big groups, bigger is much much harder
