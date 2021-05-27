@@ -13,6 +13,7 @@
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain.hrl").
 
 -export([
          new/2, new/3,
@@ -537,7 +538,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                     case check_members(Members, V, Ledger) of
                         true ->
                             {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
-                            Versions = blockchain_ledger_v1:gateway_versions(Ledger),
+                            Versions = blockchain_ledger_v1:cg_versions(Ledger),
                             case sum_higher(V, Versions) of
                                 Pct when Pct >= Threshold andalso Delay =:= 0 ->
                                     delayed_absorb(Txn, Ledger),
@@ -545,7 +546,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                                 Pct when Pct >= Threshold ->
                                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                                     true;
-                                _ ->
+                                _Pct ->
                                     false
                             end;
                         _ ->
@@ -555,7 +556,21 @@ maybe_absorb(Txn, Ledger, _Chain) ->
     end.
 
 check_members(Members, Target, Ledger) ->
-    lists:all(fun(M) ->
+    case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 5 ->
+            lists:all(
+              fun(M) ->
+                      case blockchain_ledger_v1:get_validator(M, Ledger) of
+                          {ok, Val} ->
+                              V = blockchain_ledger_validator_v1:version(Val),
+                              V >= Target;
+                          _Err -> false
+                      end
+              end,
+              Members);
+        _ ->
+            lists:all(
+              fun(M) ->
                       case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
                           {ok, Gw} ->
                               V = blockchain_ledger_gateway_v2:version(Gw),
@@ -563,7 +578,8 @@ check_members(Members, Target, Ledger) ->
                           _ -> false
                       end
               end,
-              Members).
+              Members)
+    end.
 
 delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
@@ -672,7 +688,7 @@ validate_int(Value, Name, Min, Max, InfOK) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
                 _ -> ok
             end
     end.
@@ -686,7 +702,7 @@ validate_float(Value, Name, Min, Max) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
                 _ -> ok
             end
     end.
@@ -753,6 +769,7 @@ validate_var(?election_version, Value) ->
         2 -> ok;
         3 -> ok;
         4 -> ok;
+        5 -> ok;  % validator move trigger
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
@@ -767,7 +784,7 @@ validate_var(?election_replacement_factor, Value) ->
 validate_var(?election_replacement_slope, Value) ->
     validate_int(Value, "election_replacement_slope", 1, 100, false);
 validate_var(?election_interval, Value) ->
-    validate_int(Value, "election_interval", 5, 100, true);
+    validate_int(Value, "election_interval", 3, 100, true);
 validate_var(?election_restart_interval, Value) ->
     validate_int(Value, "election_restart_interval", 5, 100, false);
 validate_var(?election_restart_interval_range, Value) ->
@@ -938,7 +955,7 @@ validate_var(?max_staleness, Value) ->
 
 %% reward vars
 validate_var(?monthly_reward, Value) ->
-    validate_int(Value, "monthly_reward", 1000 * 1000000, 10000000 * 1000000, false);
+    validate_int(Value, "monthly_reward", ?bones(1000), ?bones(10000000), false);
 validate_var(?securities_percent, Value) ->
     validate_float(Value, "securities_percent", 0.0, 1.0);
 validate_var(?consensus_percent, Value) ->
@@ -1189,6 +1206,38 @@ validate_var(?full_gateway_capabilities_mask, Value) ->
     %% TODO - allow for > 16 bit mask here?
     validate_int(Value, "full_gateway_capabilities_mask", 0, 65536, false);
 
+%% validators vars
+validate_var(?validator_version, Value) ->
+    case Value of
+        1 -> ok;
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_validator_version, Value}})
+    end;
+validate_var(?validator_minimum_stake, Value) ->
+    validate_int(Value, "validator_minimum_stake", ?bones(5000), ?bones(100000), false);
+validate_var(?validator_liveness_interval, Value) ->
+    validate_int(Value, "validator_liveness_interval", 5, 2000, false);
+validate_var(?validator_liveness_grace_period, Value) ->
+    validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
+%% TODO fix this var
+validate_var(?stake_withdrawal_cooldown, Value) ->
+    %% maybe set this in the test
+    validate_int(Value, "stake_withdrawal_cooldown", 5, 1000000, false);
+validate_var(?stake_withdrawal_max, Value) ->
+    validate_int(Value, "stake_withdrawal_max", 50, 1000, false);
+
+validate_var(?dkg_penalty, Value) ->
+    validate_float(Value, "dkg_penalty", 0.0, 5.0);
+validate_var(?tenure_penalty, Value) ->
+    validate_float(Value, "tenure_penalty", 0.0, 5.0);
+validate_var(?validator_penalty_filter, Value) ->
+    validate_float(Value, "validator_penalty_filter", 0.0, 10.0);
+validate_var(?penalty_history_limit, Value) ->
+    %% low end is low for testing and an out if these become corrupted
+    %% also low end cannot be 0
+    validate_int(Value, "penalty_history_limit", 10, 100000, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
@@ -1235,7 +1284,7 @@ validate_hip17_vars(Value, Var) ->
 
 validate_int_min_max(Value, Name, Min, Max) ->
     case Value >= Min andalso Value =< Max of
-        false -> {error, {list_to_atom(Name ++ "_out_of_range"), Value}};
+        false -> {error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}};
         _ -> ok
     end.
 

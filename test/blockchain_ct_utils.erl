@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("include/blockchain_vars.hrl").
+-include("include/blockchain.hrl").
 -include("blockchain_ct_utils.hrl").
 
 -export([pmap/2,
@@ -28,6 +29,14 @@
          ledger/2,
          destroy_ledger/0
         ]).
+
+-ifdef(EQC).
+log(Format, Args) ->
+    lager:debug(Format, Args).
+-else.
+log(Format, Args) ->
+    ct:pal(Format, Args).
+-endif.
 
 pmap(F, L) ->
     Parent = self(),
@@ -222,7 +231,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, sc_packet_handler, sc_packet_test_handler]),
 
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
-                                ct:pal("Node: ~p, StartedApps: ~p", [Node, StartedApps])
+                                log("Node: ~p, StartedApps: ~p", [Node, StartedApps])
                         end, Nodes),
 
     %% check that the config loaded correctly on each node
@@ -260,7 +269,7 @@ init_per_testcase(TestCase, Config) ->
                                      end, 50, 20),
                           ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
                                                        connected_addrs, [GossipGroup, all]),
-                          ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup:"
+                          log("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup:"
                                  " ~p~nConnectedAddrs: ~p~nSwarm:~p~nSwarmID: ~p",
                                  [Node,
                                   Addr,
@@ -295,10 +304,10 @@ cleanup_per_testcase(_TestCase, Config) ->
     lists:foreach(fun(Node) ->
                           LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
                           Res = os:cmd("rm -rf " ++ LogRoot),
-                          ct:pal("rm -rf ~p -> ~p", [LogRoot, Res]),
+                          log("rm -rf ~p -> ~p", [LogRoot, Res]),
                           DataDir = BaseDir ++ "_" ++ atom_to_list(Node),
                           Res2 = os:cmd("rm -rf " ++ DataDir),
-                          ct:pal("rm -rf ~p -> ~p", [DataDir, Res2]),
+                          log("rm -rf ~p -> ~p", [DataDir, Res2]),
                           ok
                   end, Nodes).
 
@@ -310,7 +319,7 @@ create_vars(Vars) ->
         libp2p_crypto:generate_keys(ecc_compact),
 
     Vars1 = raw_vars(Vars),
-    ct:pal("vars ~p", [Vars1]),
+    log("vars ~p", [Vars1]),
 
     BinPub = libp2p_crypto:pubkey_to_bin(Pub),
 
@@ -334,7 +343,7 @@ raw_vars(Vars) ->
                 ?block_version => v1,
                 ?predicate_threshold => 0.85,
                 ?num_consensus_members => 7,
-                ?monthly_reward => 50000 * 1000000,
+                ?monthly_reward => ?bones(5000000),
                 ?securities_percent => 0.35,
                 ?poc_challengees_percent => 0.19 + 0.16,
                 ?poc_challengers_percent => 0.09 + 0.06,

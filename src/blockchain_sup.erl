@@ -63,6 +63,10 @@ init(Args) ->
     application:ensure_all_started(lager),
     application:ensure_all_started(clique),
     application:ensure_all_started(throttle),
+    %% start http client and ssl here
+    %% currently used for s3 snapshot download
+    ssl:start(),
+    inets:start(httpc, [{profile, blockchain}]),
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
     GroupMgrArgs =

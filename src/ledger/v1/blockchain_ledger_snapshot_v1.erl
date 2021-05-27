@@ -156,7 +156,9 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
         {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
         Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
         Gateways = blockchain_ledger_v1:snapshot_raw_gateways(Ledger),
-        %% need to write these on the ledger side
+        Validators = blockchain_ledger_v1:snapshot_validators(Ledger),
+        DelayedHNT = blockchain_ledger_v1:snapshot_delayed_hnt(Ledger),
+
         PoCs = blockchain_ledger_v1:snapshot_raw_pocs(Ledger),
         Accounts = blockchain_ledger_v1:snapshot_raw_accounts(Ledger),
         DCAccounts = blockchain_ledger_v1:snapshot_raw_dc_accounts(Ledger),
@@ -195,6 +197,8 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
               vars => Vars,
 
               gateways => Gateways,
+              validators => Validators,
+              delayed_hnt => DelayedHNT,
               pocs => PoCs,
 
               accounts => Accounts,
@@ -388,7 +392,7 @@ import(Chain, SHA,
             %% store the snapshot if we don't have it already
             case blockchain:get_snapshot(SHA, Chain) of
                 {ok, _Snap} -> ok;
-                {error, not_found} ->
+                {error, _} ->
                     blockchain:add_snapshot(Snapshot, Chain)
             end,
 
@@ -434,7 +438,7 @@ load_into_ledger(#{
 
          oracle_price := OraclePrice,
          oracle_price_list := OraclePriceList
-         }, Ledger0, Mode) ->
+         } = Snapshot, Ledger0, Mode) ->
     Ledger1 = blockchain_ledger_v1:mode(Mode, Ledger0),
     Ledger = blockchain_ledger_v1:new_context(Ledger1),
     ok = blockchain_ledger_v1:current_height(CurrHeight, Ledger),
@@ -449,6 +453,17 @@ load_into_ledger(#{
     ok = blockchain_ledger_v1:load_vars(Vars, Ledger),
 
     ok = blockchain_ledger_v1:load_raw_gateways(Gateways, Ledger),
+    %% optional validator era stuff will be missing in pre validator snaps
+    case maps:find(validators, Snapshot) of
+        error -> ok;
+        {ok, Validators} ->
+            ok = blockchain_ledger_v1:load_validators(Validators, Ledger)
+    end,
+    case maps:find(delayed_hnt, Snapshot) of
+        error -> ok;
+        {ok, DelayedHNT} ->
+            ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT, Ledger)
+    end,
     ok = blockchain_ledger_v1:load_raw_pocs(PoCs, Ledger),
     ok = blockchain_ledger_v1:load_raw_accounts(Accounts, Ledger),
     ok = blockchain_ledger_v1:load_raw_dc_accounts(DCAccounts, Ledger),
@@ -539,16 +554,25 @@ get_blocks(Chain) ->
 
     %% this is for rewards calculation when an epoch ends
     %% see https://github.com/helium/blockchain-core/pull/627
-    #{ election_height := ElectionHeight } = blockchain_election:election_info(Ledger, Chain),
-    {ok, GraceBlocks} = blockchain:config(?sc_grace_blocks, Ledger),
+    #{ election_height := ElectionHeight } = blockchain_election:election_info(Ledger),
+    GraceBlocks =
+        case blockchain:config(?sc_grace_blocks, Ledger) of
+            {ok, GBs} ->
+                GBs;
+            %% hard matching on this config makes it impossible to snapshot before we hit state
+            %% channels
+            {error, not_found} ->
+                0
+        end,
+    {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
 
     DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
 
     %% We need _at least_ the grace blocks before current election
-    %% or the delayed ledger height less 181 blocks, whichever is
+    %% or the delayed ledger height less than last poc_challenge_interval blocks, whichever is
     %% lower.
-    LoadBlockStart = min(DHeight - 181, ElectionHeight - GraceBlocks),
+    LoadBlockStart = min(DHeight - (POCChallengeInterval + 1), ElectionHeight - GraceBlocks),
 
     [begin
          {ok, B} = blockchain:get_raw_block(N, Chain),
