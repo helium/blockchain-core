@@ -203,9 +203,11 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event},
     NC = blockchain_worker:blockchain(),
     State = initialize_with_chain(State0, NC),
     handle_add_block_event(Event, State#state{chain = NC});
-handle_info({blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = Event}, State) ->
+handle_info({blockchain_event, {add_block, _BlockHash, Sync, Ledger} = Event}, State) ->
     lager:debug("received add block event, sync is ~p",[Sync]),
-    handle_add_block_event(Event, State);
+    %% update submit_f and reject_f per block, allow for num_consensus_members chain var updates
+    {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+    handle_add_block_event(Event, State#state{submit_f = submit_f(N), reject_f = reject_f(N)});
 
 handle_info(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown info msg: ~p", [_Msg]),
@@ -227,15 +229,12 @@ code_change(_OldVsn, State, _Extra) ->
 -spec initialize_with_chain(#state{}, blockchain:blockchain()) -> #state{}.
 initialize_with_chain(State, Chain)->
     {ok, Height} = blockchain:height(Chain),
-    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
-    SubmitF = submit_f(N),
-    RejectF = reject_f(N),
 %%    %% process any cached txn from before we had a chain, none of these will have been submitted as yet
 %%    F = fun({Txn, TxnData}) ->
 %%            ok = cache_txn(get_txn_key(), Txn, TxnData)
 %%        end,
 %%    lists:foreach(F, cached_txns()),
-    State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
+    State#state{chain=Chain, cur_block_height = Height}.
 
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
                                 blockchain_ledger_v1:ledger()}, #state{}) -> {noreply, #state{}}.
