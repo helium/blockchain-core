@@ -37,7 +37,8 @@
          rescue_absorb/2,
          sign/2,
          print/1,
-         to_json/2
+         to_json/2,
+         process_hooks/3
         ]).
 
 %% helper API
@@ -1350,7 +1351,7 @@ invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
 
-
+-spec process_hooks(Vars :: map(), Unsets :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 process_hooks(Vars, Unsets, Ledger) ->
     _ = maps:map(
           fun(Var, Value) ->
@@ -1364,28 +1365,11 @@ process_hooks(Vars, Unsets, Ledger) ->
 
 %% separate out hook functions and call them in separate functions
 %% below the hook section.
-var_hook(?sweep_neighbors, true, Ledger) ->
-    neighbor_sweep(Ledger),
-    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
 unset_hook(_Var, _Ledger) ->
     ok.
-
-
-neighbor_sweep(Ledger) ->
-    case blockchain_ledger_v1:config(?poc_version, Ledger) of
-        {ok, V} when V > 3 ->
-            Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-            %% find all neighbors for everyone
-            maps:map(
-              fun(A, G) ->
-                      G1 = blockchain_ledger_gateway_v2:neighbors([], G),
-                      blockchain_ledger_v1:update_gateway(G1, A, Ledger)
-              end, Gateways);
-        _ -> ok
-    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
