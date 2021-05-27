@@ -1390,6 +1390,7 @@ vars(Vars, Unset, Ledger) ->
 set_aux_vars(AuxVars, #ledger_v1{mode=aux}=AuxLedger) ->
     Ctx = new_context(AuxLedger),
     ok = vars(AuxVars, [], Ctx),
+    ok = blockchain_txn_vars_v1:process_hooks(AuxVars, [], Ctx),
     ok = commit_context(Ctx),
     ok;
 set_aux_vars(_ExtraVars, _Ledger) ->
