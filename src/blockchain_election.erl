@@ -25,14 +25,22 @@
 -ifdef(TEST).
 
 -export([
-         val/3,
-         determine_sizes_v2_math/6
+         val/3, val_addr/1, val_hb/1,
+         val_dedup/3,
+         determine_sizes_v2_math/6,
+         select_removals/6
         ]).
 
 val(Prob, HB, Addr) ->
     #val_v1{prob = Prob,
             heartbeat = HB,
             addr = Addr}.
+
+val_addr(#val_v1{addr = A}) when is_binary(A) ->
+    A.
+
+val_hb(#val_v1{heartbeat = HB}) ->
+    HB.
 
 -endif.
 
@@ -212,31 +220,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     ToRem =
         case have_gateways(OldGroup0, Ledger) of
             [] ->
-                RepLen =
-                    case NewLen == 0 of
-                        %% moving down, we need remove bad nodes, not just take the first Size
-                        true when OldLen > Size -> OldLen - Size;
-                        true -> 0;
-                        false -> NewLen
-                    end,
-                %% if there are too many offline nodes, just pick those and re-add the remainder to
-                %% the group.  ideally there would be a clean way to just cancel here, but I'm not
-                %% sure that's plumbed through well enough.
-                {Offline1, OldGroupDeduped, ReplaceFinal} =
-                    case length(Offline) of
-                        N when N > RepLen ->
-                            {ToRemove, Rem} = lists:split(RepLen, Offline),
-                            {ToRemove, OldGroupDeduped0 ++ Rem, 0};
-                        Len ->
-                            %% otherwise just adjust the size for removal selection and use the
-                            %% groups as-is
-                            {Offline, OldGroupDeduped0, RepLen - Len}
-                    end,
-                %% adjust for bbas and seen votes
-                OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
-                lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
-                OfflineAddrs = [A || #val_v1{addr = A} <- Offline1],
-                OfflineAddrs ++ icdf_select(lists:keysort(1, OldGroupAdjusted), ReplaceFinal, []);
+                select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger);
             Gateways ->
                 %% just sort and remove the first removal amount rather than selecting, leaving
                 %% validators in to make up the number on the last round if needed.
@@ -245,6 +229,34 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     lager:debug("to rem ~p", [an(ToRem)]),
     %% shuffle the order to diffuse any ordering effects over time
     blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
+
+%% mostly this is out for separate testing
+select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger) ->
+    RepLen =
+        case NewLen == 0 of
+            %% moving down, we need remove bad nodes, not just take the first Size
+            true when OldLen > Size -> OldLen - Size;
+            true -> 0;
+            false -> NewLen
+        end,
+    %% if there are too many offline nodes, just pick those and re-add the remainder to
+    %% the group.  ideally there would be a clean way to just cancel here, but I'm not
+    %% sure that's plumbed through well enough.
+    {Offline1, OldGroupDeduped, ReplaceFinal} =
+        case length(Offline) of
+            N when N > RepLen ->
+                {ToRemove, Rem} = lists:split(RepLen, Offline),
+                {ToRemove, OldGroupDeduped0 ++ Rem, 0};
+            Len ->
+                %% otherwise just adjust the size for removal selection and use the
+                %% groups as-is
+                {Offline, OldGroupDeduped0, RepLen - Len}
+        end,
+    %% adjust for bbas and seen votes
+    OldGroupAdjusted = ?MODULE:adjust_old_group_v2(OldGroupDeduped, Ledger),
+    lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
+    OfflineAddrs = [A || #val_v1{addr = A} <- Offline1],
+    OfflineAddrs ++ icdf_select(lists:keysort(1, OldGroupAdjusted), ReplaceFinal, []).
 
 an(M) ->
     lists:map(fun blockchain_utils:addr2name/1, M).
