@@ -56,7 +56,12 @@
     find_last_snapshots/2,
 
     mark_upgrades/2, bootstrap_h3dex/1,
-    snapshot_height/1
+    snapshot_height/1,
+
+    db_handle/1,
+    blocks_cf/1,
+    heights_cf/1
+
 ]).
 
 -include("blockchain.hrl").
@@ -2353,6 +2358,15 @@ snapshot_height(Height) ->
 
 follow_mode() ->
     application:get_env(blockchain, follow_mode, false).
+
+-spec db_handle(Chain :: blockchain()) -> rocksdb:db_handle().
+db_handle(Chain) -> Chain#blockchain.db.
+
+-spec blocks_cf(Chain :: blockchain()) -> rocksdb:cf_handle().
+blocks_cf(Chain) -> Chain#blockchain.blocks.
+
+-spec heights_cf(Chain :: blockchain()) -> rocksdb:cf_handle().
+heights_cf(Chain) -> Chain#blockchain.heights.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

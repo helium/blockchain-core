@@ -371,7 +371,10 @@ import(Chain, SHA,
                         CLedger;
                     _ ->
                         blockchain_ledger_v1:clean(CLedger),
-                        blockchain_ledger_v1:new(Dir)
+                        blockchain_ledger_v1:new(Dir,
+                                                 blockchain:db_handle(Chain),
+                                                 blockchain:blocks_cf(Chain),
+                                                 blockchain:heights_cf(Chain))
                 end,
 
             %% we load up both with the same snapshot here, then sync the next N
