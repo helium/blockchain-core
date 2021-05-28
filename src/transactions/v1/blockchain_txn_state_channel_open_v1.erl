@@ -237,26 +237,38 @@ do_is_valid_checks(Txn, Chain) ->
                                                 _ ->
                                                     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                                                         {error, not_found} ->
-                                                            %% No state channel with this ID for this Owner exists
-                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                            TxnFee = ?MODULE:fee(Txn),
-                                                            OriginalAmount = ?MODULE:amount(Txn),
-                                                            ActualAmount = actual_amount(OriginalAmount, Ledger),
-                                                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                                false ->
-                                                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                                true ->
-                                                                    case blockchain:config(?sc_open_validation_bugfix, Ledger) of
-                                                                        {ok, 1} ->
-                                                                            %% Check whether the actual amount (overcommit *
-                                                                            %% original amount) + txn_fee is payable by this
-                                                                            %% owner
-                                                                            blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
-                                                                        _ ->
-                                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
-                                                                    end
-                                                            end;
+                                                            case blockchain_ledger_v1:find_entry(Owner, Ledger) of
+                                                                {error, _}=Error0 ->
+                                                                    Error0;
+                                                                {ok, Entry} ->
+                                                                    TxnNonce = ?MODULE:nonce(Txn),
+                                                                    NextLedgerNonce = blockchain_ledger_entry_v1:nonce(Entry) +1,
+                                                                    case TxnNonce =:= NextLedgerNonce of
+                                                                        false ->
+                                                                            {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
+                                                                        true ->
+                                                                            %% No state channel with this ID for this Owner exists
+                                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                                            TxnFee = ?MODULE:fee(Txn),
+                                                                            OriginalAmount = ?MODULE:amount(Txn),
+                                                                            ActualAmount = actual_amount(OriginalAmount, Ledger),
+                                                                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                                            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                                                false ->
+                                                                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                                                                true ->
+                                                                                    case blockchain:config(?sc_open_validation_bugfix, Ledger) of
+                                                                                        {ok, 1} ->
+                                                                                            %% Check whether the actual amount (overcommit *
+                                                                                            %% original amount) + txn_fee is payable by this
+                                                                                            %% owner
+                                                                                            blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
+                                                                                        _ ->
+                                                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                                                                                    end
+                                                                            end
+                                                                        end
+                                                                    end;
                                                         {ok, _} ->
                                                             {error, state_channel_already_exists};
                                                         {error, _}=Err ->

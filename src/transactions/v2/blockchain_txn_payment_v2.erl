@@ -218,32 +218,44 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                     %% Check that there are payments
                     {error, zero_payees};
                 false ->
-                    case LengthPayments > MaxPayments of
-                        %% Check that we don't exceed max payments
-                        true ->
-                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
-                        false ->
-                            case lists:member(Payer, ?MODULE:payees(Txn)) of
+                    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                        {error, _}=Error0 ->
+                            Error0;
+                        {ok, Entry} ->
+                            TxnNonce = ?MODULE:nonce(Txn),
+                            NextLedgerNonce = blockchain_ledger_entry_v1:nonce(Entry) +1,
+                            case TxnNonce =:= NextLedgerNonce of
                                 false ->
-                                    %% check that every payee is unique
-                                    case has_unique_payees(Payments) of
-                                        false ->
-                                            {error, duplicate_payees};
-                                        true ->
-                                            AmountCheck = amount_check(Txn, Ledger),
-                                            MemoCheck = memo_check(Txn, Ledger),
-
-                                            case {AmountCheck, MemoCheck} of
-                                                {false, _} ->
-                                                    {error, invalid_transaction};
-                                                {_, {error, _}=E} ->
-                                                    E;
-                                                {true, ok} ->
-                                                    fee_check(Txn, Chain, Ledger)
-                                            end
-                                    end;
+                                    {error, {bad_nonce, {payment_v2, TxnNonce, NextLedgerNonce}}};
                                 true ->
-                                    {error, self_payment}
+                                    case LengthPayments > MaxPayments of
+                                        %% Check that we don't exceed max payments
+                                        true ->
+                                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
+                                        false ->
+                                            case lists:member(Payer, ?MODULE:payees(Txn)) of
+                                                false ->
+                                                    %% check that every payee is unique
+                                                    case has_unique_payees(Payments) of
+                                                        false ->
+                                                            {error, duplicate_payees};
+                                                        true ->
+                                                            AmountCheck = amount_check(Txn, Ledger),
+                                                            MemoCheck = memo_check(Txn, Ledger),
+
+                                                            case {AmountCheck, MemoCheck} of
+                                                                {false, _} ->
+                                                                    {error, invalid_transaction};
+                                                                {_, {error, _}=E} ->
+                                                                    E;
+                                                                {true, ok} ->
+                                                                    fee_check(Txn, Chain, Ledger)
+                                                            end
+                                                    end;
+                                                true ->
+                                                    {error, self_payment}
+                                            end
+                                    end
                             end
                     end
             end
