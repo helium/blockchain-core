@@ -807,6 +807,9 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                 %% share the snapshot cache with the new ledger
                                 NewLedger2 = blockchain_ledger_v1:mode(Mode,
                                                                        NewLedger#ledger_v1{
+                                                                         blocks_db = Ledger#ledger_v1.blocks_db,
+                                                                         blocks_cf = Ledger#ledger_v1.blocks_cf,
+                                                                         heights_cf = Ledger#ledger_v1.heights_cf,
                                                                          snapshots=Cache}),
                                 %% sanity check
                                 case current_height(NewLedger2) of
