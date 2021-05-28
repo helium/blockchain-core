@@ -223,10 +223,10 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                             Error0;
                         {ok, Entry} ->
                             TxnNonce = ?MODULE:nonce(Txn),
-                            NextLedgerNonce = blockchain_ledger_entry_v1:nonce(Entry) +1,
-                            case TxnNonce =:= NextLedgerNonce of
+                            LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                            case TxnNonce =:= LedgerNonce + 1 of
                                 false ->
-                                    {error, {bad_nonce, {payment_v2, TxnNonce, NextLedgerNonce}}};
+                                    {error, {bad_nonce, {payment_v2, TxnNonce, LedgerNonce}}};
                                 true ->
                                     case LengthPayments > MaxPayments of
                                         %% Check that we don't exceed max payments

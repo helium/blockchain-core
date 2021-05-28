@@ -386,7 +386,8 @@ htlc_payee_redeem_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
-    ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedTx, Chain)),
+    %% check both txns are valid, in context
+    ?assertMatch({_, []}, blockchain_txn:validate([SignedCreateTx, SignedTx], Chain)),
 
     %% these transactions depend on each other, but they should be able to exist in the same block
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
@@ -428,7 +429,7 @@ htlc_payee_redeem_test(Config) ->
 
     % confirm the replay of the previously absorbed txn fails validations
     % as we are reusing the same nonce
-    ?assertEqual({error,{bad_nonce,{create_htlc,1,3}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
+    ?assertEqual({error,{bad_nonce,{create_htlc,1,2}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
     ok.
 
 htlc_payer_redeem_test(Config) ->
@@ -501,7 +502,7 @@ htlc_payer_redeem_test(Config) ->
 
     % confirm the replay of the previously absorbed txn fails validations
     % as we are reusing the same nonce
-    ?assertEqual({error,{bad_nonce,{create_htlc,1,2}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
+    ?assertEqual({error,{bad_nonce,{create_htlc,1,1}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
 
     ok.
 

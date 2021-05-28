@@ -147,10 +147,10 @@ is_valid(Txn, Chain) ->
                                     Error0;
                                 {ok, Entry} ->
                                     TxnNonce = ?MODULE:nonce(Txn),
-                                    NextLedgerNonce = blockchain_ledger_entry_v1:nonce(Entry) +1,
-                                    case TxnNonce =:= NextLedgerNonce of
+                                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                                    case TxnNonce =:= LedgerNonce + 1 of
                                         false ->
-                                            {error, {bad_nonce, {payment, TxnNonce, NextLedgerNonce}}};
+                                            {error, {bad_nonce, {payment, TxnNonce, LedgerNonce}}};
                                         true ->
                                             case Payer == Payee of
                                                 false ->
