@@ -459,12 +459,29 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
         Dependencies ->
             %% for txns with dep txns, we only want to submit to members which have accepted one of the dep txns previously
             %% so we need to build up an explicit set of elegible members rather than sending to random CG members
+            %% eligible members will be those members which have accepted the dependant upon txn or if its not yet
+            %% accepted the members to which it has been submitted ( the dialled list )
             {Dep1TxnKey, _Dep1Txn, _Dep1TxnData} = hd(Dependencies),
-            {ok, {_, _, #txn_data{acceptions = A0}}} = cached_txn(Dep1TxnKey),
+            {ok, {_, _, Dep1TxnData0}} = cached_txn(Dep1TxnKey),
+            A0 =
+                case Dep1TxnData0#txn_data.acceptions  of
+                    [] ->
+                        [Dep1TxnDialedMember || {_, Dep1TxnDialedMember} <- Dep1TxnData0#txn_data.dialers];
+                    Dep1TxnAccs ->
+                        Dep1TxnAccs
+                end,
             ElegibleMembers = sets:to_list(lists:foldl(fun({Dep2TxnKey, _Dep2Txn, _Dep2TxnData}, Acc) ->
-                                                               {ok, {_, _, #txn_data{acceptions = A}}} = cached_txn(Dep2TxnKey),
-                                                               sets:intersection(Acc, sets:from_list(A))
+                                                               {ok, {_, _, Dep2TxnData0}} = cached_txn(Dep2TxnKey),
+                                                                A1 =
+                                                                    case Dep2TxnData0#txn_data.acceptions  of
+                                                                        [] ->
+                                                                            [Dep2TxnDialedMember || {_, Dep2TxnDialedMember} <- Dep2TxnData0#txn_data.dialers];
+                                                                        Dep2TxnAccs ->
+                                                                            Dep2TxnAccs
+                                                                    end,
+                                                               sets:intersection(Acc, sets:from_list(A1))
                                                        end, sets:from_list(A0), tl(Dependencies))),
+            lager:debug("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
             {_, ExistingDialers} = lists:unzip(Dialers),
             %% remove any CG members from the elegible list which have already accepted or rejected the txn and also
             %% those which we are already dialling
