@@ -38,21 +38,20 @@ prop_determine_sizes_v2() ->
                               io:format("Remove: ~p~n", [Remove]),
                               io:format("Replace: ~p~n", [Replace])
                           end,
-                          noshrink(conjunction(
-                                     [{verify_remove,
-                                       Remove > 0 orelse Size >= OldLen},
-                                      {non_negative, Remove >= 0 andalso Replace >= 0},
-                                      {relative_size,
-                                       (Remove == Replace andalso Size == OldLen)
-                                       orelse
-                                         (Remove > Replace andalso Size < OldLen)
-                                       orelse
-                                         (Remove < Replace andalso Size > OldLen)},
-                                      {totals,
-                                       (OldLen - Remove + Replace) == Size}
-                                     ]
-                                    )
-                                  )
+                          conjunction(
+                            [{verify_remove,
+                              Remove > 0 },
+                             {non_negative, Remove >= 1 andalso Replace >= 0},
+                             {relative_size,
+                              (Remove == Replace andalso Size == OldLen)
+                              orelse
+                                (Remove > Replace andalso Size < OldLen)
+                              orelse
+                                (Remove < Replace andalso Size > OldLen)},
+                             {totals,
+                              (OldLen - Remove + Replace) == Size}
+                            ]
+                           )
                          )
             end).
 
@@ -108,8 +107,7 @@ prop_removal() ->
 
                 %% we expect a hb within the last 3 blocks
                 ExpectedOffline = [blockchain_election:val_addr(V)
-                                   || V <- Pool, blockchain_election:val_hb(V) < 7,
-                                      lists:member(blockchain_election:val_addr(V), OldGroupAddrs)],
+                                   || V <- OldGroup, blockchain_election:val_hb(V) < 7],
 
                 Validators = maps:from_list([{blockchain_election:val_addr(V), V}
                                              || V <- Pool]),
@@ -135,11 +133,12 @@ prop_removal() ->
                               io:format("Size: ~p~n", [Size]),
                               io:format("OldLen: ~p~n", [OldLen]),
                               io:format("Delay: ~p~n", [Delay]),
-                              io:format("OldGroupAddrs: ~p~n", [OldGroupAddrs]),
+                              io:format("OldGroupAddrs: ~p ~p~n", [length(OldGroupAddrs), OldGroupAddrs]),
                               io:format("ToRemove: ~p~n", [ToRemove]),
                               io:format("Offline: ~p~n", [Offline]),
-                              io:format("ExpectedOffline: ~p~n", [ExpectedOffline]),
+                              io:format("ExpectedOffline: ~p ~p~n", [length(ExpectedOffline), ExpectedOffline]),
                               io:format("OffCt: ~p~n", [OffCt]),
+                              io:format("Off Rem: ~p~n", [(OfflineAddrs -- ToRemove)]),
                               io:format("Remove: ~p~n", [Remove]),
                               io:format("Replace: ~p~n", [Replace])
                           end,
@@ -147,8 +146,8 @@ prop_removal() ->
                             [
                              {size, length(ToRemove) == Remove},
                              {offline,
-                              (OfflineAddrs -- ToRemove) == [] orelse
-                              length(ToRemove) < OffCt
+                              length(OfflineAddrs -- ToRemove) ==
+                                  max(0, length(ExpectedOffline) - Remove)
                              },
                              {offline_size,
                               length(ExpectedOffline) == length(Offline)}
@@ -162,9 +161,9 @@ prop_removal() ->
 %%%%%%%%%%%%%%%%
 
 gen_removal() ->
-    ?LET(Size, gen_size(),
+    ?LET(Size, noshrink(gen_size()),
          begin
-             OffCt = noshrink(no_faults(choose(0, ceil(Size/5)))),
+             OffCt = noshrink(no_faults(choose(ceil(Size/5), ceil(Size/3)))),
              {Size, gen_old_len(), gen_delay(), OffCt, noshrink(gen_pool(OffCt))}
          end).
 
@@ -173,37 +172,40 @@ gen_pool(OffCt) ->
     ?LET(OfflineCt,
          OffCt,
          begin
-             blockchain_utils:shuffle(
-               [begin
-                    F = ?SUCHTHAT(R, real(), R > 0.5 andalso R < 10.0),
-                    %% this is an absolute height and the simulated election is happening at height 10, so it
+             Good =
+                 [begin
+                      F = ?SUCHTHAT(R, real(), R > 0.5 andalso R < 10.0),
+                      %% this is an absolute height and the simulated election is happening at height 10, so it
                     %% needs to be on the chain, but lower than the current height
-                    blockchain_election:val(F, no_faults(choose(7, 9)), <<N>>)
-                end
-                || N <- lists:seq(1, 110 - OfflineCt)] ++
-                   [begin
-                        F = ?SUCHTHAT(R, real(), R > 0.5 andalso R < 10.0),
-                        %% this is an absolute height and the simulated election is happening at height 10, so it
-                        %% needs to be on the chain, but lower than the current height
-                        blockchain_election:val(F, no_faults(choose(2, 6)), <<N>>)
+                      blockchain_election:val(F, no_faults(choose(7, 9)), <<0,0,0,N>>)
+                  end
+                  || N <- lists:seq(1, 110 - OfflineCt)],
+             Bad =
+                 [begin
+                      F = ?SUCHTHAT(R, real(), R > 0.5 andalso R < 10.0),
+                      %% this is an absolute height and the simulated election is happening at height 10, so it
+                      %% needs to be on the chain, but lower than the current height
+                      blockchain_election:val(F, no_faults(choose(2, 6)), <<1,1,1,N>>)
                     end
-                    || N <- lists:seq(111 - OfflineCt, 110)])
+                  || N <- lists:seq(111 - OfflineCt, 110)],
+             io:format("len good ~p bad ~p~n", [length(Good), length(Bad)]),
+             blockchain_utils:shuffle(Good ++ Bad)
          end).
 
 gen_size() ->
-    ?SUCHTHAT(N, int(), N >= 16 andalso N =< 100).
+    choose(4, 100).
 
 gen_old_len() ->
-    ?SUCHTHAT(N, int(), N >= 16 andalso N =< 100).
+    choose(4, 100).
 
 gen_delay() ->
-    ?SUCHTHAT(N, int(), N >= 20 andalso N =< 1000).
+    choose(0, 100).
 
 gen_replacement_factor() ->
-    ?SUCHTHAT(N, int(), N >= 2 andalso N =< 100).
+    choose(2, 100).
 
 gen_replacement_slope() ->
-    ?SUCHTHAT(N, int(), N >= 1 andalso N =< 100).
+    choose(1, 100).
 
 gen_interval() ->
-    ?SUCHTHAT(N, int(), N >= 5 andalso N =< 100).
+    choose(5, 100).
