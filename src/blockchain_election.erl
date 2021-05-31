@@ -578,7 +578,7 @@ determine_sizes_v2_math(Size,
         true ->
             %% lower the replacement ceiling because in big groups, bigger is much much harder
             MinSize = (2 * ((OldLen - 1) div 3)), % smallest remainder we will allow
-            BaseRemove = floor(Size/ReplacementFactor), % initial remove size
+            BaseRemove = ceil(Size/ReplacementFactor), % initial remove size
             Removable = OldLen - MinSize - BaseRemove,
             %% use tanh to get a gradually increasing (but still clamped to 1) value for
             %% scaling the size of removal as delay increases
@@ -589,9 +589,8 @@ determine_sizes_v2_math(Size,
             Remove = Replace = BaseRemove + AdditionalRemove;
         %% growing
         false when Size > OldLen ->
-            BaseRemove = floor(Size/ReplacementFactor),
+            Remove = ceil(OldLen/ReplacementFactor),
             Replace0 = Size - OldLen,
-            Remove = max(0, BaseRemove - Replace0),
             %% by removing a few, this allows us to grow even when there are dead nodes in the group
             Replace = Replace0 + Remove;
         %% shrinking
