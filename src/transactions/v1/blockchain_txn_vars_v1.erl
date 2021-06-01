@@ -1245,6 +1245,13 @@ validate_var(?penalty_history_limit, Value) ->
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
+validate_var(?switch_assert_res_9, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_switch_assert_res_9, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
@@ -1336,6 +1343,23 @@ process_hooks(Vars, Unsets, Ledger) ->
 
 %% separate out hook functions and call them in separate functions
 %% below the hook section.
+
+var_hook(?switch_assert_res_9, false, _Ledger) ->
+    ok;
+var_hook(?switch_assert_res_9, true, Ledger) ->
+    _ = maps:map(
+        fun(GwAddr, Gw0) ->
+            NewLoc =
+                case blockchain_ledger_gateway_v2:location(Gw0) of
+                    undefined -> undefined;
+                    OldLoc -> h3:parent(OldLoc, 9)
+                end,
+            Gw = blockchain_ledger_gateway_v2:location(NewLoc, Gw0),
+            blockchain_ledger_v1:update_gateway(Gw, GwAddr, Ledger)
+        end,
+        blockchain_ledger_v1:active_gateways(Ledger)
+    ),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 

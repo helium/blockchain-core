@@ -6,7 +6,7 @@
 
 -export([
     new/1, new/4, new/5,
-    new_aux/1,
+    new_aux/1, new_aux/2,
     bootstrap_aux/2,
     mode/1, mode/2,
     has_aux/1,

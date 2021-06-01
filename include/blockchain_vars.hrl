@@ -456,3 +456,9 @@
 -define(penalty_history_limit, penalty_history_limit). % blocks
 -define(dkg_penalty, dkg_penalty). % float
 -define(tenure_penalty, tenure_penalty). % float
+
+
+%%%
+%%% boolean switch to assert res 9
+%%%
+-define(switch_assert_res_9, switch_assert_res_9). % boolean
