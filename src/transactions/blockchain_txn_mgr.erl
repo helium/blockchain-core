@@ -472,7 +472,7 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                 end,
 
             ElegibleMembers = sets:to_list(lists:foldl(fun({Dep2TxnKey, _Dep2Txn, _Dep2TxnData}, Acc) ->
-                                                                {ok, {_, _, #txn_data{acceptions = Dep2TxnAcceptions, dialers = Dep2TxnDialers} = _Dep2TxnData}} = cached_txn(Dep2TxnKey),
+                                                                {ok, {_, _, #txn_data{acceptions = Dep2TxnAcceptions, dialers = Dep2TxnDialers} = _Dep2TxnData1}} = cached_txn(Dep2TxnKey),
                                                                 A1 =
                                                                     case Dep2TxnAcceptions  of
                                                                         [] ->
