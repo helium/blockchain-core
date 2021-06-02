@@ -25,6 +25,7 @@
     payer_signature/1,
     staking_fee/1, staking_fee/2,
     fee/1, fee/2,
+    fee_payer/2,
     sign/2,
     sign_request/2,
     sign_payer/2,
@@ -146,6 +147,14 @@ staking_fee(Txn, Fee) ->
 -spec fee(txn_add_gateway()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.fee.
+
+-spec fee_payer(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    Payer = ?MODULE:payer(Txn),
+    case Payer == undefined orelse Payer == <<>> of
+        true -> ?MODULE:owner(Txn);
+        false -> Payer
+    end.
 
 -spec fee(txn_add_gateway(), non_neg_integer()) -> txn_add_gateway().
 fee(Txn, Fee) ->
@@ -355,14 +364,10 @@ absorb(Txn, Chain) ->
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Owner = ?MODULE:owner(Txn),
     Gateway = ?MODULE:gateway(Txn),
-    Payer = ?MODULE:payer(Txn),
+    ActualPayer = ?MODULE:fee_payer(Txn, Ledger),
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
-    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-        true -> Owner;
-        false -> Payer
-    end,
     GatewayMode = gateway_mode(Ledger, ActualPayer),
     case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error -> Error;

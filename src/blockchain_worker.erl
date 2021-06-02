@@ -357,11 +357,14 @@ handle_call({blockchain, NewChain}, _From, #state{swarm_tid = SwarmTID} = State)
     remove_handlers(SwarmTID),
     {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
     {reply, ok, State#state{blockchain = NewChain, gossip_ref = GossipRef}};
-handle_call({new_ledger, Dir}, _From, State) ->
+handle_call({new_ledger, Dir}, _From, #state{blockchain=Chain}=State) ->
     %% We do this here so the same process that normally owns the ledger
     %% will own it when we do a reset ledger or whatever. Otherwise the
     %% snapshot cache ETS table can be owned by an ephemeral process.
-    Ledger1 = blockchain_ledger_v1:new(Dir),
+    Ledger1 = blockchain_ledger_v1:new(Dir,
+                                       blockchain:db_handle(Chain),
+                                       blockchain:blocks_cf(Chain),
+                                       blockchain:heights_cf(Chain)),
     {reply, {ok, Ledger1}, State};
 
 handle_call({install_snapshot, Hash, Snapshot}, _From,

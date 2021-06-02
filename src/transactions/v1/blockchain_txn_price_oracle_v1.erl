@@ -25,6 +25,7 @@
     block_height/1,
     signature/1,
     fee/1,
+    fee_payer/2,
     sign/2,
     is_valid/2,
     absorb/2,
@@ -121,6 +122,10 @@ public_key(Txn) ->
 -spec fee(txn_price_oracle()) -> non_neg_integer().
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_price_oracle(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% @doc

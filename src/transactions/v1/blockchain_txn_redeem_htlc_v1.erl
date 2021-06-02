@@ -21,6 +21,7 @@
     address/1,
     preimage/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
@@ -72,6 +73,10 @@ fee(Txn) ->
 -spec fee(txn_redeem_htlc(), non_neg_integer()) -> txn_redeem_htlc().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payee(Txn).
 
 -spec signature(txn_redeem_htlc()) -> binary().
 signature(Txn) ->

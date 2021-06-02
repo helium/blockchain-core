@@ -22,6 +22,7 @@
     secret/1,
     path/1,
     fee/1,
+    fee_payer/2,
     request_block_hash/1,
     signature/1,
     sign/2,
@@ -129,6 +130,10 @@ path(Txn) ->
 -spec fee(txn_poc_receipts()) -> 0.
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 request_block_hash(Txn) ->
     Txn#blockchain_txn_poc_receipts_v1_pb.request_block_hash.
@@ -1483,63 +1488,41 @@ ensure_unique_layer_test() ->
     ok.
 
 delta_test() ->
-    Txn1 = {blockchain_txn_poc_receipts_v1_pb,<<"a">>,<<"b">>,<<"c">>,
-                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
-                                                                       {blockchain_poc_receipt_v1_pb,<<"d">>,
-                                                                                                     123,0,<<"e">>,p2p,
-                                                                                                     <<"f">>, 10.1, 912.4, undefined},
-                                                                       [{blockchain_poc_witness_v1_pb,<<"g">>,
-                                                                                                      456,-100,
-                                                                                                      <<"h">>,
-                                                                                                      <<"i">>, 10.1, 912.4},
-                                                                        {blockchain_poc_witness_v1_pb,<<"j">>,
-                                                                                                      789,-114,
-                                                                                                      <<"k">>,
-                                                                                                      <<"l">>, 10.1, 912.4}]},
-                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"m">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"n">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"i">>,
-                                                                       undefined,[]}],
-                                   0,
-                                   <<"impala">>, <<"blockhash">>},
+    Challenger = <<"challenger">>,
+    Secret = <<"secret">>,
+    OnionKeyHash = <<"onion_key_hash">>,
+    BlockHash = <<"blockhash">>,
+
+    Receipt = blockchain_poc_receipt_v1:new(<<"r">>, 10, 10, <<"data">>, p2p, 1.2, 915.2, 2, <<"dr">>),
+
+    W1 = blockchain_poc_witness_v1:new(<<"w1">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
+    W2 = blockchain_poc_witness_v1:new(<<"w2">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
+    Witnesses = [W1, W2],
+
+    P1 = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, Witnesses),
+    P2 = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
+    P3 = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+    P4 = blockchain_poc_path_element_v1:new(<<"c4">>, undefined, []),
+    P5 = blockchain_poc_path_element_v1:new(<<"c5">>, undefined, []),
+    Path1 = [P1, P2, P3, P4, P5],
+    Txn1 = new(Challenger, Secret, OnionKeyHash, BlockHash, Path1),
+
     Deltas1 = deltas(Txn1),
     ?assertEqual(2, length(Deltas1)),
-    ?assertEqual({0.9, 0}, proplists:get_value(<<"first">>, Deltas1)),
-    ?assertEqual({0, 1}, proplists:get_value(<<"second">>, Deltas1)),
+    ?assertEqual({0.9, 0}, proplists:get_value(<<"c1">>, Deltas1)),
+    ?assertEqual({0, 1}, proplists:get_value(<<"c2">>, Deltas1)),
 
-    Txn2 = {blockchain_txn_poc_receipts_v1_pb,<<"foo">>,
-                                   <<"bar">>,
-                                   <<"baz">>,
-                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
-                                     {blockchain_poc_receipt_v1_pb,<<"a">>,
-                                      123,0,
-                                      <<1,2,3,4>>,
-                                      p2p,
-                                      <<"b">>,
-                                      10.1,
-                                      912.4,
-                                      1,
-                                      <<"dr">>,
-                                      undefined
-                                     },
-                                     []},
-                                    {blockchain_poc_path_element_v1_pb,<<"c">>,
-                                     undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"d">>,
-                                     undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"e">>,
-                                     undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"f">>,
-                                     undefined,[]}],
-                                   0,
-                                   <<"g">>, <<"blockhash">>},
+    P1Prime = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, []),
+    P2Prime = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
+    P3Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+    P4Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+    P5Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+    Path2 = [P1Prime, P2Prime, P3Prime, P4Prime, P5Prime],
+    Txn2 = new(Challenger, Secret, OnionKeyHash, BlockHash, Path2),
+
     Deltas2 = deltas(Txn2),
     ?assertEqual(1, length(Deltas2)),
-    ?assertEqual({0, 0}, proplists:get_value(<<"first">>, Deltas2)),
+    ?assertEqual({0, 0}, proplists:get_value(<<"c1">>, Deltas2)),
     ok.
 
 duplicate_delta_test() ->
@@ -1585,25 +1568,24 @@ duplicate_delta_test() ->
     ok.
 
 to_json_test() ->
-    Txn = {blockchain_txn_poc_receipts_v1_pb,<<"a">>,<<"b">>,<<"c">>,
-           [{blockchain_poc_path_element_v1_pb,<<"first">>,
-             {blockchain_poc_receipt_v1_pb,<<"d">>,
-              123,0,<<"e">>,p2p,
-              <<"f">>, 10.1, 912.4, 1, <<"dr">>, undefined},
-             [{blockchain_poc_witness_v1_pb,<<"g">>,
-               456,-100,
-               <<"h">>,
-               <<"i">>, 10.1, 912.4, 1, <<"dr">>},
-              {blockchain_poc_witness_v1_pb,<<"j">>,
-               789,-114,
-               <<"k">>,
-               <<"l">>, 10.1, 912.4, 1, <<"dr">>}]},
-            {blockchain_poc_path_element_v1_pb,<<"second">>, undefined,[]},
-            {blockchain_poc_path_element_v1_pb,<<"m">>, undefined,[]},
-            {blockchain_poc_path_element_v1_pb,<<"n">>, undefined,[]},
-            {blockchain_poc_path_element_v1_pb,<<"i">>, undefined,[]}],
-           0,
-           <<"impala">>, <<"blockhash">>},
+
+    Challenger = <<"challenger">>,
+    Secret = <<"secret">>,
+    OnionKeyHash = <<"onion_key_hash">>,
+    BlockHash = <<"blockhash">>,
+
+    Receipt = blockchain_poc_receipt_v1:new(<<"r">>, 10, 10, <<"data">>, p2p, 1.2, 915.2, 2, <<"dr">>),
+
+    W1 = blockchain_poc_witness_v1:new(<<"w1">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
+    W2 = blockchain_poc_witness_v1:new(<<"w2">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
+    Witnesses = [W1, W2],
+
+    P1 = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, Witnesses),
+    P2 = blockchain_poc_path_element_v1:new(<<"c2">>, Receipt, Witnesses),
+    P3 = blockchain_poc_path_element_v1:new(<<"c3">>, Receipt, Witnesses),
+    Path = [P1, P2, P3],
+
+    Txn = new(Challenger, Secret, OnionKeyHash, BlockHash, Path),
     Json = to_json(Txn, []),
 
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,

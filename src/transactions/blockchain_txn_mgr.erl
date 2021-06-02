@@ -203,9 +203,11 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event},
     NC = blockchain_worker:blockchain(),
     State = initialize_with_chain(State0, NC),
     handle_add_block_event(Event, State#state{chain = NC});
-handle_info({blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = Event}, State) ->
+handle_info({blockchain_event, {add_block, _BlockHash, Sync, Ledger} = Event}, State) ->
     lager:debug("received add block event, sync is ~p",[Sync]),
-    handle_add_block_event(Event, State);
+    %% update submit_f and reject_f per block, allow for num_consensus_members chain var updates
+    {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+    handle_add_block_event(Event, State#state{submit_f = submit_f(N), reject_f = reject_f(N)});
 
 handle_info(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown info msg: ~p", [_Msg]),
@@ -227,15 +229,12 @@ code_change(_OldVsn, State, _Extra) ->
 -spec initialize_with_chain(#state{}, blockchain:blockchain()) -> #state{}.
 initialize_with_chain(State, Chain)->
     {ok, Height} = blockchain:height(Chain),
-    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
-    SubmitF = submit_f(N),
-    RejectF = reject_f(N),
 %%    %% process any cached txn from before we had a chain, none of these will have been submitted as yet
 %%    F = fun({Txn, TxnData}) ->
 %%            ok = cache_txn(get_txn_key(), Txn, TxnData)
 %%        end,
 %%    lists:foreach(F, cached_txns()),
-    State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
+    State#state{chain=Chain, cur_block_height = Height}.
 
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
                                 blockchain_ledger_v1:ledger()}, #state{}) -> {noreply, #state{}}.
@@ -459,12 +458,30 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
         Dependencies ->
             %% for txns with dep txns, we only want to submit to members which have accepted one of the dep txns previously
             %% so we need to build up an explicit set of elegible members rather than sending to random CG members
-            {Dep1TxnKey, _Dep1Txn, _Dep1TxnData} = hd(Dependencies),
-            {ok, {_, _, #txn_data{acceptions = A0}}} = cached_txn(Dep1TxnKey),
+            %% eligible members will be those members which have accepted the dependant upon txn or if its not yet
+            %% accepted the members to which it has been submitted ( the dialled list )
+            {Dep1TxnKey, _Dep1Txn, _Dep1TxnData0} = hd(Dependencies),
+            {ok, {_, _, #txn_data{acceptions = Dep1TxnAcceptions, dialers = Dep1TxnDialers} = _Dep1TxnData1}} = cached_txn(Dep1TxnKey),
+            A0 =
+                case Dep1TxnAcceptions  of
+                    [] ->
+                        [Dep1TxnDialedMember || {_, Dep1TxnDialedMember} <- Dep1TxnDialers];
+                    Dep1TxnAccs ->
+                        Dep1TxnAccs
+                end,
+
             ElegibleMembers = sets:to_list(lists:foldl(fun({Dep2TxnKey, _Dep2Txn, _Dep2TxnData}, Acc) ->
-                                                               {ok, {_, _, #txn_data{acceptions = A}}} = cached_txn(Dep2TxnKey),
-                                                               sets:intersection(Acc, sets:from_list(A))
+                                                                {ok, {_, _, #txn_data{acceptions = Dep2TxnAcceptions, dialers = Dep2TxnDialers} = _Dep2TxnData1}} = cached_txn(Dep2TxnKey),
+                                                                A1 =
+                                                                    case Dep2TxnAcceptions  of
+                                                                        [] ->
+                                                                            [Dep2TxnDialedMember || {_, Dep2TxnDialedMember} <- Dep2TxnDialers];
+                                                                        Dep2TxnAccs ->
+                                                                            Dep2TxnAccs
+                                                                    end,
+                                                               sets:intersection(Acc, sets:from_list(A1))
                                                        end, sets:from_list(A0), tl(Dependencies))),
+            lager:debug("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
             {_, ExistingDialers} = lists:unzip(Dialers),
             %% remove any CG members from the elegible list which have already accepted or rejected the txn and also
             %% those which we are already dialling

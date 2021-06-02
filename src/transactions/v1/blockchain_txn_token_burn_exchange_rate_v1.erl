@@ -22,6 +22,7 @@
     hash/1,
     rate/1,
     fee/1,
+    fee_payer/2,
     is_valid/2,
     absorb/2,
     sign/2,
@@ -76,6 +77,10 @@ rate(Txn) ->
 -spec fee(txn_token_burn_exchange_rate()) -> non_neg_integer().
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_token_burn_exchange_rate(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% @doc

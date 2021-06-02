@@ -24,6 +24,7 @@
     amount/1,
     expire_within/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
@@ -97,6 +98,10 @@ fee(Txn) ->
 -spec fee(txn_state_channel_open(), non_neg_integer()) -> txn_state_channel_open().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_state_channel_open_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_state_channel_open(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    owner(Txn).
 
 -spec signature(Txn :: txn_state_channel_open()) -> binary().
 signature(Txn) ->

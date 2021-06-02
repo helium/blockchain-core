@@ -22,6 +22,7 @@
          signature/1,
          version/1,
          fee/1,
+         fee_payer/2,
          sign/2,
          is_valid/2,
          absorb/2,
@@ -70,6 +71,10 @@ signature(Txn) ->
 -spec fee(txn_validator_heartbeat()) -> 0.
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_validator_heartbeat(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 -spec sign(txn_validator_heartbeat(), libp2p_crypto:sig_fun()) -> txn_validator_heartbeat().
 sign(Txn, SigFun) ->

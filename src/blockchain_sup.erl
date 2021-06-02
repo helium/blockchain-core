@@ -85,6 +85,7 @@ init(Args) ->
         [
          {key, proplists:get_value(key, Args)},
          {base_dir, BaseDir},
+         {libp2p_nat, [{enabled, application:get_env(blockchain, enable_nat, true)}]},
          {libp2p_proxy,
           [{limit, application:get_env(blockchain, relay_limit, 25)}]},
          {libp2p_peerbook,

@@ -19,6 +19,7 @@
     payee/1,
     amount/1,
     fee/1,
+    fee_payer/2,
     is_valid/2,
     absorb/2,
     sign/2,
@@ -81,6 +82,10 @@ amount(Txn) ->
 -spec fee(txn_coinbase()) -> non_neg_integer().
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_coinbase(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% @doc
