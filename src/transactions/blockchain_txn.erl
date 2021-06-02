@@ -69,6 +69,7 @@
 -export([
     block_delay/0,
     hash/1,
+    fee/1,
     validate/2, validate/3,
     absorb/2,
     print/1, print/2,
@@ -138,6 +139,9 @@ block_delay() ->
 
 hash(Txn) ->
     (type(Txn)):hash(Txn).
+
+fee(Txn) ->
+    (type(Txn)):fee(Txn).
 
 sign(Txn, SigFun) ->
     (type(Txn)):sign(Txn, SigFun).
