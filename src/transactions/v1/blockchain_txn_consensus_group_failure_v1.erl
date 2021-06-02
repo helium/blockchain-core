@@ -23,6 +23,7 @@
     delay/1,
     signatures/1,
     fee/1,
+    fee_payer/2,
     sign/2,
     verify_signature/3,
     set_signatures/2,
@@ -72,6 +73,10 @@ signatures(Txn) ->
 -spec fee(txn_consensus_group_failure()) -> 0.
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_consensus_group_failure(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 -spec sign(txn_consensus_group_failure(), libp2p_crypto:sig_fun()) -> binary().
 sign(Txn, SigFun) ->

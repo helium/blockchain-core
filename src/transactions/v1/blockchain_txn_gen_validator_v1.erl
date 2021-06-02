@@ -20,6 +20,7 @@
     owner/1,
     stake/1,
     fee/1,
+    fee_payer/2,
     is_valid/2,
     absorb/2,
     print/1,
@@ -66,6 +67,10 @@ stake(Txn) ->
 -spec fee(txn_genesis_validator()) -> non_neg_integer().
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_genesis_validator(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% @doc

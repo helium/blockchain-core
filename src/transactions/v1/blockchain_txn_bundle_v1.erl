@@ -21,6 +21,7 @@
     absorb/2,
     sign/2,
     fee/1,
+    fee_payer/2,
     txns/1,
     is_valid/2,
     print/1,
@@ -51,6 +52,10 @@ sign(TxnBundle, _SigFun) ->
 -spec fee(txn_bundle()) -> 0.
 fee(_TxnBundle) ->
     0.
+
+-spec fee_payer(txn_bundle(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_TxnBundle, _Ledger) ->
+    undefined.
 
 -spec txns(txn_bundle()) -> blockchain_txn:txns().
 txns(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->

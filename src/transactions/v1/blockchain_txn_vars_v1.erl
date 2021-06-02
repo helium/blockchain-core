@@ -19,6 +19,7 @@
          new/2, new/3,
          hash/1,
          fee/1,
+         fee_payer/2,
          is_valid/2,
          master_key/1,
          multi_keys/1,
@@ -178,6 +179,10 @@ sign(Txn, _SigFun) ->
 -spec fee(txn_vars()) -> non_neg_integer().
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_vars(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 master_key(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.master_key.

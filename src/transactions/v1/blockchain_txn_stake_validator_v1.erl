@@ -21,7 +21,8 @@
          owner/1,
          stake/1,
          owner_signature/1,
-         fee/1, calculate_fee/2, calculate_fee/5,
+         fee/1, calculate_fee/2, calculate_fee/5, 
+         fee_payer/2,
          sign/2,
          is_valid/2,
          absorb/2,
@@ -78,6 +79,10 @@ stake(Txn) ->
 -spec fee(txn_stake_validator()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_stake_validator_v1_pb.fee.
+
+-spec fee_payer(txn_stake_validator(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    owner(Txn).
 
 -spec calculate_fee(txn_stake_validator(), blockchain:blockchain()) ->
           non_neg_integer().

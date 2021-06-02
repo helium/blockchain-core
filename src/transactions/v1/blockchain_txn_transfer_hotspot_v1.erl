@@ -24,6 +24,7 @@
          amount_to_seller/1,
          buyer_nonce/1,
          fee/2, fee/1,
+         fee_payer/2,
          calculate_fee/2, calculate_fee/5,
          hash/1,
          sign/2,
@@ -109,6 +110,10 @@ fee(Txn) ->
 -spec fee(txn_transfer_hotspot(), non_neg_integer()) -> txn_transfer_hotspot().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_transfer_hotspot_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    buyer(Txn).
 
 -spec calculate_fee(txn_transfer_hotspot(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->

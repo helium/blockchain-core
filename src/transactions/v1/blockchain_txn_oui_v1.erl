@@ -24,6 +24,7 @@
     payer/1,
     staking_fee/1, staking_fee/2,
     fee/1, fee/2,
+    fee_payer/2,
     oui/1,
     owner_signature/1,
     payer_signature/1,
@@ -131,6 +132,10 @@ fee(Txn) ->
 -spec fee(txn_oui(), non_neg_integer()) -> txn_oui().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_oui_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_oui(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
 
 -spec oui(txn_oui()) -> pos_integer().
 oui(Txn) ->

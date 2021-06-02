@@ -25,6 +25,7 @@
     state_channel_expire_at/1,
     closer/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
@@ -96,6 +97,10 @@ fee(Txn) ->
 -spec fee(txn_state_channel_close(), non_neg_integer()) -> txn_state_channel_close().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_state_channel_close_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_state_channel_close(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    closer(Txn).
 
 -spec signature(txn_state_channel_close()) -> binary().
 signature(Txn) ->

@@ -34,6 +34,7 @@
 
     sign/2,
     fee/1,
+    fee_payer/2,
     is_valid/2,
     absorb/2,
     calculate_rewards/3,
@@ -114,6 +115,10 @@ sign(Txn, _SigFun) ->
 -spec fee(txn_rewards_v2()) -> 0.
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_rewards_v2(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 -spec is_valid(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
