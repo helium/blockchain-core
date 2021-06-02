@@ -922,9 +922,15 @@ start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
                                       {ok, ConfigHeight} = application:get_env(blockchain,
                                                                 blessed_snapshot_block_height),
                                       Url = build_url(BaseUrl, ConfigHeight),
-                                      %% this return snapshot is already deserialized
-                                      {ok, Snap} = attempt_fetch_s3_snapshot(Hash, Url),
+                                      {ok, BinSnap} = attempt_fetch_s3_snapshot(Url),
                                       lager:info("Successfully downloaded snap from ~p", [Url]),
+                                      {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize(Hash,
+                                                                                             BinSnap),
+                                      SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
+                                      ok = blockchain:add_bin_snapshot(BinSnap, SnapHeight,
+                                                                       Hash, Chain),
+                                      lager:info("Stored snap ~p - attempting install",
+                                                 [SnapHeight]),
                                       blockchain_worker:install_snapshot(Hash, Snap)
                               end
                           catch
@@ -964,7 +970,7 @@ build_url(BaseUrl, Height) ->
     Filename = "snap-" ++ HeightStr,
     BaseUrl ++ "/" ++ Filename.
 
-attempt_fetch_s3_snapshot(SHA, Url) ->
+attempt_fetch_s3_snapshot(Url) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
     Headers = [
                {"user-agent", "blockchain-worker-1"}
@@ -980,7 +986,7 @@ attempt_fetch_s3_snapshot(SHA, Url) ->
 
     lager:info("Attempting snapshot download from ~p", [Url]),
     case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
-        {ok, {200, Response}} -> blockchain_ledger_snapshot_v1:deserialize(SHA, Response);
+        {ok, {200, Response}} -> {ok, Response};
         {ok, {404, _Response}} -> throw({error, url_not_found});
         {ok, {Status, Response}} -> throw({error, {Status, Response}});
         Other -> throw(Other)

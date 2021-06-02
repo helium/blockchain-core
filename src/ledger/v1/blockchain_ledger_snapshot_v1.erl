@@ -340,13 +340,15 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
                 6 ->
                     maps:from_list(deserialize_pairs(Bin))
             end,
-        case {DigestOpt, hash(Snapshot)} of
-            {none, _} ->
-                {ok, upgrade(Snapshot)};
-            {{some, Digest}, Digest} ->
-                {ok, upgrade(Snapshot)};
-            {{some, _}, _} ->
-                {error, bad_snapshot_hash}
+        case DigestOpt of
+            %% if we don't care what the hash is,
+            %% don't bother to compute it
+            none -> {ok, upgrade(Snapshot)};
+            {some, Digest} ->
+                case hash(Snapshot) of
+                    Digest -> {ok, upgrade(Snapshot)};
+                    _Other -> {error, bad_snapshot_hash}
+                end
         end
     catch _:_ ->
         {error, bad_snapshot_binary}
