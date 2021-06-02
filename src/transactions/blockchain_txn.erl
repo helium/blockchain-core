@@ -71,7 +71,7 @@
     block_delay/0,
     hash/1,
     fee/1,
-    fee_payer/1,
+    fee_payer/2,
     validate/2, validate/3,
     absorb/2,
     print/1, print/2,
@@ -145,8 +145,8 @@ hash(Txn) ->
 fee(Txn) ->
     (type(Txn)):fee(Txn).
 
-fee_payer(Txn) ->
-    (type(Txn)):fee_payer(Txn).
+fee_payer(Txn, Ledger) ->
+    (type(Txn)):fee_payer(Txn, Ledger).
 
 sign(Txn, SigFun) ->
     (type(Txn)):sign(Txn, SigFun).
