@@ -200,6 +200,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     TxnFee = ?MODULE:fee(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Owner = ?MODULE:owner(Txn),
     Payer = ?MODULE:payer(Txn),
@@ -215,7 +216,7 @@ absorb(Txn, Chain) ->
                 {false, LedgerOUI} ->
                     {error, {invalid_oui, {OUI, LedgerOUI}}};
                 true ->
-                    case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
+                    case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
                         {error, _}=Error ->
                             Error;
                         ok ->

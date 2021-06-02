@@ -187,9 +187,10 @@ absorb(Txn, Chain) ->
             Error;
         {ok, GWInfo} ->
             Fee = ?MODULE:fee(Txn),
+            Hash = ?MODULE:hash(Txn),
             GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            case blockchain_ledger_v1:debit_fee(GatewayOwner, Fee, Ledger, AreFeesEnabled) of
+            case blockchain_ledger_v1:debit_fee(GatewayOwner, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
                 {error, _}=Error ->
                     Error;
                 ok ->

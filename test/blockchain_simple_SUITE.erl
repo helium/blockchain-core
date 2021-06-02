@@ -953,7 +953,7 @@ fees_since_test(Config) ->
 
     meck:expect(blockchain_ledger_v1, check_dc_balance, fun(_, _, _) -> ok end),
     meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
-    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
 
     meck:expect(blockchain_txn_payment_v1, calculate_fee, fun(_, _) -> 10 end),
     % Add 100 txns with 1 fee each
@@ -1027,7 +1027,7 @@ routing_test(Config) ->
     %% since we can no longer override the default fee, now have to meck out the check_db & debit fee functions instead
     %% as the account does not have any credits, but the mecking of the is_valid can be removed
     meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
-    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
 
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm), Router1],
@@ -1220,7 +1220,7 @@ max_subnet_test(Config) ->
     %% since we can no longer override the default fee, now have to meck out the check_db & debit fee functions instead
     %% as the account does not have any credits, but the mecking of the is_valid can be removed
     meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
-    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
 
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],

@@ -228,6 +228,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Amount = ?MODULE:amount(Txn),
     TxnFee = ?MODULE:fee(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
     Nonce = ?MODULE:nonce(Txn),
@@ -236,7 +237,7 @@ absorb(Txn, Chain) ->
             Error;
         {ok, _Entry} ->
             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            case blockchain_ledger_v1:debit_fee(Payer,TxnFee, Ledger, AreFeesEnabled) of
+            case blockchain_ledger_v1:debit_fee(Payer,TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->

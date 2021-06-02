@@ -406,12 +406,13 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Gain = ?MODULE:gain(Txn),
     Elevation = ?MODULE:elevation(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     ActualPayer = fee_payer(Txn, Ledger),
 
     {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
     %% NOTE: It is assumed that the staking_fee is set to 0 at user level for assert_location_v2 transactions
     %% which only update gain/elevation
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->

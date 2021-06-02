@@ -55,6 +55,9 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
+    add_implicit_burn/3,
+    get_implicit_burn/2,
+
     mark_upgrades/2, bootstrap_h3dex/1,
     snapshot_height/1,
 
@@ -85,6 +88,7 @@
     temp_blocks :: rocksdb:cf_handle(),
     plausible_blocks :: rocksdb:cf_handle(),
     snapshots :: rocksdb:cf_handle(),
+    implicit_burns :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 
@@ -1210,12 +1214,13 @@ close(#blockchain{db=DB, ledger=Ledger}) ->
     catch blockchain_ledger_v1:close(Ledger),
     catch rocksdb:close(DB).
 
-compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF}) ->
+compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF, implicit_burns=ImplicitBurnsCF}) ->
     rocksdb:compact_range(DB, undefined, undefined, []),
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
     rocksdb:compact_range(DB, BlocksCF, undefined, undefined, []),
     rocksdb:compact_range(DB, HeightsCF, undefined, undefined, []),
     rocksdb:compact_range(DB, TempBlocksCF, undefined, undefined, []),
+    rocksdb:compact_range(DB, ImplicitBurnsCF, undefined, undefined, []),
     ok.
 
 reset_ledger(Chain) ->
@@ -1719,6 +1724,27 @@ find_last_snapshots(Blockchain, Count0) ->
             lists:reverse(List)
     end.
 
+-spec get_implicit_burn(blockchain_txn:hash(), blockchain()) -> {ok, blockchain_implicit_burn:implicit_burn()} | {error, any()}.
+get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) when is_binary(TxnHash) ->
+    case rocksdb:get(DB, ImplicitBurnsCF, TxnHash, []) of
+        {ok, Bin} ->
+            {ok, blockchain_implicit_burn:deserialize(Bin)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec add_implicit_burn(blockchain_txn:hash(), blockchain_implicit_burn:implicit_burn(), blockchain()) -> ok | {error, any()}.
+add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) ->
+    try
+        BinImp = blockchain_implicit_burn:serialize(ImplicitBurn),
+        ok = rocksdb:put(DB, ImplicitBurnsCF, TxnHash, BinImp, [{sync, true}])
+    catch What:Why:Stack ->
+            lager:warning("error adding implicit burn: ~p:~p, ~p", [What, Why, Stack]),
+            {error, Why}
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -1748,7 +1774,7 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, SnapshotCF]} ->
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, SnapshotCF, ImplicitBurnsCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
                 case Mode of
@@ -1784,6 +1810,7 @@ load(Dir, Mode) ->
                 heights=HeightsCF,
                 temp_blocks=TempBlocksCF,
                 plausible_blocks=PlausibleBlocksCF,
+                implicit_burns=ImplicitBurnsCF,
                 snapshots=SnapshotCF,
                 ledger=Ledger
             },
@@ -1941,7 +1968,7 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", "plausible_blocks", "snapshots"],
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", "plausible_blocks", "snapshots", "implicit_burns"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->

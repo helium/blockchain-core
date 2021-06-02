@@ -80,14 +80,14 @@
     maybe_gc_scs/2,
 
     find_entry/2,
-    credit_account/3, debit_account/4, debit_fee_from_account/3,
+    credit_account/3, debit_account/4, debit_fee_from_account/5,
     check_balance/3,
 
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
     debit_dc/4,
-    debit_fee/3, debit_fee/4,
+    debit_fee/3, debit_fee/4, debit_fee/6,
     check_dc_balance/3,
     check_dc_or_hnt_balance/4,
 
@@ -2538,8 +2538,8 @@ debit_account(Address, Amount, Nonce, Ledger) ->
             end
     end.
 
--spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
-debit_fee_from_account(Address, Fee, Ledger) ->
+-spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), blockchain_txn:hash(), blockchain:blockchain()) -> ok | {error, any()}.
+debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -2547,13 +2547,23 @@ debit_fee_from_account(Address, Fee, Ledger) ->
             Balance = blockchain_ledger_entry_v1:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
+                    case application:get_env(blockchain, store_implicit_burns, false) of
+                        true when TxnHash =/= undefined, Chain =/= undefined ->
+                            ImplicitBurn = blockchain_implicit_burn:new(
+                                Fee,
+                                Address
+                            ),
+                            blockchain:add_implicit_burn(TxnHash, ImplicitBurn, Chain);
+                        false ->
+                            ok
+                    end,
                     Entry1 = blockchain_ledger_entry_v1:new(
                         blockchain_ledger_entry_v1:nonce(Entry),
                         (Balance - Fee)
                     ),
-                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
                     EntriesCF = entries_cf(Ledger),
-                    cache_put(Ledger, EntriesCF, Address, Bin);
+                    cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
             end
@@ -2643,17 +2653,38 @@ debit_dc(Address, Nonce, Amount, Ledger) ->
             Error
     end.
 
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-debit_fee(_Address, Fee,_Ledger) ->
-    debit_fee(_Address, Fee,_Ledger, false).
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean()) -> ok | {error, any()}.
-debit_fee(_Address, 0,_Ledger, _MaybeTryImplicitBurn) ->
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger()
+) -> ok | {error, any()}.
+debit_fee(_Address, Fee, _Ledger) ->
+    debit_fee(_Address, Fee, _Ledger, false, undefined, undefined).
+
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger(),
+    MaybeTryImplicitBurn :: boolean()
+) -> ok | {error, any()}.
+debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn) ->
+    debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn, undefined, undefined).
+
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger(),
+    MaybeTryImplicitBurn :: boolean(),
+    TxnHash :: blockchain_txn:hash() | undefined,
+    Chain :: blockchain:blockchain() | undefined
+) -> ok | {error, any()}.
+debit_fee(_Address, 0, _Ledger, _MaybeTryImplicitBurn, _TxnHash, _Chain) ->
     ok;
-debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
+debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn, TxnHash, Chain) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} when MaybeTryImplicitBurn == true ->
             {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
-            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash, Chain);
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
@@ -2670,7 +2701,7 @@ debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
                 {false, true} ->
                     %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
                     {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
-                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash, Chain);
                 {false, false} ->
                     {error, {insufficient_dc_balance, {Fee, Balance}}}
             end
