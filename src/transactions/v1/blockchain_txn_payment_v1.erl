@@ -21,6 +21,7 @@
     payee/1,
     amount/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     nonce/1,
     signature/1,
@@ -75,6 +76,10 @@ fee(Txn) ->
 -spec fee(txn_payment(), non_neg_integer()) -> txn_payment().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_payment_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_payment(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
 
 -spec nonce(txn_payment()) -> non_neg_integer().
 nonce(Txn) ->

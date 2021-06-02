@@ -20,6 +20,7 @@
     oui/1,
     nonce/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     gateway_owner_signature/1,
     oui_owner_signature/1,
@@ -82,6 +83,11 @@ fee(Txn) ->
 fee(Txn, Fee) ->
     Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=Fee}.
 
+-spec fee_payer(txn_update_gateway_oui(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, Ledger) ->
+    {ok, GWInfo} = blockchain_ledger_v1:find_gateway_info(gateway(Txn), Ledger),
+    blockchain_ledger_gateway_v2:owner_address(GWInfo).
+ 
 -spec gateway_owner_signature(txn_update_gateway_oui()) -> binary().
 gateway_owner_signature(Txn) ->
     Txn#blockchain_txn_update_gateway_oui_v1_pb.gateway_owner_signature.

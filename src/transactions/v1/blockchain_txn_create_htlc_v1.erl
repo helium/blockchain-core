@@ -27,6 +27,7 @@
     timelock/1,
     amount/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     nonce/1,
     signature/1,
@@ -93,6 +94,10 @@ amount(Txn) ->
 -spec fee(txn_create_htlc()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.fee.
+
+-spec fee_payer(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
 
 -spec fee(txn_create_htlc(), non_neg_integer()) -> txn_create_htlc().
 fee(Txn, Fee) ->

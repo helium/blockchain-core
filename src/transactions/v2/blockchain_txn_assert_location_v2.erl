@@ -29,6 +29,7 @@
     nonce/1,
     staking_fee/1, staking_fee/2,
     fee/1, fee/2,
+    fee_payer/2,
     sign_payer/2,
     sign/2,
     is_valid_owner/1,
@@ -157,6 +158,14 @@ fee(Txn) ->
 -spec fee(txn_assert_location(), non_neg_integer()) -> txn_assert_location().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_assert_location_v2_pb{fee=Fee}.
+
+-spec fee_payer(txn_assert_location(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    Payer = payer(Txn),
+    case Payer == undefined orelse Payer == <<>> of
+        true -> owner(Txn);
+        false -> Payer
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -391,18 +400,13 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Gateway = ?MODULE:gateway(Txn),
-    Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Fee = ?MODULE:fee(Txn),
-    Payer = ?MODULE:payer(Txn),
     Gain = ?MODULE:gain(Txn),
     Elevation = ?MODULE:elevation(Txn),
-    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-        true -> Owner;
-        false -> Payer
-    end,
+    ActualPayer = fee_payer(Txn, Ledger),
 
     {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
     %% NOTE: It is assumed that the staking_fee is set to 0 at user level for assert_location_v2 transactions

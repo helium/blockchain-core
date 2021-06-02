@@ -24,6 +24,7 @@
     owner/1,
     action/1,
     fee/1, fee/2,
+    fee_payer/2,
     staking_fee/1, staking_fee/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     nonce/1,
@@ -127,6 +128,10 @@ fee(Txn) ->
 -spec fee(txn_routing(), non_neg_integer()) -> txn_routing().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_routing_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_routing(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    owner(Txn).
 
 -spec staking_fee(txn_routing()) -> non_neg_integer().
 staking_fee(Txn) ->

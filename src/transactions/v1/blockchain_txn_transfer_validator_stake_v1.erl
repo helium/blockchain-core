@@ -26,6 +26,7 @@
          stake_amount/1,
          payment_amount/1,
          fee/1, calculate_fee/2, calculate_fee/5,
+         fee_payer/2,
          sign/2,
          new_owner_sign/2,
          is_valid/2,
@@ -104,6 +105,10 @@ payment_amount(Txn) ->
 -spec fee(txn_transfer_validator_stake()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_transfer_validator_stake_v1_pb.fee.
+
+-spec fee_payer(txn_transfer_validator_stake(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    old_owner(Txn).
 
 -spec calculate_fee(txn_transfer_validator_stake(), blockchain:blockchain()) ->
           non_neg_integer().

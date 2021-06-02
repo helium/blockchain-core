@@ -22,6 +22,7 @@
     secret/1,
     path/1,
     fee/1,
+    fee_payer/2,
     request_block_hash/1,
     signature/1,
     sign/2,
@@ -129,6 +130,10 @@ path(Txn) ->
 -spec fee(txn_poc_receipts()) -> 0.
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 request_block_hash(Txn) ->
     Txn#blockchain_txn_poc_receipts_v1_pb.request_block_hash.
