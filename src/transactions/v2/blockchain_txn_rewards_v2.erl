@@ -627,7 +627,7 @@ get_reward_vars(Start, End, Ledger) ->
 
     WitnessRewardDecayRate = case blockchain:config(?witness_reward_decay_rate, Ledger) of
                                  {ok, Dec} -> Dec;
-                                 _ -> 0
+                                 _ -> undefined
                              end,
 
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
@@ -1363,6 +1363,8 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
 
 witness_decay(Count, Vars) ->
     case maps:find(witness_reward_decay_rate, Vars) of
+        {ok, undefined} ->
+            1;
         {ok, DecayRate} ->
             Scale = math:exp(Count * -1 * DecayRate),
             lager:info("scaling witness reward by ~p", [Scale]),
