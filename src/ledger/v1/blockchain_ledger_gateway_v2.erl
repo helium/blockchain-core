@@ -80,7 +80,7 @@
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 -type histogram() :: #{integer() => integer()}.
--type mode() :: light | nonconsensus | full.
+-type mode() :: dataonly | light | full.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0, mode/0]).
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -649,14 +649,14 @@ convert(#gateway_v1{
        neighbors = []}.
 
 -spec mask_for_gateway_mode(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+mask_for_gateway_mode(#gateway_v2{mode = dataonly}, Ledger)->
+    case blockchain:config(?dataonly_gateway_capabilities_mask, Ledger) of
+        {error, not_found} -> ?GW_CAPABILITIES_DATAONLY_GATEWAY_V1;
+        {ok, V} -> V
+    end;
 mask_for_gateway_mode(#gateway_v2{mode = light}, Ledger)->
     case blockchain:config(?light_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_LIGHT_GATEWAY_V1;
-        {ok, V} -> V
-    end;
-mask_for_gateway_mode(#gateway_v2{mode = nonconsensus}, Ledger)->
-    case blockchain:config(?non_consensus_gateway_capabilities_mask, Ledger) of
-        {error, not_found} -> ?GW_CAPABILITIES_NON_CONSENSUS_GATEWAY_V1;
         {ok, V} -> V
     end;
 mask_for_gateway_mode(#gateway_v2{mode = full}, Ledger)->
@@ -701,15 +701,15 @@ mode_full_test() ->
     ?assertEqual(full, mode(Gw)),
     ?assertEqual(full, mode(mode(full, Gw))).
 
+mode_dataonly_test() ->
+    Gw = new(<<"owner_address">>, 12, dataonly),
+    ?assertEqual(dataonly, mode(Gw)),
+    ?assertEqual(dataonly, mode(mode(dataonly, Gw))).
+
 mode_light_test() ->
     Gw = new(<<"owner_address">>, 12, light),
     ?assertEqual(light, mode(Gw)),
     ?assertEqual(light, mode(mode(light, Gw))).
-
-mode_non_consensus_test() ->
-    Gw = new(<<"owner_address">>, 12, nonconsensus),
-    ?assertEqual(nonconsensus, mode(Gw)),
-    ?assertEqual(nonconsensus, mode(mode(nonconsensus, Gw))).
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12, full),

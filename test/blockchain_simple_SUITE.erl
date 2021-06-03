@@ -32,8 +32,8 @@
     election_test/1,
     election_v3_test/1,
     election_v4_test/1,
+    dataonly_gw_election_v4_test/1,
     light_gw_election_v4_test/1,
-    nonconsensus_gw_election_v4_test/1,
     election_v5_test/1,
     chain_vars_test/1,
     chain_vars_set_unset_test/1,
@@ -86,8 +86,8 @@ all() ->
         election_test,
         election_v3_test,
         election_v4_test,
+        dataonly_gw_election_v4_test,
         light_gw_election_v4_test,
-        nonconsensus_gw_election_v4_test,
         chain_vars_test,
         chain_vars_set_unset_test,
         token_burn_test,
@@ -120,8 +120,8 @@ init_per_testcase(TestCase, Config) ->
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     X when X == election_v4_test;
-                           X == light_gw_election_v4_test;
-                           X == nonconsensus_gw_election_v4_test ->
+                           X == dataonly_gw_election_v4_test;
+                           X == light_gw_election_v4_test ->
                         #{election_version => 4,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
@@ -1828,9 +1828,9 @@ election_v4_test(Config) ->
 
     ok.
 
-nonconsensus_gw_election_v4_test(Config) ->
+light_gw_election_v4_test(Config) ->
     %% this reusues the election v4 test but modifies it so that before the new election
-    %% all the GWs are updated to be nonconsensus mode
+    %% all the GWs are updated to be light mode
     %% this means they should be exlcuded from becoming part of the new group
     %% as the test updates all the GWs the new group ends up being same as the old group
     BaseDir = ?config(base_dir, Config),
@@ -1854,7 +1854,7 @@ nonconsensus_gw_election_v4_test(Config) ->
          Alpha = 1.0 + rand:uniform(20),
          Beta = 1.0 + rand:uniform(4),
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         I3 = blockchain_ledger_gateway_v2:mode(nonconsensus, I2),
+         I3 = blockchain_ledger_gateway_v2:mode(light, I2),
          blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
@@ -1905,7 +1905,7 @@ nonconsensus_gw_election_v4_test(Config) ->
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
     ct:pal("old ~p", [OldGroup]),
 
-    %% update all of the GWs to nonconsensus modes
+    %% update all of the GWs to light modes
     %% this should block them from becoming part of any new group
     %% confirm they are not elected
     %% the new group should be same as the old group as there are no valid new members
@@ -1914,7 +1914,7 @@ nonconsensus_gw_election_v4_test(Config) ->
 
     [begin
          {ok, I} = blockchain_gateway_cache:get(Addr, Ledger2),
-         I2 = blockchain_ledger_gateway_v2:mode(nonconsensus, I),
+         I2 = blockchain_ledger_gateway_v2:mode(light, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
      end
      || {Addr, _} <- GenesisMembers],
@@ -1936,9 +1936,9 @@ nonconsensus_gw_election_v4_test(Config) ->
 
     ok.
 
-light_gw_election_v4_test(Config) ->
+dataonly_gw_election_v4_test(Config) ->
     %% this reusues the election v4 test but modifies it so that before the new election
-    %% all the GWs are updated to be light mode
+    %% all the GWs are updated to be dataonly mode
     %% this means they should be excluded from becoming part of the new group
     %% as the test updates all the GWs the new group ends up being same as the old group
     BaseDir = ?config(base_dir, Config),
@@ -1962,7 +1962,7 @@ light_gw_election_v4_test(Config) ->
          Alpha = 1.0 + rand:uniform(20),
          Beta = 1.0 + rand:uniform(4),
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         I3 = blockchain_ledger_gateway_v2:mode(nonconsensus, I2),
+         I3 = blockchain_ledger_gateway_v2:mode(dataonly, I2),
          blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
@@ -2013,7 +2013,7 @@ light_gw_election_v4_test(Config) ->
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
     ct:pal("old ~p", [OldGroup]),
 
-    %% update all of the GWs to light mode
+    %% update all of the GWs to dataonly mode
     %% this should block them from becoming part of any new group
     %% confirm they are not elected
     %% the new group should be same as the old group as there are no valid new members
@@ -2022,7 +2022,7 @@ light_gw_election_v4_test(Config) ->
 
     [begin
          {ok, I} = blockchain_gateway_cache:get(Addr, Ledger2),
-         I2 = blockchain_ledger_gateway_v2:mode(light, I),
+         I2 = blockchain_ledger_gateway_v2:mode(dataonly, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
      end
      || {Addr, _} <- GenesisMembers],

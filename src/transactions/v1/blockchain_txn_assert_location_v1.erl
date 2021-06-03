@@ -485,10 +485,10 @@ to_json(Txn, _Opts) ->
      }.
 
 -spec staking_fee_for_gw_mode(blockchain_ledger_gateway_v2:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+staking_fee_for_gw_mode(dataonly, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger);
 staking_fee_for_gw_mode(light, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_assert_location_light_gateway_v1(Ledger);
-staking_fee_for_gw_mode(nonconsensus, Ledger)->
-    blockchain_ledger_v1:staking_fee_txn_assert_location_nonconsensus_gateway_v1(Ledger);
 staking_fee_for_gw_mode(_, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger).
 
