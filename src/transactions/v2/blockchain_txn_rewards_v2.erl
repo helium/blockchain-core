@@ -206,7 +206,7 @@ calculate_rewards(Start, End, Chain) ->
         Ledger :: blockchain_ledger_v1:ledger(),
         Chain :: blockchain:blockchain()) -> {error, any()} | {ok, rewards()}.
 calculate_rewards_(Start, End, Ledger, Chain) ->
-    {ok, Results} = calculate_rewards_metadata(Start, End, Chain),
+    {ok, Results} = calculate_rewards_metadata(Start, End, blockchain:ledger(Ledger, Chain)),
     try
         {ok, prepare_rewards_v2_txns(Results, Ledger)}
     catch
