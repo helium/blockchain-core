@@ -2267,25 +2267,26 @@ is_block_plausible(Block, Chain) ->
                     false;
                 {ok, ConsensusAddrs} ->
                     N = length(ConsensusAddrs),
-                    F = (N-1) div 3,
-                    {ok, KeyOrKeys} = get_key_or_keys(Ledger),
-                    Sigs = blockchain_block:signatures(Block),
-                    case blockchain_block:verify_signatures(Block,
-                                                            ConsensusAddrs,
-                                                            Sigs,
-                                                            F + 1,
-                                                            KeyOrKeys)
-                    of
-                        false ->
-                            %% phwit
-                            false;
-                        {true, _, _} ->
-                            true
-                    end
+                    F = (N - 1) div 3,
+
+                    Signees = blockchain_block:verified_signees(Block),
+
+                    SigThreshold =
+                    case blockchain:config(?election_version, blockchain:ledger(Chain)) of
+                        {ok, 5} -> (2 * F) + 1;         %% much higher v5 onwards
+                        _ -> F + 1                      %% maintain old behavior
+                    end,
+
+                    Received = sets:size(sets:intersection(sets:from_list(ConsensusAddrs),
+                                                           sets:from_list(Signees))),
+
+                    Received >= SigThreshold
+
             end;
         false ->
             false
     end.
+
 
 save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
     true = blockchain_lock:check(), %% we need the lock for this

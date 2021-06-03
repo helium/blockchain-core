@@ -31,10 +31,11 @@
     snapshot_hash/1,
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1,
-    to_json/2
+    is_election_block/1,
+    to_json/2,
+    verified_signees/1
 ]).
 
--include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_block_v1_pb.hrl").
 
 -ifdef(TEST).
@@ -347,6 +348,13 @@ is_rescue_block(Block) ->
         (Block#blockchain_block_v1_pb.rescue_signature /= <<>> orelse
          Block#blockchain_block_v1_pb.rescue_signatures /= []).
 
+-spec is_election_block(block()) -> boolean().
+is_election_block(Block) ->
+    case blockchain_election:has_new_group(transactions(Block)) of
+        {true, _, _, _} -> true;
+        _ -> false
+    end.
+
 -spec to_json(block(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Block, _Opts) ->
     #{
@@ -356,6 +364,19 @@ to_json(Block, _Opts) ->
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
       transactions => [?BIN_TO_B64(blockchain_txn:hash(T)) || T <- transactions(Block)]
      }.
+
+-spec verified_signees(Block :: block()) -> [libp2p_crypto:pubkey_bin()].
+verified_signees(Block) ->
+    Signatures = signatures(Block),
+    EncodedBlock = blockchain_block:serialize(set_signatures(Block, [], <<>>)),
+    lists:foldl(fun({Signer, Signature}, Acc) ->
+                        case libp2p_crypto:verify(EncodedBlock, Signature, libp2p_crypto:bin_to_pubkey(Signer)) of
+                            false -> Acc;
+                            true -> [Signer | Acc]
+                        end
+                end,
+                [],
+                Signatures).
 
 %%
 %% Internal

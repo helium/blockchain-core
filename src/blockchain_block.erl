@@ -16,6 +16,8 @@
 -callback signatures(block()) -> [signature()].
 -callback set_signatures(block(), [signature()]) -> block().
 -callback is_rescue_block(block()) -> boolean().
+-callback is_election_block(block()) -> boolean().
+-callback verified_signees(block()) -> [libp2p_crypto:pubkey_bin()].
 
 %% arity 4 is for external users of this function who don't need to
 %% care about whether or not something is a rescue block.
@@ -44,6 +46,7 @@
          time/1,
          hbbft_round/1,
          is_genesis/1,
+         is_election_block/1,
          type/1,
          signatures/1, set_signatures/2,
          verify_signatures/4, verify_signatures/5,
@@ -51,7 +54,8 @@
          serialize/1,
          deserialize/1,
          is_rescue_block/1,
-         to_json/2
+         to_json/2,
+         verified_signees/1
         ]).
 
 new_genesis_block(Transactions) ->
@@ -83,6 +87,14 @@ hbbft_round(Block) ->
 -spec is_genesis(block()) -> boolean().
 is_genesis(Block) ->
     (type(Block)):is_genesis(Block).
+
+-spec is_election_block(block()) -> boolean().
+is_election_block(Block) ->
+    (type(Block)):is_election_block(Block).
+
+-spec verified_signees(block()) -> [libp2p_crypto:pubkey_bin()].
+verified_signees(Block) ->
+    (type(Block)):verified_signees(Block).
 
 -spec serialize(block()) -> binary().
 serialize(Block) ->
