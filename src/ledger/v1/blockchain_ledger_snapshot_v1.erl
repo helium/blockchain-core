@@ -246,10 +246,14 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
     end.
 
 %% simple framing with version, size, & snap
--spec frame(pos_integer(), iolist()) -> iolist().
+-spec frame(pos_integer(), iolist() | binary()) -> iolist().
 frame(Vsn, Data) ->
     Siz = iolist_size(Data),
     [<<Vsn:8/integer>>, <<Siz:32/little-unsigned-integer>>, Data].
+
+-spec frame_bin(pos_integer(), binary()) -> binary().
+frame_bin(Vsn, Data) ->
+    iolist_to_binary(frame(Vsn, Data)).
 
 -spec serialize(snapshot_of_any_version()) ->
     iolist() | binary().
@@ -289,60 +293,35 @@ serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
     Pairs = maps:to_list(maps:put(Key, Blocks, Snapshot)),
     frame(6, serialize_pairs(Pairs)).
 
+-spec serialize_v5(snapshot_v5(), noblocks) -> binary().
 serialize_v5(Snapshot, noblocks) ->
-    %% NOTE: serialize_v5 only gets called with noblocks
+    %% XXX serialize_v5 only gets called with noblocks
     Snapshot1 = Snapshot#{blocks => []},
-    Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
-    BinSz = byte_size(Bin),
+    frame_bin(5, term_to_binary(Snapshot1, [{compressed, 9}])).
 
-    %% do some simple framing with version, size, & snap
-    Snap = <<5, %% version
-             BinSz:32/little-unsigned-integer, Bin/binary>>,
-    Snap.
-
+-spec serialize_v4(#blockchain_snapshot_v4{}, noblocks) -> binary().
 serialize_v4(Snapshot, noblocks) ->
-    %% NOTE: serialize_v4 only gets called with noblocks
+    %% XXX serialize_v4 only gets called with noblocks
     Snapshot1 = Snapshot#blockchain_snapshot_v4{blocks = []},
-    Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
-    BinSz = byte_size(Bin),
+    frame_bin(4, term_to_binary(Snapshot1, [{compressed, 9}])).
 
-    %% do some simple framing with version, size, & snap
-    Snap = <<4, %% version
-             BinSz:32/little-unsigned-integer, Bin/binary>>,
-    Snap.
-
+-spec serialize_v3(#blockchain_snapshot_v3{}, noblocks) -> binary().
 serialize_v3(Snapshot, noblocks) ->
-    %% NOTE: serialize_v3 only gets called with noblocks
+    %% XXX serialize_v3 only gets called with noblocks
     Snapshot1 = Snapshot#blockchain_snapshot_v3{blocks = []},
-    Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
-    BinSz = byte_size(Bin),
+    frame_bin(3, term_to_binary(Snapshot1, [{compressed, 9}])).
 
-    %% do some simple framing with version, size, & snap
-    Snap = <<3, %% version
-             BinSz:32/little-unsigned-integer, Bin/binary>>,
-    Snap.
-
+-spec serialize_v2(#blockchain_snapshot_v2{}, noblocks) -> binary().
 serialize_v2(Snapshot, noblocks) ->
-    %% NOTE: serialize_v2 only gets called with noblocks
+    %% XXX serialize_v2 only gets called with noblocks
     Snapshot1 = Snapshot#blockchain_snapshot_v2{blocks = []},
-    Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
-    BinSz = byte_size(Bin),
+    frame_bin(2, term_to_binary(Snapshot1, [{compressed, 9}])).
 
-    %% do some simple framing with version, size, & snap
-    Snap = <<2, %% version
-             BinSz:32/little-unsigned-integer, Bin/binary>>,
-    Snap.
-
+-spec serialize_v1(#blockchain_snapshot_v1{}, noblocks) -> binary().
 serialize_v1(Snapshot, noblocks) ->
-    %% NOTE: serialize_v1 only gets called with noblocks
+    %% XXX serialize_v1 only gets called with noblocks
     Snapshot1 = Snapshot#blockchain_snapshot_v1{blocks = []},
-    Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
-    BinSz = byte_size(Bin),
-
-    %% do some simple framing with version, size, & snap
-    Snap = <<1, %% version
-             BinSz:32/little-unsigned-integer, Bin/binary>>,
-    Snap.
+    frame_bin(1, term_to_binary(Snapshot1, [{compressed, 9}])).
 
 -spec deserialize(DigestOpt :: none | {some, binary()}, binary()) ->
       {ok, snapshot()}
