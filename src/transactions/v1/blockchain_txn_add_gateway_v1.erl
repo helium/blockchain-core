@@ -380,10 +380,10 @@ gateway_mode(Ledger, Payer) ->
         not_found ->
                 full;
         Mappings when is_list(Mappings) ->
-            %% check if there is an entry for the payer key, if not default to light gw
-            %% if a GW needs to be non light, its payer MUST have an entry in the staking key mappings table
+            %% check if there is an entry for the payer key, if not default to dataonly gw
+            %% if a GW needs to be non dataonly, its payer MUST have an entry in the staking key mappings table
             case proplists:get_value(Payer, Mappings, not_found) of
-                not_found -> light;
+                not_found -> dataonly;
                 GWMode -> binary_to_atom(GWMode, utf8)
             end
     end.
@@ -417,9 +417,11 @@ to_json(Txn, _Opts) ->
      }.
 
 -spec staking_fee_for_gw_mode(blockchain_ledger_gateway_v2:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+staking_fee_for_gw_mode(dataonly, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_add_dataonly_gateway_v1(Ledger);
 staking_fee_for_gw_mode(light, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_light_gateway_v1(Ledger);
-staking_fee_for_gw_mode(_, Ledger)->
+staking_fee_for_gw_mode(full, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
 
 

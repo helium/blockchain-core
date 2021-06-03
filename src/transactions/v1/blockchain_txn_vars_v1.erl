@@ -761,8 +761,8 @@ validate_staking_keys_to_mode_mappings([{PubKey, GWMode} | T]) ->
             throw({error, {invalid_staking_to_mode_mapping, {PubKey, GWMode}}})
     end.
 
-validate_staking_key_mode_mapping_value(GWMode) when GWMode == <<"light">>;
-                                                     GWMode == <<"nonconsensus">>;
+validate_staking_key_mode_mapping_value(GWMode) when GWMode == <<"dataonly">>;
+                                                     GWMode == <<"light">>;
                                                      GWMode == <<"full">> ->
     ok;
 validate_staking_key_mode_mapping_value(GWMode) ->
@@ -1115,7 +1115,7 @@ validate_var(?staking_keys, Value) ->
     validate_staking_keys_format(Value);
 
 validate_var(?staking_keys_to_mode_mappings, Value) ->
-    %% the staking key mode mappings, a key value list of staking keys and their associated gateway types ( light, nonconsensus and full )
+    %% the staking key mode mappings, a key value list of staking keys and their associated gateway types ( dataonly, light, and full )
     validate_staking_keys_to_mode_mappings_format(Value);
 
 %% txn fee vars below are in DC
@@ -1131,6 +1131,10 @@ validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn, in DC
     validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
+validate_var(?staking_fee_txn_add_dataonly_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn where the gateway is of mode dataonly, in DC
+    validate_int(Value, "staking_fee_txn_add_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
 validate_var(?staking_fee_txn_add_light_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn where the gateway is of mode light, in DC
     validate_int(Value, "staking_fee_txn_add_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
@@ -1138,6 +1142,14 @@ validate_var(?staking_fee_txn_add_light_gateway_v1, Value) ->
 validate_var(?staking_fee_txn_assert_location_v1, Value) ->
     %% the staking fee price for an assert location txn, in DC
     validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_assert_location_dataonly_gateway_v1, Value) ->
+    %% the staking fee price for an assert location txn for a dataonly gw, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_assert_location_light_gateway_v1, Value) ->
+    %% the staking fee price for an assert location txn for a light gw, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?txn_fee_multiplier, Value) ->
     %% a multiplier applied to txn fee, in DC
@@ -1201,17 +1213,17 @@ validate_var(?max_antenna_gain, Value) ->
     %% Initially set to 150 to imply 15 dBi
     validate_int(Value, "max_antenna_gain", 10, 200, false);
 
+validate_var(?dataonly_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a dataonly gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "dataonly_gateway_capabilities_mask", 0, 65536, false);
+
 validate_var(?light_gateway_capabilities_mask, Value) ->
     %% a bitmask determining capabilities of a light gateway - using a 16bit mask.
     %% see blockchain_caps.hrl for capability list
     %% TODO - allow for > 16 bit mask here?
     validate_int(Value, "light_gateway_capabilities_mask", 0, 65536, false);
-
-validate_var(?non_consensus_gateway_capabilities_mask, Value) ->
-    %% a bitmask determining capabilities of a non consensus gateway - using a 16bit mask.
-    %% see blockchain_caps.hrl for capability list
-    %% TODO - allow for > 16 bit mask here?
-    validate_int(Value, "non_consensus_gateway_capabilities_mask", 0, 65536, false);
 
 validate_var(?full_gateway_capabilities_mask, Value) ->
     %% a bitmask determining capabilities of a full gateway - using a 16bit mask.

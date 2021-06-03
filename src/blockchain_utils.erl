@@ -593,9 +593,9 @@ staking_keys_to_mode_mappings_test() ->
     EccPK1 = libp2p_crypto:pubkey_to_bin(RawEccPK1),
     EccPK2 = libp2p_crypto:pubkey_to_bin(RawEccPK2),
     EdPK = libp2p_crypto:pubkey_to_bin(RawEdPK),
-    BinMappings = prop_to_bin([{EccPK1, <<"light">>}, {EccPK2, <<"nonconsensus">>}, {EdPK, <<"full">>}]),
+    BinMappings = prop_to_bin([{EccPK1, <<"dataonly">>}, {EccPK2, <<"light">>}, {EdPK, <<"full">>}]),
     Results = bin_to_prop(BinMappings),
-    ?assertEqual([{EccPK1, <<"light">>}, {EccPK2, <<"nonconsensus">>}, {EdPK, <<"full">>}], Results),
+    ?assertEqual([{EccPK1, <<"dataonly">>}, {EccPK2, <<"light">>}, {EdPK, <<"full">>}], Results),
     Results1 = [ libp2p_crypto:bin_to_pubkey(K) || {K, _V} <- Results ],
     ?assertEqual([RawEccPK1, RawEccPK2, RawEdPK], Results1).
 

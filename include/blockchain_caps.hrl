@@ -1,5 +1,5 @@
 %%
-%% A gateway can be set to one of 3 modes, light, nonconsensus and full
+%% A gateway can be set to one of 3 modes, dataonly, light and full
 %% each mode then has a bitmask defined via a chain var which
 %% determines the range of capabilities applicable for the given mode
 %%
@@ -19,8 +19,8 @@
 %% but the corresponding bitmask chain var is not found....which should never really happen but
 %% I feel better for covering the scenario
 %%
--define(GW_CAPABILITIES_LIGHT_GATEWAY_V1, 0 bor ?GW_CAPABILITY_ROUTE_PACKETS).
--define(GW_CAPABILITIES_NON_CONSENSUS_GATEWAY_V1, 0 bor ?GW_CAPABILITY_ROUTE_PACKETS
+-define(GW_CAPABILITIES_DATAONLY_GATEWAY_V1, 0 bor ?GW_CAPABILITY_ROUTE_PACKETS).
+-define(GW_CAPABILITIES_LIGHT_GATEWAY_V1, 0 bor ?GW_CAPABILITY_ROUTE_PACKETS
                                                     bor ?GW_CAPABILITY_POC_CHALLENGER
                                                     bor ?GW_CAPABILITY_POC_CHALLENGEE
                                                     bor ?GW_CAPABILITY_POC_WITNESS
