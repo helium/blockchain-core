@@ -66,7 +66,7 @@ init(server, _Conn, [_Path, _, Chain]) ->
 handle_data(client, Data, #state{chain = Chain, hash = Hash, owner = undefined} = State) ->
     #blockchain_snapshot_resp_pb{snapshot = BinSnap} =
         blockchain_snapshot_handler_pb:decode_msg(Data, blockchain_snapshot_resp_pb),
-    case blockchain_ledger_snapshot_v1:deserialize(Hash, BinSnap) of
+    case blockchain_ledger_snapshot_v1:deserialize({some, Hash}, BinSnap) of
         {ok, Snapshot} ->
             Height = blockchain_ledger_snapshot_v1:height(Snapshot),
 
@@ -89,7 +89,7 @@ handle_data(client, Data, #state{chain = Chain, hash = Hash, owner = undefined} 
 handle_data(client, Data, #state{owner = Owner, hash = Hash} = State) ->
     #blockchain_snapshot_resp_pb{snapshot = BinSnap} =
         blockchain_snapshot_handler_pb:decode_msg(Data, blockchain_snapshot_resp_pb),
-    case blockchain_ledger_snapshot_v1:deserialize(Hash, BinSnap) of
+    case blockchain_ledger_snapshot_v1:deserialize({some, Hash}, BinSnap) of
         {ok, Snapshot} ->
             Owner ! {ok, Snapshot};
         {error, _Reason} ->

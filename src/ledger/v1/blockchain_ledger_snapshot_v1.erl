@@ -251,19 +251,30 @@ frame(Vsn, Data) ->
     Siz = iolist_size(Data),
     [<<Vsn:8/integer>>, <<Siz:32/little-unsigned-integer>>, Data].
 
--spec serialize(snapshot()) ->
-    iolist().
+-spec serialize(snapshot_of_any_version()) ->
+    iolist() | binary().
 serialize(Snapshot) ->
     serialize(Snapshot, blocks).
 
-serialize(Snapshot, BlocksP) ->
-    serialize_v6(Snapshot, BlocksP).
+-spec serialize(snapshot_of_any_version(), blocks | noblocks) ->
+    iolist() | binary().
+serialize(Snapshot, BlocksOrNoBlocks) ->
+    Serialize =
+        case version(Snapshot) of
+            v6 -> fun serialize_v6/2;
+            v5 -> fun serialize_v5/2;
+            v4 -> fun serialize_v4/2;
+            v3 -> fun serialize_v3/2;
+            v2 -> fun serialize_v2/2;
+            v1 -> fun serialize_v1/2
+        end,
+    Serialize(Snapshot, BlocksOrNoBlocks).
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
-serialize_v6(#{version := v6}=Snapshot, BlocksP) ->
+serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
     Key = blocks,
     Blocks =
-        case BlocksP of
+        case BlocksOrNoBlocks of
             blocks ->
                     lists:map(
                         fun (B) when is_tuple(B) ->
@@ -333,11 +344,11 @@ serialize_v1(Snapshot, noblocks) ->
              BinSz:32/little-unsigned-integer, Bin/binary>>,
     Snap.
 
--spec deserialize(binary(), binary()) ->
+-spec deserialize(DigestOpt :: none | {some, binary()}, binary()) ->
       {ok, snapshot()}
     | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
-deserialize(SHA, <<Bin0/binary>>) ->
+deserialize(DigestOpt, <<Bin0/binary>>) ->
     try
         <<Vsn:8/integer, Siz:32/little-unsigned-integer, Bin:Siz/binary>> = Bin0,
         Snapshot =
@@ -350,10 +361,12 @@ deserialize(SHA, <<Bin0/binary>>) ->
                 6 ->
                     maps:from_list(deserialize_pairs(Bin))
             end,
-        case hash(Vsn, Snapshot) of
-            Hash when Hash == SHA orelse Hash == nocheck ->
+        case {DigestOpt, hash(Snapshot)} of
+            {none, _} ->
                 {ok, upgrade(Snapshot)};
-            _Other ->
+            {{some, Digest}, Digest} ->
+                {ok, upgrade(Snapshot)};
+            {{some, _}, _} ->
                 {error, bad_snapshot_hash}
         end
     catch _:_ ->
@@ -559,22 +572,9 @@ get_h3dex(#{h3dex := H3Dex}) ->
 height(#{current_height := H}) ->
     H.
 
--spec hash(snapshot()) -> binary().
+-spec hash(snapshot_of_any_version()) -> binary().
 hash(Snap) ->
-    hash(version(Snap), Snap).
-
-hash(V, Snap) when V == 1 orelse V == v1 ->
-    crypto:hash(sha256, serialize_v1(Snap, noblocks));
-hash(V, Snap) when V == 2 orelse V == v2 ->
-    crypto:hash(sha256, serialize_v2(Snap, noblocks));
-hash(V, Snap) when V == 3 orelse V == v3 ->
-    crypto:hash(sha256, serialize_v3(Snap, noblocks));
-hash(V, Snap) when V == 4 orelse V == v4 ->
-    crypto:hash(sha256, serialize_v4(Snap, noblocks));
-hash(V, Snap) when V == 5 orelse V == v5 ->
-    crypto:hash(sha256, serialize_v5(Snap, noblocks));
-hash(V, Snap) when V == 6 orelse V == v6 ->
-    crypto:hash(sha256, serialize_v6(Snap, noblocks)).
+    crypto:hash(sha256, serialize(Snap, noblocks)).
 
 v1_to_v2(#blockchain_snapshot_v1{
             previous_snapshot_hash = <<>>,

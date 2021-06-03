@@ -114,7 +114,7 @@ snapshot_load(_, _, _) ->
 snapshot_load(Filename) ->
     {ok, BinSnap} = file:read_file(Filename),
 
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(nocheck, BinSnap),
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(none, BinSnap),
     Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
     ok = blockchain_worker:install_snapshot(Hash, Snapshot),
@@ -166,8 +166,8 @@ snapshot_diff(AFilename, BFilename) ->
     {ok, ABinSnap} = file:read_file(AFilename),
     {ok, BBinSnap} = file:read_file(BFilename),
 
-    {ok, A} = blockchain_ledger_snapshot_v1:deserialize(nocheck, ABinSnap),
-    {ok, B} = blockchain_ledger_snapshot_v1:deserialize(nocheck, BBinSnap),
+    {ok, A} = blockchain_ledger_snapshot_v1:deserialize(none, ABinSnap),
+    {ok, B} = blockchain_ledger_snapshot_v1:deserialize(none, BBinSnap),
 
     blockchain_ledger_snapshot_v1:diff(A, B).
 
@@ -184,7 +184,7 @@ snapshot_info_usage() ->
 
 snapshot_info(["snapshot", "info", Filename], [], []) ->
     {ok, BinSnap} = file:read_file(Filename),
-    {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize(nocheck, BinSnap),
+    {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize(none, BinSnap),
     [clique_status:text(io_lib:format("Height ~p\nHash ~p (~p)\n",
                                       [blockchain_ledger_snapshot_v1:height(Snap),
                                        blockchain_ledger_snapshot_v1:hash(Snap),

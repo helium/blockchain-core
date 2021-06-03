@@ -68,7 +68,7 @@ basic_test(_Config) ->
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
-    {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(HashA, SnapshotABin),
+    {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize({some, HashA}, SnapshotABin),
     HashB = blockchain_ledger_snapshot_v1:hash(SnapshotB),
     ?assertEqual(HashA, HashB),
     LedgerB = blockchain_ledger_snapshot_v1:import(Chain, HashA, SnapshotB),
@@ -87,7 +87,7 @@ basic_test(_Config) ->
 
     ok = blockchain:add_snapshot(SnapshotC, Chain),
     {ok, SnapshotDBin} = blockchain:get_snapshot(HashC, Chain),
-    {ok, SnapshotD} = blockchain_ledger_snapshot_v1:deserialize(HashC, SnapshotDBin),
+    {ok, SnapshotD} = blockchain_ledger_snapshot_v1:deserialize({some, HashC}, SnapshotDBin),
     ?assertEqual(SnapshotC, SnapshotD),
     HashD = blockchain_ledger_snapshot_v1:hash(SnapshotD),
     ?assertEqual(HashC, HashD),
