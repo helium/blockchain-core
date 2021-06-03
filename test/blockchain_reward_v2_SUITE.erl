@@ -32,7 +32,7 @@ init_per_suite(Config) ->
 
     {ok, BinSnap} = file:read_file(Filename),
 
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(nocheck, BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
     {ok, _GWCache} = blockchain_gateway_cache:start_link(),
@@ -42,7 +42,7 @@ init_per_suite(Config) ->
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
-    {ok, Ledger1} = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
+    Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
 
     ct:pal("loaded ledger at height ~p", [Height]),
