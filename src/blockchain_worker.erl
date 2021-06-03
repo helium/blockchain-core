@@ -380,14 +380,18 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             OldLedger = blockchain:ledger(Chain),
             blockchain_ledger_v1:clean(OldLedger),
             %% TODO proper error checking and recovery/retry
-            {ok, NewLedger} = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
+            NewLedger = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
             try
-                %% there is a hole in the snapshot history where this will be true, but later it
-                %% will have come from the snap.
-                true = erlang:is_map(Snapshot), % fail into the catch if it's an older record
-                H3dex = maps:get(h3dex, Snapshot), % fail into the catch if it's missing
+                %% There is a hole in the snapshot history where this will be
+                %% true, but later it will have come from the snap.
+
+                %% fail into the catch if it's an older record
+                true = blockchain_ledger_snapshot_v1:is_v6(Snapshot),
+                %% fail into the catch if it's missing
+                H3dex = blockchain_ledger_snapshot_v1:get_h3dex(Snapshot),
+
                 case length(H3dex) > 0 of
                     true -> ok;
                     false -> throw(bootstrap) % fail into the catch it's an empty default value
@@ -919,7 +923,7 @@ start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
                                                                 blessed_snapshot_block_height),
                                       Url = build_url(BaseUrl, ConfigHeight),
                                       %% this return snapshot is already deserialized
-                                      {ok, Snap} = attempt_fetch_s3_snapshot(Url),
+                                      {ok, Snap} = attempt_fetch_s3_snapshot(Hash, Url),
                                       lager:info("Successfully downloaded snap from ~p", [Url]),
                                       blockchain_worker:install_snapshot(Hash, Snap)
                               end
@@ -960,7 +964,7 @@ build_url(BaseUrl, Height) ->
     Filename = "snap-" ++ HeightStr,
     BaseUrl ++ "/" ++ Filename.
 
-attempt_fetch_s3_snapshot(Url) ->
+attempt_fetch_s3_snapshot(SHA, Url) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
     Headers = [
                {"user-agent", "blockchain-worker-1"}
@@ -976,7 +980,7 @@ attempt_fetch_s3_snapshot(Url) ->
 
     lager:info("Attempting snapshot download from ~p", [Url]),
     case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
-        {ok, {200, Response}} -> blockchain_ledger_snapshot_v1:deserialize(Response);
+        {ok, {200, Response}} -> blockchain_ledger_snapshot_v1:deserialize(SHA, Response);
         {ok, {404, _Response}} -> throw({error, url_not_found});
         {ok, {Status, Response}} -> throw({error, {Status, Response}});
         Other -> throw(Other)
