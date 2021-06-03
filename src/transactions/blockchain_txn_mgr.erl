@@ -483,13 +483,15 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                                                        end, sets:from_list(A0), tl(Dependencies))),
             lager:debug("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
             {_, ExistingDialers} = lists:unzip(Dialers),
-            %% remove any CG members from the elegible list which have already accepted or rejected the txn and also
+            %% remove any CG members from the elegible list which have already accepted the txn and also
             %% those which we are already dialling
-            ElegibleMembers1 = ((ElegibleMembers -- Acceptions) -- Rejections) -- ExistingDialers,
+            %% dont exclude any previous rejectors as the reason rejected may no longer be valid
+            %% previous rejectors may include members which dependant upon txn has now been accepted by
+            ElegibleMembers1 = (ElegibleMembers -- Acceptions) -- ExistingDialers,
             %% determine max number of new diallers we need to start and then use this to get our target list to dial
             MaxNewDiallersCount = SubmitF - length(Acceptions) - length(Dialers),
             NewDialers = dial_members(lists:sublist(ElegibleMembers1, MaxNewDiallersCount), Chain, TxnKey, Txn),
-            lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers), length(NewDialers)]),
+            lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers1), length(NewDialers)]),
             cache_txn(TxnKey, Txn, TxnData#txn_data{dialers =  Dialers ++ NewDialers})
     end.
 
