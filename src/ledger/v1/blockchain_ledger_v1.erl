@@ -4816,7 +4816,14 @@ load_subnets(Subnets, Ledger) ->
       maps:from_list(Subnets)),
     ok.
 
--spec snapshot_state_channels(ledger()) -> [{binary(), binary()}].
+-spec snapshot_state_channels(ledger()) ->
+    [{ID, SC}] when
+    ID :: binary(),
+    SC ::
+        {blockchain_ledger_state_channel_v1, V1}
+        | {blockchain_ledger_state_channel_v2, V2},
+    V1 :: blockchain_ledger_state_channel_v1:state_channel(),
+    V2 :: blockchain_ledger_state_channel_v2:state_channel_v2().
 snapshot_state_channels(Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     lists:sort(

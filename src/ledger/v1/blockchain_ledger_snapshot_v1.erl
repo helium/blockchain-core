@@ -30,6 +30,10 @@
     snapshot_v5/0
 ]).
 
+-type state_channel() ::
+      {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
+    | {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2()}.
+
 %% this assumes that everything will have loaded the genesis block
 %% already.  I'm not sure that's totally safe in all cases, but it's
 %% the right thing for the spots and easy to work around elsewhere.
@@ -39,8 +43,7 @@
 %% format and functionality down.  once it's final we can move on to a
 %% more permanent and less flexible format, like protobufs, or
 %% cauterize.
-
--type snapshot_(Version) ::
+-type snapshot_v5_or_v6(Version) ::
     #{
         version           => Version,
         current_height    => non_neg_integer(),
@@ -49,7 +52,7 @@
         election_height   => non_neg_integer(),
         election_epoch    => non_neg_integer(),
         delayed_vars      => [{integer(), [{Hash :: term(), TODO :: term()}]}], % TODO More specific
-        threshold_txns    => [term()], % TODO Be more specific
+        threshold_txns    => [{binary(), binary()}], % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
         master_key        => binary(),
         multi_keys        => [binary()],
         vars_nonce        => pos_integer(),
@@ -60,7 +63,7 @@
         oui_counter       => pos_integer(),
         hexes             => [term()], % TODO Be more specific
         h3dex             => [{integer(), [binary()]}],
-        state_channels    => [term()], % TODO Be more specific
+        state_channels    => [{binary(), state_channel()}],
         blocks            => [blockchain_block:block()],
         oracle_price      => non_neg_integer(),
         oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
@@ -74,8 +77,8 @@
     }.
 
 %% v5 and v6 differ only in serialization format.
--type snapshot_v5() :: snapshot_(v5).
--type snapshot_v6() :: snapshot_(v6).
+-type snapshot_v5() :: snapshot_v5_or_v6(v5).
+-type snapshot_v6() :: snapshot_v5_or_v6(v6).
 
 -type key() :: atom().
 
@@ -242,7 +245,7 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
              ],
         {ok, maps:from_list(Pairs)}
     catch C:E:S ->
-            {error, {error_taking_snapshot, C, E, S}}
+        {error, {error_taking_snapshot, C, E, S}}
     end.
 
 %% simple framing with version, size, & snap
