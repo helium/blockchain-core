@@ -25,7 +25,6 @@ all() -> [
     light_gateway_poc_checks,
     full_gateway_poc_checks,
     nonconsensus_gateway_poc_checks
-
 ].
 
 %%--------------------------------------------------------------------
@@ -55,6 +54,8 @@ init_per_testcase(TestCase, Config0)  when TestCase == light_gateway_simple_chec
       staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC, %% $100
       staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC, %% $40?
       staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC, %% $10?
+      staking_fee_txn_assert_location_light_gateway_v1 => 5 * ?USD_TO_DC, %% $5
+      staking_fee_txn_assert_location_nonconsensus_gateway_v1 => 5 * ?USD_TO_DC, %% $20
       txn_fee_multiplier => 5000,
       max_payments => 10
     },
@@ -689,7 +690,6 @@ setup(Config)->
     %% light gateway costs 20 usd, confirm thats what we paid
     ?assertEqual(20 * ?USD_TO_DC, AddLightGatewayStFee),
 
-
     %%
     %% add gateway using the staker key setup with non consensus mode, should be added as a non consensus gateway
     %%
@@ -792,20 +792,73 @@ setup(Config)->
 
 
     %%
-    %% Assert the first full Gateways location
+    %% Assert the previously added light gateways location and confirm fee
+    %%
+    AddLightGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, LightGateway, LightStakerGateway),
+    AssertLocationLightGatewayTx = blockchain_txn_assert_location_v1:new(LightGateway, Owner, LightStakerGateway, ?TEST_LOCATION, 1),
+    AssertLocationLightGatewayTxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationLightGatewayTx, Chain),
+    AssertLocationLightGatewayStFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationLightGatewayTx, Chain),
+
+    ?assertEqual(5 * ?USD_TO_DC, AssertLocationLightGatewayStFee),
+
+    AssertLocationLightGatewayTx1 = blockchain_txn_assert_location_v1:fee(AssertLocationLightGatewayTx, AssertLocationLightGatewayTxFee),
+    AssertLocationLightGatewayTx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationLightGatewayTx1, AssertLocationLightGatewayStFee),
+    PartialAssertLocationLightGatewayTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationLightGatewayTx2, LightGatewaySigFun),
+    SignedAssertLocationLightGatewayTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationLightGatewayTxn, OwnerSigFun),
+    SignedPayerAssertLocationLightGatewayTx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationLightGatewayTx, LightStakerSigFun),
+
+    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationLightGatewayTx, Chain)),
+
+    {ok, AssertLocationLightGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationLightGatewayTx]),
+    %% add the block
+    _ = blockchain:add_block(AssertLocationLightGatewayBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 9} =:= blockchain:height(Chain) end),
+
+    %%
+    %% Assert the previously added non consensus gateways location and confirm fee
+    %%
+    AddNonConsensusGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, NonConsensusGateway, NonConsensusStakerGateway),
+    AssertLocationNonConsensusGatewayTx = blockchain_txn_assert_location_v1:new(NonConsensusGateway, Owner, NonConsensusStakerGateway, ?TEST_LOCATION, 1),
+    AssertLocationNonConsensusGatewayTxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationNonConsensusGatewayTx, Chain),
+    AssertLocationNonConsensusGatewayStFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationNonConsensusGatewayTx, Chain),
+
+    ?assertEqual(5 * ?USD_TO_DC, AssertLocationNonConsensusGatewayStFee),
+
+    AssertLocationNonConsensusGatewayTx1 = blockchain_txn_assert_location_v1:fee(AssertLocationNonConsensusGatewayTx, AssertLocationNonConsensusGatewayTxFee),
+    AssertLocationNonConsensusGatewayTx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationNonConsensusGatewayTx1, AssertLocationNonConsensusGatewayStFee),
+    PartialAssertLocationNonConsensusGatewayTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationNonConsensusGatewayTx2, NonConsensusGatewaySigFun),
+    SignedAssertLocationNonConsensusGatewayTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationNonConsensusGatewayTxn, OwnerSigFun),
+    SignedPayerAssertLocationNonConsensusGatewayTx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationNonConsensusGatewayTx, NonConsensusStakerSigFun),
+
+    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationNonConsensusGatewayTx, Chain)),
+
+    {ok, AssertLocationNonConsensusGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationNonConsensusGatewayTx]),
+    %% add the block
+    _ = blockchain:add_block(AssertLocationNonConsensusGatewayBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
+
+    %%
+    %% Assert the first full Gateways location and confirm fee
     %%
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(FullGateway, Owner, Payer, ?TEST_LOCATION, 1),
     AssertLocationTxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationRequestTx, Chain),
-    AAssertLocationStFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationRequestTx, Chain),
+    AssertLocationStFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationRequestTx, Chain),
+
+    ?assertEqual(10 * ?USD_TO_DC, AssertLocationStFee),
+
     AssertLocationRequestTx1 = blockchain_txn_assert_location_v1:fee(AssertLocationRequestTx, AssertLocationTxFee),
-    AssertLocationRequestTx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationRequestTx1, AAssertLocationStFee),
+    AssertLocationRequestTx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationRequestTx1, AssertLocationStFee),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx2, FullGatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
     SignedPayerAssertLocationTx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx, PayerSigFun),
 
+    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx, Chain)),
+
     {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationTx]),
     ok = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 9} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
 
     %%
     %% Have the full GW issue a POC challenge
@@ -819,7 +872,7 @@ setup(Config)->
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, FullGatewaySigFun),
     {ok, POCReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
     _ = blockchain_gossip_handler:add_block(POCReqBlock, Chain, self(), blockchain_swarm:swarm()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 12} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
@@ -827,7 +880,7 @@ setup(Config)->
     ?assertEqual({ok, POCReqBlock}, blockchain:get_block(HeadHash3, Chain)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo2} = blockchain_gateway_cache:get(FullGateway, Ledger),
-    ?assertEqual(CurHeight + 10, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo2)),
+    ?assertEqual(CurHeight + 12, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo2)),
     ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo2)),
 
     [

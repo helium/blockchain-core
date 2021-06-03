@@ -1135,6 +1135,14 @@ validate_var(?staking_fee_txn_assert_location_v1, Value) ->
     %% the staking fee price for an assert location txn, in DC
     validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
 
+validate_var(?staking_fee_txn_assert_location_light_gateway_v1, Value) ->
+    %% the staking fee price for an assert location txn for a light gw, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_assert_location_nonconsensus_gateway_v1, Value) ->
+    %% the staking fee price for an assert location txn for a nonconsensus gw, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
+
 validate_var(?txn_fee_multiplier, Value) ->
     %% a multiplier applied to txn fee, in DC
     validate_int(Value, "txn_fee_multiplier", 1, 65536, false);
