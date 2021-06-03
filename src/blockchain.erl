@@ -1646,8 +1646,12 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
             {error, Why}
     end.
 
--spec add_bin_snapshot(blockchain_ledger_snapshot:snapshot(), integer(), binary(), blockchain()) ->
+-spec add_bin_snapshot(blockchain_ledger_snapshot:snapshot(), integer(),
+                       none | {some, binary()} |binary(), blockchain()) ->
                               ok | {error, any()}.
+add_bin_snapshot(_BinSnap, _Height, none, _Chain) -> {error, no_snapshot_hash};
+add_bin_snapshot(BinSnap, Height, {some, Hash}, Chain) ->
+   add_bin_snapshot(BinSnap, Height, Hash, Chain);
 add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
     try
         {ok, Batch} = rocksdb:batch(),
@@ -2114,13 +2118,23 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
     case blockchain:height(Blockchain) of
         %% already loaded the snapshot
         {ok, CurrHeight} when CurrHeight >= Height ->
-            lager:info("ch ~p h ~p: std sync", [CurrHeight, Height]),
+            lager:debug("ch ~p h ~p: std sync", [CurrHeight, Height]),
             blockchain_worker:maybe_sync(),
             Blockchain;
         %% chain lower than the snapshot
         {ok, CurrHeight} ->
-            lager:info("ch ~p h ~p: snap sync", [CurrHeight, Height]),
-            blockchain_worker:snapshot_sync(Hash, Height),
+            lager:debug("ch ~p h ~p: snap sync", [CurrHeight, Height]),
+            case get_snapshot(Hash, Blockchain) of
+               {ok, Snap} ->
+                  lager:info("Got snapshot for height ~p - attempting install", [Height0]),
+                  blockchain_worker:install_snapshot(Hash, Snap);
+               {error, not_found} ->
+                  blockchain_worker:snapshot_sync(Hash, Height);
+               Other ->
+                  lager:error("Got ~p trying to get snapshot at height: ~p hash ~p - attempt to sync",
+                              [Other, Height0, Hash]),
+                  blockchain_worker:snapshot_sync(Hash, Height)
+            end,
             Blockchain;
         %% no chain at all, we need the genesis block first
         _ ->
