@@ -2129,8 +2129,6 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
                   lager:info("Got snapshot for height ~p - attempting install", [Height0]),
                   blockchain_worker:install_snapshot(Hash, Snap);
                {error, not_found} ->
-                  lager:warning("snapshot at height: ~p not found - attempt to sync",
-                                [Height0, Hash]),
                   blockchain_worker:snapshot_sync(Hash, Height);
                Other ->
                   lager:error("Got ~p trying to get snapshot at height: ~p hash ~p - attempt to sync",
