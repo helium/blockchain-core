@@ -5,7 +5,7 @@
 
 -export([
          serialize/1,
-         deserialize/1,
+         deserialize/2,
 
          is_v6/1,
          version/1,
@@ -140,7 +140,7 @@ snapshot(Ledger0, Blocks, Mode) ->
                 {
                     max_heap_size,
                     (fun() ->
-                        Mb = application:get_env(blockchain, snapshot_memory_limit, 75),
+                        Mb = application:get_env(blockchain, snapshot_memory_limit, 100),
                         Mb * 1024 * 1024 div erlang:system_info(wordsize)
                     end)()
                 },
@@ -246,24 +246,39 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
     end.
 
 %% simple framing with version, size, & snap
--spec frame(pos_integer(), iolist()) -> iolist().
+-spec frame(pos_integer(), iolist() | binary()) -> iolist().
 frame(Vsn, Data) ->
     Siz = iolist_size(Data),
     [<<Vsn:8/integer>>, <<Siz:32/little-unsigned-integer>>, Data].
 
--spec serialize(snapshot()) ->
-    iolist().
+-spec frame_bin(pos_integer(), binary()) -> binary().
+frame_bin(Vsn, Data) ->
+    iolist_to_binary(frame(Vsn, Data)).
+
+-spec serialize(snapshot_of_any_version()) ->
+    iolist() | binary().
 serialize(Snapshot) ->
     serialize(Snapshot, blocks).
 
-serialize(Snapshot, BlocksP) ->
-    serialize_v6(Snapshot, BlocksP).
+-spec serialize(snapshot_of_any_version(), blocks | noblocks) ->
+    iolist() | binary().
+serialize(Snapshot, BlocksOrNoBlocks) ->
+    Serialize =
+        case version(Snapshot) of
+            v6 -> fun serialize_v6/2;
+            v5 -> fun serialize_v5/2;
+            v4 -> fun serialize_v4/2;
+            v3 -> fun serialize_v3/2;
+            v2 -> fun serialize_v2/2;
+            v1 -> fun serialize_v1/2
+        end,
+    Serialize(Snapshot, BlocksOrNoBlocks).
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
-serialize_v6(#{version := v6}=Snapshot, BlocksP) ->
+serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
     Key = blocks,
     Blocks =
-        case BlocksP of
+        case BlocksOrNoBlocks of
             blocks ->
                     lists:map(
                         fun (B) when is_tuple(B) ->
@@ -278,10 +293,41 @@ serialize_v6(#{version := v6}=Snapshot, BlocksP) ->
     Pairs = maps:to_list(maps:put(Key, Blocks, Snapshot)),
     frame(6, serialize_pairs(Pairs)).
 
--spec deserialize(binary()) ->
+-spec serialize_v5(snapshot_v5(), noblocks) -> binary().
+serialize_v5(Snapshot, noblocks) ->
+    %% XXX serialize_v5 only gets called with noblocks
+    Snapshot1 = Snapshot#{blocks => []},
+    frame_bin(5, term_to_binary(Snapshot1, [{compressed, 9}])).
+
+-spec serialize_v4(#blockchain_snapshot_v4{}, noblocks) -> binary().
+serialize_v4(Snapshot, noblocks) ->
+    %% XXX serialize_v4 only gets called with noblocks
+    Snapshot1 = Snapshot#blockchain_snapshot_v4{blocks = []},
+    frame_bin(4, term_to_binary(Snapshot1, [{compressed, 9}])).
+
+-spec serialize_v3(#blockchain_snapshot_v3{}, noblocks) -> binary().
+serialize_v3(Snapshot, noblocks) ->
+    %% XXX serialize_v3 only gets called with noblocks
+    Snapshot1 = Snapshot#blockchain_snapshot_v3{blocks = []},
+    frame_bin(3, term_to_binary(Snapshot1, [{compressed, 9}])).
+
+-spec serialize_v2(#blockchain_snapshot_v2{}, noblocks) -> binary().
+serialize_v2(Snapshot, noblocks) ->
+    %% XXX serialize_v2 only gets called with noblocks
+    Snapshot1 = Snapshot#blockchain_snapshot_v2{blocks = []},
+    frame_bin(2, term_to_binary(Snapshot1, [{compressed, 9}])).
+
+-spec serialize_v1(#blockchain_snapshot_v1{}, noblocks) -> binary().
+serialize_v1(Snapshot, noblocks) ->
+    %% XXX serialize_v1 only gets called with noblocks
+    Snapshot1 = Snapshot#blockchain_snapshot_v1{blocks = []},
+    frame_bin(1, term_to_binary(Snapshot1, [{compressed, 9}])).
+
+-spec deserialize(DigestOpt :: none | {some, binary()}, binary()) ->
       {ok, snapshot()}
+    | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
-deserialize(<<Bin0/binary>>) ->
+deserialize(DigestOpt, <<Bin0/binary>>) ->
     try
         <<Vsn:8/integer, Siz:32/little-unsigned-integer, Bin:Siz/binary>> = Bin0,
         Snapshot =
@@ -294,26 +340,22 @@ deserialize(<<Bin0/binary>>) ->
                 6 ->
                     maps:from_list(deserialize_pairs(Bin))
             end,
-        {ok, upgrade(Snapshot)}
+        case {DigestOpt, hash(Snapshot)} of
+            {none, _} ->
+                {ok, upgrade(Snapshot)};
+            {{some, Digest}, Digest} ->
+                {ok, upgrade(Snapshot)};
+            {{some, _}, _} ->
+                {error, bad_snapshot_hash}
+        end
     catch _:_ ->
         {error, bad_snapshot_binary}
     end.
 
 %% sha will be stored externally
 -spec import(blockchain:blockchain(), binary(), snapshot()) ->
-    {ok, blockchain_ledger_v1:ledger()} | {error, bad_snapshot_checksum}.
-import(Chain, SHA0, #{version := v6}=Snapshot) ->
-    SHA1 = hash(Snapshot),
-    case SHA0 == SHA1 of
-        false ->
-            {error, bad_snapshot_checksum};
-        true ->
-            {ok, import_(Chain, SHA1, Snapshot)}
-    end.
-
--spec import_(blockchain:blockchain(), binary(), snapshot()) ->
     blockchain_ledger_v1:ledger().
-import_(Chain, SHA, #{version := v6}=Snapshot) ->
+import(Chain, SHA, #{version := v6}=Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
     Ledger0 =
@@ -509,9 +551,9 @@ get_h3dex(#{h3dex := H3Dex}) ->
 height(#{current_height := H}) ->
     H.
 
--spec hash(snapshot()) -> binary().
-hash(#{version := v6}=Snap) ->
-    crypto:hash(sha256, serialize_v6(Snap, noblocks)).
+-spec hash(snapshot_of_any_version()) -> binary().
+hash(Snap) ->
+    crypto:hash(sha256, serialize(Snap, noblocks)).
 
 v1_to_v2(#blockchain_snapshot_v1{
             previous_snapshot_hash = <<>>,
