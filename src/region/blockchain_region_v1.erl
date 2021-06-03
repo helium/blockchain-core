@@ -28,8 +28,11 @@ get_all_regions(Ledger) ->
 -spec h3_to_region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, atom()} | {error, any()}.
 h3_to_region(H3, Ledger) ->
-    {ok, Regions} = get_all_regions(Ledger),
-    region_(Regions, H3, Ledger).
+    case get_all_regions(Ledger) of
+        {ok, Regions} ->
+            region_(Regions, H3, Ledger);
+        E -> E
+    end.
 
 -spec h3_in_region(H3 :: h3:h3_index(),
                    RegionVar :: atom(),
