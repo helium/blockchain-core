@@ -44,11 +44,11 @@
 %% format and functionality down.  once it's final we can move on to a
 %% more permanent and less flexible format, like protobufs, or
 %% cauterize.
--type snapshot_v5_or_v6(Version) ::
+-type snapshot_v5() ::
     #{
-        version           => Version,
+        version           => v5,
         current_height    => non_neg_integer(),
-        transaction_fee   =>  non_neg_integer(),
+        transaction_fee   => non_neg_integer(),
         consensus_members => [libp2p_crypto:pubkey_bin()],
         election_height   => non_neg_integer(),
         election_epoch    => non_neg_integer(),
@@ -77,13 +77,41 @@
         security_accounts => [{binary(), binary()}]
     }.
 
-%% v5 and v6 differ only in serialization format.
--type snapshot_v5() :: snapshot_v5_or_v6(v5).
--type snapshot_v6() :: snapshot_v5_or_v6(v6).
+-type snapshot_v6() ::
+    [ {version           , v6}
+    | {current_height    , non_neg_integer()}
+    | {transaction_fee   , non_neg_integer()}
+    | {consensus_members , [libp2p_crypto:pubkey_bin()]}
+    | {election_height   , non_neg_integer()}
+    | {election_epoch    , non_neg_integer()}
+    | {delayed_vars      , [{integer(), [{Hash :: term(), TODO :: term()}]}]} % TODO More specific
+    | {threshold_txns    , [{binary(), binary()}]} % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
+    | {master_key        , binary()}
+    | {multi_keys        , [binary()]}
+    | {vars_nonce        , pos_integer()}
+    | {vars              , [{binary(), term()}]} % TODO What is the term()?
+    | {htlcs             , [{Address :: binary(), blockchain_ledger_htlc_v1:htlc()}]}
+    | {ouis              , [term()]} % TODO Be more specific
+    | {subnets           , [term()]} % TODO Be more specific
+    | {oui_counter       , pos_integer()}
+    | {hexes             , [term()]} % TODO Be more specific
+    | {h3dex             , [{integer(), [binary()]}]}
+    | {state_channels    , [{binary(), state_channel()}]}
+    | {blocks            , [blockchain_block:block()]}
+    | {oracle_price      , non_neg_integer()}
+    | {oracle_price_list , [blockchain_ledger_oracle_price_entry:oracle_price_entry()]}
+
+    %% Raw
+    | {gateways          , [{binary(), binary()}]}
+    | {pocs              , [{binary(), binary()}]}
+    | {accounts          , [{binary(), binary()}]}
+    | {dc_accounts       , [{binary(), binary()}]}
+    | {security_accounts , [{binary(), binary()}]}
+    ].
 
 -type key() :: atom().
 
--type snapshot_of_any_version() ::
+-type snapshot_any() ::
     #blockchain_snapshot_v1{}
     | #blockchain_snapshot_v2{}
     | #blockchain_snapshot_v3{}
@@ -244,7 +272,7 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {oracle_price     , OraclePrice},
                 {oracle_price_list, OraclePriceList}
              ],
-        {ok, maps:from_list(Pairs)}
+        {ok, lists:keysort(1, Pairs)}
     catch C:E:S ->
         {error, {error_taking_snapshot, C, E, S}}
     end.
@@ -259,12 +287,12 @@ frame(Vsn, Data) ->
 frame_bin(Vsn, Data) ->
     iolist_to_binary(frame(Vsn, Data)).
 
--spec serialize(snapshot_of_any_version()) ->
+-spec serialize(snapshot_any()) ->
     iolist() | binary().
 serialize(Snapshot) ->
     serialize(Snapshot, blocks).
 
--spec serialize(snapshot_of_any_version(), blocks | noblocks) ->
+-spec serialize(snapshot_any(), blocks | noblocks) ->
     iolist() | binary().
 serialize(Snapshot, BlocksOrNoBlocks) ->
     Serialize =
@@ -279,7 +307,7 @@ serialize(Snapshot, BlocksOrNoBlocks) ->
     Serialize(Snapshot, BlocksOrNoBlocks).
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
-serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
+serialize_v6([_|_]=Snapshot0, BlocksOrNoBlocks) ->
     Key = blocks,
     Blocks =
         case BlocksOrNoBlocks of
@@ -289,13 +317,13 @@ serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
                                 blockchain_block:serialize(B);
                             (B) -> B
                         end,
-                        maps:get(Key, Snapshot, [])
+                        kvl_get(Snapshot0, Key, [])
                     );
             noblocks ->
                 []
         end,
-    Pairs = maps:to_list(maps:put(Key, Blocks, Snapshot)),
-    frame(6, serialize_pairs(Pairs)).
+    Snapshot1 = kvl_set(Snapshot0, Key, Blocks),
+    frame(6, serialize_pairs(Snapshot1)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
 serialize_v5(Snapshot, noblocks) ->
@@ -349,12 +377,15 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
                     #{version := v5} = S = maps:from_list(binary_to_term(Bin)),
                     S;
                 6 ->
-                    maps:from_list(deserialize_pairs(Bin))
+                    S = deserialize_pairs(Bin),
+                    v6 = version(S),
+                    S
             end,
         case DigestOpt of
             %% if we don't care what the hash is,
             %% don't bother to compute it
-            none -> {ok, upgrade(Snapshot)};
+            none ->
+                {ok, upgrade(Snapshot)};
             {some, Digest} ->
                 case hash(Snapshot) of
                     Digest -> {ok, upgrade(Snapshot)};
@@ -368,7 +399,7 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 %% sha will be stored externally
 -spec import(blockchain:blockchain(), binary(), snapshot()) ->
     blockchain_ledger_v1:ledger().
-import(Chain, SHA, #{version := v6}=Snapshot) ->
+import(Chain, SHA, [_|_]=Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
     Ledger0 =
@@ -413,7 +444,7 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
     L :: blockchain_ledger_v1:ledger(),
     M :: blockchain_ledger_v1:mode().
 load_into_ledger(Snapshot, L0, Mode) ->
-    Get = fun (K) -> maps:get(K, Snapshot) end,
+    Get = fun (K) -> kvl_get_exn(Snapshot, K) end,
     L1 = blockchain_ledger_v1:mode(Mode, L0),
     L = blockchain_ledger_v1:new_context(L1),
     ok = blockchain_ledger_v1:current_height(Get(current_height), L),
@@ -430,17 +461,13 @@ load_into_ledger(Snapshot, L0, Mode) ->
     ok = blockchain_ledger_v1:load_raw_gateways(Get(gateways), L),
 
     %% optional validator era stuff will be missing in pre validator snaps
-    case maps:find(validators, Snapshot) of
-        error ->
-            ok;
-        {ok, Validators} ->
-            ok = blockchain_ledger_v1:load_validators(Validators, L)
+    case kvl_get(Snapshot, validators) of
+        none -> ok;
+        {some, Validators} -> ok = blockchain_ledger_v1:load_validators(Validators, L)
     end,
-    case maps:find(delayed_hnt, Snapshot) of
-        error ->
-            ok;
-        {ok, DelayedHNT} ->
-            ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT, L)
+    case kvl_get(Snapshot, delayed_hnt) of
+        none -> ok;
+        {some, DelayedHNT} -> ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT, L)
     end,
 
     ok = blockchain_ledger_v1:load_raw_pocs(Get(pocs), L),
@@ -466,7 +493,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
-    Blocks = maps:get(blocks, Snapshot, []),
+    Blocks = kvl_get(Snapshot, blocks, []),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
@@ -481,12 +508,11 @@ load_blocks(Ledger0, Chain, Snapshot) ->
             lists:foreach(
               fun(Block0) ->
                       Block =
-                      case Block0 of
-                          B when is_binary(B) ->
-                              blockchain_block:deserialize(B);
-                          B -> B
-                      end,
-
+                          case Block0 of
+                              <<B/binary>> ->
+                                  blockchain_block:deserialize(B);
+                              B -> B
+                          end,
                       Ht = blockchain_block:height(Block),
                       %% since hash and block are written at the same time, just getting the
                       %% hash from the height is an acceptable presence check, and much cheaper
@@ -555,16 +581,19 @@ get_blocks(Chain) ->
      end
      || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
 
-is_v6(#{version := v6}) -> true;
-is_v6(_) -> false.
+-spec is_v6(snapshot_any()) -> boolean().
+is_v6(Snap) ->
+    v6 =:= version(Snap).
 
-get_h3dex(#{h3dex := H3Dex}) ->
-    H3Dex.
+-spec get_h3dex(snapshot_v6()) -> [{integer(), [binary()]}].
+get_h3dex([_|_]=Snap) ->
+    kvl_get_exn(Snap, h3dex).
 
-height(#{current_height := H}) ->
-    H.
+-spec height(snapshot_v6()) -> non_neg_integer().
+height([_|_]=Snap) ->
+    kvl_get_exn(Snap, current_height).
 
--spec hash(snapshot_of_any_version()) -> binary().
+-spec hash(snapshot_any()) -> binary().
 hash(Snap) ->
     crypto:hash(sha256, serialize(Snap, noblocks)).
 
@@ -899,9 +928,9 @@ v4_to_v5(#blockchain_snapshot_v4{
 
 -spec v5_to_v6(snapshot_v5()) -> snapshot_v6().
 v5_to_v6(#{version := v5}=V5) ->
-    maps:put(version, v6, V5).
+    maps:to_list(maps:put(version, v6, V5)).
 
--spec upgrade(snapshot_of_any_version()) -> snapshot().
+-spec upgrade(snapshot_any()) -> snapshot().
 upgrade(S) ->
     case version(S) of
         v6 -> S;
@@ -912,14 +941,17 @@ upgrade(S) ->
         v1 -> v5_to_v6(v4_to_v5(v3_to_v4(v2_to_v3(v1_to_v2(S)))))
     end.
 
--spec version(snapshot_of_any_version()) -> v1 | v2 | v3 | v4 | v5 | v6.
-version(#{version := V}          ) -> V;
+-spec version(snapshot_any()) -> v1 | v2 | v3 | v4 | v5 | v6.
+version([_|_]=V6                 ) -> v6 = kvl_get(V6, version, undefined);
+version(#{version := V5}         ) -> v5 = V5;
 version(#blockchain_snapshot_v4{}) -> v4;
 version(#blockchain_snapshot_v3{}) -> v3;
 version(#blockchain_snapshot_v2{}) -> v2;
 version(#blockchain_snapshot_v1{}) -> v1.
 
-diff(#{}=A, #{}=B) ->
+-spec diff(snapshot_v6(), snapshot_v6()) ->
+    [tuple()]. % TODO Be more specific
+diff([_|_]=SnapA, [_|_]=SnapB) ->
     lists:foldl(
       fun({Field, AI, BI}, Acc) ->
               case AI == BI of
@@ -966,7 +998,7 @@ diff(#{}=A, #{}=B) ->
               end
       end,
       [],
-      [{K, V, maps:get(K, B, undefined)} || {K, V} <- maps:to_list(A)]).
+      [{K, V, kvl_get(SnapB, K, undefined)} || {K, V} <- SnapA]).
 
 diff_gateways([] , [], Acc) ->
     Acc;
@@ -1065,6 +1097,31 @@ minimize_witnesses(A, B) ->
 -spec kvl_map_vals(fun((V1) -> V2), [{K, V1}]) -> [{K, V2}].
 kvl_map_vals(F, KVL) ->
     [{K, F(V)} || {K, V} <- KVL].
+
+-spec kvl_set([{K, V}], K, V) -> [{K, V}].
+kvl_set(KVL, K, V) ->
+    lists:keystore(K, 1, KVL, {K, V}).
+
+-spec kvl_get([{K, V}], K) -> none | {some, V}.
+kvl_get(KVL, K) ->
+    case lists:keyfind(K, 1, KVL) of
+        false  -> none;
+        {K, V} -> {some, V}
+    end.
+
+-spec kvl_get([{K, V}], K, V) -> V.
+kvl_get(KVL, K, Default) ->
+    case kvl_get(KVL, K) of
+        none      -> Default;
+        {some, V} -> V
+    end.
+
+-spec kvl_get_exn([{K, V}], K) -> V.
+kvl_get_exn(KVL, K) ->
+    case kvl_get(KVL, K) of
+        none      -> erlang:error({not_found, K});
+        {some, V} -> V
+    end.
 
 -spec serialize_pairs([{key(), term()}]) -> iolist().
 serialize_pairs(Pairs) ->
