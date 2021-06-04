@@ -69,9 +69,13 @@ init_per_testcase(TestCase, Config0)  when TestCase == txn_fees_pay_with_hnt;
       price_oracle_price_scan_max => 50,
       txn_fees => true,
       staking_fee_txn_oui_v1 => 100 * ?USD_TO_DC, %% $100?
-      staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC, %% $100
-      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC, %% $40?
-      staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC, %% $10?
+      staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC,
+      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC,
+      staking_fee_txn_add_dataonly_gateway_v1 => 10 * ?USD_TO_DC,
+      staking_fee_txn_add_light_gateway_v1 => 10 * ?USD_TO_DC,
+      staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC,
+      staking_fee_txn_assert_location_dataonly_gateway_v1 => 5 * ?USD_TO_DC,
+      staking_fee_txn_assert_location_light_gateway_v1 => 5 * ?USD_TO_DC,
       txn_fee_multiplier => 5000,
       max_payments => 10
     },
@@ -104,8 +108,7 @@ init_per_testcase(TestCase, Config0)  when TestCase == txn_fees_pay_with_hnt;
                                        Mappings = [{StakingKeyPubBin, <<"dataonly">>}],
                                        {ok, MappingsBin} = make_staking_keys_mode_mappings(Mappings),
                                        MappingsExtraVars1 = maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0),
-                                       MappingsExtraVars2 = maps:put(staking_fee_txn_add_dataonly_gateway_v1, 20 * ?USD_TO_DC, MappingsExtraVars1),
-                                       {MappingsExtraVars2, [{staking_key, StakingKey}, {staking_key_pub_bin, StakingKeyPubBin}]};
+                                       {MappingsExtraVars1, [{staking_key, StakingKey}, {staking_key_pub_bin, StakingKeyPubBin}]};
                                    _ ->
                                        {ExtraVars0, []}
                                end,
@@ -1436,7 +1439,7 @@ staking_key_mode_mappings_add_light_gateway(Config) ->
     AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
     AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
     %% light gateway costs same to add as a full gateway
-    ?assertEqual(40 * ?USD_TO_DC, AddGatewayStFee),
+    ?assertEqual(10 * ?USD_TO_DC, AddGatewayStFee),
     ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
 
@@ -1517,7 +1520,7 @@ staking_key_mode_mappings_add_dataonly_gateway(Config) ->
     AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
     AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
     %% dataonly gateway costs 20 usd
-    ?assertEqual(20 * ?USD_TO_DC, AddGatewayStFee),
+    ?assertEqual(10 * ?USD_TO_DC, AddGatewayStFee),
     ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
 
