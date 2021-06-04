@@ -52,7 +52,9 @@ init_per_testcase(TestCase, Config0)  when TestCase == dataonly_gateway_simple_c
       txn_fees => true,
       staking_fee_txn_oui_v1 => 100 * ?USD_TO_DC, %% $100?
       staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC, %% $100
-      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC, %% $40?
+      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC, %% $40
+      staking_fee_txn_add_dataonly_gateway_v1 => 10 * ?USD_TO_DC, %% $10
+      staking_fee_txn_add_light_gateway_v1 => 10 * ?USD_TO_DC, %% $10
       staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC, %% $10?
       staking_fee_txn_assert_location_dataonly_gateway_v1 => 5 * ?USD_TO_DC, %% $5
       staking_fee_txn_assert_location_light_gateway_v1 => 5 * ?USD_TO_DC, %% $20
@@ -79,7 +81,6 @@ init_per_testcase(TestCase, Config0)  when TestCase == dataonly_gateway_simple_c
 
     %% add the mappings chainvar to the list along with the dataonly gateway add txn fee
     ExtraVars1 = maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0),
-    ExtraVars2 = maps:put(staking_fee_txn_add_dataonly_gateway_v1, 20 * ?USD_TO_DC, ExtraVars1),
 
     %% some extra config which the tests will need access too
     ExtraConfig = [{dataonly_staking_key, DataOnlyStakingKey}, {dataonly_staking_key_pub_bin, DataOnlyStakingKeyPubBin},
@@ -91,7 +92,7 @@ init_per_testcase(TestCase, Config0)  when TestCase == dataonly_gateway_simple_c
     BlocksN = 50,
 
     {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
-            test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars2),
+            test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars1),
     Chain = blockchain_worker:blockchain(),
 
     _Blocks0 = [
@@ -210,7 +211,7 @@ dataonly_gateway_simple_checks(Config) ->
     AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
     AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
     %% confirm dataonly gateway costs 20 usd
-    ?assertEqual(20 * ?USD_TO_DC, AddGatewayStFee),
+    ?assertEqual(10 * ?USD_TO_DC, AddGatewayStFee),
 
     ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
 
@@ -688,7 +689,7 @@ setup(Config)->
     {ok, DataOnlyGW} = blockchain_ledger_v1:find_gateway_info(DataOnlyGateway, Ledger),
     ?assertMatch(dataonly, blockchain_ledger_gateway_v2:mode(DataOnlyGW)),
     %% dataonly gateway costs 20 usd, confirm thats what we paid
-    ?assertEqual(20 * ?USD_TO_DC, AddDataOnlyGatewayStFee),
+    ?assertEqual(10 * ?USD_TO_DC, AddDataOnlyGatewayStFee),
 
     %%
     %% add gateway using the staker key setup with light mode, should be added as a light gateway
@@ -721,7 +722,7 @@ setup(Config)->
     {ok, LightGW} = blockchain_ledger_v1:find_gateway_info(LightGateway, Ledger),
     ?assertMatch(light, blockchain_ledger_gateway_v2:mode(LightGW)),
     %% light gateway costs 40 usd, confirm thats what we paid
-    ?assertEqual(40 * ?USD_TO_DC, AddLightGatewayStFee),
+    ?assertEqual(10 * ?USD_TO_DC, AddLightGatewayStFee),
 
 
     %%

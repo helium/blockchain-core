@@ -1131,6 +1131,10 @@ validate_var(?staking_fee_txn_add_dataonly_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn where the gateway is of mode dataonly, in DC
     validate_int(Value, "staking_fee_txn_add_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
+validate_var(?staking_fee_txn_add_light_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn where the gateway is of mode light, in DC
+    validate_int(Value, "staking_fee_txn_add_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
 validate_var(?staking_fee_txn_assert_location_v1, Value) ->
     %% the staking fee price for an assert location txn, in DC
     validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);

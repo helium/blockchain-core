@@ -362,6 +362,8 @@
 -define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
 %% the staking fee in DC for adding a dataonly gateway
 -define(staking_fee_txn_add_dataonly_gateway_v1, staking_fee_txn_add_dataonly_gateway_v1).
+%% the staking fee in DC for adding a light gateway
+-define(staking_fee_txn_add_light_gateway_v1, staking_fee_txn_add_light_gateway_v1).
 %% the staking fee in DC for asserting a location
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
 %% the staking fee in DC for asserting a location for a dataonly gateway
