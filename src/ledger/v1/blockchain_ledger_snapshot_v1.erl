@@ -5,6 +5,7 @@
 
 -export([
          serialize/1,
+         deserialize/1,
          deserialize/2,
 
          is_v6/1,
@@ -325,6 +326,13 @@ serialize_v1(Snapshot, noblocks) ->
     %% XXX serialize_v1 only gets called with noblocks
     Snapshot1 = Snapshot#blockchain_snapshot_v1{blocks = []},
     frame_bin(1, term_to_binary(Snapshot1, [{compressed, 9}])).
+
+-spec deserialize(binary()) ->
+      {ok, snapshot()}
+    | {error, bad_snapshot_hash}
+    | {error, bad_snapshot_binary}.
+deserialize(<<Bin0/binary>>) ->
+    deserialize(none, <<Bin0/binary>>).
 
 -spec deserialize(DigestOpt :: none | {some, binary()}, binary()) ->
       {ok, snapshot()}

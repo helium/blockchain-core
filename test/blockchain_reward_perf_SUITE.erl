@@ -77,7 +77,7 @@ init_per_testcase(_TestCase, Config) ->
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
-    {ok, Ledger1} = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
+    Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
 
     ct:pal("loaded ledger at height ~p", [Height]),
