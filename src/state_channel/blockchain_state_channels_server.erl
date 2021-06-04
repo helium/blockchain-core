@@ -280,8 +280,6 @@ handle_cast({offer, SCOffer, HandlerPid},
                         error ->
                             SC1 = blockchain_state_channel_v1:sign(ActiveSC, OwnerSigFun),
                             ok = blockchain_state_channel_v1:save(State#state.db, SC1, Skewed),
-                            %% will overspend so drop
-                            %% TODO we should switch to the next state channel here
                             lager:warning("Dropping this packet because it will be too many actors ~p", [SC1]),
                             ok = send_rejection(HandlerPid),
                             %% NOTE: this function may return `undefined` if no SC is available
