@@ -67,7 +67,7 @@ init_per_testcase(_TestCase, Config) ->
 
     {ok, BinSnap} = file:read_file(Filename),
 
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(none, BinSnap),
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
     {ok, _GWCache} = blockchain_gateway_cache:start_link(),
