@@ -294,7 +294,7 @@ serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
             noblocks ->
                 []
         end,
-    Pairs = maps:to_list(maps:put(Key, Blocks, Snapshot)),
+    Pairs = lists:keysort(1, maps:to_list(maps:put(Key, Blocks, Snapshot))),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
