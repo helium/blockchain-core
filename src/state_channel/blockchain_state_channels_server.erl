@@ -36,12 +36,12 @@
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_utils.hrl").
 
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>). % also copied in sc_db_owner
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
 %% https://hur.st/bloomfilter/?n=500000&p=1.0E-6&m=&k=20
--define(MAX_UNIQ_CLIENTS, 1000).
 -define(BITMAP_SIZE, 15000000).
 
 -record(state, {
@@ -255,13 +255,44 @@ handle_cast({offer, SCOffer, HandlerPid},
                 false ->
                     lager:debug("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
-                    {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
-                                                PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun, ClientBloom),
-
-                    ok = blockchain_state_channel_v1:save(State#state.db, NewSC, Skewed),
-                    NewState = maybe_add_stream(Hotspot, HandlerPid,
-                                                State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
-                    {noreply, NewState}
+                    case
+                        try_update_summary(ActiveSC, Hotspot, PayloadSize,
+                                           State#state.dc_payload_size, ClientBloom)
+                    of
+                        {ok, NewPurchaseSC} ->
+                            SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC,
+                                                                                OwnerSigFun),
+                            ok = blockchain_state_channel_handler:send_purchase(HandlerPid,
+                                                                                SignedPurchaseSC,
+                                                                                Hotspot,
+                                                                                PacketHash,
+                                                                                Region),
+                            ok = blockchain_state_channel_v1:save(State#state.db,
+                                                                  SignedPurchaseSC,
+                                                                  Skewed),
+                            NewState =
+                                maybe_add_stream(Hotspot,
+                                                 HandlerPid,
+                                                 State#state{state_channels=maps:put(ActiveSCID,
+                                                                                     {SignedPurchaseSC, Skewed},
+                                                                                     SCs)}),
+                            {noreply, NewState};
+                        error ->
+                            SC1 = blockchain_state_channel_v1:sign(ActiveSC, OwnerSigFun),
+                            ok = blockchain_state_channel_v1:save(State#state.db, SC1, Skewed),
+                            %% will overspend so drop
+                            %% TODO we should switch to the next state channel here
+                            lager:warning("Dropping this packet because it will be too many actors ~p", [SC1]),
+                            ok = send_rejection(HandlerPid),
+                            %% NOTE: this function may return `undefined` if no SC is available
+                            NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs), State),
+                            lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
+                            %% switch over the active ID and save the closed one
+                            NewState = State#state{active_sc_id=NewActiveID,
+                                                   state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
+                            ok = maybe_broadcast_banner(active_sc(NewState), NewState),
+                            {noreply, NewState}
+                    end
             end
     end;
 handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
@@ -387,7 +418,8 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                             %% it happens in `send_purchase` for v2 SCs
                             SC2;
                         _ ->
-                            update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC2, ClientBloom)
+                            {SC3, _} = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC2, ClientBloom),
+                            SC3
                     end,
 
             SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
@@ -763,23 +795,18 @@ maybe_get_new_active(SCs, State) ->
             end
     end.
 
--spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
-                    Hotspot :: libp2p_crypto:pubkey_bin(),
-                    Stream :: pid(),
-                    PacketHash :: binary(),
-                    PayloadSize :: pos_integer(),
-                    Region :: atom(),
-                    DCPayloadSize :: undefined | pos_integer(),
-                    OwnerSigFun :: libp2p_crypto:sig_fun(),
-                    ClientBloom :: bloom_nif:bloom()) -> {ok, blockchain_state_channel_v1:state_channel()}.
-send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, DCPayloadSize, OwnerSigFun, ClientBloom) ->
+-spec try_update_summary(SC :: blockchain_state_channel_v1:state_channel(),
+                         Hotspot :: libp2p_crypto:pubkey_bin(),
+                         PayloadSize :: pos_integer(),
+                         DCPayloadSize :: undefined | pos_integer(),
+                         ClientBloom :: bloom_nif:bloom()) -> {ok, blockchain_state_channel_v1:state_channel()} | error.
+try_update_summary(SC, Hotspot, PayloadSize, DCPayloadSize, ClientBloom) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
-    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0, ClientBloom),
-    SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
-    %% make the handler do the purchase construction
-    ok = blockchain_state_channel_handler:send_purchase(Stream, SignedPurchaseSC, Hotspot, PacketHash, Region),
-    {ok, SignedPurchaseSC}.
+    case update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0, ClientBloom) of
+        {NewPurchaseSC, true} -> {ok, NewPurchaseSC};
+        {_SC, false} -> error
+    end.
 
 -spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
 active_sc(#state{active_sc_id=undefined}) ->
@@ -806,7 +833,7 @@ send_rejection(Stream) ->
                         DCPayloadSize :: undefined | pos_integer(),
                         SC :: blockchain_state_channel_v1:state_channel(),
                         ClientBloom :: bloom_nif:bloom()) ->
-    blockchain_state_channel_v1:state_channel().
+    {blockchain_state_channel_v1:state_channel(), boolean()}.
 update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom) ->
     case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
@@ -818,7 +845,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom) 
                                                                              SC,
                                                                              bloom:check(ClientBloom, ClientPubkeyBin)),
             ok = maybe_set_client_bloom(ClientPubkeyBin, ClientBloom, DidFit),
-            NewSC;
+            {NewSC, DidFit};
         {ok, ExistingSummary} ->
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
@@ -834,7 +861,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom) 
                                                                              SC,
                                                                              bloom:check(ClientBloom, ClientPubkeyBin)),
             ok = maybe_set_client_bloom(ClientPubkeyBin, ClientBloom, DidFit),
-            NewSC
+            {NewSC, DidFit}
     end.
 
 -spec maybe_set_client_bloom(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
