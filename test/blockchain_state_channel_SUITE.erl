@@ -41,6 +41,7 @@ all() ->
         basic_test,
         full_test,
         expired_test,
+        max_actor_test,
         replay_test,
         multiple_test,
         multi_owner_multi_sc_test,
