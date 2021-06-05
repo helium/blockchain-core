@@ -334,7 +334,7 @@ serialize_v1(Snapshot, noblocks) ->
 deserialize(<<Bin0/binary>>) ->
     deserialize(none, <<Bin0/binary>>).
 
--spec deserialize(DigestOpt :: none | {some, binary()}, binary()) ->
+-spec deserialize(DigestOpt :: none | binary(), binary()) ->
       {ok, snapshot()}
     | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
@@ -355,14 +355,15 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
             %% if we don't care what the hash is,
             %% don't bother to compute it
             none -> {ok, upgrade(Snapshot)};
-            {some, Digest} ->
+            Digest when is_binary(Digest)->
                 case hash(Snapshot) of
                     Digest -> {ok, upgrade(Snapshot)};
                     _Other -> {error, bad_snapshot_hash}
                 end
         end
-    catch _:_ ->
-        {error, bad_snapshot_binary}
+    catch C:E:St ->
+            lager:warning("deserialize failed: ~p:~p:~p", [C, E, St]),
+            {error, bad_snapshot_binary}
     end.
 
 %% sha will be stored externally
