@@ -280,7 +280,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                         {error, _Reason} ->
                             SC1 = blockchain_state_channel_v1:sign(ActiveSC, OwnerSigFun),
                             ok = blockchain_state_channel_v1:save(State#state.db, SC1, Skewed),
-                            lager:warning("Dropping this packet because: ~p ~p", [_Reason, SC1]),
+                            lager:warning("dropping this packet because: ~p ~p", [_Reason, SC1]),
                             ok = send_rejection(HandlerPid),
                             %% NOTE: this function may return `undefined` if no SC is available
                             NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs), State),
@@ -802,7 +802,7 @@ try_update_summary(SC, Hotspot, PayloadSize, DCPayloadSize, ClientBloom) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
     case update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0, ClientBloom) of
-        {NewPurchaseSC, true} -> {ok, NewPurchaseSC};
+        {NewPurchaseSC1, true} -> {ok, NewPurchaseSC1};
         {_SC, false} -> {error, does_not_fit}
     end.
 

@@ -128,15 +128,15 @@ update_summary_for(ClientPubkeyBin,
                    NewSummary,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
                    WillFit) ->
-    case get_summary(ClientPubkeyBin, SC) of
-        {error, not_found} ->
-            {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
-        {ok, _Summary} ->
-            case WillFit orelse can_fit(ClientPubkeyBin, Summaries) of
-                false ->
-                    %% Cannot fit this into summaries
-                    {SC, false};
-                true ->
+    case WillFit orelse can_fit(ClientPubkeyBin, Summaries) of
+        false ->
+            %% Cannot fit this into summaries
+            {SC, false};
+        true ->
+            case get_summary(ClientPubkeyBin, SC) of
+                {error, not_found} ->
+                    {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
+                {ok, _Summary} ->
                     NewSummaries = lists:keyreplace(ClientPubkeyBin,
                                                     #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
                                                     Summaries,
