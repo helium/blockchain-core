@@ -61,20 +61,45 @@ basic_test(_Config) ->
     NewDir = PrivDir ++ "/ledger2/",
     ok = filelib:ensure_dir(NewDir),
 
+    ?assertMatch(
+        [_|_],
+        maps:get(upgrades, SnapshotA, undefined),
+        "New snapshot (A) has \"upgrades\" field."
+    ),
     SnapshotAIOList = blockchain_ledger_snapshot_v1:serialize(SnapshotA),
     SnapshotABin = iolist_to_binary(SnapshotAIOList),
-    HashA = blockchain_ledger_snapshot_v1:hash(SnapshotA),
     ct:pal("dir: ~p", [os:cmd("pwd")]),
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
-    {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(HashA, SnapshotABin),
-    HashB = blockchain_ledger_snapshot_v1:hash(SnapshotB),
-    ?assertEqual(HashA, HashB),
-    LedgerB = blockchain_ledger_snapshot_v1:import(Chain, HashA, SnapshotB),
+    {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(SnapshotABin),
+    ?assertMatch(
+        [_|_],
+        maps:get(upgrades, SnapshotB, undefined),
+        "Deserialized snapshot (B) has \"upgrades\" field."
+    ),
+    ?assertEqual(
+        snap_hash_without_field(upgrades, SnapshotA),
+        snap_hash_without_field(upgrades, SnapshotB),
+        "Hashes A and B are equal without \"upgrades\" field."
+    ),
+    LedgerB =
+        blockchain_ledger_snapshot_v1:import(
+            Chain,
+            snap_hash_without_field(upgrades, SnapshotA),
+            SnapshotB
+        ),
     {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, []),
-    HashC = blockchain_ledger_snapshot_v1:hash(SnapshotC),
-    ?assertEqual(HashB, HashC),
+    ?assertMatch(
+        [_|_],
+        maps:get(upgrades, SnapshotC, undefined),
+        "New snapshot (C) has \"upgrades\" field."
+    ),
+    ?assertEqual(
+        snap_hash_without_field(upgrades, SnapshotB),
+        snap_hash_without_field(upgrades, SnapshotC),
+        "Hashes B and C are equal without \"upgrades\" field."
+    ),
 
     DiffAB = blockchain_ledger_snapshot_v1:diff(SnapshotA, SnapshotB),
     ct:pal("DiffAB: ~p", [DiffAB]),
@@ -82,10 +107,17 @@ basic_test(_Config) ->
     ?assertEqual(SnapshotA, SnapshotB),
     DiffBC = blockchain_ledger_snapshot_v1:diff(SnapshotB, SnapshotC),
     ct:pal("DiffBC: ~p", [DiffBC]),
-    ?assertEqual([], DiffBC),
-    ?assertEqual(SnapshotB, SnapshotC),
+
+    %% TODO: C has new elements in upgrades. Should we assert something more specific?
+    ?assertEqual([upgrades], DiffBC),
+    %% Otherwise B and C should be the same:
+    ?assertEqual(
+        maps:remove(upgrades, SnapshotB),
+        maps:remove(upgrades, SnapshotC)
+    ),
 
     ok = blockchain:add_snapshot(SnapshotC, Chain),
+    HashC = blockchain_ledger_snapshot_v1:hash(SnapshotC),
     {ok, SnapshotDBin} = blockchain:get_snapshot(HashC, Chain),
     {ok, SnapshotD} = blockchain_ledger_snapshot_v1:deserialize(HashC, SnapshotDBin),
     ?assertEqual(SnapshotC, SnapshotD),
@@ -94,6 +126,9 @@ basic_test(_Config) ->
     ok.
 
 %% utils
+-spec snap_hash_without_field(atom(), map()) -> map().
+snap_hash_without_field(Field, Snap) ->
+    blockchain_ledger_snapshot_v1:hash(maps:remove(Field, Snap)).
 
 ledger() ->
     %% Ledger at height: 194196

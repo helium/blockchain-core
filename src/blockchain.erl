@@ -58,7 +58,7 @@
     add_implicit_burn/3,
     get_implicit_burn/2,
 
-    mark_upgrades/2, bootstrap_h3dex/1,
+    mark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
     snapshot_height/1,
 
     db_handle/1,
@@ -191,6 +191,7 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
         true ->
             ok;
         false ->
+            lager:info("running ledger upgrade ~p", [Key]),
             Ledger1 = blockchain_ledger_v1:new_context(Ledger),
             Fun(Ledger1),
             blockchain_ledger_v1:mark_key(Key, Ledger1),
@@ -240,6 +241,10 @@ upgrade_gateways_lg(Ledger) ->
       end,
       whatever,
       Ledger).
+
+-spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
+get_upgrades(Ledger) ->
+    [ Key || Key <- ?BC_UPGRADE_NAMES, blockchain_ledger_v1:check_key(Key, Ledger) ].
 
 bootstrap_hexes(Ledger) ->
     %% hardcode this until we have the var update hook.
