@@ -83,7 +83,7 @@ add_block(Block, Chain, Sender, SwarmTID) ->
                     regossip_block(Block, SwarmTID),
                     ok;
                 plausible ->
-                    lager:warning("plausuble gossipped block doesn't fit with our chain, will start sync if not already active"),
+                    lager:warning("plausible gossipped block doesn't fit with our chain, will start sync if not already active"),
                     blockchain_worker:maybe_sync(),
                     %% pass it along
                     regossip_block(Block, SwarmTID),
