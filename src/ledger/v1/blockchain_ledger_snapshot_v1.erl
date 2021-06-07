@@ -212,6 +212,8 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
         {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
         {ok, OraclePriceList} = blockchain_ledger_v1:current_oracle_price_list(Ledger),
 
+        %% use the active ledger here because that's where upgrades are marked
+        Upgrades = blockchain:get_upgrades(blockchain_ledger_v1:mode(active, Ledger0)),
         Pairs =
             [
                 {version          , v6},
@@ -242,7 +244,8 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {state_channels   , StateChannels},
                 {blocks           , Blocks},
                 {oracle_price     , OraclePrice},
-                {oracle_price_list, OraclePriceList}
+                {oracle_price_list, OraclePriceList},
+                {upgrades         , Upgrades}
              ],
         {ok, maps:from_list(Pairs)}
     catch C:E:S ->
@@ -442,6 +445,13 @@ load_into_ledger(Snapshot, L0, Mode) ->
             ok;
         {ok, DelayedHNT} ->
             ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT, L)
+    end,
+
+    case maps:find(upgrades, Snapshot) of
+        error ->
+            ok;
+        {ok, Upgrades} ->
+            ok = blockchain:mark_upgrades(Upgrades, L)
     end,
 
     ok = blockchain_ledger_v1:load_raw_pocs(Get(pocs), L),
