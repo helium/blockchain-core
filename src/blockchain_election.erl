@@ -854,7 +854,7 @@ validators_filter(Ledger) ->
                   true ->
                       maps:put(Addr, #val_v1{addr = Addr,
                                              heartbeat = HB,
-                                             prob = max(1.0, Penalty)}, Acc);
+                                             prob = Penalty}, Acc);
                   _ -> Acc
               end
       end,
@@ -896,11 +896,12 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                               true ->
                                   Acc;
                               _ ->
-                                  case Prob >= PenaltyFilter of
+                                  case PenaltyFilter - Prob of
                                       %% don't even consider until some of
                                       %% these failures have aged out
-                                      true -> Acc;
-                                      false -> {Old, Off, [Val | Candidates]}
+                                      NewProb when NewProb =< 0.0 -> Acc;
+                                      NewProb -> {Old, Off,
+                                                  [Val#val_v1{prob = NewProb} | Candidates]}
                                   end
                           end
                   end
