@@ -569,7 +569,7 @@ get_blocks(Chain) ->
                       BlockHeight = blockchain_block_v1:height(Block),
                       case BlockHeight < LoadBlockStart andalso
                            BlockHeight >= OldestValidPoC andalso
-                           not lists:member(Height, Acc) of
+                           not lists:member(BlockHeight, Acc) of
                           true ->
                               [BlockHeight|Acc];
                           false ->
