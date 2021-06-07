@@ -539,21 +539,52 @@ get_blocks(Chain) ->
             {error, not_found} ->
                 0
         end,
-    {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
-
     DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
 
     %% We need _at least_ the grace blocks before current election
     %% or the delayed ledger height less than last poc_challenge_interval blocks, whichever is
     %% lower.
-    LoadBlockStart = min(DHeight - (POCChallengeInterval + 1), ElectionHeight - GraceBlocks),
+    LoadBlockStart = min(DHeight, ElectionHeight - GraceBlocks),
+
+    %% we want to find the 'covering' blocks that go beyond the blocks between the leading/lagging
+    %% ledger and the blocks since the last election. Blocks we need can be characterized by places
+    %% in the transactions where we use get_block to pull and examine a block from the ledger.
+    %%
+    %% The most common instance of this is poc requests but it's also done in rewards,
+    %% consensus group success/failures and the price oracle.
+    %%
+    %% All but poc_requests/receipts are for blocks covered by the interval between
+    %% the leading and lagging ledger so do not need to be specially accounted for.
+
+    %% note that because there can be more than one poc per onion key hash, the poc
+    %% list is not flattened here
+    {_OnionHashes, PoCs} = lists:unzip(blockchain_ledger_v1:snapshot_pocs(Ledger)),
+    {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
+    OldestValidPoC = Height - POCChallengeInterval,
+
+    PoCBlocks = lists:foldl(fun({_OnionHash, PoC}, Acc) ->
+                      BlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
+                      {ok, Block} = blockchain:get_block(BlockHash, Chain),
+                      BlockHeight = blockchain_block_v1:height(Block),
+                      case BlockHeight < LoadBlockStart andalso
+                           BlockHeight >= OldestValidPoC andalso
+                           not lists:member(Height, Acc) of
+                          true ->
+                              [BlockHeight|Acc];
+                          false ->
+                              Acc
+                      end
+                      %% flatten the list because we just care about block hashes here
+              end, [], lists:flatten(PoCs)),
+
+    lager:info("snapshot will include ~p extra blocks to cover outstanding poc requests", [length(PoCBlocks)]),
 
     [begin
          {ok, B} = blockchain:get_raw_block(N, Chain),
          B
      end
-     || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
+     || N <- PoCBlocks ++ lists:seq(max(?min_height, LoadBlockStart), Height)].
 
 is_v6(#{version := v6}) -> true;
 is_v6(_) -> false.

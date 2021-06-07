@@ -4637,7 +4637,7 @@ load_threshold_txns(Txns, Ledger) ->
     lists:map(fun(T) -> save_threshold_txn(T, Ledger) end, Txns),
     ok.
 
--spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
+-spec snapshot_pocs(ledger()) -> [{binary(), [blockchain_ledger_poc_v2:poc()]}].
 snapshot_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     lists:sort(
