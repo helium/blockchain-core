@@ -563,7 +563,7 @@ get_blocks(Chain) ->
     {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
     OldestValidPoC = Height - POCChallengeInterval,
 
-    PoCBlocks = lists:foldl(fun({_OnionHash, PoC}, Acc) ->
+    PoCBlocks = lists:foldl(fun(PoC, Acc) ->
                       BlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
                       {ok, Block} = blockchain:get_block(BlockHash, Chain),
                       BlockHeight = blockchain_block_v1:height(Block),
