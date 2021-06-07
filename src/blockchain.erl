@@ -1647,12 +1647,10 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
     end.
 
 -spec add_bin_snapshot(blockchain_ledger_snapshot:snapshot(), integer(),
-                       none | {some, binary()} |binary(), blockchain()) ->
+                       none | binary(), blockchain()) ->
                               ok | {error, any()}.
 add_bin_snapshot(_BinSnap, _Height, none, _Chain) -> {error, no_snapshot_hash};
-add_bin_snapshot(BinSnap, Height, {some, Hash}, Chain) ->
-   add_bin_snapshot(BinSnap, Height, Hash, Chain);
-add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
+add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) when is_binary(Hash) ->
     try
         {ok, Batch} = rocksdb:batch(),
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
