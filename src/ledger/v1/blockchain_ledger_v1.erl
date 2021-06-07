@@ -671,7 +671,7 @@ new_snapshot(#ledger_v1{db=DB,
                     ets:delete(Cache, DeleteHeight),
                     1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {snapshot, SnapshotHandle}}}]}]),
                     %% take a checkpoint as well for use after a restart
-                    %% This is treated at atomic and there are no further updates required, unlike
+                    %% This is treated as atomic and there are no further updates required, unlike
                     %% context_snapshot
                     case rocksdb:checkpoint(DB, CheckpointDir) of
                         ok ->
