@@ -193,7 +193,7 @@ calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gateway = ?MODULE:gateway(Txn),
     Fee =
-        case blockchain_gateway_cache:get(Gateway, Ledger) of
+        case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
             {error, _} ->
                 %% err we cant find gateway what to do??
                 %% defaulting to regular fee
