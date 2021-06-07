@@ -671,6 +671,8 @@ new_snapshot(#ledger_v1{db=DB,
                     ets:delete(Cache, DeleteHeight),
                     1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {snapshot, SnapshotHandle}}}]}]),
                     %% take a checkpoint as well for use after a restart
+                    %% This is treated as atomic and there are no further updates required, unlike
+                    %% context_snapshot
                     case rocksdb:checkpoint(DB, CheckpointDir) of
                         ok ->
                             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
@@ -732,20 +734,27 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                             has_snapshot(Height, Ledger);
                         false ->
                             ok = filelib:ensure_dir(CheckpointDir),
-                            ok = rocksdb:checkpoint(DB, CheckpointDir),
+                            %% use a temp dir and then an atomic rename so we don't accidentally
+                            %% take a checkpoint and omit writing the delayed file or the updates
+                            %% because of a crash or a restart
+                            TmpDir = lists:flatten(io_lib:format("~s-~p", [CheckpointDir, erlang:system_time()])),
+                            ok = rocksdb:checkpoint(DB, TmpDir),
                             case Mode of
                                 delayed ->
-                                    file:write_file(filename:join(CheckpointDir, "delayed"), <<>>);
+                                    file:write_file(filename:join(TmpDir, "delayed"), <<>>);
                                 active ->
                                     ok
                             end,
                             %% open the checkpoint read-write and commit the changes in the ETS table into it
-                            Ledger2 = new(filename:dirname(CheckpointDir), false),
+                            Ledger2 = new(filename:dirname(TmpDir), false),
                             Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                             lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
                             commit_context(context_cache(ECache, GwCache, Ledger3)),
                             close(Ledger3),
+                            %% ok, we've done everything we need to do to the checkpoint, so move it into place
+                            %% now.
+                            ok = file:rename(TmpDir, CheckpointDir),
                             has_snapshot(Height, Ledger)
                     end
             end
