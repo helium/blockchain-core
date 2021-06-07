@@ -539,9 +539,8 @@ max_actor_test(Config) ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
-    %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 10 packets from diff hotspots
-    State0 = ct_rpc:call(RouterNode, sys, get_state, [blockchain_state_channels_server]),
-    ActiveSCID0 = erlang:element(8, State0),
+    %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
+    ActiveSCID0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, []),
 
     lists:foreach(
         fun(_I) ->
@@ -562,13 +561,12 @@ max_actor_test(Config) ->
             Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
             ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}])
         end,
-        lists:seq(1, ?MAX_UNIQ_CLIENTS + 10)
+        lists:seq(1, ?MAX_UNIQ_CLIENTS + 1)
     ),
 
     %% Checking that new SC ID is not old SC ID
     ok = blockchain_ct_utils:wait_until(fun() ->
-        State1 = ct_rpc:call(RouterNode, sys, get_state, [blockchain_state_channels_server]),
-        ActiveSCID0 =/= erlang:element(8, State1)
+        ActiveSCID0 =/= ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, [])
     end, 30, timer:seconds(1)),
 
     ok.
