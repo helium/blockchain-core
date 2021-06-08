@@ -239,7 +239,7 @@
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
 
 -ifdef(TEST).
--export([median/1]).
+-export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
 -endif.
 
 -record(hook,
@@ -437,9 +437,7 @@ sweep_old_checkpoints(Ledger) ->
                       end
               end, Subdirs),
         lists:map(fun(Dir) ->
-                          file:delete(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE, "delayed"])),
-                          rocksdb:destroy(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]), []),
-                          file:del_dir(filename:join([BaseDir, "checkpoints", Dir]))
+                          remove_checkpoint(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]))
                   end,
                   ToDelete)
     catch _:_ ->
@@ -454,9 +452,7 @@ clean_checkpoints(#ledger_v1{dir = RecordDir}) ->
         CPs = filename:join([BaseDir, "checkpoints"]),
         {ok, Subdirs} = file:list_dir(CPs),
         lists:map(fun(Dir) ->
-                          file:delete(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE, "delayed"])),
-                          rocksdb:destroy(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]), []),
-                          file:del_dir(filename:join([BaseDir, "checkpoints", Dir]))
+                          remove_checkpoint(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]))
                   end,
                   Subdirs)
     catch _:_ ->
@@ -678,9 +674,7 @@ new_snapshot(#ledger_v1{db=DB,
                             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                             {ok, DelayedHeight} = current_height(DelayedLedger),
                             OldDir = checkpoint_dir(Ledger, DeleteHeight),
-                            file:delete(filename:join(OldDir, "delayed")),
-                            rocksdb:destroy(OldDir, []),
-                            file:del_dir(filename:dirname(OldDir)),
+                            remove_checkpoint(OldDir),
                             {ok, Ledger};
                         {error, Reason1}=Error1 ->
                             lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
@@ -711,6 +705,8 @@ checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
 remove_checkpoint(CheckpointDir) ->
     file:delete(filename:join(CheckpointDir, "delayed")),
     rocksdb:destroy(CheckpointDir, []),
+    %% remove any temp dirs that got orphaned
+    [begin rocksdb:destroy(TmpDir, []), file:del_dir(filename:dirname(TmpDir)) end || TmpDir <- filelib:wildcard(CheckpointDir ++ "-[0-9]*/" ++ ?DB_FILE)],
     file:del_dir(filename:dirname(CheckpointDir)).
 
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
@@ -737,7 +733,10 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                             %% use a temp dir and then an atomic rename so we don't accidentally
                             %% take a checkpoint and omit writing the delayed file or the updates
                             %% because of a crash or a restart
-                            TmpDir = lists:flatten(io_lib:format("~s-~p", [CheckpointDir, erlang:system_time()])),
+                            %% note that this MUST be a subdirectory, not a sibling directory
+                            %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
+                            TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
+                            ok = filelib:ensure_dir(TmpDir),
                             ok = rocksdb:checkpoint(DB, TmpDir),
                             case Mode of
                                 delayed ->
@@ -749,12 +748,24 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                             Ledger2 = new(filename:dirname(TmpDir), false),
                             Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
                             #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
-                            lager:info("dumping ~p elements to checkpoint", [length(ets:tab2list(ECache))]),
+                            lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
                             commit_context(context_cache(ECache, GwCache, Ledger3)),
                             close(Ledger3),
                             %% ok, we've done everything we need to do to the checkpoint, so move it into place
                             %% now.
-                            ok = file:rename(TmpDir, CheckpointDir),
+                            case file:rename(TmpDir, CheckpointDir) of
+                                ok ->
+                                    lager:info("renamed checkpoint from ~p to ~p", [TmpDir, CheckpointDir]),
+                                    file:del_dir(filename:dirname(TmpDir)),
+                                    ok;
+                                {error, Reason} ->
+                                    lager:info("rename ~p to ~p failed ~p", [TmpDir, CheckpointDir, Reason]),
+                                    %% someone likely beat us to it
+                                    file:delete(filename:join([TmpDir, "delayed"])),
+                                    rocksdb:destroy(TmpDir, []),
+                                    file:del_dir(filename:dirname(TmpDir)),
+                                    ets:delete(Cache, Height)
+                            end,
                             has_snapshot(Height, Ledger)
                     end
             end
@@ -811,6 +822,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                            active
                                    end,
                             try
+                                lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
                                 %% new/2 wants to add on the ledger.db part itself
                                 NewLedger = new(filename:dirname(CheckpointDir), true),
                                 %% share the snapshot cache with the new ledger
@@ -874,7 +886,8 @@ snapshot(Ledger) ->
     end.
 
 -spec drop_snapshots(ledger()) -> true.
-drop_snapshots(#ledger_v1{snapshots=Cache}) ->
+drop_snapshots(#ledger_v1{snapshots=Cache}=L) ->
+    clean_checkpoints(L),
     ets:delete_all_objects(Cache).
 
 -spec subledger(ledger()) -> sub_ledger().

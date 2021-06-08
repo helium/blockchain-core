@@ -1,15 +1,13 @@
 -module(blockchain_snapshot_SUITE).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include("blockchain_vars.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
--define(TEST_LOCATION, 631210968840687103).
-
 -export([
-    basic_test/1
+    basic_test/1,
+    new_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -26,15 +24,48 @@
 %%--------------------------------------------------------------------
 all() ->
     [
-        basic_test
+        basic_test,
+        new_test
     ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(TestCase, Config) ->
+    Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
+    Balance = 5000,
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
+
+    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
+        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, #{}),
+
+    Chain = blockchain_worker:blockchain(),
+    Swarm = blockchain_swarm:swarm(),
+    N = length(ConsensusMembers),
+
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain:ledger(Chain),
+    Entries = blockchain_ledger_v1:entries(Ledger),
+    _ = lists:foreach(fun(Entry) ->
+                              Balance = blockchain_ledger_entry_v1:balance(Entry),
+                              0 = blockchain_ledger_entry_v1:nonce(Entry)
+                      end, maps:values(Entries)),
+
+    [
+     {balance, Balance},
+     {sup, Sup},
+     {pubkey, PubKey},
+     {privkey, PrivKey},
+     {opts, Opts},
+     {chain, Chain},
+     {swarm, Swarm},
+     {n, N},
+     {consensus_members, ConsensusMembers},
+     {genesis_members, GenesisMembers},
+     Keys
+     | Config0
+    ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -125,6 +156,47 @@ basic_test(_Config) ->
     ?assertEqual(HashC, HashD),
     ok.
 
+new_test(Config) ->
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    %% add 20 blocks
+    ok = add_k_blocks(Config, 20),
+
+    Ht = 21,
+
+    {ok, Ht} = blockchain:height(Chain),
+    {ok, Ht} = blockchain_ledger_v1:current_height(Ledger),
+
+    {ok, Snap} = blockchain_ledger_v1:new_snapshot(Ledger),
+    ct:pal("Snap: ~p", [Snap]),
+
+    %% check that check points sub dirs is not empty
+    %% call clean_checkpoints, this will invoke remove_checkpoints
+    %% check that subdirs are empty after cleanup
+
+    CheckpointDir = blockchain_ledger_v1:checkpoint_dir(Ledger, Ht),
+    ct:pal("CheckpointDir: ~p", [CheckpointDir]),
+
+    RecordDir = blockchain_ledger_v1:dir(Ledger),
+    CPBase = blockchain_ledger_v1:checkpoint_base(RecordDir),
+
+    CPs = filename:join([CPBase, "checkpoints"]),
+    {ok, Subdirs} = file:list_dir(CPs),
+
+    ct:pal("Subdirs: ~p", [Subdirs]),
+    ?assertEqual(20, length(Subdirs)),
+
+    ok = blockchain_ledger_v1:clean_checkpoints(Ledger),
+
+    CPs1 = filename:join([CPBase, "checkpoints"]),
+    {ok, Subdirs1} = file:list_dir(CPs1),
+
+    ct:pal("Subdirs1: ~p", [Subdirs1]),
+    ?assertEqual(0, length(Subdirs1)),
+
+    ok.
+
 %% utils
 -spec snap_hash_without_field(atom(), map()) -> map().
 snap_hash_without_field(Field, Snap) ->
@@ -172,3 +244,19 @@ extract_ledger_tar(PrivDir, LedgerTar) ->
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end.
+
+
+add_k_blocks(Config, K) ->
+    Chain = ?config(chain, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    lists:reverse(
+      lists:foldl(
+        fun(_, Acc) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                [Block | Acc]
+        end,
+        [],
+        lists:seq(1, K)
+       )),
+    ok.
