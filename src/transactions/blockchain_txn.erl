@@ -361,8 +361,8 @@ separate_res([{T, Err} | Rest], Chain, V, I) ->
             lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
-        {'EXIT', {{_Why,{error, CrashReason}}, _Stack}} when is_atom(CrashReason)->
-            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+        {'EXIT', {{_Why,{error, CrashReason}}, Stack}} when is_atom(CrashReason)->
+            lager:warning("crashed txn ~p : ~p / ~s - ~p", [type(T), CrashReason, print(T), Stack]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
         {'EXIT', CrashReason} when is_atom(CrashReason)->
