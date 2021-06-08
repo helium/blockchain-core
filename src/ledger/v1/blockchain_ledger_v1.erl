@@ -239,7 +239,7 @@
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
 
 -ifdef(TEST).
--export([median/1]).
+-export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
 -endif.
 
 -record(hook,
