@@ -195,6 +195,7 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
             Ledger1 = blockchain_ledger_v1:new_context(Ledger),
             Fun(Ledger1),
             blockchain_ledger_v1:mark_key(Key, Ledger1),
+            blockchain_ledger_v1:commit_context(Ledger1),
             Ledger2_0 = blockchain_ledger_v1:mode(delayed, Ledger),
             Ledger2 = blockchain_ledger_v1:new_context(Ledger2_0),
             Fun(Ledger2),
