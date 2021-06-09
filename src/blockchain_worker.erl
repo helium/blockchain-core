@@ -912,9 +912,15 @@ grab_snapshot(Height, Hash) ->
 start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
     spawn_monitor(fun() ->
                           try
-                              case application:get_env(blockchain, s3_base_url, undefined) of
-                                  undefined -> throw({error, no_s3_base_url});
-                                  BaseUrl ->
+                              BaseUrl = application:get_env(blockchain, s3_base_url, undefined),
+                              HonorQS = application:get_env(blockchain, honor_quick_sync, true),
+
+                              case {HonorQS, BaseUrl} of
+                                  {_, undefined} -> throw({error, no_s3_base_url});
+                                  {false, _} ->
+                                      %% honor_quick_sync is false, don't download from S3
+                                      ok;
+                                  {true, BaseUrl} ->
                                       %% we are looking up the configured blessed
                                       %% height again because the height passed
                                       %% into this function has sometimes been
