@@ -109,21 +109,22 @@ init(server, _Conn, [_Path, Blockchain]) ->
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
-            case blockchain_state_channels_server:active_sc() of
-                undefined ->
+            case blockchain_state_channels_server:active_scs() of
+                [] ->
                     %% Send empty banner
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:info("sc_handler, empty banner: ~p", [SCBanner]),
                     {ok, #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
                      blockchain_state_channel_message_v1:encode(SCBanner)};
-                ActiveSC ->
+                [ActiveSC|_] ->
                     %lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     %lager:info("sc_handler, banner: ~p", [SCBanner]),
                     {ok, #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
                      blockchain_state_channel_message_v1:encode(SCBanner)}
             end;
-        _ -> {ok, #state{handler_mod=HandlerMod, pending_offer_limit=OfferLimit}}
+        _ ->
+            {ok, #state{handler_mod=HandlerMod, pending_offer_limit=OfferLimit}}
     end.
 
 handle_data(client, Data, State) ->

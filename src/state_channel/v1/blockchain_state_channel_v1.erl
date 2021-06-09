@@ -35,7 +35,8 @@
     compare_causality/2,
     quick_compare_causality/3,
     is_causally_newer/2,
-    merge/2
+    merge/2,
+    can_fit/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -128,7 +129,7 @@ update_summary_for(ClientPubkeyBin,
                    NewSummary,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
                    WillFit) ->
-    case WillFit orelse can_fit(ClientPubkeyBin, Summaries) of
+    case WillFit orelse ?MODULE:can_fit(ClientPubkeyBin, SC) of
         false ->
             %% Cannot fit this into summaries
             {SC, false};
@@ -493,13 +494,9 @@ merge(SCA, SCB) ->
                         end
                 end, SC2, summaries(SC1)).
 
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
 -spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-              Summaries :: summaries()) -> boolean().
-can_fit(ClientPubkeyBin, Summaries) ->
+              SC :: state_channel()) -> boolean().
+can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}) ->
     Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
     CanFit = length(Clients) =< ?MAX_UNIQ_CLIENTS,
     IsKnownClient = lists:member(ClientPubkeyBin, Clients),
@@ -515,6 +512,11 @@ can_fit(ClientPubkeyBin, Summaries) ->
             %% Can fit, doesn't matter if we don't know this client
             true
     end.
+
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 
 -spec check_causality(SCSummaries :: summaries(),
                       OtherSC :: state_channel(),

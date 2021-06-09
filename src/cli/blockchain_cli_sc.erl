@@ -66,13 +66,13 @@ sc_active_usage() ->
     ].
 
 sc_active(["sc", "active"], [], []) ->
-    case (catch blockchain_state_channels_server:active_sc_id()) of
+    case (catch blockchain_state_channels_server:active_sc_ids()) of
         {'EXIT', _} ->
             [clique_status:text("timeout")];
         undefined ->
             [clique_status:text("none")];
-        BinActiveID ->
-            R = format_active_id(BinActiveID),
+        BinActiveIDs ->
+            R = [format_active_id(ID) ++ "~n" || ID <- BinActiveIDs],
             [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
@@ -146,6 +146,6 @@ summarize(Summaries) ->
                 {0, 0, 0}, Summaries).
 
 is_active(SC) ->
-    ActiveSCID = blockchain_state_channels_server:active_sc_id(),
+    ActiveSCIDs = blockchain_state_channels_server:active_sc_ids(),
     SCID = blockchain_state_channel_v1:id(SC),
-    ActiveSCID == SCID.
+    lists:member(SCID, ActiveSCIDs).
