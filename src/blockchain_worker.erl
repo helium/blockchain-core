@@ -917,12 +917,6 @@ start_snapshot_sync(Hash, Height, Peer,
                               HonorQS = application:get_env(blockchain, honor_quick_sync, true),
 
                               case {HonorQS, SyncPaused, BaseUrl} of
-                                  {false, _, _} ->
-                                      %% don't do anything, honor_quick_sync is false
-                                      ok;
-                                  {_, true, _} ->
-                                      %% don't do anything, sync is paused
-                                      ok;
                                   {true, false, undefined} ->
                                       %% blow up, no s3 base url
                                       throw({error, no_s3_base_url});
@@ -943,7 +937,10 @@ start_snapshot_sync(Hash, Height, Peer,
                                                                        Hash, Chain),
                                       lager:info("Stored snap ~p - attempting install",
                                                  [SnapHeight]),
-                                      blockchain_worker:install_snapshot(Hash, Snap)
+                                      blockchain_worker:install_snapshot(Hash, Snap);
+                                  _ ->
+                                      %% don't do anything
+                                      ok
                               end
                           catch
                               _Type:Error:St ->
