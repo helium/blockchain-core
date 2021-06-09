@@ -942,6 +942,11 @@ diff(#{}=A, #{}=B) ->
                               [{Field, AI, BI} | Acc];
                           %% we experience the most drift here, so
                           %% it's worth some effort.
+                          accounts ->
+                              AUniq = AI -- BI,
+                              BUniq = BI -- AI,
+                              [{Field, {libp2p_crypto:bin_to_b58(K), blockchain_ledger_entry_v1:deserialize(V), case proplists:get_value(K, BI) of undefined -> undefined; V2 -> blockchain_ledger_entry_v1:deserialize(V2) end}} || {K,V} <- AUniq ] ++
+                              [{Field, {libp2p_crypto:bin_to_b58(K), blockchain_ledger_entry_v1:deserialize(V), undefined}} || {K,V} <- BUniq, not lists:keymember(K, 1, AI) ] ++ Acc;
                           gateways ->
                               AUniq = AI -- BI,
                               BUniq = BI -- AI,
@@ -951,6 +956,8 @@ diff(#{}=A, #{}=B) ->
                                   Diff ->
                                       [{gateways, Diff} | Acc]
                               end;
+                          upgrades ->
+                              [{Field, AI, BI}|Acc];
                           blocks ->
                               AHeightAndHash = [ begin
                                                      Block = blockchain_block:deserialize(Block0),
