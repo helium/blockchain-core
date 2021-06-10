@@ -540,7 +540,7 @@ max_actor_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
-    ActiveSCID0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, []),
+    [ActiveSCID0|_] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
 
     lists:foreach(
         fun(_I) ->
@@ -564,9 +564,11 @@ max_actor_test(Config) ->
         lists:seq(1, ?MAX_UNIQ_CLIENTS + 1)
     ),
 
+    % TODO: Redo this to make sure we get a new active in there
+
     %% Checking that new SC ID is not old SC ID
     ok = blockchain_ct_utils:wait_until(fun() ->
-        ActiveSCID0 =/= ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, [])
+        [ActiveSCID0|[]] == ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, [])
     end, 30, timer:seconds(1)),
 
     ok.
@@ -1049,7 +1051,7 @@ multi_active_sc_test(Config) ->
 
     %% Check that it's gone from the sc server
     ?assertEqual(1, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
-    ?assertEqual(ID2, ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, [])),
+    ?assertEqual([ID2], ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, [])),
 
     %% Wait 1 sec before sending more packets
     ok= timer:sleep(timer:seconds(1)),
@@ -2173,7 +2175,7 @@ debug(Node) ->
     S = ct_rpc:call(Node, blockchain_state_channels_server, state_channels, []),
     ct:pal("state_channels: ~p", [S]),
 
-    A = ct_rpc:call(Node, blockchain_state_channels_server, active_sc_id, []),
+    A = ct_rpc:call(Node, blockchain_state_channels_server, active_sc_ids, []),
     ct:pal("active: ~p", [A]),
     {P, S, A}.
 
