@@ -139,7 +139,7 @@ init_per_testcase(TestCase, Config) ->
                         #{election_version => 10000};
                     genesis_no_var_validation_make_valid_test ->
                         %% Intentionally supply an incorrect (out-of-bound) chain variable here
-                        #{election_version => 10000};
+                        #{election_version => 10000, vars_commit_delay => 1};
                     _ ->
                         #{allow_zero_amount => false,
                           max_open_sc => 2,
@@ -3108,9 +3108,9 @@ genesis_no_var_validation_make_valid_test(Config) ->
                            throw({error, {chain_var_wrong_height, Res, Height}})
                    end
            end,
-           lists:seq(1, 15)
+           lists:seq(1, 5)
           ),
-    ?assertEqual({ok, 17}, blockchain:height(Chain)),
+    ?assertEqual({ok, 7}, blockchain:height(Chain)),
     ?assertEqual({ok, 5}, blockchain:config(election_version, Ledger)),
 
     ok.
