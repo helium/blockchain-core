@@ -47,7 +47,9 @@
     update_gateway_oui_test/1,
     max_subnet_test/1,
     replay_oui_test/1,
-    failed_txn_error_handling/1
+    failed_txn_error_handling/1,
+    genesis_no_var_validation_stay_invalid_test/1,
+    genesis_no_var_validation_make_valid_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -98,7 +100,9 @@ all() ->
         update_gateway_oui_test,
         max_subnet_test,
         replay_oui_test,
-        failed_txn_error_handling
+        failed_txn_error_handling,
+        genesis_no_var_validation_stay_invalid_test,
+        genesis_no_var_validation_make_valid_test
     ].
 
 %%--------------------------------------------------------------------
@@ -130,6 +134,12 @@ init_per_testcase(TestCase, Config) ->
                           penalty_history_limit => 100,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
+                    genesis_no_var_validation_stay_invalid_test ->
+                        %% Intentionally supply an incorrect (out-of-bound) chain variable here
+                        #{election_version => 10000};
+                    genesis_no_var_validation_make_valid_test ->
+                        %% Intentionally supply an incorrect (out-of-bound) chain variable here
+                        #{election_version => 10000, vars_commit_delay => 1};
                     _ ->
                         #{allow_zero_amount => false,
                           max_open_sc => 2,
@@ -3033,6 +3043,77 @@ failed_txn_error_handling(Config) ->
 
     ok.
 
+genesis_no_var_validation_stay_invalid_test(Config) ->
+    ConsensusMembers = ?config(consensus_members, Config),
+    {Priv, _} = ?config(master_key, Config),
+    Chain = ?config(chain, Config),
+    ct:pal("Chain ht: ~p", [blockchain:height(Chain)]),
+
+    Ledger = blockchain:ledger(Chain),
+    {ok, EV} = blockchain:config(election_version, Ledger),
+    ct:pal("election_version: ~p", [EV]),
+    ?assertEqual(10000, EV),
+    ct:pal("Ledger ht: ~p", [blockchain_ledger_v1:current_height(Ledger)]),
+
+    %% Attempt to change election_version to another incorrect value
+    %% This will be a non-genesis block so we expect the validation to fail now
+    Vars = #{election_version => 10001},
+    ct:pal("priv_key ~p", [Priv]),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    %% This var txn should blow up
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    ok.
+
+genesis_no_var_validation_make_valid_test(Config) ->
+    ConsensusMembers = ?config(consensus_members, Config),
+    {Priv, _} = ?config(master_key, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+    ct:pal("Chain ht: ~p", [blockchain:height(Chain)]),
+    ct:pal("Ledger ht: ~p", [blockchain_ledger_v1:current_height(Ledger)]),
+
+    {ok, 10000} = blockchain:config(election_version, Ledger),
+
+    %% Supply a valid election version
+    Vars = #{election_version => 5},
+    ct:pal("priv_key ~p", [Priv]),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+
+    %% This should succeed
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    ct:pal("Block2: ~p", [Block2]),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
+
+    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    ct:pal("commit delay ~p", [Delay]),
+
+    %% Add some blocks, and check that election_version is set to 5 after delay is reached
+    ok = lists:foreach(
+           fun(_) ->
+                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                   {ok, Height} = blockchain:height(Chain),
+                   case blockchain:config(election_version, Ledger) of
+                       {ok, 10000} when Height < (Delay + 1) ->
+                           ok;
+                       {ok, 5} when Height >= (Delay + 1) ->
+                           ok;
+                       Res ->
+                           throw({error, {chain_var_wrong_height, Res, Height}})
+                   end
+           end,
+           lists:seq(1, 5)
+          ),
+    ?assertEqual({ok, 7}, blockchain:height(Chain)),
+    ?assertEqual({ok, 5}, blockchain:config(election_version, Ledger)),
+
+    ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions
