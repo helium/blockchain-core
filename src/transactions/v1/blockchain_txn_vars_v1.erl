@@ -260,6 +260,7 @@ is_valid(Txn, Chain) ->
             _ ->
                 1
         end,
+
     case Version of
         2 ->
             Artifact = create_artifact(Txn),
@@ -277,8 +278,13 @@ is_valid(Txn, Chain) ->
                         throw({error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}})
                 end,
 
-                %% do these before the proof, so we can check validation on unsigned txns
-                maps:map(fun validate_var/2, Vars),
+                case Gen of
+                    true -> ok; %% genesis block doesn't validate vars
+                    _ ->
+                        %% do these before the proof, so we can check validation on unsigned txns
+                        %% NB: validation errors MUST throw
+                        maps:map(fun validate_var/2, Vars)
+                end,
                 lists:foreach(
                   fun(VarName) ->
                           case blockchain:config(VarName, Ledger) of % ignore this one using "?"
@@ -329,8 +335,6 @@ is_valid(Txn, Chain) ->
                                 end
                         end
                 end,
-                %% NB: validation errors MUST throw
-
                 %% TODO: validate that a cancelled transaction is actually on
                 %% the chain
 
