@@ -722,14 +722,14 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
 
 snapshot_sync(_Hash, _Height, #state{sync_pid = Pid} = State) when Pid /= undefined ->
     State;
-snapshot_sync(Hash, Height, #state{blockchain = Chain, swarm_tid = SwarmTID, swarm=Swarm} = State) ->
+snapshot_sync(Hash, Height, #state{swarm_tid = SwarmTID} = State) ->
     case get_random_peer(SwarmTID) of
         [] ->
             lager:info("no snapshot peers yet"),
             %% try again later when there's peers
             reset_sync_timer(State#state{snapshot_info = {Hash, Height}, mode = snapshot});
         RandomPeer ->
-            {Pid, Ref} = start_snapshot_sync(Hash, Height, Swarm, Chain, RandomPeer),
+            {Pid, Ref} = start_snapshot_sync(Hash, Height, RandomPeer, State),
             lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot,
                         snapshot_info = {Hash, Height}}
@@ -909,12 +909,18 @@ grab_snapshot(Height, Hash) ->
             ok
     end.
 
-start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
+start_snapshot_sync(Hash, Height, Peer,
+                    #state{blockchain=Chain, swarm=Swarm, sync_paused=SyncPaused}) ->
     spawn_monitor(fun() ->
                           try
-                              case application:get_env(blockchain, s3_base_url, undefined) of
-                                  undefined -> throw({error, no_s3_base_url});
-                                  BaseUrl ->
+                              BaseUrl = application:get_env(blockchain, s3_base_url, undefined),
+                              HonorQS = application:get_env(blockchain, honor_quick_sync, true),
+
+                              case {HonorQS, SyncPaused, BaseUrl} of
+                                  {true, false, undefined} ->
+                                      %% blow up, no s3 base url
+                                      throw({error, no_s3_base_url});
+                                  {true, false, BaseUrl} ->
                                       %% we are looking up the configured blessed
                                       %% height again because the height passed
                                       %% into this function has sometimes been
@@ -931,7 +937,10 @@ start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
                                                                        Hash, Chain),
                                       lager:info("Stored snap ~p - attempting install",
                                                  [SnapHeight]),
-                                      blockchain_worker:install_snapshot(Hash, Snap)
+                                      blockchain_worker:install_snapshot(Hash, Snap);
+                                  _ ->
+                                      %% don't do anything
+                                      ok
                               end
                           catch
                               _Type:Error:St ->
