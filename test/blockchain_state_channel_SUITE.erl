@@ -508,8 +508,13 @@ max_actor_test(Config) ->
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce, 2500),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
+     %% Create state channel open txn
+    ID2 = crypto:strong_rand_bytes(24),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce+1, 2500),
+    ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
+
     %% Add block with oui and sc open txns
-    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]),
+    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn, SignedSCOpenTxn2]),
     ct:pal("Block0: ~p", [Block0]),
 
     %% Get sc open block hash for verification later
@@ -535,12 +540,16 @@ max_actor_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    % ok = blockchain_ct_utils:wait_until(fun() ->
+    %     {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    % end, 30, timer:seconds(1)),
+
+    ct:pal("ID1: ~p", [ID]),
+    ct:pal("ID2: ~p", [ID2]),
 
     %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
-    [ActiveSCID0|_] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+    ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+    ?assertEqual([ID], ActiveSCIDs0),
 
     lists:foreach(
         fun(_I) ->
@@ -564,11 +573,11 @@ max_actor_test(Config) ->
         lists:seq(1, ?MAX_UNIQ_CLIENTS + 1)
     ),
 
-    % TODO: Redo this to make sure we get a new active in there
-
     %% Checking that new SC ID is not old SC ID
     ok = blockchain_ct_utils:wait_until(fun() ->
-        [ActiveSCID0|[]] == ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, [])
+        ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
+        [ID, ID2] == ActiveSCIDs1
     end, 30, timer:seconds(1)),
 
     ok.

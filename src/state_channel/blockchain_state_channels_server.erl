@@ -365,8 +365,8 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
             maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
     end.
 
-handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, state_channels=SCs,
-                                         blooms=Blooms, owner={_Owner, OwnerSigFun}}=State0) ->
+handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, active_sc_ids=ActiveSCIDs,
+                                        state_channels=SCs, blooms=Blooms, owner={_Owner, OwnerSigFun}}=State0) ->
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
@@ -378,9 +378,17 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, s
             Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             case select_best_active_sc(Hotspot, State0) of
                 {error, _Reason} ->
-                    lager:info("could not get an good active SC (~p), rejecting", [_Reason]),
-                    ok = send_rejection(HandlerPid),
-                    State0;
+                    lager:info("could not get an good active SC (~p)", [_Reason]),
+                    ExcludedActiveSCs = maps:without(ActiveSCIDs, SCs),
+                    case maybe_get_new_active(ExcludedActiveSCs, State0) of
+                        undefined ->
+                            lager:warning("could not get a new active SC (~p), rejecting", [_Reason]),
+                            ok = send_rejection(HandlerPid),
+                            State0;
+                        NewActiveID ->
+                            lager:info("adding new active SC", [NewActiveID]),
+                            handle_offer(SCOffer, HandlerPid, State0#state{active_sc_ids=ActiveSCIDs ++ [NewActiveID]})
+                    end;
                 {ok, ActiveSC} ->
                     NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, State0#state.dc_payload_size),
                     TotalDCs = blockchain_state_channel_v1:total_dcs(ActiveSC),
@@ -501,26 +509,29 @@ update_state_sc_open(Txn,
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, cf=SCF, blooms=Blooms, state_channels=SCs, active_sc_ids=ActiveSCIDs}=State0) ->
-    SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
-    ID = blockchain_state_channel_v1:id(SC),
-    NewActiveSCID =
-        case ActiveSCIDs of
-            [] ->
-                %% No sc was active
-                [];
-            _ ->
-                %% Our active state channel got closed,
-                ExcludedActiveSCs = maps:without([ID], SCs),
-                maybe_get_new_active(ExcludedActiveSCs, State0)
+update_state_sc_close(Txn, #state{db=DB, cf=SCF, blooms=Blooms, state_channels=SCs0, active_sc_ids=ActiveSCIDs0}=State0) ->
+    ClosedSC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+    ClosedID = blockchain_state_channel_v1:id(ClosedSC),
+    ok = delete_closed_sc(DB, SCF, ClosedID),
+    ActiveSCIDs1 = lists:delete(ClosedID, ActiveSCIDs0),
+    SCs1 = maps:remove(ClosedID, SCs0),
+    NewActiveSCIDs =
+        case erlang:length(ActiveSCIDs1) < 2 andalso maps:size(SCs1) > 1 of
+            true ->
+                case maybe_get_new_active([ClosedID], State0) of
+                    undefined ->
+                        ActiveSCIDs1;
+                    NewActiveSCID ->
+                        ActiveSCIDs1 ++ [NewActiveSCID]
+                end;
+            false ->
+                ActiveSCIDs1
         end,
-    %% Delete closed state channel from sc database
-    ok = delete_closed_sc(DB, SCF, ID),
     State1 =
-        State0#state{state_channels=maps:remove(ID, SCs),
-                     blooms=maps:remove(ID, Blooms),
-                     active_sc_ids=NewActiveSCID},
-    case NewActiveSCID /= ActiveSCIDs of
+        State0#state{state_channels=SCs1,
+                     blooms=maps:remove(ClosedID, Blooms),
+                     active_sc_ids=NewActiveSCIDs},
+    case NewActiveSCIDs /= ActiveSCIDs1 of
         true ->
             ok = maybe_broadcast_banner(active_scs(State1), State1);
         false ->
@@ -737,16 +748,23 @@ convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Get a new active state channel based, based on their expiration
+%% Get a new active state channel based on their expiration
 %% @end
 %%-------------------------------------------------------------------
--spec maybe_get_new_active(SCs :: state_channels(), State :: state()) -> [blockchain_state_channel_v1:id()].
-maybe_get_new_active(SCs, State) ->
+
+% TODO: Finish fix all calls to maybe_get_new_active
+
+% -spec maybe_get_new_active(State :: state()) -> blockchain_state_channel_v1:id() | undefined.
+% maybe_get_new_active(State) ->
+%     maybe_get_new_active([], State).
+
+-spec maybe_get_new_active(WithoutSCIDs :: [blockchain_state_channel_v1:id()], State :: state()) -> blockchain_state_channel_v1:id() | undefined.
+maybe_get_new_active(WithoutSCIDs, #state{sc_version=SCVersion, active_sc_ids=ActiveSCIDs, state_channels=SCs}) ->
     {ok, BlockHeight} = blockchain:height(blockchain_worker:blockchain()),
     case maps:to_list(SCs) of
         [] ->
             %% Don't have any state channel in state
-            [];
+            undefined;
         L ->
             %% We want to pick the next active state channel which has a higher block expiration
             %% but lower nonce
@@ -765,12 +783,14 @@ maybe_get_new_active(SCs, State) ->
                 end,
             FilterFun =
                 fun({_, {SC, _}}) ->
-                        case State#state.sc_version of
+                        case SCVersion of
                             2 ->
                                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
                                 ExpireAt > BlockHeight andalso
                                 blockchain_state_channel_v1:state(SC) == open andalso
-                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom);
+                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom) andalso
+                                not lists:member(blockchain_state_channel_v1:id(SC), ActiveSCIDs) andalso
+                                not lists:member(blockchain_state_channel_v1:id(SC), WithoutSCIDs);
                             _ ->
                                 %% We are not on sc_version=2, just set this to true to include any state channel
                                 true
@@ -781,7 +801,7 @@ maybe_get_new_active(SCs, State) ->
                     [];
                 Y ->
                     [{ID, _}|_] = Y,
-                    [ID]
+                    ID
             end
     end.
 
