@@ -1669,7 +1669,7 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF
 
 
 -spec get_snapshot(blockchain_block:hash() | integer(), blockchain()) ->
-                          {ok, blockchain_ledger_snapshot:snapshot()} | {error, any()}.
+                          {ok, binary()} | {error, any()}.
 get_snapshot(<<Hash/binary>>, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
     case rocksdb:get(DB, SnapshotsCF, Hash, []) of
         {ok, <<"__sentinel__">>} ->
@@ -1786,16 +1786,11 @@ load(Dir, Mode) ->
             Ledger =
                 case Mode of
                     blessed_snapshot when HonorQuickSync == true ->
-                        %% use 1 as a noop, but this combo is poorly defined
-                        Height = application:get_env(blockchain, blessed_snapshot_block_height, 1),
                         L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
                         case blockchain_ledger_v1:current_height(L) of
-                            {ok, 1} ->
-                                L;
-                            {ok, CHt} when CHt < Height ->
-                                blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF);
                             {ok, _} ->
+                                %% no longer check height here, we will check the height elsewhere
+                                %% where we have better information
                                 L;
                             %% if we can't open the ledger and we can
                             %% load a snapshot, does the error matter?
@@ -1985,7 +1980,7 @@ open_db(Dir) ->
         end,
 
     CFOpts = GlobalOpts,
-    case rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
+    case rocksdb:open_with_cf(DBDir, DBOptions,  [adjust_cfopts({CF, CFOpts}) || CF <- ExistingCFs]) of
         {error, _Reason}=Error ->
             Error;
         {ok, DB, OpenedCFs} ->
@@ -2001,6 +1996,12 @@ open_db(Dir) ->
             {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}
     end.
 
+
+adjust_cfopts({CF, CFOpts}) when CF == "blocks"; CF == "temp_blocks"; CF == "plausible_blocks" ->
+    %% use 8mb file sizes to avoid too many compactions when storing blocks
+    {CF, lists:keystore(target_file_size_base, 1, CFOpts, {target_file_size_base, 8388608})};
+adjust_cfopts({CF, CFOpts}) ->
+    {CF, CFOpts}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -2128,10 +2129,41 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
         {ok, CurrHeight} ->
             lager:debug("ch ~p h ~p: snap sync", [CurrHeight, Height]),
             case get_snapshot(Hash, Blockchain) of
-               {ok, Snap} ->
-                  lager:info("Got snapshot for height ~p - attempting install", [Height0]),
-                  blockchain_worker:install_snapshot(Hash, Snap);
-               {error, not_found} ->
+               {ok, BinSnap} ->
+                  case blockchain_ledger_snapshot_v1:deserialize(BinSnap) of
+                      {ok, Snap} ->
+                          lager:info("Got snapshot for height ~p - attempting install", [Height0]),
+                          %% do the install in-line here vs making a blocking call to
+                          %% blockchain_worker
+                          OldLedger = blockchain:ledger(Blockchain),
+                          HasAux = blockchain_ledger_v1:has_aux(OldLedger),
+                          {ok, LaggingHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, OldLedger)),
+                          {ok, LeadingHeight} = blockchain_ledger_v1:current_height(OldLedger),
+                          SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
+                          lager:info("Snapshot height ~p, lagging ledger height ~p, leading ledger height ~p", [SnapHeight, LaggingHeight, LeadingHeight]),
+                          case LaggingHeight == SnapHeight andalso LeadingHeight >= LaggingHeight of
+                              true when HasAux == false ->
+                                  lager:info("resuming interrupted snapshot block load"),
+                                  %% ledger height is correct, but blockchain height is not
+                                  %% so lets just try to resume loading blocks as that was likely
+                                  %% interrupted
+                                  %%
+                                  %% snapshots are loaded atomically into the ledger, so if we have
+                                  %% the right height we can be quite confident it was an interrupted
+                                  %% block load and bypass re-creating the ledger
+                                  blockchain_ledger_snapshot_v1:load_blocks(OldLedger, Blockchain, Snap),
+                                  Blockchain;
+                              _ ->
+                                  blockchain_ledger_v1:clean(OldLedger),
+                                  %% TODO proper error checking and recovery/retry
+                                  NewLedger = blockchain_ledger_snapshot_v1:import(Blockchain, Hash, Snap),
+                                  blockchain:ledger(NewLedger, Blockchain)
+                          end;
+                        Other ->
+                          lager:warning("failed to deserialize stored snapshot: ~p", [Other]),
+                          blockchain_worker:snapshot_sync(Hash, Height)
+                  end;
+                {error, not_found} ->
                   blockchain_worker:snapshot_sync(Hash, Height);
                Other ->
                   lager:error("Got ~p trying to get snapshot at height: ~p hash ~p - attempt to sync",
