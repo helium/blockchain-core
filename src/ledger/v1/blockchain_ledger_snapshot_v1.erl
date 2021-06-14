@@ -503,9 +503,11 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       %% hash from the height is an acceptable presence check, and much cheaper
                       case blockchain:get_block_hash(Ht, Chain) of
                           {ok, _Hash} ->
+                              lager:info("skipping block ~p", [Ht]),
                               %% already have it, don't need to store it again.
                               ok;
                           _ ->
+                              lager:info("saving block ~p", [Ht]),
                               ok = blockchain:save_block(Block, Chain)
                       end,
                       case Ht > Curr2 of

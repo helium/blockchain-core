@@ -681,7 +681,7 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
             case State#state.snapshot_info of
                 %% when the current height is *lower* than than the
                 %% snap height, start the sync
-                {Hash, Height} when CurrHeight < Height ->
+                {Hash, Height} when CurrHeight < Height - 1 ->
                     snapshot_sync(Hash, Height, State);
                 _ ->
                     reset_sync_timer(State)
@@ -1104,8 +1104,7 @@ get_sync_mode(Blockchain) ->
                             {snapshot, {Hash, Height}};
                         _Chain ->
                             {ok, CurrHeight} = blockchain:height(Blockchain),
-                            %% this should be height - 1, but it crashes badly if you set it
-                            case CurrHeight >= Height of
+                            case CurrHeight >= Height - 1 of
                                 %% already loaded the snapshot
                                 true -> {normal, undefined};
                                 false -> {snapshot, {Hash, Height}}
