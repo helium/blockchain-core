@@ -502,10 +502,10 @@ max_actor_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID1 = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce, 2500),
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce, 2500),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
      %% Create state channel open txn
@@ -527,12 +527,20 @@ max_actor_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
 
     %% Check that the nonce of the sc server is okay
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])
     end, 30, timer:seconds(1)),
+
+
+    ct:pal("ID1: ~p", [libp2p_crypto:bin_to_b58(ID1)]),
+    ct:pal("ID2: ~p", [libp2p_crypto:bin_to_b58(ID2)]),
+
+    %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
+    ActiveSCIDsXXX = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+    ?assertEqual([ID1], ActiveSCIDsXXX),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -541,15 +549,12 @@ max_actor_test(Config) ->
 
     %% Checking state channel on server/client
     % ok = blockchain_ct_utils:wait_until(fun() ->
-    %     {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    %     {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])
     % end, 30, timer:seconds(1)),
-
-    ct:pal("ID1: ~p", [ID]),
-    ct:pal("ID2: ~p", [ID2]),
 
     %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
     ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
-    ?assertEqual([ID], ActiveSCIDs0),
+    ?assertEqual([ID1], ActiveSCIDs0),
 
     lists:foreach(
         fun(_I) ->
@@ -577,7 +582,7 @@ max_actor_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
         ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
-        [ID, ID2] == ActiveSCIDs1
+        [ID1, ID2] == ActiveSCIDs1
     end, 30, timer:seconds(1)),
 
     ok.

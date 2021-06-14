@@ -96,7 +96,7 @@ packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
             ClientPubKeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
             gen_server:cast(?SERVER, {packet, ClientPubKeyBin, Packet, HandlerPid});
         {error, _Why} ->
-            %% lager:warning("handle_packet failed: ~p", [Why])
+            lager:debug("handle_packet failed: ~p", [_Why]),
             ok
     end.
 
@@ -378,18 +378,19 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
             Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             case select_best_active_sc(Hotspot, State0) of
                 {error, _Reason} ->
-                    lager:info("could not get an good active SC (~p)", [_Reason]),
-                    ExcludedActiveSCs = maps:without(ActiveSCIDs, SCs),
-                    case maybe_get_new_active(ExcludedActiveSCs, State0) of
+                    lager:info("could not get a good active SC (~p)", [_Reason]),
+                    case maybe_get_new_active(State0) of
                         undefined ->
                             lager:warning("could not get a new active SC (~p), rejecting", [_Reason]),
                             ok = send_rejection(HandlerPid),
                             State0;
                         NewActiveID ->
-                            lager:info("adding new active SC", [NewActiveID]),
+                            lager:info("adding new active SC ~p", [libp2p_crypto:bin_to_b58(NewActiveID)]),
                             handle_offer(SCOffer, HandlerPid, State0#state{active_sc_ids=ActiveSCIDs ++ [NewActiveID]})
                     end;
                 {ok, ActiveSC} ->
+                    ActiveSCID = blockchain_state_channel_v1:id(ActiveSC),
+                    lager:debug("selected state channel ~p", [libp2p_crypto:bin_to_b58(ActiveSCID)]),
                     NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, State0#state.dc_payload_size),
                     TotalDCs = blockchain_state_channel_v1:total_dcs(ActiveSC),
                     DCAmount = blockchain_state_channel_v1:amount(ActiveSC),
@@ -409,7 +410,6 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                         false ->
                             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
                             lager:debug("routing: ~p, hotspot: ~p", [Routing, Hotspot]),
-                            ActiveSCID = blockchain_state_channel_v1:id(ActiveSC),
                             {ClientBloom, _} = maps:get(ActiveSCID, Blooms),
                             case
                                 try_update_summary(ActiveSC, Hotspot, PayloadSize,
@@ -488,16 +488,14 @@ update_state_sc_open(Txn,
 
             case ActiveSCIDs of
                 [] ->
-                    %% Switching active sc, broadcast banner
-                    lager:info("broadcasting banner scid: ~p",
+                    lager:info("no active state channel setting: ~p as active",
                                [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SignedSC))]),
                     ok = maybe_broadcast_banner([SignedSC], State),
-                    %% Don't have any active state channel
-                    %% Set this one to active
                     State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs),
                                 active_sc_ids=[ID],
                                 blooms=maps:put(ID, {ClientBloom, PacketBloom}, Blooms)};
-                _A ->
+                _ ->
+                    lager:debug("already got ~p active", [[libp2p_crypto:bin_to_b58(I) || I <- ActiveSCIDs]]),
                     State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs),
                                 blooms=maps:put(ID, {ClientBloom, PacketBloom}, Blooms)}
             end;
@@ -549,14 +547,16 @@ update_state_sc_close(Txn, #state{db=DB, cf=SCF, blooms=Blooms, state_channels=S
 check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                                                    active_sc_ids=ActiveSCIDs,
                                                    state_channels=SCs}=State0) ->
+    lager:debug("check state channels expiration", []),
     NewStateChannels =
         maps:map(
-            fun(_ID, {SC, Skewed}) ->
+            fun(ID, {SC, Skewed}) ->
                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
                 case ExpireAt =< BlockHeight andalso blockchain_state_channel_v1:state(SC) == open of
                     false ->
                         {SC, Skewed};
                     true ->
+                        lager:info("closing ~p expired", [libp2p_crypto:bin_to_b58(ID)]),
                         SC0 = blockchain_state_channel_v1:state(closed, SC),
                         SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
                         ok = close_state_channel(SC1, Owner, OwnerSigFun),
@@ -570,7 +570,7 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
             [] ->
                 [];
             _ ->
-                ClosedSCs = lists:foldl(
+                ClosedSCIDs = lists:foldl(
                     fun(ActiveSCID, Acc) ->
                         {ActiveSC, _ActiveSCSkewed} = maps:get(ActiveSCID, NewStateChannels),
                         case blockchain_state_channel_v1:state(ActiveSC) of
@@ -583,8 +583,19 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                     [],
                     ActiveSCIDs
                 ),
-                maybe_get_new_active(maps:without(ClosedSCs, NewStateChannels), State0)
+                case ActiveSCIDs -- ClosedSCIDs of
+                    [] ->
+                        lager:info("no ActiveSCIDs, attempting to activate more"),
+                        case maybe_get_new_active(ClosedSCIDs, State0) of
+                            undefined -> ActiveSCIDs;
+                            NewActiveSCID -> ActiveSCIDs ++ [NewActiveSCID]
+                        end;
+                    StillActiveIDs ->
+                        lager:debug("we still have ~p, opened", [[libp2p_crypto:bin_to_b58(I) || I <- StillActiveIDs]]),
+                        StillActiveIDs
+                end
         end,
+    lager:debug("we still have ~p, opened", [[libp2p_crypto:bin_to_b58(I) || I <- NewActiveSCIDs]]),
     State1 = State0#state{active_sc_ids=NewActiveSCIDs, state_channels=NewStateChannels},
     ok = maybe_broadcast_banner(active_scs(State1), State1),
     State1.
@@ -640,9 +651,9 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
             )
     end.
 
--spec update_state_with_ledger_channels(State :: state()) -> state().
-update_state_with_ledger_channels(#state{db=DB}=State) ->
-    ConvertedSCs = convert_to_state_channels(State),
+-spec update_state_with_ledger_channels(State0 :: state()) -> state().
+update_state_with_ledger_channels(#state{db=DB, active_sc_ids=ActiveSCIDs}=State0) ->
+    ConvertedSCs = convert_to_state_channels(State0),
     lager:info("state channels rehydrated from ledger: ~p", [ConvertedSCs]),
     ConvertedSCKeys = maps:keys(ConvertedSCs),
     DBSCs = lists:foldl(
@@ -654,7 +665,7 @@ update_state_with_ledger_channels(#state{db=DB}=State) ->
                                             [libp2p_crypto:bin_to_b58(ID), _Reason]),
                               Acc;
                           {ok, {SC, Skewed}} ->
-                              lager:info("updating state from scdb ID: ~p",
+                              lager:info("updating state from scdb ID: ~p ~p",
                                          [libp2p_crypto:bin_to_b58(ID), SC]),
                               maps:put(ID, {SC, Skewed}, Acc)
                       end
@@ -668,11 +679,16 @@ update_state_with_ledger_channels(#state{db=DB}=State) ->
     %% These don't exist in the ledger but we have them in the sc db,
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
-    lager:debug("presumably closed sc ids: ~p", [ClosedSCIDs]),
+    lager:debug("presumably closed sc ids: ~p", [[libp2p_crypto:bin_to_b58(I) || I <- ClosedSCIDs]]),
 
-    NewActiveSCIDs = maybe_get_new_active(SCs, State),
-    lager:info("NewActiveSCIDs: ~p", [NewActiveSCIDs]),
-    State#state{state_channels=SCs, active_sc_ids=NewActiveSCIDs}.
+    State1 = State0#state{state_channels=SCs},
+    case maybe_get_new_active(ClosedSCIDs, State1) of
+        undefined ->
+            State1;
+        NewActiveSCID ->
+            lager:info("NewActiveSCID: ~p", [libp2p_crypto:bin_to_b58(NewActiveSCID)]),
+            State1#state{active_sc_ids=ActiveSCIDs++[NewActiveSCID]}
+    end.
 
 -spec get_state_channels(DB :: rocksdb:db_handle(),
                          SCF :: rocksdb:cf_handle()) ->
@@ -751,17 +767,14 @@ convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
 %% Get a new active state channel based on their expiration
 %% @end
 %%-------------------------------------------------------------------
-
-% TODO: Finish fix all calls to maybe_get_new_active
-
-% -spec maybe_get_new_active(State :: state()) -> blockchain_state_channel_v1:id() | undefined.
-% maybe_get_new_active(State) ->
-%     maybe_get_new_active([], State).
+-spec maybe_get_new_active(State :: state()) -> blockchain_state_channel_v1:id() | undefined.
+maybe_get_new_active(State) ->
+    maybe_get_new_active([], State).
 
 -spec maybe_get_new_active(WithoutSCIDs :: [blockchain_state_channel_v1:id()], State :: state()) -> blockchain_state_channel_v1:id() | undefined.
 maybe_get_new_active(WithoutSCIDs, #state{sc_version=SCVersion, active_sc_ids=ActiveSCIDs, state_channels=SCs}) ->
     {ok, BlockHeight} = blockchain:height(blockchain_worker:blockchain()),
-    case maps:to_list(SCs) of
+    case maps:to_list(maps:without(WithoutSCIDs, maps:without(ActiveSCIDs, SCs))) of
         [] ->
             %% Don't have any state channel in state
             undefined;
@@ -788,9 +801,7 @@ maybe_get_new_active(WithoutSCIDs, #state{sc_version=SCVersion, active_sc_ids=Ac
                                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
                                 ExpireAt > BlockHeight andalso
                                 blockchain_state_channel_v1:state(SC) == open andalso
-                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom) andalso
-                                not lists:member(blockchain_state_channel_v1:id(SC), ActiveSCIDs) andalso
-                                not lists:member(blockchain_state_channel_v1:id(SC), WithoutSCIDs);
+                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom);
                             _ ->
                                 %% We are not on sc_version=2, just set this to true to include any state channel
                                 true
@@ -798,7 +809,7 @@ maybe_get_new_active(WithoutSCIDs, #state{sc_version=SCVersion, active_sc_ids=Ac
                 end,
             case lists:filter(FilterFun, lists:sort(SCSortFun2, lists:sort(SCSortFun1, L))) of
                 [] ->
-                    [];
+                    undefined;
                 Y ->
                     [{ID, _}|_] = Y,
                     ID
