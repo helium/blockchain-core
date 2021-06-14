@@ -343,9 +343,14 @@ do_is_valid_checks(Txn, Chain) ->
 is_new_location(Txn, Ledger) ->
     GwPubkeyBin = ?MODULE:gateway(Txn),
     NewLoc = ?MODULE:location(Txn),
-    {ok, Gw} = blockchain_ledger_v1:find_gateway_info(GwPubkeyBin, Ledger),
-    ExistingLoc = blockchain_ledger_gateway_v2:location(Gw),
-    NewLoc /= ExistingLoc.
+    case blockchain_ledger_v1:find_gateway_info(GwPubkeyBin, Ledger) of
+        {ok, Gw} ->
+            ExistingLoc = blockchain_ledger_gateway_v2:location(Gw),
+            NewLoc /= ExistingLoc;
+        {error, _Reason} ->
+            %% if GW doesnt exist, default to true
+            true
+    end.
 
 -spec do_remaining_checks(Txn :: txn_assert_location(),
                           TotalFee :: non_neg_integer(),
