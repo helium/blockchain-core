@@ -376,7 +376,8 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                     PreventOverSpend = application:get_env(blockchain, prevent_sc_overspend, true),
                     case (TotalDCs + NumDCs) > DCAmount andalso PreventOverSpend of
                         true ->
-                            % QUESTION: Do we need to sign and save on rejection?
+                            % QUESTION
+                            % Do we need to sign and save on rejection?
                             % SC1 = blockchain_state_channel_v1:sign(ActiveSC, OwnerSigFun),
                             % ok = blockchain_state_channel_v1:save(State0#state.db, SC1, Skewed),
                             % QUESTION
@@ -384,8 +385,14 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                           [DCAmount, NumDCs, TotalDCs]),
                             lager:warning("overspend, SC1: ~p", [ActiveSC]),
                             ok = send_rejection(HandlerPid),
-                            % TODO: remove SC from active list
-                            State0;
+                            case maybe_get_new_active([ActiveSCID], State0) of
+                                undefined ->
+                                    State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs)};
+                                NewActiveSCID ->
+                                    State1 = State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs) ++ [NewActiveSCID]},
+                                    ok = maybe_broadcast_banner(active_scs(State1), State1),
+                                    State1
+                            end;
                         false ->
                             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
                             lager:debug("routing: ~p, hotspot: ~p", [Routing, Hotspot]),
@@ -395,9 +402,9 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                                    DCPayloadSize, ClientBloom)
                             of
                                 {error, _Reason} ->
-                                    lager:warning("dropping this packet because: ~p ~p", [_Reason, ActiveSC]),
+                                    lager:warning("dropping this packet because: ~p ~p",
+                                                  [_Reason, lager:pr(ActiveSC, blockchain_state_channel_v1)]),
                                     ok = send_rejection(HandlerPid),
-                                    % TODO: remove SC from active list
                                     State0;
                                 {ok, PurchaseSC} ->
                                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
