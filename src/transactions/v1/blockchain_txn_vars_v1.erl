@@ -993,12 +993,10 @@ validate_var(?rewards_txn_version, Value) ->
         N when is_integer(N), N >= 1, N =< 2 -> ok;
         _ -> throw({error, {invalid_rewards_txn_version, Value}})
     end;
-validate_var(?fix_tx_reward_unit, Value) ->
-    case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_fix_tx_reward_unit, Value}})
-    end;
+validate_var(?tx_reward_unit_cap, Value) ->
+    %% According to HIP-15, the cap should be set to 2.0
+    %% 5.0 is just for future proofing if need be
+    validate_float(Value, "tx_reward_unit_cap", 0.0, 5.0);
 
 %% bundle vars
 validate_var(?max_bundle_size, Value) ->
