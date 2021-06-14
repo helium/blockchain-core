@@ -172,7 +172,7 @@ is_valid(Txn, Chain) ->
                         %% this transaction, hence we add one here.
                         ThisBlockHeight = CurrentHeight + 1,
                         case StakeReleaseHeight >= (ThisBlockHeight + Cooldown) andalso
-                             StakeReleaseHeight < (CurrentHeight + Cooldown + CooldownMax) of
+                             StakeReleaseHeight < (ThisBlockHeight + Cooldown + CooldownMax) of
                             true -> ok;
                             false -> throw({invalid_stake_release_height, StakeReleaseHeight})
                         end;
