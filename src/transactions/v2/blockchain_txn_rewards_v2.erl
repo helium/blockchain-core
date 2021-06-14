@@ -618,7 +618,7 @@ get_reward_vars(Start, End, Ledger) ->
                         _ -> undefined
                     end,
 
-    TxRewardUnitCap = case blockchain:config(?tx_reward_unit_cap, Ledger) of
+    HIP15TxRewardUnitCap = case blockchain:config(?hip15_tx_reward_unit_cap, Ledger) of
                           {ok, Val} -> Val;
                           _ -> undefined
                       end,
@@ -641,7 +641,7 @@ get_reward_vars(Start, End, Ledger) ->
         witness_redundancy => WitnessRedundancy,
         poc_reward_decay_rate => DecayRate,
         density_tgt_res => DensityTgtRes,
-        tx_reward_unit_cap => TxRewardUnitCap
+        hip15_tx_reward_unit_cap => HIP15TxRewardUnitCap
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -802,7 +802,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
-    TxRewardUnitCap = maps:get(tx_reward_unit_cap, Vars, undefined),
+    HIP15TxRewardUnitCap = maps:get(hip15_tx_reward_unit_cap, Vars, undefined),
     %% check if there were any legitimate witnesses
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
@@ -823,7 +823,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                            %% while we don't have a receipt for this node, we do know
                            %% there were witnesses or the path continued which means
                            %% the challengee transmitted
-                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, TxRewardUnitCap, Witnesses) of
+                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                {error, _} ->
                                    %% Old behavior
                                    maps:put(Challengee, I+1, Acc0);
@@ -841,7 +841,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                            %% the challengee transmitted
                            %% Additionally, we know this layer came in over radio so
                            %% there's an implicit rx as well
-                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, TxRewardUnitCap, Witnesses) of
+                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                {error, _} ->
                                    %% Old behavior
                                    maps:put(Challengee, I+2, Acc0);
@@ -868,7 +868,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% this challengee both rx'd and tx'd over radio
                                    %% AND sent a receipt
                                    %% so give them 3 payouts
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, TxRewardUnitCap, Witnesses) of
+                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
                                            maps:put(Challengee, I+3, Acc0);
@@ -882,7 +882,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    end;
                                false when is_integer(Version), Version > 4 ->
                                    %% this challengee rx'd and sent a receipt
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, TxRewardUnitCap, Witnesses) of
+                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
@@ -911,7 +911,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    Acc0;
                                true when is_integer(Version), Version > 4 ->
                                    %% Sent a receipt and the path continued on
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, TxRewardUnitCap, Witnesses) of
+                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
@@ -942,23 +942,23 @@ poc_challengees_rewards_(Vars, [Elem|Path], StaticPath, Txn, Chain, Ledger, _IsF
 
 -spec poc_challengee_reward_unit(WitnessRedundancy :: undefined | pos_integer(),
                                  DecayRate :: undefined | float(),
-                                 TxRewardUnitCap :: undefined | float(),
+                                 HIP15TxRewardUnitCap :: undefined | float(),
                                  Witnesses :: blockchain_poc_witness_v1:poc_witnesses()) -> {error, any()} | {ok, float()}.
-poc_challengee_reward_unit(WitnessRedundancy, DecayRate, TxRewardUnitCap, Witnesses) ->
+poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) ->
     case {WitnessRedundancy, DecayRate} of
         {undefined, _} -> {error, witness_redundancy_undefined};
         {_, undefined} -> {error, poc_reward_decay_rate_undefined};
         {N, R} ->
             W = length(Witnesses),
             Unit = poc_reward_tx_unit(R, W, N),
-            NUnit = normalize_reward_unit(TxRewardUnitCap, Unit),
+            NUnit = normalize_reward_unit(HIP15TxRewardUnitCap, Unit),
             {ok, NUnit}
     end.
 
--spec normalize_reward_unit(TxRewardUnitCap :: undefined | float(), Unit :: float()) -> float().
+-spec normalize_reward_unit(HIP15TxRewardUnitCap :: undefined | float(), Unit :: float()) -> float().
 normalize_reward_unit(undefined, Unit) when Unit > 1.0 -> 1.0;
 normalize_reward_unit(undefined, Unit) -> Unit;
-normalize_reward_unit(TxRewardUnitCap, Unit) when Unit >= TxRewardUnitCap -> TxRewardUnitCap;
+normalize_reward_unit(HIP15TxRewardUnitCap, Unit) when Unit >= HIP15TxRewardUnitCap -> HIP15TxRewardUnitCap;
 normalize_reward_unit(_TxRewardUnitCap, Unit) -> Unit.
 
 -spec normalize_reward_unit(Unit :: float()) -> float().
