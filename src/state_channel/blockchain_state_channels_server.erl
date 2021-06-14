@@ -163,29 +163,8 @@ handle_call(active_scs, _From, State) ->
     {reply, active_scs(State), State};
 handle_call(active_sc_ids, _From, #state{active_sc_ids=ActiveSCIDs}=State) ->
     {reply, ActiveSCIDs, State};
-handle_call(get_active_sc_count, _From, #state{active_sc_ids=[]}=State) ->
-    {reply, 0, State};
-handle_call(get_active_sc_count, _From, #state{state_channels=SCs}=State) ->
-    Headroom =
-        case application:get_env(blockchain, sc_headroom, 11) of
-            {ok, X} -> X;
-            X -> X
-        end,
-    Count = 
-        maps:fold(
-            fun(_ID, {SC, _Skewed}, Acc) ->
-                SCState = blockchain_state_channel_v1:state(SC),
-                DCAmt = blockchain_state_channel_v1:amount(SC),
-                TtlDCs = blockchain_state_channel_v1:total_dcs(SC),
-                case SCState == open andalso DCAmt > TtlDCs + Headroom of
-                    false -> Acc;
-                    true -> Acc + 1
-                end
-            end,
-            0,
-            SCs
-        ),
-    {reply, Count, State};
+handle_call(get_active_sc_count, _From, #state{active_sc_ids=ActiveSCIDs}=State) ->
+    {reply, erlang:length(ActiveSCIDs), State};
 %% NOTE: This function is for testing, we should do something else probably
 handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
             #state{db=DB, state_channels=SCs, owner={_, OwnerSigFun}}=State) ->
