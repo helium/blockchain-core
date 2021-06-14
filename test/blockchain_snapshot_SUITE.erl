@@ -139,9 +139,7 @@ basic_test(_Config) ->
     DiffBC = blockchain_ledger_snapshot_v1:diff(SnapshotB, SnapshotC),
     ct:pal("DiffBC: ~p", [DiffBC]),
 
-    %% TODO: C has new elements in upgrades. Should we assert something more specific?
-    ?assertEqual([upgrades], DiffBC),
-    %% Otherwise B and C should be the same:
+    %% C has new elements in upgrades, otherwise B and C should be the same:
     ?assertEqual(
         maps:remove(upgrades, SnapshotB),
         maps:remove(upgrades, SnapshotC)
