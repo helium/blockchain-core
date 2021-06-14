@@ -796,6 +796,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
+    FixTxRewardUnit = maps:get(fix_tx_reward_unit, Vars, undefined),
     %% check if there were any legitimate witnesses
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
@@ -816,7 +817,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                            %% while we don't have a receipt for this node, we do know
                            %% there were witnesses or the path continued which means
                            %% the challengee transmitted
-                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
+                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, FixTxRewardUnit, Witnesses) of
                                {error, _} ->
                                    %% Old behavior
                                    maps:put(Challengee, I+1, Acc0);
@@ -834,7 +835,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                            %% the challengee transmitted
                            %% Additionally, we know this layer came in over radio so
                            %% there's an implicit rx as well
-                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
+                           case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, FixTxRewardUnit, Witnesses) of
                                {error, _} ->
                                    %% Old behavior
                                    maps:put(Challengee, I+2, Acc0);
@@ -861,7 +862,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% this challengee both rx'd and tx'd over radio
                                    %% AND sent a receipt
                                    %% so give them 3 payouts
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
+                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, FixTxRewardUnit, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
                                            maps:put(Challengee, I+3, Acc0);
@@ -875,7 +876,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    end;
                                false when is_integer(Version), Version > 4 ->
                                    %% this challengee rx'd and sent a receipt
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
+                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, FixTxRewardUnit, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
@@ -904,7 +905,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    Acc0;
                                true when is_integer(Version), Version > 4 ->
                                    %% Sent a receipt and the path continued on
-                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) of
+                                   case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, FixTxRewardUnit, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
@@ -935,16 +936,31 @@ poc_challengees_rewards_(Vars, [Elem|Path], StaticPath, Txn, Chain, Ledger, _IsF
 
 -spec poc_challengee_reward_unit(WitnessRedundancy :: undefined | pos_integer(),
                                  DecayRate :: undefined | float(),
+                                 FixTxRewardUnit :: undefined | boolean(),
                                  Witnesses :: blockchain_poc_witness_v1:poc_witnesses()) -> {error, any()} | {ok, float()}.
-poc_challengee_reward_unit(WitnessRedundancy, DecayRate, Witnesses) ->
+poc_challengee_reward_unit(WitnessRedundancy, DecayRate, FixTxRewardUnit, Witnesses) ->
     case {WitnessRedundancy, DecayRate} of
         {undefined, _} -> {error, witness_redundancy_undefined};
         {_, undefined} -> {error, poc_reward_decay_rate_undefined};
         {N, R} ->
             W = length(Witnesses),
             Unit = poc_reward_tx_unit(R, W, N),
-            {ok, normalize_reward_unit(Unit)}
+
+            Res = case FixTxRewardUnit of
+                      true ->
+                          %% fixed normalization where the unit is capped
+                          %% at 2.0 instead of 1.0
+                          fixed_normalize_reward_unit(Unit);
+                      _ ->
+                          normalize_reward_unit(Unit)
+                  end,
+
+            {ok, Res}
     end.
+
+-spec fixed_normalize_reward_unit(Unit :: float()) -> float().
+fixed_normalize_reward_unit(Unit) when Unit >= 2.0 -> 2.0;
+fixed_normalize_reward_unit(Unit) -> Unit.
 
 -spec normalize_reward_unit(Unit :: float()) -> float().
 normalize_reward_unit(Unit) when Unit > 1.0 -> 1.0;
@@ -1261,6 +1277,8 @@ poc_reward_tx_unit(R, W, N) ->
 poc_witness_reward_unit(_R, W, N) when W =< N ->
     1.0;
 poc_witness_reward_unit(R, W, N) ->
+    %% It's okay to call the previously broken normalize_reward_unit here because
+    %% the value does not asympotically tend to 2.0, instead it tends to 0.0
     normalize_reward_unit(blockchain_utils:normalize_float((N - (1 - math:pow(R, (W - N))))/W)).
 
 -spec legit_witnesses( Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),
@@ -1730,6 +1748,28 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, start_epoch, end_epoch, rewards])).
 
+
+fixed_normalize_reward_unit_test() ->
+    Rewards = [0.1, 0.2, 0.9, 1.0, 0.99, 1.2, 1.6, 1.99, 1.8, 2.5, 2000, 0],
+
+    %% Expectation: reward should get capped at 2.0
+    Correct = lists:foldl(fun(Reward, Acc) ->
+                              maps:put(Reward, fixed_normalize_reward_unit(Reward), Acc)
+                      end, #{}, Rewards),
+
+    Incorrect = lists:foldl(fun(Reward, Acc) ->
+                                    maps:put(Reward, normalize_reward_unit(Reward), Acc)
+                            end, #{}, Rewards),
+
+    io:format("Correct: ~p~n", [Correct]),
+    io:format("Incorrect: ~p~n", [Incorrect]),
+
+    ?assertEqual(1.8, maps:get(1.8, Correct)),
+    ?assertEqual(2.0, maps:get(2.5, Correct)),
+    ?assertEqual(1.0, maps:get(2.5, Incorrect)),
+    ?assertEqual(1.0, maps:get(1.8, Incorrect)),
+
+    ok.
 
 common_poc_vars() ->
     #{
