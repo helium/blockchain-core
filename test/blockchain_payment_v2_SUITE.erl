@@ -644,7 +644,7 @@ transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers) -
     DstBalance0 = balance(Dst, Chain),
     Ledger = blockchain:ledger(Chain),
     Nonce = case blockchain_ledger_v1:find_entry(Src, Ledger) of
-                {error, not_found} -> 1;
+                {error, address_entry_not_found} -> 1;
                 {ok, Entry} -> blockchain_ledger_entry_v1:nonce(Entry) + 1
             end,
     Tx = blockchain_txn_payment_v2:new(Src, [blockchain_payment_v2:new(Dst, Amount)], Nonce),
@@ -665,7 +665,7 @@ transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers) -
 balance(<<Addr/binary>>, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_entry(Addr, Ledger) of
-        {error, not_found} ->
+        {error, address_entry_not_found} ->
             0;
         {ok, Entry} ->
             blockchain_ledger_entry_v1:balance(Entry)

@@ -21,7 +21,7 @@
          owner/1,
          stake/1,
          owner_signature/1,
-         fee/1, calculate_fee/2, calculate_fee/5, 
+         fee/1, calculate_fee/2, calculate_fee/5,
          fee_payer/2,
          sign/2,
          is_valid/2,
@@ -166,7 +166,7 @@ is_valid(Txn, Chain) ->
                                     true -> ok;
                                     false -> throw({balance_too_low, {bal, Balance, stk, Stake}})
                                 end;
-                            {error, not_found} ->
+                            {error, address_entry_not_found} ->
                                 throw(unknown_owner);
                             {error, Error} ->
                                 throw(Error)
