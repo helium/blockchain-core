@@ -342,17 +342,29 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     %% validate the cached txns
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
-        fun({TxnKey, Txn, _TxnData} = CachedTxn) ->
+        fun({TxnKey, Txn, #txn_data{recv_block_height = RecvBlockHeight} = _TxnData} = CachedTxn) ->
             case {lists:keyfind(Txn, 1, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
                 {false, false} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
                     %% bad or out of sequence nonce
-                    %% so in this scenario do nothing...
-                    %% we need to keep dialers open to ensure we receive responses from the CG members
-                    %% who may not yet have responded to any previous submit
-                    lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
-                    ok;
+                    %% in this scenario we give the txn N blocks for the validation to make a decision
+                    %% as to whether valid or invalid
+                    %% if that does not happen by N blocks we will assume the txn will never become valid
+                    %% this prevents an account becoming wedged such as would be the case if
+                    %% a payer account submits a bunch of txns where a lower nonce txn got lost or
+                    %% an issue with the speculative nonce
+                    %% it also helps to prevent txn mgr's cache from getting cluttered long term
+                    %% with txns which will never become valid or invalid
+                    TxnMaxBlockSpan = application:get_env(blockchain, txn_max_block_span, 15),
+                    case (CurBlockHeight - RecvBlockHeight) > TxnMaxBlockSpan of
+                        true ->
+                            lager:debug("txn has exceeded max block space, rejecting: ~p", [blockchain_txn:hash(Txn)]),
+                            process_invalid_txn(CachedTxn, {error, {invalid, undecided_timeout}});
+                        _ ->
+                            lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
+                            ok
+                    end;
                 {{Txn, InvalidReason}, true} ->
                     %% hmm we have a txn which is a member of the valid and the invalid list
                     %% this can only mean we have dup txns, like 2 payment txns submitted with same nonce and payload
@@ -483,13 +495,15 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                                                        end, sets:from_list(A0), tl(Dependencies))),
             lager:debug("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
             {_, ExistingDialers} = lists:unzip(Dialers),
-            %% remove any CG members from the elegible list which have already accepted or rejected the txn and also
+            %% remove any CG members from the elegible list which have already accepted the txn and also
             %% those which we are already dialling
-            ElegibleMembers1 = ((ElegibleMembers -- Acceptions) -- Rejections) -- ExistingDialers,
+            %% dont exclude any previous rejectors as the reason rejected may no longer be valid
+            %% previous rejectors may include members which dependant upon txn has now been accepted by
+            ElegibleMembers1 = (ElegibleMembers -- Acceptions) -- ExistingDialers,
             %% determine max number of new diallers we need to start and then use this to get our target list to dial
             MaxNewDiallersCount = SubmitF - length(Acceptions) - length(Dialers),
             NewDialers = dial_members(lists:sublist(ElegibleMembers1, MaxNewDiallersCount), Chain, TxnKey, Txn),
-            lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers), length(NewDialers)]),
+            lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers1), length(NewDialers)]),
             cache_txn(TxnKey, Txn, TxnData#txn_data{dialers =  Dialers ++ NewDialers})
     end.
 

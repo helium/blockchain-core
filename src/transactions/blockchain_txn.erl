@@ -296,6 +296,10 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                         ok ->
                             maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
+                        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+                            %% we don't have enough context to decide if this transaction is valid yet, keep it
+                            %% but don't include it in the block (so it stays in the buffer)
+                            validate(Tail, Valid, Invalid, PType, PBuf, Chain);
                         {error, {InvalidReason, _Details}} = Error ->
                             lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
                             validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);

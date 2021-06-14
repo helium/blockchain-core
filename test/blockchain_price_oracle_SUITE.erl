@@ -1354,8 +1354,8 @@ staking_key_mode_mappings_add_full_gateway(Config) ->
     AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
     AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
     %% full gateways costs 40 usd
+
     ?assertEqual(40 * ?USD_TO_DC, AddGatewayStFee),
-    ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
 
     %% set the fees on the base txn and then sign the various txns
@@ -1365,6 +1365,7 @@ staking_key_mode_mappings_add_full_gateway(Config) ->
     SignedOwnerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx2, OwnerSigFun),
     SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
     SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
 
     {ok, AddGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGatewayTx2]),
     %% add the block
@@ -1437,7 +1438,6 @@ staking_key_mode_mappings_add_nonconsensus_gateway(Config) ->
     AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
     %% non consensus gateway costs same to add as a full gateway
     ?assertEqual(40 * ?USD_TO_DC, AddGatewayStFee),
-    ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
 
     %% set the fees on the base txn and then sign the various txns
@@ -1448,6 +1448,7 @@ staking_key_mode_mappings_add_nonconsensus_gateway(Config) ->
     SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
     SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
 
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
     {ok, AddGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGatewayTx2]),
     %% add the block
     blockchain:add_block(AddGatewayBlock, Chain),
@@ -1518,7 +1519,6 @@ staking_key_mode_mappings_add_light_gateway(Config) ->
     AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
     %% light gateway costs 20 usd
     ?assertEqual(20 * ?USD_TO_DC, AddGatewayStFee),
-    ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
 
     %% set the fees on the base txn and then sign the various txns
@@ -1529,6 +1529,7 @@ staking_key_mode_mappings_add_light_gateway(Config) ->
     SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
     SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
 
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
     {ok, AddGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGatewayTx2]),
     %% add the block
     blockchain:add_block(AddGatewayBlock, Chain),

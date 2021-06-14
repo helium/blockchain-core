@@ -578,6 +578,7 @@ multiple_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
     RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    ct:pal("RouterNode: ~p", [RouterNode]),
 
     %% Forward this process's submit_txn to meck_test_util which
     %% sends this process a msg reply back which we later handle
@@ -586,6 +587,7 @@ multiple_test(Config) ->
 
     %% Create OUI txn
     SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn

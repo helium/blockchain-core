@@ -157,19 +157,31 @@ is_valid(Txn, Chain) ->
                             %% no oracle price exists
                             {error, no_oracle_prices};
                         _ ->
-                            HNTAmount = ?MODULE:amount(Txn),
-                            case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
-                                {error, _}=Error ->
-                                    Error;
-                                ok ->
-                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                    TxnFee = ?MODULE:fee(Txn),
-                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                                {error, _}=Error0 ->
+                                    Error0;
+                                {ok, Entry} ->
+                                    TxnNonce = ?MODULE:nonce(Txn),
+                                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                                    case TxnNonce =:= LedgerNonce + 1 of
                                         false ->
-                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                            {error, {bad_nonce, {token_burn, TxnNonce, LedgerNonce}}};
                                         true ->
-                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                        HNTAmount = ?MODULE:amount(Txn),
+                                        case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
+                                            {error, _}=Error ->
+                                                Error;
+                                            ok ->
+                                                AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                TxnFee = ?MODULE:fee(Txn),
+                                                ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                    false ->
+                                                        {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                                    true ->
+                                                        blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                                end
+                                        end
                                     end
                             end
                     end
