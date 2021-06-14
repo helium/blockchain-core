@@ -618,6 +618,11 @@ get_reward_vars(Start, End, Ledger) ->
                         _ -> undefined
                     end,
 
+    FixTxRewardUnit = case blockchain:config(?fix_tx_reward_unit, Ledger) of
+                          {ok, Val} -> Val;
+                          _ -> undefined
+                      end,
+
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -635,7 +640,8 @@ get_reward_vars(Start, End, Ledger) ->
         reward_version => RewardVersion,
         witness_redundancy => WitnessRedundancy,
         poc_reward_decay_rate => DecayRate,
-        density_tgt_res => DensityTgtRes
+        density_tgt_res => DensityTgtRes,
+        fix_tx_reward_unit => FixTxRewardUnit
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
