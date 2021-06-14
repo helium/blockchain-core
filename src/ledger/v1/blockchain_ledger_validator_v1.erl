@@ -14,6 +14,7 @@
          last_heartbeat/1, last_heartbeat/2,
          add_penalty/5,
          penalties/1,
+         calculate_penalties/2,
          calculate_penalty_value/2,
          status/1, status/2,
          nonce/1, nonce/2,
