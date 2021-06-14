@@ -167,7 +167,11 @@ is_valid(Txn, Chain) ->
                         {ok, Cooldown} = blockchain:config(?stake_withdrawal_cooldown, Ledger),
                         {ok, CooldownMax} = blockchain:config(?stake_withdrawal_max, Ledger),
                         {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
-                        case StakeReleaseHeight >= (CurrentHeight + Cooldown) andalso
+                        %% for more understandable semantics, we need to validate not against the
+                        %% height of the given ledger, but the height of the block that will include
+                        %% this transaction, hence we add one here.
+                        ThisBlockHeight = CurrentHeight + 1,
+                        case StakeReleaseHeight >= (ThisBlockHeight + Cooldown) andalso
                              StakeReleaseHeight < (CurrentHeight + Cooldown + CooldownMax) of
                             true -> ok;
                             false -> throw({invalid_stake_release_height, StakeReleaseHeight})
