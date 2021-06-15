@@ -239,6 +239,7 @@ absorb(Txn, Chain) ->
                             false -> #{}
                         end,
 
+                    %% apply tenure penalties to new members at the start of the round
                     lists:foreach(
                       fun(M) ->
                               {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
@@ -246,17 +247,24 @@ absorb(Txn, Chain) ->
                                                                               tenure,
                                                                               TenurePenalty,
                                                                               PenaltyLimit),
-                              V2 = case maps:get(M, EpochPenalties, none) of
-                                       none -> V1;
-                                       0.0 -> V1;
+                              blockchain_ledger_v1:update_validator(M, V1, Ledger)
+                      end,
+                      Members),
+                    %% persist performance penalties for all validators in the last epoch
+                    lists:foreach(
+                      fun(M) ->
+                              {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
+                              V1 = case maps:get(M, EpochPenalties, none) of
+                                       none -> V;
+                                       0.0 -> V;
                                        Penalty ->
-                                           blockchain_ledger_validator_v1:add_penalty(V1,
+                                           blockchain_ledger_validator_v1:add_penalty(V,
                                                                                       CurrHeight,
                                                                                       performance,
                                                                                       Penalty,
                                                                                       PenaltyLimit)
                                    end,
-                              blockchain_ledger_v1:update_validator(M, V2, Ledger)
+                              blockchain_ledger_v1:update_validator(M, V1, Ledger)
                       end,
                       OldMembers);
                 _ -> ok
