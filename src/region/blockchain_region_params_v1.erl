@@ -18,8 +18,7 @@
 
     new/1,
     serialize/1,
-    deserialize/1,
-    region_params/1
+    deserialize/1
 ]).
 
 -type region_params_v1() :: #blockchain_region_params_v1_pb{}.
@@ -45,12 +44,13 @@
 %%--------------------------------------------------------------------
 
 -spec for_region(Region :: atom(), Ledger :: blockchain_ledger_v1:ledger()) ->
-    {ok, region_params_v1()} | {error, any()}.
+    {ok, [blockchain_region_param_v1:region_param_v1()]} | {error, any()}.
 for_region(Region, Ledger) ->
     Var = maps:get(Region, ?REGION_PARAM_MAP),
     case blockchain:config(Var, Ledger) of
         {ok, Bin} ->
-            {ok, deserialize(Bin)};
+            Deser = deserialize(Bin),
+            {ok, region_params(Deser)};
         _ ->
             {error, {not_set, Var}}
     end.
