@@ -1516,8 +1516,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
 
 maybe_tx_power_from_receipt(undefined, SourceLoc, Freq, Ledger) ->
     {ok, Region} = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
-    {ok, RegionParams} = blockchain_region_params_v1:for_region(Region, Ledger),
-    Params = blockchain_region_params_v1:region_params(RegionParams),
+    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
     FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),
                   blockchain_region_param_v1:max_eirp(I)} || I <- Params],
     %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
