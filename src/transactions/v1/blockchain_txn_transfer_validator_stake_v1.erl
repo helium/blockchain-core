@@ -184,7 +184,7 @@ is_valid(Txn, Chain) ->
         true ->
             try
                 case blockchain:config(?validator_version, Ledger) of
-                    {ok, Vers} when Vers >= 2 ->
+                    {ok, Vers} when Vers >= 3 ->
                         ok;
                     _ -> throw(unsupported_txn)
                 end,

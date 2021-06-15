@@ -58,7 +58,7 @@ init_per_testcase(TestCase, Config) ->
             _ ->
                 #{
                     ?election_version => 5,
-                    ?validator_version => 2,
+                    ?validator_version => 3,
                     ?validator_minimum_stake => ?bones(10000),
                     ?validator_liveness_grace_period => 10,
                     ?validator_liveness_interval => 5,
@@ -454,7 +454,7 @@ unstake_ok_at_same_height(Config) ->
         Owner1PubkeyBin,
         Owner1PubkeyBin,
         ?bones(10000),
-        Height + 10,
+        Height + 11,
         35000
     ),
     SignedTxn1 = blockchain_txn_unstake_validator_v1:sign(Txn1, Owner1SigFun),
@@ -470,7 +470,7 @@ unstake_ok_at_same_height(Config) ->
         Owner2PubkeyBin,
         Owner2PubkeyBin,
         ?bones(10000),
-        Height + 10,
+        Height + 11,
         35000
     ),
     SignedTxn2 = blockchain_txn_unstake_validator_v1:sign(Txn2, Owner2SigFun),

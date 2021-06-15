@@ -141,7 +141,7 @@ make_base_dir() ->
 val_vars() ->
     #{
       ?election_version => 5,
-      ?validator_version => 2,
+      ?validator_version => 3,
       ?validator_minimum_stake => ?min_stake,
       ?validator_liveness_grace_period => 100,
       ?validator_liveness_interval => 2000,

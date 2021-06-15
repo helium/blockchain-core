@@ -1224,6 +1224,7 @@ validate_var(?validator_version, Value) ->
     case Value of
         1 -> ok;
         2 -> ok;
+        3 -> ok;
         _ ->
             throw({error, {invalid_validator_version, Value}})
     end;
