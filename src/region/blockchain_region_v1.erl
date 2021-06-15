@@ -9,7 +9,7 @@
 
 -export([get_all_regions/1, h3_to_region/2, h3_in_region/3]).
 
-%% [us915, au915, .... ]
+%% [region_us915, region_au915, .... ]
 -type regions() :: [atom()].
 
 %%--------------------------------------------------------------------
