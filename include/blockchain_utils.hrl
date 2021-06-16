@@ -48,7 +48,7 @@
                      -13 => {-125,-125},
                      11 => {-90,-35}}).
 
--define(MAX_UNIQ_CLIENTS, 1100).
+-define(MAX_UNIQ_CLIENTS, 2000).
 
 %% default values for gateways
 -define(DEFAULT_GAIN, 12). %% as dBi * 10
