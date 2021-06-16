@@ -287,25 +287,6 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec select_best_active_sc(libp2p_crypto:pubkey_bin(), state()) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
-select_best_active_sc(PubKeyBin, #state{active_sc_ids=ActiveSCIDs, state_channels=SCs}) ->
-    select_best_active_sc(PubKeyBin, ActiveSCIDs, SCs).
-
--spec select_best_active_sc(libp2p_crypto:pubkey_bin(), [blockchain_state_channel_v1:id()], state_channels()) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
-select_best_active_sc(_PubKeyBin, [], _SCs) ->
-    {error, no_active_state_channels};
-select_best_active_sc(PubKeyBin, [ActiveSCID|Others], StateChannels) ->
-    {SC, _} = maps:get(ActiveSCID, StateChannels),
-    case blockchain_state_channel_v1:can_fit(PubKeyBin, SC) of
-        true ->
-            {ok, SC};
-        false ->
-            select_best_active_sc(PubKeyBin, Others, StateChannels)
-    end.
-
 -spec handle_packet(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
                      Packet :: blockchain_helium_packet_v1:packet(),
                      HandlerPid :: pid(),
@@ -426,6 +407,32 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                             
                     end
             end
+    end.
+
+-spec select_best_active_sc(libp2p_crypto:pubkey_bin(), state()) ->
+    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
+select_best_active_sc(PubKeyBin, #state{active_sc_ids=ActiveSCIDs, state_channels=SCs}) ->
+    select_best_active_sc(PubKeyBin, ActiveSCIDs, SCs).
+
+-spec select_best_active_sc(libp2p_crypto:pubkey_bin(), [blockchain_state_channel_v1:id()], state_channels()) ->
+    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
+select_best_active_sc(_PubKeyBin, [], _SCs) ->
+    {error, no_active_state_channels};
+select_best_active_sc(PubKeyBin, [ActiveSCID|Others], StateChannels) ->
+    {SC, _} = maps:get(ActiveSCID, StateChannels),
+    case blockchain_state_channel_v1:can_fit(PubKeyBin, SC, get_sc_max_actors()) of
+        true ->
+            {ok, SC};
+        false ->
+            select_best_active_sc(PubKeyBin, Others, StateChannels)
+    end.
+
+-spec get_sc_max_actors() -> pos_integer().
+get_sc_max_actors() ->
+    case application:get_env(blockchain, sc_max_actors, ?MAX_UNIQ_CLIENTS) of
+        Str when is_list(Str) -> erlang:list_to_integer(Str);
+        TooHigh  when TooHigh > ?MAX_UNIQ_CLIENTS -> ?MAX_UNIQ_CLIENTS;
+        Max -> Max
     end.
 
 -spec maybe_add_stream(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
