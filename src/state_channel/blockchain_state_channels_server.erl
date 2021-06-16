@@ -314,34 +314,39 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
               #state{db=DB, sc_version=SCVer,state_channels=SCs,
                      blooms=Blooms, owner={_, OwnerSigFun}}=State) ->
     Payload = blockchain_helium_packet_v1:payload(Packet),
-    {ok, SC} = select_best_active_sc(ClientPubKeyBin, State),
-    ActiveSCID = blockchain_state_channel_v1:id(SC),
-    {ClientBloom, PacketBloom} = maps:get(ActiveSCID, Blooms),
-    {_, Skewed} = maps:get(ActiveSCID, SCs),
-    case SCVer > 1 andalso bloom:check_and_set(PacketBloom, Payload) of
-        true ->
-            %% Don't add payload
-            maybe_add_stream(ClientPubKeyBin, HandlerPid, State);
-        false ->
-            {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            ExistingSCNonce = blockchain_state_channel_v1:nonce(SC1),
-            SC2 = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC1),
-            NewSC = case SCVer of
-                        2 ->
-                            %% we don't update the state channel summary here
-                            %% it happens in `send_purchase` for v2 SCs
-                            SC2;
-                        _ ->
-                            {SC3, _} = update_sc_summary(ClientPubKeyBin, byte_size(Payload), State#state.dc_payload_size, SC2, ClientBloom),
-                            SC3
-                    end,
+    case select_best_active_sc(ClientPubKeyBin, State) of
+        {error, _Reason} ->
+            lager:warning("we failed to select a state channel ~p", [_Reason]),
+            State;
+        {ok, SC} ->
+            ActiveSCID = blockchain_state_channel_v1:id(SC),
+            {ClientBloom, PacketBloom} = maps:get(ActiveSCID, Blooms),
+            {_, Skewed} = maps:get(ActiveSCID, SCs),
+            case SCVer > 1 andalso bloom:check_and_set(PacketBloom, Payload) of
+                true ->
+                    %% Don't add payload
+                    maybe_add_stream(ClientPubKeyBin, HandlerPid, State);
+                false ->
+                    {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
+                    ExistingSCNonce = blockchain_state_channel_v1:nonce(SC1),
+                    SC2 = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC1),
+                    NewSC = case SCVer of
+                                2 ->
+                                    %% we don't update the state channel summary here
+                                    %% it happens in `send_purchase` for v2 SCs
+                                    SC2;
+                                _ ->
+                                    {SC3, _} = update_sc_summary(ClientPubKeyBin, byte_size(Payload), State#state.dc_payload_size, SC2, ClientBloom),
+                                    SC3
+                            end,
 
-            SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
-            %% save it
-            ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-            %% Put new state_channel in our map
-            TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
-            maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
+                    SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
+                    %% save it
+                    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
+                    %% Put new state_channel in our map
+                    TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
+                    maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
+            end
     end.
 
 handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, active_sc_ids=ActiveSCIDs,
@@ -357,7 +362,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
             Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             case select_best_active_sc(Hotspot, State0) of
                 {error, _Reason} ->
-                    lager:info("could not get a good active SC (~p)", [_Reason]),
+                    lager:debug("could not get a good active SC (~p)", [_Reason]),
                     case maybe_get_new_active(State0) of
                         undefined ->
                             lager:warning("could not get a new active SC (~p), rejecting", [_Reason]),
@@ -376,11 +381,6 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                     PreventOverSpend = application:get_env(blockchain, prevent_sc_overspend, true),
                     case (TotalDCs + NumDCs) > DCAmount andalso PreventOverSpend of
                         true ->
-                            % QUESTION
-                            % Do we need to sign and save on rejection?
-                            % SC1 = blockchain_state_channel_v1:sign(ActiveSC, OwnerSigFun),
-                            % ok = blockchain_state_channel_v1:save(State0#state.db, SC1, Skewed),
-                            % QUESTION
                             lager:warning("dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                                           [DCAmount, NumDCs, TotalDCs]),
                             lager:warning("overspend, SC1: ~p", [ActiveSC]),
