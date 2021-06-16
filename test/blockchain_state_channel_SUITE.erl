@@ -580,10 +580,10 @@ max_actor_test(Config) ->
 
     [SCA1, SCB1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
 
-    ?assertEqual(2000, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
+    ?assertEqual(?MAX_UNIQ_CLIENTS, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
     ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1))),
 
-    ?assertEqual(2000, blockchain_state_channel_v1:total_packets(SCA1)),
+    ?assertEqual(?MAX_UNIQ_CLIENTS, blockchain_state_channel_v1:total_packets(SCA1)),
     ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1)),
 
     % We are resending packets from same actor to make sure they still make it in there and in the right state channel
@@ -616,10 +616,10 @@ max_actor_test(Config) ->
 
     [SCA2, SCB2] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
 
-    ?assertEqual(2000, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
+    ?assertEqual(?MAX_UNIQ_CLIENTS, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
     ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
 
-    ?assertEqual(4000, blockchain_state_channel_v1:total_packets(SCA2)),
+    ?assertEqual(?MAX_UNIQ_CLIENTS*2, blockchain_state_channel_v1:total_packets(SCA2)),
     ?assertEqual(2, blockchain_state_channel_v1:total_packets(SCB2)),
 
     ok.
