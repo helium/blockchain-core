@@ -504,7 +504,7 @@ can_fit(ClientPubkeyBin, SC) ->
               Max :: non_neg_integer()) -> boolean().
 can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}, Max) ->
     Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
-    CanFit = length(Clients) =< Max,
+    CanFit = length(Clients) < Max,
     IsKnownClient = lists:member(ClientPubkeyBin, Clients),
     case {CanFit, IsKnownClient} of
         {false, false} ->

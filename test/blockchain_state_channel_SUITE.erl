@@ -505,12 +505,12 @@ max_actor_test(Config) ->
     ID1 = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce, 2500),
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce, 10000),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
      %% Create state channel open txn
     ID2 = crypto:strong_rand_bytes(24),
-    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce+1, 2500),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce+1, 10000),
     ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
 
     %% Add block with oui and sc open txns
@@ -542,23 +542,53 @@ max_actor_test(Config) ->
     ActiveSCIDsXXX = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
     ?assertEqual([ID1], ActiveSCIDsXXX),
 
-    %% Sending 1 packet
-    DevNonce0 = crypto:strong_rand_bytes(2),
-    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
-
-    %% Checking state channel on server/client
-    % ok = blockchain_ct_utils:wait_until(fun() ->
-    %     {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])
-    % end, 30, timer:seconds(1)),
-
     %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
     ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
     ?assertEqual([ID1], ActiveSCIDs0),
 
-    lists:foreach(
-        fun(_I) ->
+    Actors = lists:foldl(
+        fun(_I, Acc) ->
             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+            PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            Packet = blockchain_helium_packet_v1:new(
+                    lorawan,
+                    crypto:strong_rand_bytes(20),
+                    erlang:system_time(millisecond),
+                    -100.0,
+                    915.2,
+                    "SF8BW125",
+                    -12.0,
+                    {devaddr, 12}
+                ),
+            Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
+            Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
+            ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}]),
+            [#{public => PubKey, secret => PrivKey}|Acc]
+        end,
+        [],
+        lists:seq(1, ?MAX_UNIQ_CLIENTS + 1)
+    ),
+
+    %% Checking that new SC ID is not old SC ID
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
+        [ID1, ID2] == ActiveSCIDs1
+    end, 30, timer:seconds(1)),
+
+
+    [SCA1, SCB1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+
+    ?assertEqual(2000, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
+    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1))),
+
+    ?assertEqual(2000, blockchain_state_channel_v1:total_packets(SCA1)),
+    ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1)),
+
+    % We are resending packets from same actor to make sure they still make it in there and in the right state channel
+    lists:foreach(
+        fun(#{public := PubKey, secret := PrivKey}) ->
             PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             Packet = blockchain_helium_packet_v1:new(
@@ -575,15 +605,22 @@ max_actor_test(Config) ->
             Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
             ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}])
         end,
-        lists:seq(1, ?MAX_UNIQ_CLIENTS + 1)
+        lists:reverse(Actors)
     ),
 
-    %% Checking that new SC ID is not old SC ID
     ok = blockchain_ct_utils:wait_until(fun() ->
-        ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
-        ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
-        [ID1, ID2] == ActiveSCIDs1
+        ActiveSCIDs2 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ct:pal("ActiveSCIDs2: ~p", [ActiveSCIDs2]),
+        [ID1, ID2] == ActiveSCIDs2
     end, 30, timer:seconds(1)),
+
+    [SCA2, SCB2] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+
+    ?assertEqual(2000, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
+    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
+
+    ?assertEqual(4000, blockchain_state_channel_v1:total_packets(SCA2)),
+    ?assertEqual(2, blockchain_state_channel_v1:total_packets(SCB2)),
 
     ok.
 
