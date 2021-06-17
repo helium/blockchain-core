@@ -478,7 +478,7 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
 
 -spec merge(SCA :: state_channel(),
             SCB :: state_channel(),
-            MaxActorsAllowed :: non_neg_integer()) -> state_channel().
+            MaxActorsAllowed :: pos_integer()) -> state_channel().
 merge(SCA, SCB, MaxActorsAllowed) ->
     lager:info("merging state channels"),
     [SC1, SC2] = lists:sort(fun(A, B) -> ?MODULE:nonce(A) =< ?MODULE:nonce(B) end, [SCA, SCB]),
