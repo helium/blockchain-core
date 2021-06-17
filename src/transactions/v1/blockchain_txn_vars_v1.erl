@@ -1037,7 +1037,7 @@ validate_var(?txn_field_validation_version, Value) ->
 validate_var(?min_expire_within, Value) ->
     validate_int(Value, "min_expire_within", ?expire_lower_bound, 20, false);
 validate_var(?max_open_sc, Value) ->
-    validate_int(Value, "max_open_sc", 1, 10, false);
+    validate_int(Value, "max_open_sc", 1, 100, false);
 validate_var(?max_xor_filter_size, Value) ->
     validate_int(Value, "max_xor_filter_size", 1024, 1024*100, false);
 validate_var(?max_xor_filter_num, Value) ->
