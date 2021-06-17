@@ -144,7 +144,7 @@ snapshot(Ledger0, Blocks, Mode) ->
                 {
                     max_heap_size,
                     (fun() ->
-                        Mb = application:get_env(blockchain, snapshot_memory_limit, 100),
+                        Mb = application:get_env(blockchain, snapshot_memory_limit, 200),
                         Mb * 1024 * 1024 div erlang:system_info(wordsize)
                     end)()
                 },
