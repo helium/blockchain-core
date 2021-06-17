@@ -449,9 +449,17 @@ get_sc_max_actors(Chain) ->
     Ledger = blockchain:ledger(Chain),
     MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
     case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
-        Str when is_list(Str) -> erlang:list_to_integer(Str);
-        TooHigh  when TooHigh > MaxActorsAllowed -> MaxActorsAllowed;
-        Max -> Max
+        Str when is_list(Str) ->
+            case erlang:list_to_integer(Str) of
+                TooHigh when TooHigh > MaxActorsAllowed ->
+                    MaxActorsAllowed;
+                Max ->
+                    Max
+            end;
+        TooHigh when TooHigh > MaxActorsAllowed ->
+            MaxActorsAllowed;
+        Max ->
+            Max
     end.
 
 -spec maybe_add_stream(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
