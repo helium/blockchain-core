@@ -127,7 +127,7 @@ summaries(Summaries, SC) ->
                          NewSummary :: blockchain_state_channel_summary_v1:summary(),
                          SC :: state_channel(),
                          WillFit :: boolean(),
-                         MaxActorsAllowed :: non_neg_integer()) -> {state_channel(), boolean()}.
+                         MaxActorsAllowed :: pos_integer()) -> {state_channel(), boolean()}.
 update_summary_for(ClientPubkeyBin,
                    NewSummary,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
