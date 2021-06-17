@@ -12,7 +12,9 @@
 
 -export([
     for_region/2,
+
     get_spreading/2,
+    get_bandwidth/1,
 
     new/1,
     serialize/1,
@@ -56,6 +58,16 @@ get_spreading(Params, PacketSize) ->
     Spreading = blockchain_region_param_v1:spreading(FirstParam),
     TaggedSpreading = blockchain_region_spreading_v1:tagged_spreading(Spreading),
     blockchain_region_spreading_v1:select_spreading(TaggedSpreading, PacketSize).
+
+-spec get_bandwidth(Params :: region_params_v1() | [blockchain_region_param_v1:region_param_v1()]) ->
+    pos_integer().
+get_bandwidth(Params) when is_list(Params) ->
+    %% The bandwidth does not change per channel frequency, so just get one
+    FirstParam = hd(Params),
+    blockchain_region_param_v1:bandwidth(FirstParam);
+get_bandwidth(Params) ->
+    FirstParam = hd(region_params(Params)),
+    blockchain_region_param_v1:bandwidth(FirstParam).
 
 -spec new(RegionParams :: [blockchain_region_param_v1:region_param_v1()]) -> region_params_v1().
 new(RegionParams) ->
