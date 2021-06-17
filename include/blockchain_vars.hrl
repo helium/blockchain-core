@@ -316,6 +316,8 @@
 -define(sc_causality_fix, sc_causality_fix).
 %% Block interval to try to GC state channels
 -define(sc_gc_interval, sc_gc_interval).
+%% Max number of actors (hotspots) allowed per state channel
+-define(sc_max_actors, sc_max_actors).
 
 
 %% ------------------------------------------------------------------

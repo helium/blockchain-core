@@ -1064,6 +1064,9 @@ validate_var(?sc_causality_fix, Value) ->
     validate_int(Value, "sc_causality_fix", 1, 1, false);
 validate_var(?sc_gc_interval, Value) ->
     validate_int(Value, "sc_gc_interval", 10, 100, false);
+validate_var(?sc_max_actors, Value) ->
+    %% Minimum is the old MACRO value
+    validate_int(Value, "sc_max_actors", 1100, 10000, false);
 
 
 %% txn snapshot vars

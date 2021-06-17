@@ -3247,7 +3247,8 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
                                            _ ->
                                                false
                                        end,
-                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf),
+                    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf, MaxActorsAllowed),
                     Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
                     cache_put(Ledger, SCsCF, Key, Bin);
                 false ->

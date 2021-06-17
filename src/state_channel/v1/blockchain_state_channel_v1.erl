@@ -8,6 +8,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     new/3, new/5,
@@ -21,7 +22,7 @@
     signature/1, sign/2, validate/1, quick_validate/2,
     encode/1, decode/1,
     save/3, fetch/2,
-    summaries/1, summaries/2, update_summary_for/4,
+    summaries/1, summaries/2, update_summary_for/5,
 
     normalize/1,
 
@@ -35,8 +36,9 @@
     compare_causality/2,
     quick_compare_causality/3,
     is_causally_newer/2,
-    merge/2,
-    can_fit/2, can_fit/3
+    merge/3,
+    can_fit/3,
+    max_actors_allowed/1
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -124,12 +126,14 @@ summaries(Summaries, SC) ->
 -spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                          NewSummary :: blockchain_state_channel_summary_v1:summary(),
                          SC :: state_channel(),
-                         WillFit :: boolean()) -> {state_channel(), boolean()}.
+                         WillFit :: boolean(),
+                         MaxActorsAllowed :: non_neg_integer()) -> {state_channel(), boolean()}.
 update_summary_for(ClientPubkeyBin,
                    NewSummary,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
-                   WillFit) ->
-    case WillFit orelse ?MODULE:can_fit(ClientPubkeyBin, SC) of
+                   WillFit,
+                   MaxActorsAllowed) ->
+    case WillFit orelse ?MODULE:can_fit(ClientPubkeyBin, SC, MaxActorsAllowed) of
         false ->
             %% Cannot fit this into summaries
             {SC, false};
@@ -473,31 +477,31 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
     end.
 
 -spec merge(SCA :: state_channel(),
-            SCB :: state_channel()) -> state_channel().
-merge(SCA, SCB) ->
+            SCB :: state_channel(),
+            MaxActorsAllowed :: non_neg_integer()) -> state_channel().
+merge(SCA, SCB, MaxActorsAllowed) ->
     lager:info("merging state channels"),
     [SC1, SC2] = lists:sort(fun(A, B) -> ?MODULE:nonce(A) =< ?MODULE:nonce(B) end, [SCA, SCB]),
 
     lists:foldl(fun(Summary, SCAcc) ->
                         case get_summary(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), SCAcc) of
                             {error, not_found} ->
-                                {SC, _} = update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc, true),
+                                {SC, _} =
+                                    update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                                       Summary, SCAcc, true, MaxActorsAllowed),
                                 SC;
                             {ok, OurSummary} ->
                                 case blockchain_state_channel_summary_v1:num_dcs(OurSummary) < blockchain_state_channel_summary_v1:num_dcs(Summary) of
                                     true ->
-                                        {SC, _} = update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc, true),
+                                        {SC, _} =
+                                            update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                                               Summary, SCAcc, true, MaxActorsAllowed),
                                         SC;
                                     false ->
                                         SCAcc
                                 end
                         end
                 end, SC2, summaries(SC1)).
-
--spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-              SC :: state_channel()) -> boolean().
-can_fit(ClientPubkeyBin, SC) ->
-    can_fit(ClientPubkeyBin, SC, ?MAX_UNIQ_CLIENTS).
 
 -spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
               SC :: state_channel(),
@@ -516,6 +520,16 @@ can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}, M
         {true, _} ->
             %% Can fit, doesn't matter if we don't know this client
             true
+    end.
+
+-spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+max_actors_allowed(Ledger) ->
+    case blockchain_ledger_v1:config(?sc_max_actors, Ledger) of
+        {ok, I} ->
+            I;
+        _ ->
+            %% 1100 was the previously hardcoded value
+            1100
     end.
 
 %% ------------------------------------------------------------------
@@ -636,7 +650,7 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, false),
+    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, false, 2000),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 

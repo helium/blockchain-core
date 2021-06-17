@@ -93,7 +93,8 @@ init_per_testcase(Test, Config) ->
                   min_subnet_size => 8,
                   max_subnet_num => 20,
                   sc_grace_blocks => 5,
-                  dc_payload_size => 24},
+                  dc_payload_size => 24,
+                  sc_max_actors => 2000},
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
@@ -538,11 +539,14 @@ max_actor_test(Config) ->
     ct:pal("ID1: ~p", [libp2p_crypto:bin_to_b58(ID1)]),
     ct:pal("ID2: ~p", [libp2p_crypto:bin_to_b58(ID2)]),
 
-    %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
+    MaxActorsAllowed = ct_rpc:call(RouterNode, blockchain_state_channel_v1, max_actors_allowed, [blockchain:ledger(RouterChain)]),
+    ct:pal("MaxActorsAllowed: ~p", [MaxActorsAllowed]),
+
+    %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
     ActiveSCIDsXXX = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
     ?assertEqual([ID1], ActiveSCIDsXXX),
 
-    %% Get active SC before sending ?MAX_UNIQ_CLIENTS + 1 packets from diff hotspots
+    %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
     ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
     ?assertEqual([ID1], ActiveSCIDs0),
 
@@ -567,7 +571,7 @@ max_actor_test(Config) ->
             [#{public => PubKey, secret => PrivKey}|Acc]
         end,
         [],
-        lists:seq(1, ?MAX_UNIQ_CLIENTS + 1)
+        lists:seq(1, MaxActorsAllowed + 1)
     ),
 
     %% Checking that new SC ID is not old SC ID
@@ -580,10 +584,10 @@ max_actor_test(Config) ->
 
     [SCA1, SCB1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
 
-    ?assertEqual(?MAX_UNIQ_CLIENTS, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
     ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1))),
 
-    ?assertEqual(?MAX_UNIQ_CLIENTS, blockchain_state_channel_v1:total_packets(SCA1)),
+    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCA1)),
     ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1)),
 
     % We are resending packets from same actor to make sure they still make it in there and in the right state channel
@@ -616,10 +620,10 @@ max_actor_test(Config) ->
 
     [SCA2, SCB2] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
 
-    ?assertEqual(?MAX_UNIQ_CLIENTS, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
     ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
 
-    ?assertEqual(?MAX_UNIQ_CLIENTS*2, blockchain_state_channel_v1:total_packets(SCA2)),
+    ?assertEqual(MaxActorsAllowed*2, blockchain_state_channel_v1:total_packets(SCA2)),
     ?assertEqual(2, blockchain_state_channel_v1:total_packets(SCB2)),
 
     ok.
