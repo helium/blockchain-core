@@ -39,9 +39,16 @@ for_region(RegionVar, Ledger) ->
     end.
 
 -spec get_spreading(
-    Params :: region_params_v1(),
+    Params :: region_params_v1() | [blockchain_region_param_v1:region_param_v1()],
     PacketSize :: non_neg_integer()
 ) -> {ok, atom()} | {error, any()}.
+get_spreading(Params, PacketSize) when is_list(Params) ->
+    %% The spreading does not change per channel frequency
+    %% So just get one and do selection depending on max_packet_size
+    FirstParam = hd(Params),
+    Spreading = blockchain_region_param_v1:spreading(FirstParam),
+    TaggedSpreading = blockchain_region_spreading_v1:tagged_spreading(Spreading),
+    blockchain_region_spreading_v1:select_spreading(TaggedSpreading, PacketSize);
 get_spreading(Params, PacketSize) ->
     %% The spreading does not change per channel frequency
     %% So just get one and do selection depending on max_packet_size
