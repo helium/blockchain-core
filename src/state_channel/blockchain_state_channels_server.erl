@@ -178,19 +178,20 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({packet, _ClientPubKeyBin, SCPacket, _HandlerPid}, #state{active_sc_ids=[]}=State) ->
-    lager:warning("got packet: ~p when no sc is active", [SCPacket]),
-    {noreply, State};
-handle_cast({packet, ClientPubKeyBin, Packet, HandlerPid}, State0) ->
-    State1 = handle_packet(ClientPubKeyBin, Packet, HandlerPid, State0),
-    {noreply, State1};
 handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_ids=[]}=State) ->
-    lager:warning("got offer: ~p when no sc is active", [SCOffer]),
+    lager:warning("got offer: ~p from ~p when no sc is active", [SCOffer, HandlerPid]),
     ok = send_rejection(HandlerPid),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid}, State0) ->
-    lager:debug("got offer: ~p", [SCOffer]),
+    lager:debug("got offer: ~p from ~p", [SCOffer, HandlerPid]),
     State1 = handle_offer(SCOffer, HandlerPid, State0),
+    {noreply, State1};
+handle_cast({packet, _ClientPubKeyBin, SCPacket, _HandlerPid}, #state{active_sc_ids=[]}=State) ->
+    lager:warning("got packet: ~p from ~p/~p when no sc is active", [SCPacket, _ClientPubKeyBin, _HandlerPid]),
+    {noreply, State};
+handle_cast({packet, ClientPubKeyBin, Packet, HandlerPid}, State0) ->
+    lager:debug("got packet: ~p from ~p/~p", [Packet, ClientPubKeyBin, HandlerPid]),
+    State1 = handle_packet(ClientPubKeyBin, Packet, HandlerPid, State0),
     {noreply, State1};
 handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
     %% let's make sure whatever IDs we are getting rid of here we also dump
@@ -372,14 +373,15 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                           [DCAmount, NumDCs, TotalDCs]),
                             lager:warning("overspend, SC1: ~p", [ActiveSC]),
                             ok = send_rejection(HandlerPid),
-                            case maybe_get_new_active([ActiveSCID], State0) of
-                                undefined ->
-                                    State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs)};
-                                NewActiveSCID ->
-                                    State1 = State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs) ++ [NewActiveSCID]},
-                                    ok = maybe_broadcast_banner(active_scs(State1), State1),
-                                    State1
-                            end;
+                            State1 =
+                                case maybe_get_new_active([ActiveSCID], State0) of
+                                    undefined ->
+                                        State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs)};
+                                    NewActiveSCID ->
+                                        State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs) ++ [NewActiveSCID]}
+                                end,
+                            ok = maybe_broadcast_banner(active_scs(State1), State1),
+                            State1;
                         false ->
                             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
                             lager:debug("routing: ~p, hotspot: ~p", [Routing, Hotspot]),
@@ -514,9 +516,8 @@ update_state_sc_open(Txn,
             State
     end.
 
--spec update_state_sc_close(
-        Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
-        State :: state()) -> state().
+-spec update_state_sc_close(Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
+                            State :: state()) -> state().
 update_state_sc_close(Txn, #state{db=DB, cf=SCF, blooms=Blooms, state_channels=SCs0, active_sc_ids=ActiveSCIDs0}=State0) ->
     ClosedSC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ClosedID = blockchain_state_channel_v1:id(ClosedSC),
