@@ -42,7 +42,10 @@
     cn470_region_param_test/1,
     in865_region_param_test/1,
     kr920_region_param_test/1,
-    eu433_region_param_test/1
+    eu433_region_param_test/1,
+
+    get_spreading_test/1
+
 ]).
 
 all() ->
@@ -75,7 +78,9 @@ without_h3_data_test_cases() ->
         cn470_region_param_test,
         in865_region_param_test,
         kr920_region_param_test,
-        eu433_region_param_test
+        eu433_region_param_test,
+
+        get_spreading_test
     ].
 
 groups() ->
@@ -392,6 +397,22 @@ eu433_region_param_test(Config) ->
         _ ->
             ct:fail("boom")
     end.
+
+get_spreading_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    {ok, Bin} = blockchain:config(?region_params_eu433, Ledger),
+    Params = blockchain_region_params_v1:deserialize(Bin),
+    ct:pal("Params: ~p", [Params]),
+    R1 = blockchain_region_params_v1:get_spreading(Params, 30),
+    R2 = blockchain_region_params_v1:get_spreading(Params, 68),
+    R3 = blockchain_region_params_v1:get_spreading(Params, 140),
+    R4 = blockchain_region_params_v1:get_spreading(Params, 140),
+    %% FIXME: assertions...
+    ct:pal("R1: ~p", [R1]),
+    ct:pal("R2: ~p", [R2]),
+    ct:pal("R3: ~p", [R3]),
+    ct:pal("R4: ~p", [R4]),
+    ok.
 
 %%--------------------------------------------------------------------
 %% test case teardown
