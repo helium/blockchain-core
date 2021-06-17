@@ -522,7 +522,7 @@ can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}, M
             true
     end.
 
--spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+-spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
 max_actors_allowed(Ledger) ->
     case blockchain_ledger_v1:config(?sc_max_actors, Ledger) of
         {ok, I} ->
