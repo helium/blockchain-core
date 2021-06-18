@@ -271,7 +271,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                 _ ->
                     0
             end,
-    {noreply, NewState#state{dc_payload_size=DCPayloadSize, sc_version=SCVer}};
+    MaxActorsAllowed = get_sc_max_actors(Chain),
+    {noreply, NewState#state{dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed}};
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
     FilteredStreams = maps:filter(fun(_Name, {Stream, _}) ->
                                           Stream /= Pid
