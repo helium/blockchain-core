@@ -30,9 +30,7 @@
     <<"gateway_oui">>,
     <<"h3dex">>,
     <<"h3dex2">>,
-    <<"gateway_lg2">>,
-    <<"gateway_lg3">>,
-
+    <<"gateway_lg3">>
 ]).
 
 -define(bones(HNT), HNT * 100000000).
