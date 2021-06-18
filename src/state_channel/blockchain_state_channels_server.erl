@@ -56,7 +56,7 @@
     dc_payload_size :: undefined | pos_integer(),
     sc_version = 0 :: non_neg_integer(), %% defaulting to 0 instead of undefined
     blooms = #{} :: blooms(),
-    max_actors_allowed = 1100 :: pos_integer()
+    max_actors_allowed = ?SC_MAX_ACTORS :: pos_integer()
 }).
 
 -type state() :: #state{}.
