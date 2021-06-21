@@ -76,6 +76,20 @@ init_per_testcase(Test, Config) ->
     Balance = 5000,
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
+    [RouterNode|_] = Nodes,
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        ["sc.log", [{module, blockchain_state_channels_server}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        ["sc.log", [{module, blockchain_state_channel_v1}], debug]
+    ),
+
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
                                 Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
@@ -204,7 +218,7 @@ full_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -299,7 +313,7 @@ dup_packets_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -409,7 +423,7 @@ expired_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -475,19 +489,6 @@ expired_test(Config) ->
 max_actor_test(Config) ->
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-
-    {ok, _} = ct_rpc:call(
-        RouterNode,
-        lager,
-        trace_file,
-        ["sc.log", [{module, blockchain_state_channels_server}], debug]
-    ),
-    {ok, _} = ct_rpc:call(
-        RouterNode,
-        lager,
-        trace_file,
-        ["sc.log", [{module, blockchain_state_channel_v1}], debug]
-    ),
 
     %% Get router chain, swarm and pubkey_bin
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
@@ -647,7 +648,7 @@ replay_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -719,7 +720,7 @@ replay_test(Config) ->
 
     ct:pal("DCEntry: ~p", [ct_rpc:call(RouterNode, blockchain_ledger_v1, find_dc_entry, [RouterPubkeyBin, RouterLedger2])]),
 
-    ReplayID = crypto:strong_rand_bytes(24),
+    ReplayID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     ReplaySignedSCOpenTxn = create_sc_open_txn(RouterNode, ReplayID, ExpireWithin, 1, Nonce),
@@ -751,7 +752,7 @@ multiple_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 20,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1006,7 +1007,7 @@ multi_active_sc_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 45,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1154,7 +1155,7 @@ open_without_oui_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
 
     %% Create state channel open txn without any oui
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1297,7 +1298,7 @@ crash_single_sc_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1592,7 +1593,7 @@ sc_gc_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1768,7 +1769,7 @@ crash_sc_sup_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1920,7 +1921,7 @@ hotspot_in_router_oui_test(Config) ->
     ?assertEqual(GwOUI, OUI),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -2014,7 +2015,7 @@ default_routers_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),

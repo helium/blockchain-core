@@ -72,14 +72,11 @@ sc_active(["sc", "active"], [], []) ->
         undefined ->
             [clique_status:text("none")];
         BinActiveIDs ->
-            R = [format_active_id(ID) ++ "~n" || ID <- BinActiveIDs],
+            R = [format_sc_id(ID) || ID <- BinActiveIDs],
             [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
     usage.
-
-format_active_id(BinActiveID) ->
-    binary_to_list(base64:encode(BinActiveID)).
 
 %%--------------------------------------------------------------------
 %% sc list
@@ -110,32 +107,39 @@ sc_list([], [], []) ->
     usage.
 
 format_sc_list(SCs) ->
-    {ok, Height} = blockchain:height(blockchain_worker:blockchain()),
-    maps:fold(fun(SCID, {SC, _}, Acc) ->
-                      ID = binary_to_list(base64:encode(SCID)),
-                      {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
-                      SCNonce = blockchain_state_channel_v1:nonce(SC),
-                      Amount = blockchain_state_channel_v1:amount(SC),
-                      RootHash = binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
-                      State = atom_to_list(blockchain_state_channel_v1:state(SC)),
-                      {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
-                      ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
-                      IsActive = is_active(SC),
-                      [
-                       [{id, io_lib:format("~p", [ID])},
-                        {owner, io_lib:format("~p", [SCOwnerName])},
-                        {nonce, io_lib:format("~p", [SCNonce])},
-                        {state, io_lib:format("~p", [State])},
-                        {is_active, io_lib:format("~p", [IsActive])},
-                        {root_hash, io_lib:format("~p", [RootHash])},
-                        {expire_at, io_lib:format("~p", [ExpireAtBlock])},
-                        {expired, ExpireAtBlock =< Height},
-                        {amount, Amount},
-                        {num_dcs, NumDCs},
-                        {num_packets, NumPackets},
-                        {participants, NumParticipants}
-                       ] | Acc]
-              end, [], SCs).
+    Chain = blockchain_worker:blockchain(),
+    {ok, Height} = blockchain:height(Chain),
+    maps:fold(
+        fun(SCID, {SC, _}, Acc) ->
+            ID = format_sc_id(SCID),
+            SCNonce = blockchain_state_channel_v1:nonce(SC),
+            Amount = blockchain_state_channel_v1:amount(SC),
+            RootHash = erlang:binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
+            State =  erlang:atom_to_list(blockchain_state_channel_v1:state(SC)),
+            {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
+            ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
+            IsActive = is_active(SC),
+            [
+                [
+                    {id, io_lib:format("~p", [ID])},
+                    {nonce, io_lib:format("~p", [SCNonce])},
+                    {state, io_lib:format("~p", [State])},
+                    {is_active, io_lib:format("~p", [IsActive])},
+                    {expire_at, io_lib:format("~p", [ExpireAtBlock])},
+                    {expired, ExpireAtBlock =< Height},
+                    {amount, Amount},
+                    {num_dcs, NumDCs},
+                    {num_packets, NumPackets},
+                    {participants, NumParticipants},
+                    {max_participants, get_sc_max_actors(Chain)},
+                    {root_hash, io_lib:format("~p", [RootHash])}
+                ]
+                | Acc
+            ]
+        end,
+        [],
+        SCs
+    ).
 
 summarize(Summaries) ->
     lists:foldl(fun(Summary, {DCs, Packets, Participants}) ->
@@ -149,3 +153,33 @@ is_active(SC) ->
     ActiveSCIDs = blockchain_state_channels_server:active_sc_ids(),
     SCID = blockchain_state_channel_v1:id(SC),
     lists:member(SCID, ActiveSCIDs).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% This function allows us to get a lower sc_max_actors for testing
+%% It should still pass any chain validation as it can only be lower
+%% @end
+%%--------------------------------------------------------------------
+-spec get_sc_max_actors(Chain :: blockchain:blockchain()) -> pos_integer().
+get_sc_max_actors(Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+    case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
+        Str when is_list(Str) ->
+            try erlang:list_to_integer(Str) of
+                TooHigh when TooHigh > MaxActorsAllowed ->
+                    MaxActorsAllowed;
+                Max ->
+                    Max
+            catch What:Why ->
+                lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
+                MaxActorsAllowed
+            end;
+        TooHigh when TooHigh > MaxActorsAllowed ->
+            MaxActorsAllowed;
+        Max ->
+            Max
+    end.
+
+format_sc_id(ID) ->
+    blockchain_utils:addr2name(ID).
