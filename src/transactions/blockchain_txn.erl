@@ -424,14 +424,20 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
-            lager:info("took ~p ms", [End - Start]),
+            lager:info("validate took ~p ms", [End - Start]),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
+                    End2 = erlang:monotonic_time(millisecond),
+                    lager:info("absorb took ~p ms", [End2 - End]),
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
+                            End3 = erlang:monotonic_time(millisecond),
+                            lager:info("gc took ~p ms", [End3 - End2]),
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
+                            End4 = erlang:monotonic_time(millisecond),
+                            lager:info("commit took ~p ms", [End4 - End3]),
                             absorb_delayed(Block, Chain0),
                             absorb_aux(Block, Chain0);
                         Any ->
@@ -461,15 +467,24 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                      Ty == blockchain_txn_vars_v1
                          orelse Ty == blockchain_txn_consensus_group_v1
            end, (Transactions0)),
+    Start = erlang:monotonic_time(millisecond),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
+            End = erlang:monotonic_time(millisecond),
+            lager:info("unvalidate took ~p ms", [End - Start]),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
+                    End2 = erlang:monotonic_time(millisecond),
+                    lager:info("unabsorb took ~p ms", [End2 - End]),
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
+                            End3 = erlang:monotonic_time(millisecond),
+                            lager:info("ungc took ~p ms", [End3 - End2]),
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
+                            End4 = erlang:monotonic_time(millisecond),
+                            lager:info("uncommit took ~p ms", [End4 - End3]),
                             absorb_delayed(Block, Chain0),
                             absorb_aux(Block, Chain0);
                         Any ->
