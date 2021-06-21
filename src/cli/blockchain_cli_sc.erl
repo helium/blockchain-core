@@ -119,6 +119,7 @@ format_sc_list(SCs) ->
             {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
             ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
             IsActive = is_active(SC),
+            MAxP = blockchain_ledger_v1:get_sc_max_actors(blockchain:ledger(Chain)),
             [
                 [
                     {id, io_lib:format("~p", [ID])},
@@ -131,7 +132,7 @@ format_sc_list(SCs) ->
                     {num_dcs, NumDCs},
                     {num_packets, NumPackets},
                     {participants, NumParticipants},
-                    {max_participants, get_sc_max_actors(Chain)},
+                    {max_participants, MAxP},
                     {root_hash, io_lib:format("~p", [RootHash])}
                 ]
                 | Acc
@@ -153,33 +154,6 @@ is_active(SC) ->
     ActiveSCIDs = blockchain_state_channels_server:active_sc_ids(),
     SCID = blockchain_state_channel_v1:id(SC),
     lists:member(SCID, ActiveSCIDs).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% This function allows us to get a lower sc_max_actors for testing
-%% It should still pass any chain validation as it can only be lower
-%% @end
-%%--------------------------------------------------------------------
--spec get_sc_max_actors(Chain :: blockchain:blockchain()) -> pos_integer().
-get_sc_max_actors(Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
-    case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
-        Str when is_list(Str) ->
-            try erlang:list_to_integer(Str) of
-                TooHigh when TooHigh > MaxActorsAllowed ->
-                    MaxActorsAllowed;
-                Max ->
-                    Max
-            catch What:Why ->
-                lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
-                MaxActorsAllowed
-            end;
-        TooHigh when TooHigh > MaxActorsAllowed ->
-            MaxActorsAllowed;
-        Max ->
-            Max
-    end.
 
 format_sc_id(ID) ->
     blockchain_utils:addr2name(ID).

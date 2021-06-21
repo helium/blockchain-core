@@ -36,12 +36,12 @@
 -include("blockchain_vars.hrl").
 
 -record(state, {
-          ledger :: undefined | blockchain_ledger_v1:ledger(),
-          pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
-          offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
-          handler_mod :: atom(),
-          pending_offer_limit = undefined :: undefined | pos_integer()
-         }).
+    ledger :: undefined | blockchain_ledger_v1:ledger(),
+    pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
+    offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
+    handler_mod :: atom(),
+    pending_offer_limit = undefined :: undefined | pos_integer()
+}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -103,7 +103,7 @@ send_response(Pid, Resp) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, _) ->
     {ok, #state{}};
-init(server, _Conn, [_Path, Blockchain]) ->
+init(server, Conn, [_Path, Blockchain]) ->
     Ledger = blockchain:ledger(Blockchain),
     HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
@@ -111,17 +111,44 @@ init(server, _Conn, [_Path, Blockchain]) ->
         {ok, N} when N > 1 ->
             case blockchain_state_channels_server:active_scs() of
                 [] ->
-                    %% Send empty banner
                     SCBanner = blockchain_state_channel_banner_v1:new(),
-                    lager:info("sc_handler, empty banner: ~p", [SCBanner]),
+                    lager:info("sending empty banner", []),
                     {ok, #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
                      blockchain_state_channel_message_v1:encode(SCBanner)};
-                [ActiveSC|_] ->
-                    %lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
-                    SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    %lager:info("sc_handler, banner: ~p", [SCBanner]),
-                    {ok, #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
-                     blockchain_state_channel_message_v1:encode(SCBanner)}
+                ActiveSCs ->
+                    case get_pubkeybin_from_conn(Conn) of
+                        {error, _Reason} ->
+                            lager:warning("failed to get_pubkeybin_from_conn ~p", [_Reason]),
+                            [ActiveSC|_] = ActiveSCs,
+                            SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
+                            lager:info("sending banner for sc ~p", [blockchain_utils:addr2name(blockchain_state_channel_v1:id(ActiveSC))]),
+                            {ok,#state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
+                             blockchain_state_channel_message_v1:encode(SCBanner)};
+                        {ok, PubKeyBin} ->
+                            lager:debug("got connection from hotspot ~p", [blockchain_utils:addr2name(PubKeyBin)]),
+                            Max = blockchain_ledger_v1:get_sc_max_actors(Ledger),
+                            case
+                                blockchain_state_channels_server:select_best_active_sc(
+                                    PubKeyBin,
+                                    ActiveSCs,
+                                    Max
+                                )
+                            of
+                                {error, _Reason} ->
+                                    lager:debug("could not get a good active SC (~p)", [_Reason]),
+                                    SCBanner = blockchain_state_channel_banner_v1:new(),
+                                    lager:info("sending empty banner", []),
+                                    {ok, #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
+                                    blockchain_state_channel_message_v1:encode(SCBanner)};
+                                {ok, ActiveSC} ->
+                                    lager:debug("found sc ~p for hotspot ~p, sending banner",
+                                                [blockchain_utils:addr2name(blockchain_state_channel_v1:id(ActiveSC)),
+                                                 blockchain_utils:addr2name(PubKeyBin)]),
+                                    SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
+                                    {ok,#state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
+                                    blockchain_state_channel_message_v1:encode(SCBanner)}
+                            end
+                    end
             end;
         _ ->
             {ok, #state{handler_mod=HandlerMod, pending_offer_limit=OfferLimit}}
@@ -276,4 +303,15 @@ is_active_sc(SC, Ledger) ->
     case blockchain_ledger_v1:find_state_channel(SCID, SCOwner, Ledger) of
         {ok, _SC} -> ok;
         _ -> {error, inactive_sc}
+    end.
+
+-spec get_pubkeybin_from_conn(Conn :: any()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, any()}.
+get_pubkeybin_from_conn(Conn) ->
+    {ok, Session} = libp2p_connection:session(Conn),
+    ok = libp2p_session:identify(Session, self(), ?MODULE),
+    receive
+        {handle_identify, ?MODULE, {ok, Identify}} ->
+            {ok, libp2p_identify:pubkey_bin(Identify)}
+    after 2500 ->
+        {error, timeout}
     end.

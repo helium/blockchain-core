@@ -87,6 +87,12 @@ init_per_testcase(Test, Config) ->
         RouterNode,
         lager,
         trace_file,
+        ["sc.log", [{module, blockchain_state_channel_handler}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
         ["sc.log", [{module, blockchain_state_channel_v1}], debug]
     ),
 

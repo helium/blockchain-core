@@ -19,7 +19,8 @@
     state_channels/0,
     active_sc_ids/0,
     active_scs/0,
-    get_active_sc_count/0
+    get_active_sc_count/0,
+    select_best_active_sc/3
 ]).
 
 %% ------------------------------------------------------------------
@@ -138,6 +139,30 @@ active_scs() ->
 get_active_sc_count() ->
     gen_server:call(?SERVER, get_active_sc_count, infinity).
 
+-spec select_best_active_sc(libp2p_crypto:pubkey_bin(),
+                            [blockchain_state_channel_v1:state_channel()],
+                            pos_integer()) ->
+    {ok, blockchain_state_channel_v1:state_channel()} | {error, not_found}.
+select_best_active_sc(PubKeyBin, ActiveSCs, Max) ->
+    CanFitFilterFun = fun(ActiveSC) ->
+        blockchain_state_channel_v1:can_fit(PubKeyBin, ActiveSC, Max)
+    end,
+    case lists:filter(CanFitFilterFun, ActiveSCs) of
+        [] ->
+            {error, not_found};
+        FilteredActiveSCs ->
+           InSumFilterFun = fun(ActiveSC) ->
+                blockchain_state_channel_v1:get_summary(PubKeyBin, ActiveSC) =/= {error, not_found}
+            end,
+            case lists:filter(InSumFilterFun, ActiveSCs) of
+                [] ->
+                    [ActiveSC|_] = FilteredActiveSCs,
+                    {ok, ActiveSC};
+                [ActiveSC|_] ->
+                    {ok, ActiveSC}
+            end
+    end.
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -225,7 +250,7 @@ handle_info(post_init, #state{chain=undefined}=State) ->
                     _ ->
                         0
                 end,
-            MaxActorsAllowed = get_sc_max_actors(Chain),
+            MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
             TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed},
             LoadState = update_state_with_ledger_channels(TempState),
             lager:info("loaded state channels: ~p", [LoadState#state.state_channels]),
@@ -265,13 +290,13 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                         _ ->
                             0
                     end,
-    SCVer = case blockchain_ledger_v1:config(?sc_version, blockchain:ledger(Chain)) of
+    SCVer = case blockchain_ledger_v1:config(?sc_version, Ledger) of
                 {ok, SCV} ->
                     SCV;
                 _ ->
                     0
             end,
-    MaxActorsAllowed = get_sc_max_actors(Chain),
+    MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
     {noreply, NewState#state{dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed}};
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
     FilteredStreams = maps:filter(fun(_Name, {Stream, _}) ->
@@ -420,51 +445,9 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
     end.
 
 -spec select_best_active_sc(libp2p_crypto:pubkey_bin(), state()) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
-select_best_active_sc(PubKeyBin, #state{active_sc_ids=ActiveSCIDs, state_channels=SCs,
-                                        max_actors_allowed=MaxActorsAllowed}) ->
-    select_best_active_sc(PubKeyBin, ActiveSCIDs, SCs, MaxActorsAllowed).
-
--spec select_best_active_sc(libp2p_crypto:pubkey_bin(), [blockchain_state_channel_v1:id()],
-                            state_channels(), non_neg_integer()) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
-select_best_active_sc(_PubKeyBin, [], _SCs, _MaxActorsAllowed) ->
-    {error, no_active_state_channels};
-select_best_active_sc(PubKeyBin, [ActiveSCID|Others], StateChannels, MaxActorsAllowed) ->
-    {SC, _} = maps:get(ActiveSCID, StateChannels),
-    case blockchain_state_channel_v1:can_fit(PubKeyBin, SC, MaxActorsAllowed) of
-        true ->
-            {ok, SC};
-        false ->
-            select_best_active_sc(PubKeyBin, Others, StateChannels, MaxActorsAllowed)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% This function allows us to get a lower sc_max_actors for testing
-%% It should still pass any chain validation as it can only be lower
-%% @end
-%%--------------------------------------------------------------------
--spec get_sc_max_actors(Chain :: blockchain:blockchain()) -> pos_integer().
-get_sc_max_actors(Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
-    case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
-        Str when is_list(Str) ->
-            try erlang:list_to_integer(Str) of
-                TooHigh when TooHigh > MaxActorsAllowed ->
-                    MaxActorsAllowed;
-                Max ->
-                    Max
-            catch What:Why ->
-                lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
-                MaxActorsAllowed
-            end;
-        TooHigh when TooHigh > MaxActorsAllowed ->
-            MaxActorsAllowed;
-        Max ->
-            Max
-    end.
+    {ok, blockchain_state_channel_v1:state_channel()} | {error, not_found}.
+select_best_active_sc(PubKeyBin, #state{max_actors_allowed=MaxActorsAllowed}=State) ->
+    ?MODULE:select_best_active_sc(PubKeyBin, active_scs(State), MaxActorsAllowed).
 
 -spec maybe_add_stream(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
                        Stream :: pid(),
