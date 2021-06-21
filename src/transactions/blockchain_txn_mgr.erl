@@ -265,8 +265,15 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
 purge_block_txns_from_cache(Block)->
     MinedTxns = blockchain_block:transactions(Block),
     ok = lists:foreach(
-        fun({TxnKey, Txn, #txn_data{callback=Callback, dialers=Dialers}}) ->
-            case lists:member(Txn, MinedTxns) of
+        fun({TxnKey, Txn, #txn_data{callback=Callback, dialers=Dialers, acceptions=Acceptors}}) ->
+            %% if a txn appears in a block yet has zero acceptors
+            %% then its got to be a dup which has entered the cache after the
+            %% original txn was submitted to the CG
+            %% and has not yet had any validations run on it
+            %% we dont want it to be removed here as it will result
+            %% in a spurious success callback, so instead leave it in cache
+            %% and allow it to fail validations on the next run
+            case lists:member(Txn, MinedTxns) andalso length(Acceptors) > 0 of
                 true ->
                     %% txn has been mined in last block
                     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
