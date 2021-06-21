@@ -2511,7 +2511,7 @@ find_entry(Address, Ledger) ->
         {ok, BinEntry} ->
             {ok, blockchain_ledger_entry_v1:deserialize(BinEntry)};
         not_found ->
-            {error, not_found};
+            {error, address_entry_not_found};
         Error ->
             Error
     end.
@@ -2520,7 +2520,7 @@ find_entry(Address, Ledger) ->
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
-        {error, not_found} ->
+        {error, address_entry_not_found} ->
             Entry = blockchain_ledger_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_entry_v1:serialize(Entry),
             cache_put(Ledger, EntriesCF, Address, Bin);
@@ -2754,9 +2754,14 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} ->
             {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
-            ?MODULE:check_balance(Address, AmountInHNT, Ledger);
-        {error, _}=Error ->
-            Error;
+            case ?MODULE:check_balance(Address, AmountInHNT, Ledger) of
+                {error, address_entry_not_found} ->
+                    %% if the entry is not found, return insufficient balance error
+                    {error, insufficient_dc_and_hnt_balance};
+                Res ->
+                    %% pass thru all other responses unaltered
+                    Res
+            end;
         {ok, Entry} ->
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             case {(Balance - Amount) >= 0, IsFeesEnabled}  of
@@ -2766,7 +2771,14 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
                     {error, {insufficient_dc_balance, {Amount, Balance}}};
                 {false, true} ->
                     {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
-                    ?MODULE:check_balance(Address, AmountInHNT, Ledger)
+                    case ?MODULE:check_balance(Address, AmountInHNT, Ledger) of
+                        {error, address_entry_not_found} ->
+                            %% if the entry is not found, return insufficient balance error
+                            {error, insufficient_dc_and_hnt_balance};
+                        Res ->
+                            %% pass thru all other responses unaltered
+                            Res
+                    end
             end
     end.
 
@@ -4944,7 +4956,7 @@ deserialize_state_channel(<<2, _/binary>> = SC) ->
 find_entry_test() ->
     BaseDir = test_utils:tmp_dir("find_entry_test"),
     Ledger = new(BaseDir),
-    ?assertEqual({error, not_found}, find_entry(<<"test">>, Ledger)),
+    ?assertEqual({error, address_entry_not_found}, find_entry(<<"test">>, Ledger)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 find_gateway_info_test() ->
