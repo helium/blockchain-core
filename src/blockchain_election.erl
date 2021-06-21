@@ -22,6 +22,28 @@
          addr :: libp2p_crypto:pubkey_bin()
         }).
 
+-ifdef(TEST).
+
+-export([
+         val/3, val_addr/1, val_hb/1,
+         val_dedup/3,
+         determine_sizes_v2_math/6,
+         select_removals/6
+        ]).
+
+val(Prob, HB, Addr) ->
+    #val_v1{prob = Prob,
+            heartbeat = HB,
+            addr = Addr}.
+
+val_addr(#val_v1{addr = A}) when is_binary(A) ->
+    A.
+
+val_hb(#val_v1{heartbeat = HB}) ->
+    HB.
+
+-endif.
+
 new_group(Ledger, Hash, Size, Delay) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
         {ok, N} when N >= 5 ->
@@ -198,31 +220,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     ToRem =
         case have_gateways(OldGroup0, Ledger) of
             [] ->
-                RepLen =
-                    case NewLen == 0 of
-                        %% moving down, we need remove bad nodes, not just take the first Size
-                        true when OldLen > Size -> OldLen - Size;
-                        true -> 0;
-                        false -> NewLen
-                    end,
-                %% if there are too many offline nodes, just pick those and re-add the remainder to
-                %% the group.  ideally there would be a clean way to just cancel here, but I'm not
-                %% sure that's plumbed through well enough.
-                {Offline1, OldGroupDeduped, ReplaceFinal} =
-                    case length(Offline) of
-                        N when N > RepLen ->
-                            {ToRemove, Rem} = lists:split(RepLen, Offline),
-                            {ToRemove, OldGroupDeduped0 ++ Rem, 0};
-                        Len ->
-                            %% otherwise just adjust the size for removal selection and use the
-                            %% groups as-is
-                            {Offline, OldGroupDeduped0, RepLen - Len}
-                    end,
-                %% adjust for bbas and seen votes
-                OldGroupAdjusted = adjust_old_group_v2(OldGroupDeduped, Ledger),
-                lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
-                OfflineAddrs = [A || #val_v1{addr = A} <- Offline1],
-                OfflineAddrs ++ icdf_select(lists:keysort(1, OldGroupAdjusted), ReplaceFinal, []);
+                select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger);
             Gateways ->
                 %% just sort and remove the first removal amount rather than selecting, leaving
                 %% validators in to make up the number on the last round if needed.
@@ -231,6 +229,34 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     lager:debug("to rem ~p", [an(ToRem)]),
     %% shuffle the order to diffuse any ordering effects over time
     blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
+
+%% mostly this is out for separate testing
+select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger) ->
+    RepLen =
+        case NewLen == 0 of
+            %% moving down, we need remove bad nodes, not just take the first Size
+            true when OldLen > Size -> OldLen - Size;
+            true -> 0;
+            false -> NewLen
+        end,
+    %% if there are too many offline nodes, just pick those and re-add the remainder to
+    %% the group.  ideally there would be a clean way to just cancel here, but I'm not
+    %% sure that's plumbed through well enough.
+    {Offline1, OldGroupDeduped, ReplaceFinal} =
+        case length(Offline) of
+            N when N > RepLen ->
+                {ToRemove, Rem} = lists:split(RepLen, Offline),
+                {ToRemove, OldGroupDeduped0 ++ Rem, 0};
+            Len ->
+                %% otherwise just adjust the size for removal selection and use the
+                %% groups as-is
+                {Offline, OldGroupDeduped0, RepLen - Len}
+        end,
+    %% adjust for bbas and seen votes
+    OldGroupAdjusted = ?MODULE:adjust_old_group_v2(OldGroupDeduped, Ledger),
+    lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
+    OfflineAddrs = [A || #val_v1{addr = A} <- Offline1],
+    OfflineAddrs ++ icdf_select(lists:keysort(1, OldGroupAdjusted), ReplaceFinal, []).
 
 an(M) ->
     lists:map(fun blockchain_utils:addr2name/1, M).
@@ -539,11 +565,20 @@ determine_sizes_v2(Size, OldLen, Delay, Ledger) ->
     %% increase this to make removal more gradual, decrease to make it less so
     {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
     {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
+    determine_sizes_v2_math(Size, OldLen, Delay,
+                            ReplacementFactor, ReplacementSlope, Interval).
+
+determine_sizes_v2_math(Size,
+                        OldLen,
+                        Delay,
+                        ReplacementFactor,
+                        ReplacementSlope,
+                        Interval) ->
     case Size == OldLen of
         true ->
             %% lower the replacement ceiling because in big groups, bigger is much much harder
             MinSize = (2 * ((OldLen - 1) div 3)), % smallest remainder we will allow
-            BaseRemove = floor(Size/ReplacementFactor), % initial remove size
+            BaseRemove = ceil(Size/ReplacementFactor), % initial remove size
             Removable = OldLen - MinSize - BaseRemove,
             %% use tanh to get a gradually increasing (but still clamped to 1) value for
             %% scaling the size of removal as delay increases
@@ -554,9 +589,8 @@ determine_sizes_v2(Size, OldLen, Delay, Ledger) ->
             Remove = Replace = BaseRemove + AdditionalRemove;
         %% growing
         false when Size > OldLen ->
-            BaseRemove = floor(Size/ReplacementFactor),
+            Remove = ceil(OldLen/ReplacementFactor),
             Replace0 = Size - OldLen,
-            Remove = max(0, BaseRemove - Replace0),
             %% by removing a few, this allows us to grow even when there are dead nodes in the group
             Replace = Replace0 + Remove;
         %% shrinking
@@ -820,7 +854,7 @@ validators_filter(Ledger) ->
                   true ->
                       maps:put(Addr, #val_v1{addr = Addr,
                                              heartbeat = HB,
-                                             prob = max(1.0, Penalty)}, Acc);
+                                             prob = Penalty}, Acc);
                   _ -> Acc
               end
       end,
@@ -862,11 +896,12 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
                               true ->
                                   Acc;
                               _ ->
-                                  case Prob >= PenaltyFilter of
+                                  case PenaltyFilter - Prob of
                                       %% don't even consider until some of
                                       %% these failures have aged out
-                                      true -> Acc;
-                                      false -> {Old, Off, [Val | Candidates]}
+                                      NewProb when NewProb =< 0.0 -> Acc;
+                                      NewProb -> {Old, Off,
+                                                  [Val#val_v1{prob = NewProb} | Candidates]}
                                   end
                           end
                   end
