@@ -151,9 +151,11 @@ fee_payer(Txn, Ledger) ->
 sign(Txn, SigFun) ->
     (type(Txn)):sign(Txn, SigFun).
 
+-spec serialize(txn()) -> binary().
 serialize(Txn) ->
     blockchain_txn_pb:encode_msg(wrap_txn(Txn)).
 
+-spec deserialize(binary()) -> txn().
 deserialize(Bin) ->
     unwrap_txn(blockchain_txn_pb:decode_msg(Bin, blockchain_txn_pb)).
 

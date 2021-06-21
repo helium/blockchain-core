@@ -33,7 +33,8 @@
     is_rescue_block/1,
     is_election_block/1,
     to_json/2,
-    verified_signees/1
+    verified_signees/1,
+    remove_var_txns/1
 ]).
 
 -include_lib("helium_proto/include/blockchain_block_v1_pb.hrl").
@@ -378,6 +379,16 @@ verified_signees(Block) ->
                 [],
                 Signatures).
 
+-spec remove_var_txns(block()) -> block().
+remove_var_txns(#blockchain_block_v1_pb{transactions=Txns0}=Block) ->
+    NotVar =
+        fun (Tx0) ->
+            Tx1 = blockchain_txn:unwrap_txn(Tx0),
+            blockchain_txn:type(Tx1) =/= blockchain_txn_vars_v1
+        end,
+    Txns1 = lists:filter(NotVar, Txns0),
+    Block#blockchain_block_v1_pb{transactions=Txns1}.
+
 %%
 %% Internal
 %%
@@ -518,6 +529,33 @@ json_test() ->
                       [height, time, hash, prev_hash, transactions])),
     ?assertEqual(3, length(maps:get(transactions, Json))).
 
+remove_var_txns_test() ->
+    Txn = blockchain_txn_vars_v1:new(#{fake_var_key => 1}, 0),
+    Block =
+        new(
+            #{
+                prev_hash      => <<>>,
+                height         => 1,
+                transactions   => [Txn],
+                signatures     => [],
+                hbbft_round    => 0,
+                time           => 0,
+                election_epoch => 0,
+                epoch_start    => 0,
+                seen_votes     => [],
+                bba_completion => <<>>
+             }
+        ),
+    ?assertMatch(
+        [_],
+        transactions(Block),
+        "Unmodified block should have one transaction."
+    ),
+    ?assertMatch(
+        [],
+        transactions(remove_var_txns(Block)),
+        "No transactions remain after removal."
+    ).
 
 generate_keys(N) ->
     lists:foldl(
