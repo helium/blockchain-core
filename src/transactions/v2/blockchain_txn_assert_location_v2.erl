@@ -349,7 +349,7 @@ is_new_location(Txn, Ledger) ->
             NewLoc /= ExistingLoc;
         {error, _Reason} ->
             %% if GW doesnt exist, default to true
-            true
+            throw({error, gateway_not_found})
     end.
 
 -spec do_remaining_checks(Txn :: txn_assert_location(),
