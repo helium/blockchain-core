@@ -521,7 +521,8 @@ condense_votes(Sz, Seen0) ->
                     Acc,
                     lists:seq(1, Sz))
           end,
-          #{},
+          %% everyone starts with a count of 0 so they exist as map keys
+          maps:from_list([{I, 0} || I <- lists:seq(1, Sz)]),
           SeenMaps),
     lager:debug("counts ~p", [Counts]),
     maps:map(fun(_Idx, Ct) ->
