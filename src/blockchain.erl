@@ -149,9 +149,6 @@ new(Dir, undefined, QuickSyncMode, QuickSyncData) ->
             lager:info("no genesis block found: ~p", [_Reason]),
             {no_genesis, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, _GenBlock}} ->
-            Ledger = blockchain:ledger(Blockchain),
-            Upgrades = lists:zip(?BC_UPGRADE_NAMES, ?BC_UPGRADE_FUNS),
-            process_upgrades(Upgrades, Ledger),
             lager:info("stuff is ok"),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)}
     end;
@@ -174,15 +171,18 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, GenBlock}} ->
             lager:info("new gen = old gen"),
-            Ledger = blockchain:ledger(Blockchain),
-            Upgrades = lists:zip(?BC_UPGRADE_NAMES, ?BC_UPGRADE_FUNS),
-            process_upgrades(Upgrades, Ledger),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, _OldGenBlock}} ->
             lager:info("replacing old genesis block with new one"),
             ok = clean(Blockchain),
             new(Dir, GenBlock, QuickSyncMode, QuickSyncData)
     end.
+
+process_upgrades(Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Upgrades = lists:zip(?BC_UPGRADE_NAMES, ?BC_UPGRADE_FUNS),
+    ok = process_upgrades(Upgrades, Ledger),
+    Chain.
 
 process_upgrades([], _Ledger) ->
     ok;
@@ -2066,10 +2066,11 @@ get_temp_block(Hash, #blockchain{db=DB, temp_blocks=TempBlocksCF}) ->
     end.
 
 init_quick_sync(undefined, Blockchain, _Data) ->
-    maybe_continue_resync(Blockchain);
+    maybe_continue_resync(process_upgrades(Blockchain));
 init_quick_sync(assumed_valid, Blockchain, Data) ->
-    init_assumed_valid(Blockchain, Data);
+    init_assumed_valid(process_upgrades(Blockchain), Data);
 init_quick_sync(blessed_snapshot, Blockchain, Data) ->
+    %% don't process upgrades here, check if we need to pull a snap first
     init_blessed_snapshot(Blockchain, Data).
 
 init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->
@@ -2124,7 +2125,7 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
         {ok, CurrHeight} when CurrHeight >= Height ->
             lager:debug("ch ~p h ~p: std sync", [CurrHeight, Height]),
             blockchain_worker:maybe_sync(),
-            Blockchain;
+            process_upgrades(Blockchain);
         %% chain lower than the snapshot
         {ok, CurrHeight} ->
             lager:debug("ch ~p h ~p: snap sync", [CurrHeight, Height]),
@@ -2176,7 +2177,7 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
             Blockchain
     end;
 init_blessed_snapshot(Blockchain, _) ->
-    Blockchain.
+    process_upgrades(Blockchain).
 
 delete_temp_blocks(Blockchain=#blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}) ->
     persistent_term:erase(?ASSUMED_VALID),
