@@ -4977,7 +4977,7 @@ get_sc_mod(Channel, Ledger) ->
         _ -> blockchain_ledger_state_channel_v1
     end.
 
-    %%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc
 %% This function allows us to get a lower sc_max_actors for testing
 %% It should still pass any chain validation as it can only be lower
