@@ -48,8 +48,8 @@
                      -13 => {-125,-125},
                      11 => {-90,-35}}).
 
--define(MAX_UNIQ_CLIENTS, 1100).
-
 %% default values for gateways
 -define(DEFAULT_GAIN, 12). %% as dBi * 10
 -define(DEFAULT_ELEVATION, 0). %% as AGL (above ground level) in meters
+
+-define(SC_MAX_ACTORS, 1100).

@@ -11,6 +11,7 @@
     full_test/1,
     dup_packets_test/1,
     expired_test/1,
+    max_actor_test/1,
     replay_test/1,
     multiple_test/1,
     multi_owner_multi_sc_test/1,
@@ -29,6 +30,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_utils.hrl").
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
@@ -39,6 +41,7 @@ all() ->
         basic_test,
         full_test,
         expired_test,
+        max_actor_test,
         replay_test,
         multiple_test,
         multi_owner_multi_sc_test,
@@ -73,6 +76,26 @@ init_per_testcase(Test, Config) ->
     Balance = 5000,
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
+    [RouterNode|_] = Nodes,
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        ["sc.log", [{module, blockchain_state_channels_server}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        ["sc.log", [{module, blockchain_state_channel_handler}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        ["sc.log", [{module, blockchain_state_channel_v1}], debug]
+    ),
+
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
                                 Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
@@ -90,7 +113,8 @@ init_per_testcase(Test, Config) ->
                   min_subnet_size => 8,
                   max_subnet_num => 20,
                   sc_grace_blocks => 5,
-                  dc_payload_size => 24},
+                  dc_payload_size => 24,
+                  sc_max_actors => 2000},
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
@@ -200,7 +224,7 @@ full_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -295,7 +319,7 @@ dup_packets_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -405,7 +429,7 @@ expired_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -468,6 +492,149 @@ expired_test(Config) ->
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
 
+max_actor_test(Config) ->
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+
+    %% Check that the meck txn forwarding works
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+
+    %% Create OUI txn
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% Create state channel open txn
+    ID1 = crypto:strong_rand_bytes(24),
+    ExpireWithin = 11,
+    Nonce = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce, 10000),
+    ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
+
+     %% Create state channel open txn
+    ID2 = crypto:strong_rand_bytes(24),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce+1, 10000),
+    ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
+
+    %% Add block with oui and sc open txns
+    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn, SignedSCOpenTxn2]),
+    ct:pal("Block0: ~p", [Block0]),
+
+    %% Get sc open block hash for verification later
+    _SCOpenBlockHash = blockchain_block:hash_block(Block0),
+
+    %% Fake gossip block
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
+
+    %% Wait till the block is gossiped
+    ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
+
+    %% Checking that state channel got created properly
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
+
+    %% Check that the nonce of the sc server is okay
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])
+    end, 30, timer:seconds(1)),
+
+
+    ct:pal("ID1: ~p", [libp2p_crypto:bin_to_b58(ID1)]),
+    ct:pal("ID2: ~p", [libp2p_crypto:bin_to_b58(ID2)]),
+
+    MaxActorsAllowed = ct_rpc:call(RouterNode, blockchain_state_channel_v1, max_actors_allowed, [blockchain:ledger(RouterChain)]),
+    ct:pal("MaxActorsAllowed: ~p", [MaxActorsAllowed]),
+
+    %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
+    ActiveSCIDsXXX = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+    ?assertEqual([ID1], ActiveSCIDsXXX),
+
+    %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
+    ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+    ?assertEqual([ID1], ActiveSCIDs0),
+
+    Actors = lists:foldl(
+        fun(_I, Acc) ->
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+            PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            Packet = blockchain_helium_packet_v1:new(
+                    lorawan,
+                    crypto:strong_rand_bytes(20),
+                    erlang:system_time(millisecond),
+                    -100.0,
+                    915.2,
+                    "SF8BW125",
+                    -12.0,
+                    {devaddr, 12}
+                ),
+            Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
+            Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
+            ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}]),
+            [#{public => PubKey, secret => PrivKey}|Acc]
+        end,
+        [],
+        lists:seq(1, MaxActorsAllowed + 1)
+    ),
+
+    %% Checking that new SC ID is not old SC ID
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
+        [ID1, ID2] == ActiveSCIDs1
+    end, 30, timer:seconds(1)),
+
+
+    [SCA1, SCB1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
+    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1))),
+
+    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCA1)),
+    ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1)),
+
+    % We are resending packets from same actor to make sure they still make it in there and in the right state channel
+    lists:foreach(
+        fun(#{public := PubKey, secret := PrivKey}) ->
+            PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            Packet = blockchain_helium_packet_v1:new(
+                    lorawan,
+                    crypto:strong_rand_bytes(20),
+                    erlang:system_time(millisecond),
+                    -100.0,
+                    915.2,
+                    "SF8BW125",
+                    -12.0,
+                    {devaddr, 12}
+                ),
+            Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
+            Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
+            ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}])
+        end,
+        lists:reverse(Actors)
+    ),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ActiveSCIDs2 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ct:pal("ActiveSCIDs2: ~p", [ActiveSCIDs2]),
+        [ID1, ID2] == ActiveSCIDs2
+    end, 30, timer:seconds(1)),
+
+    [SCA2, SCB2] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
+    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
+
+    ?assertEqual(MaxActorsAllowed*2, blockchain_state_channel_v1:total_packets(SCA2)),
+    ?assertEqual(2, blockchain_state_channel_v1:total_packets(SCB2)),
+
+    ok.
+
 replay_test(Config) ->
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
@@ -487,7 +654,7 @@ replay_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -559,7 +726,7 @@ replay_test(Config) ->
 
     ct:pal("DCEntry: ~p", [ct_rpc:call(RouterNode, blockchain_ledger_v1, find_dc_entry, [RouterPubkeyBin, RouterLedger2])]),
 
-    ReplayID = crypto:strong_rand_bytes(24),
+    ReplayID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     ReplaySignedSCOpenTxn = create_sc_open_txn(RouterNode, ReplayID, ExpireWithin, 1, Nonce),
@@ -591,7 +758,7 @@ multiple_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 20,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -846,7 +1013,7 @@ multi_active_sc_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 45,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -946,7 +1113,7 @@ multi_active_sc_test(Config) ->
 
     %% Check that it's gone from the sc server
     ?assertEqual(1, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
-    ?assertEqual(ID2, ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, [])),
+    ?assertEqual([ID2], ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, [])),
 
     %% Wait 1 sec before sending more packets
     ok= timer:sleep(timer:seconds(1)),
@@ -994,7 +1161,7 @@ open_without_oui_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
 
     %% Create state channel open txn without any oui
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1137,7 +1304,7 @@ crash_single_sc_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1432,7 +1599,7 @@ sc_gc_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1608,7 +1775,7 @@ crash_sc_sup_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1760,7 +1927,7 @@ hotspot_in_router_oui_test(Config) ->
     ?assertEqual(GwOUI, OUI),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1854,7 +2021,7 @@ default_routers_test(Config) ->
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     ExpireWithin = 11,
     Nonce = 1,
     SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
@@ -1982,6 +2149,12 @@ create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 20),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
+create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce, Amount) ->
+    {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, Amount),
+    blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
+
 create_update_gateway_oui_txn(GatewayNode, OUI, Nonce, OwnerSigFun, RouterSigFun) ->
     {ok, GatewayPubkey, _, _} = ct_rpc:call(GatewayNode, blockchain_swarm, keys, []),
     GatewayPubkeyBin = libp2p_crypto:pubkey_to_bin(GatewayPubkey),
@@ -2064,7 +2237,7 @@ debug(Node) ->
     S = ct_rpc:call(Node, blockchain_state_channels_server, state_channels, []),
     ct:pal("state_channels: ~p", [S]),
 
-    A = ct_rpc:call(Node, blockchain_state_channels_server, active_sc_id, []),
+    A = ct_rpc:call(Node, blockchain_state_channels_server, active_sc_ids, []),
     ct:pal("active: ~p", [A]),
     {P, S, A}.
 

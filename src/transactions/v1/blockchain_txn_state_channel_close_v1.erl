@@ -157,7 +157,8 @@ is_valid(Txn, Chain) ->
         false ->
             {error, {cannot_expire, LedgerHeight, SCGrace, ExpiresAt}};
         true ->
-            case length(blockchain_state_channel_v1:summaries(SC)) > ?MAX_UNIQ_CLIENTS of
+            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+            case length(blockchain_state_channel_v1:summaries(SC)) > MaxActorsAllowed of
                 true ->
                     {error, max_clients_exceeded};
                 false ->
@@ -232,6 +233,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
         false ->
             {error, not_owner};
         true ->
+            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
             LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
             CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
             lager:info("close state was ~p", [CloseState]),
@@ -257,7 +259,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                                                          false ->
                                                                              {false, {error, sc_mismatch}, SC};
                                                                          true ->
-                                                                             Merged = blockchain_state_channel_v1:merge(SC, ConflictingSC),
+                                                                             Merged = blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed),
                                                                              {true, blockchain_state_channel_v1:validate(ConflictingSC), Merged}
                                                                      end
                                                              end,
@@ -282,7 +284,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                             %% we need to check if this conflict adds any new information
                                             %%
                                             %% We can merge the incoming state channel(s) with the existing one and check for conflicts or causually newer information
-                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:merge(LSC, MergedSC)) of
+                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:merge(LSC, MergedSC, MaxActorsAllowed)) of
                                                 equal ->
                                                     {error, redundant};
                                                 caused ->
@@ -332,12 +334,15 @@ absorb(Txn, Chain) ->
     TxnFee = ?MODULE:fee(Txn),
     TxnHash = ?MODULE:hash(Txn),
     case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
-        {error, _Reason}=Error -> Error;
+        {error, _Reason}=Error ->
+            Error;
         ok ->
+            Ledger = blockchain:ledger(Chain),
+            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of
                                           undefined -> {SC, false};
                                           ConflictingSC ->
-                                              {blockchain_state_channel_v1:merge(SC, ConflictingSC), true}
+                                              {blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed), true}
                                       end,
             lager:info("Closing with conflict ~p", [HadConflict]),
             blockchain_ledger_v1:close_state_channel(Owner, Closer, MergedSC, ID, HadConflict, Ledger)

@@ -66,20 +66,17 @@ sc_active_usage() ->
     ].
 
 sc_active(["sc", "active"], [], []) ->
-    case (catch blockchain_state_channels_server:active_sc_id()) of
+    case (catch blockchain_state_channels_server:active_sc_ids()) of
         {'EXIT', _} ->
             [clique_status:text("timeout")];
         undefined ->
             [clique_status:text("none")];
-        BinActiveID ->
-            R = format_active_id(BinActiveID),
+        BinActiveIDs ->
+            R = [format_sc_id(ID) || ID <- BinActiveIDs],
             [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
     usage.
-
-format_active_id(BinActiveID) ->
-    binary_to_list(base64:encode(BinActiveID)).
 
 %%--------------------------------------------------------------------
 %% sc list
@@ -110,32 +107,40 @@ sc_list([], [], []) ->
     usage.
 
 format_sc_list(SCs) ->
-    {ok, Height} = blockchain:height(blockchain_worker:blockchain()),
-    maps:fold(fun(SCID, {SC, _}, Acc) ->
-                      ID = binary_to_list(base64:encode(SCID)),
-                      {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
-                      SCNonce = blockchain_state_channel_v1:nonce(SC),
-                      Amount = blockchain_state_channel_v1:amount(SC),
-                      RootHash = binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
-                      State = atom_to_list(blockchain_state_channel_v1:state(SC)),
-                      {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
-                      ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
-                      IsActive = is_active(SC),
-                      [
-                       [{id, io_lib:format("~p", [ID])},
-                        {owner, io_lib:format("~p", [SCOwnerName])},
-                        {nonce, io_lib:format("~p", [SCNonce])},
-                        {state, io_lib:format("~p", [State])},
-                        {is_active, io_lib:format("~p", [IsActive])},
-                        {root_hash, io_lib:format("~p", [RootHash])},
-                        {expire_at, io_lib:format("~p", [ExpireAtBlock])},
-                        {expired, ExpireAtBlock =< Height},
-                        {amount, Amount},
-                        {num_dcs, NumDCs},
-                        {num_packets, NumPackets},
-                        {participants, NumParticipants}
-                       ] | Acc]
-              end, [], SCs).
+    Chain = blockchain_worker:blockchain(),
+    {ok, Height} = blockchain:height(Chain),
+    maps:fold(
+        fun(SCID, {SC, _}, Acc) ->
+            ID = format_sc_id(SCID),
+            SCNonce = blockchain_state_channel_v1:nonce(SC),
+            Amount = blockchain_state_channel_v1:amount(SC),
+            RootHash = erlang:binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
+            State =  erlang:atom_to_list(blockchain_state_channel_v1:state(SC)),
+            {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
+            ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
+            IsActive = is_active(SC),
+            MAxP = blockchain_ledger_v1:get_sc_max_actors(blockchain:ledger(Chain)),
+            [
+                [
+                    {id, io_lib:format("~p", [ID])},
+                    {nonce, io_lib:format("~p", [SCNonce])},
+                    {state, io_lib:format("~p", [State])},
+                    {is_active, io_lib:format("~p", [IsActive])},
+                    {expire_at, io_lib:format("~p", [ExpireAtBlock])},
+                    {expired, ExpireAtBlock =< Height},
+                    {amount, Amount},
+                    {num_dcs, NumDCs},
+                    {num_packets, NumPackets},
+                    {participants, NumParticipants},
+                    {max_participants, MAxP},
+                    {root_hash, io_lib:format("~p", [RootHash])}
+                ]
+                | Acc
+            ]
+        end,
+        [],
+        SCs
+    ).
 
 summarize(Summaries) ->
     lists:foldl(fun(Summary, {DCs, Packets, Participants}) ->
@@ -146,6 +151,9 @@ summarize(Summaries) ->
                 {0, 0, 0}, Summaries).
 
 is_active(SC) ->
-    ActiveSCID = blockchain_state_channels_server:active_sc_id(),
+    ActiveSCIDs = blockchain_state_channels_server:active_sc_ids(),
     SCID = blockchain_state_channel_v1:id(SC),
-    ActiveSCID == SCID.
+    lists:member(SCID, ActiveSCIDs).
+
+format_sc_id(ID) ->
+    blockchain_utils:addr2name(ID).

@@ -119,8 +119,9 @@
     close_state_channel/6,
     is_state_channel_overpaid/2,
     get_sc_mod/2,
+    get_sc_max_actors/1,
     state_channel_key/2,
-
+    
     allocate_subnet/2,
 
     delay_vars/3,
@@ -3247,7 +3248,8 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
                                            _ ->
                                                false
                                        end,
-                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf),
+                    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf, MaxActorsAllowed),
                     Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
                     cache_put(Ledger, SCsCF, Key, Bin);
                 false ->
@@ -4973,6 +4975,32 @@ get_sc_mod(Channel, Ledger) ->
                 false -> blockchain_ledger_state_channel_v1
             end;
         _ -> blockchain_ledger_state_channel_v1
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% This function allows us to get a lower sc_max_actors for testing
+%% It should still pass any chain validation as it can only be lower
+%% @end
+%%--------------------------------------------------------------------
+-spec get_sc_max_actors(Ledger :: ledger()) -> pos_integer().
+get_sc_max_actors(Ledger) ->
+    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+    case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
+        Str when is_list(Str) ->
+            try erlang:list_to_integer(Str) of
+                TooHigh when TooHigh > MaxActorsAllowed ->
+                    MaxActorsAllowed;
+                Max ->
+                    Max
+            catch What:Why ->
+                lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
+                MaxActorsAllowed
+            end;
+        TooHigh when TooHigh > MaxActorsAllowed ->
+            MaxActorsAllowed;
+        Max ->
+            Max
     end.
 
 -spec deserialize_state_channel( <<_:8, _:_*8>> ) ->
