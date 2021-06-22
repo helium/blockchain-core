@@ -359,7 +359,13 @@ is_new_location(Txn, Ledger) ->
             NewLoc /= ExistingLoc;
         {error, _Reason} ->
             %% if GW doesnt exist, default to true
-            throw({error, gateway_not_found})
+            %% we could throw an error here but as this
+            %% is called from calculate_staking_fee
+            %% which itself is used in txn prep it is thought
+            %% best to allow calculate_staking_fee to
+            %% return a fee value, if that fee is incorrect
+            %% the txn will fail as part of validations anyway
+            true
     end.
 
 -spec do_remaining_checks(Txn :: txn_assert_location(),
