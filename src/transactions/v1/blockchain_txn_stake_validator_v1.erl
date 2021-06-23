@@ -137,7 +137,7 @@ is_valid(Txn, Chain) ->
                 end,
                 {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
                 %% check that the network is correct
-                case blockchain:config(?validator_network_check, Ledger) of
+                case blockchain:config(?validator_key_check, Ledger) of
                     %% assert that validator is on the right network by decoding its key
                     {ok, true} ->
                         try
