@@ -1248,6 +1248,12 @@ validate_var(?validator_liveness_interval, Value) ->
     validate_int(Value, "validator_liveness_interval", 5, 2000, false);
 validate_var(?validator_liveness_grace_period, Value) ->
     validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
+validate_var(?validator_network_check, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_validator_network_check, Value}})
+    end;
 %% TODO fix this var
 validate_var(?stake_withdrawal_cooldown, Value) ->
     %% maybe set this in the test

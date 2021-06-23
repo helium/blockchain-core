@@ -62,6 +62,7 @@ init_per_testcase(TestCase, Config) ->
                     ?validator_minimum_stake => ?bones(10000),
                     ?validator_liveness_grace_period => 10,
                     ?validator_liveness_interval => 5,
+                    ?validator_network_check => true,
                     ?stake_withdrawal_cooldown => 10,
                     ?stake_withdrawal_max => 500,
                     ?dkg_penalty => 1.0,
