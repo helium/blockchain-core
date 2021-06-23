@@ -136,6 +136,18 @@ is_valid(Txn, Chain) ->
                     _ -> throw(unsupported_txn)
                 end,
                 {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+                %% check that the network is correct
+                case blockchain:config(?validator_key_check, Ledger) of
+                    %% assert that validator is on the right network by decoding its key
+                    {ok, true} ->
+                        try
+                            libp2p_crypto:bin_to_pubkey(Validator),
+                            ok
+                        catch throw:Why ->
+                                  throw({unusable_miner_key, Why})
+                        end;
+                    _ -> ok
+                end,
                 %% check fee
                 AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                 ExpectedTxnFee = calculate_fee(Txn, Chain),
