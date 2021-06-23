@@ -150,8 +150,14 @@ is_valid(Txn, Chain) ->
                 end,
                 case blockchain:config(?validator_version, Ledger) >= 4 of
                     %% assert that validator is on the right network by decoding its key
-                    true -> libp2p_crypto:bin_to_pub(Validator);
-                    false -> ok,
+                    true ->
+                        try
+                            libp2p_crypto:bin_to_pub(Validator),
+                            ok
+                        catch throw:Cause ->
+                            throw({unusable_miner_key, Cause})
+                        end;
+                    false -> ok
                 end,
                 %% make sure that this validator doesn't already exist
                 case blockchain_ledger_v1:get_validator(Validator, Ledger) of
