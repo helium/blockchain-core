@@ -189,8 +189,8 @@ handle_call(active_scs, _From, State) ->
     {reply, active_scs(State), State};
 handle_call(active_sc_ids, _From, #state{active_sc_ids=ActiveSCIDs}=State) ->
     {reply, ActiveSCIDs, State};
-handle_call(get_active_sc_count, _From, #state{active_sc_ids=ActiveSCIDs}=State) ->
-    {reply, erlang:length(ActiveSCIDs), State};
+handle_call(get_active_sc_count, _From, State) ->
+    {reply, get_active_sc_count(State), State};
 %% NOTE: This function is for testing, we should do something else probably
 handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
             #state{db=DB, state_channels=SCs, owner={_, OwnerSigFun}}=State) ->
@@ -875,6 +875,18 @@ active_scs(#state{state_channels=SCs, active_sc_ids=ActiveSCIDs}) ->
         SC
     end,
     [F(ID, SCs) || ID <- ActiveSCIDs].
+
+-spec get_active_sc_count(State :: state()) -> non_neg_integer().
+%% Only count open state channels; do not count state channels that are closed
+get_active_sc_count(#state{active_sc_ids=[]}) -> 0;
+get_active_sc_count(#state{active_sc_ids=ActiveIds, state_channels=SCMap}) ->
+   lists:foldl(fun(Id, Acc) ->
+                     {SC, _Skewed} = maps:get(Id, SCMap),
+                     case blockchain_state_channel_v1:state(SC) == open of
+                        true -> Acc + 1;
+                        false -> Acc
+                     end
+               end, 0, ActiveIds).
 
 -spec send_rejection(Stream :: pid()) -> ok.
 send_rejection(Stream) ->
