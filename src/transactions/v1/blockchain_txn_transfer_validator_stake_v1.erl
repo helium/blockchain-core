@@ -204,6 +204,18 @@ is_valid(Txn, Chain) ->
                         %% no new owner just means this is an in-account transfer
                         ok
                 end,
+                %% check that the network is correct for the new validator pubkey_bin
+                case blockchain:config(?validator_key_check, Ledger) of
+                    %% assert that validator is on the right network by decoding its key
+                    {ok, true} ->
+                        try
+                            libp2p_crypto:bin_to_pubkey(NewValidator),
+                            ok
+                        catch throw:Why ->
+                                  throw({unusable_miner_key, Why})
+                        end;
+                    _ -> ok
+                end,
                 %% check if the old validator currently in the group
                 {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
                 case lists:member(OldValidator, ConsensusAddrs) of
