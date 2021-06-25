@@ -834,7 +834,16 @@ get_previous_total_dcs(SC, State) ->
 get_state_channels(SCID, #state{db=DB, cf=CF}) ->
     case rocksdb:get(DB, CF, SCID, []) of
         {ok, Bin} ->
-            {ok, erlang:binary_to_term(Bin)};
+            %% First try deserializing a sequence of framed
+            %% protobuf-encoded state channels.
+            try deframe_state_channels(Bin) of
+                SCs -> {ok, SCs}
+            catch
+                %% Protobuf failed. Let's assume we're dealing
+                %% with and older entry that was serialized with
+                %% `term_to_binary'.
+                _ -> {ok, erlang:binary_to_term(Bin)}
+            end;
         not_found ->
             {error, not_found};
         Error ->
@@ -842,20 +851,52 @@ get_state_channels(SCID, #state{db=DB, cf=CF}) ->
             Error
     end.
 
--spec append_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
-                           State :: state()) -> ok | {error, any()}.
+%% Updates an entry in the database with the new the state channel `SC' added.
+%%
+%% TODO: this can be made more efficient by not deserializing the
+%%       current DB entry, but instead, appending `SC' in its protobuf
+%%       encoded form. We SHOULD do this by default, but it's
+%%       complicated by the fact that we're transitioning away from
+%%       `term_to_binary' coding. Things will break if we blindly
+%%       smash a protobuf binary and a `t2b' binary. We need to
+%%       deserialize the thing to know for sure we have the correct
+%%       type and do update the entry for protobuf coding. This can
+%%       still be made more efficient given the constraints mentioned
+%%       above, but in the name of simplicity, I leave that as an
+%%       exercise to future devs.
+-spec append_state_channel(SC :: blockchain_state_channel_v1:state_channel(), State :: state())
+-> ok | {error, any()}.
 append_state_channel(SC, #state{db=DB, cf=CF}=State) ->
     SCID = blockchain_state_channel_v1:id(SC),
     case get_state_channels(SCID, State) of
         {ok, SCs} ->
-            ToInsert = erlang:term_to_binary([SC | SCs]),
+            %% TODO: why does this function have the name append when
+            %% we're actually prepending the new SC?
+            ToInsert = frame_state_channels([SC | SCs]),
             rocksdb:put(DB, CF, SCID, ToInsert, []);
         {error, not_found} ->
-            ToInsert = erlang:term_to_binary([SC]),
+            ToInsert = frame_state_channel(SC),
             rocksdb:put(DB, CF, SCID, ToInsert, []);
         {error, _}=E ->
             E
     end.
+
+%% Encodes a state channel in protobuf wire format prepended with its size.
+-spec frame_state_channel(SC :: blockchain_state_channel_v1:state_channel()) -> binary().
+frame_state_channel(SC) ->
+    BinSC = blockchain_state_channel_v1:encode(SC),
+    BinSCSize = byte_size(BinSC),
+    <<BinSCSize:32/integer-unsigned-little, BinSC/binary>>.
+
+-spec deframe_state_channels(binary()) -> [blockchain_state_channel_v1:state_channel()].
+deframe_state_channels(BinSCs) when is_binary(BinSCs) ->
+    [ blockchain_state_channel_v1:decode(Bin) || <<Size:32/integer-unsigned-little, Bin:Size/binary>> <= BinSCs ].
+
+%% Serializes a list of state channels into a sequence of framed
+%% protobuf-encoded state channels
+-spec frame_state_channels(SCs :: [blockchain_state_channel_v1:state_channel()]) -> binary().
+frame_state_channels(SCs) ->
+    << <<(frame_state_channel(SC))/binary>> || SC <- SCs>>.
 
 state_channels(#state{db=DB, cf=CF}) ->
     {ok, Itr} = rocksdb:iterator(DB, CF, []),
@@ -865,7 +906,12 @@ state_channels(Itr, {error, invalid_iterator}, Acc) ->
     catch rocksdb:iterator_close(Itr),
     Acc;
 state_channels(Itr, {ok, _, SCBin}, Acc) ->
-    state_channels(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(SCBin)|Acc]).
+    SC = try blockchain_state_channel_v1:decode(SCBin) of
+            SC0 -> SC0
+         catch
+             _ -> erlang:binary_to_term(SCBin)
+         end,
+    state_channels(Itr, rocksdb:iterator_move(Itr, next), [SC|Acc]).
 
 -spec overwrite_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
                               State :: state()) -> ok | {error, any()}.
@@ -886,7 +932,7 @@ overwrite_state_channel(SC, State) ->
                State :: state()) -> ok.
 write_sc(SC, #state{db=DB, cf=CF}) ->
     SCID = blockchain_state_channel_v1:id(SC),
-    ToInsert = erlang:term_to_binary([SC]),
+    ToInsert = frame_state_channel(SC),
     rocksdb:put(DB, CF, SCID, ToInsert, []).
 
 -spec close_state_channel(SC :: blockchain_state_channel_v1:state_channel(), State :: state()) -> ok.
@@ -976,8 +1022,8 @@ debug_multiple_scs(SC, KnownSCs) ->
             %% false by default, don't write it out
             ok;
         true ->
-            BinSC = term_to_binary(SC),
-            BinKnownSCs = term_to_binary(KnownSCs),
+            BinSC = frame_state_channel(SC),
+            BinKnownSCs = frame_state_channels(KnownSCs),
             ok = file:write_file("/tmp/bin_sc", BinSC),
             ok = file:write_file("/tmp/known_scs", BinKnownSCs),
             ok
