@@ -133,15 +133,18 @@ update_summary_for(ClientPubkeyBin,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
                    WillFit,
                    MaxActorsAllowed) ->
+    lager:debug("update_summary_for ~p", [blockchain_utils:addr2name(ClientPubkeyBin)]),
     case WillFit orelse ?MODULE:can_fit(ClientPubkeyBin, SC, MaxActorsAllowed) of
         false ->
             %% Cannot fit this into summaries
             {SC, false};
         true ->
+            lager:debug("update_summary_for ~p", [blockchain_utils:addr2name(ClientPubkeyBin)]),
             case get_summary(ClientPubkeyBin, SC) of
                 {error, not_found} ->
                     {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
                 {ok, _Summary} ->
+                    lager:debug("update_summary_for ~p", [blockchain_utils:addr2name(ClientPubkeyBin)]),
                     NewSummaries = lists:keyreplace(ClientPubkeyBin,
                                                     #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
                                                     Summaries,
