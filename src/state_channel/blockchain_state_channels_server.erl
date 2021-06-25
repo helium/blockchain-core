@@ -366,6 +366,9 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
 handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, active_sc_ids=ActiveSCIDs,
                                          state_channels=SCs, blooms=Blooms, owner={_Owner, OwnerSigFun},
                                          max_actors_allowed=MaxActorsAllowed}=State0) ->
+    Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
+    HotspotName = blockchain_utils:addr2name(Hotspot),
+    lager:debug("handling offer for ~p", [HotspotName]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
@@ -374,7 +377,6 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
             ok = send_rejection(HandlerPid),
             {noreply, State0};
         true ->
-            Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             case select_best_active_sc(Hotspot, State0) of
                 {error, _Reason} ->
                     lager:debug("could not get a good active SC (~p)", [_Reason]),
@@ -411,7 +413,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                             State1;
                         false ->
                             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
-                            lager:debug("routing: ~p, hotspot: ~p", [Routing, Hotspot]),
+                            lager:debug("routing: ~p, hotspot: ~p", [Routing, HotspotName]),
                             {ClientBloom, _} = maps:get(ActiveSCID, Blooms),
                             case
                                 try_update_summary(ActiveSC, Hotspot, PayloadSize,
@@ -423,6 +425,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                     ok = send_rejection(HandlerPid),
                                     State0;
                                 {ok, PurchaseSC} ->
+                                    lager:debug("purchasing offer from ~p", [HotspotName]),
                                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
                                     Region = blockchain_state_channel_offer_v1:region(SCOffer),
