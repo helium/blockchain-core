@@ -77,7 +77,7 @@ send_offer(Pid, Offer) ->
                     PacketHash :: binary(),
                     Region :: atom()) -> ok.
 send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
-    %lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
+    lager:info("sending purchase: ~p, pid: ~p", [NewPurchaseSC, Pid]),
     Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
     ok.
 
@@ -152,6 +152,7 @@ init(server, Conn, [_Path, Blockchain]) ->
     end.
 
 handle_data(client, Data, State) ->
+    lager:debug("client got data ~p", [Data]),
     %% get ledger if we don't yet have one
     Ledger = case State#state.ledger of
                  undefined ->
