@@ -1412,6 +1412,8 @@ set_aux_vars(AuxVars, #ledger_v1{mode=aux}=AuxLedger) ->
 set_aux_vars(_ExtraVars, _Ledger) ->
     error(cannot_set_vars_not_aux_ledger).
 
+-spec config(_, ledger()) ->
+    {ok, _} | {error, not_found | _}.
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
@@ -1419,7 +1421,7 @@ config(ConfigName, Ledger) ->
             {ok, binary_to_term(ConfigVal)};
         not_found ->
             {error, not_found};
-        Error ->
+        Error -> % TODO ok to match {error, _}=Error ?
             Error
     end.
 
@@ -3771,6 +3773,9 @@ cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
     ok.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
+%% TODO ok|error dichotomy for IO, found|not_found are possible results of a successful query:
+%% option 1: ... -> {ok,      none | {some, _}}  | {error, IOError}
+%% option 2: ... -> {ok, not_found | {found, _}} | {error, IOError}
 cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
     case context_cache(Ledger) of
         {undefined, undefined} ->

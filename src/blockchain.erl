@@ -1110,6 +1110,8 @@ delete_block(Block, #blockchain{db=DB, default=DefaultCF,
     ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
+-spec config(_, blockchain_ledger_v1:ledger()) ->
+    {ok, _} | {error, not_found | _}.
 config(ConfigName, Ledger) ->
     blockchain_ledger_v1:config(ConfigName, Ledger). % ignore using "?"
 
@@ -1499,7 +1501,7 @@ crosscheck(Blockchain, Recalc) ->
             Error
     end.
 
--spec compare(LedgerA :: blockchain_ledger_v1:ledger(), LedgerB :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+-spec compare(L, L)) -> ok | {error, any()} when L :: blockchain_ledger_v1:ledger().
 compare(LedgerA, LedgerB) ->
     {ok, FPA} = blockchain_ledger_v1:raw_fingerprint(LedgerA, true),
     {ok, FPB} = blockchain_ledger_v1:raw_fingerprint(LedgerB, true),
