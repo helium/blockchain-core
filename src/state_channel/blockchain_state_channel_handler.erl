@@ -77,7 +77,7 @@ send_offer(Pid, Offer) ->
                     PacketHash :: binary(),
                     Region :: atom()) -> ok.
 send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
-    lager:info("sending purchase: ~p, pid: ~p", [NewPurchaseSC, Pid]),
+    lager:info("sending purchase: ~p, pid: ~p to ~p", [NewPurchaseSC, Pid, blockchain_utils:addr2name(Hotspot)]),
     Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
     ok.
 
@@ -251,6 +251,7 @@ handle_info(server, {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Regio
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
+    lager:info("sending purchase to ~p", [blockchain_utils:addr2name(Hotspot)]),
     {noreply, State, Data};
 handle_info(server, {send_response, Resp}, State) ->
     lager:debug("sc_handler server sending resp: ~p", [Resp]),
