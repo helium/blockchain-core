@@ -121,7 +121,7 @@
     get_sc_mod/2,
     get_sc_max_actors/1,
     state_channel_key/2,
-    
+
     allocate_subnet/2,
 
     delay_vars/3,
@@ -1819,7 +1819,7 @@ insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
                                               WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
                                               case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
                                                   {ok, WitnessGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
+                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW, PubkeyBin, Ledger});
                                                   {error, Reason} ->
                                                       lager:warning("exiting trying to add witness", [Reason]),
                                                       erlang:error({insert_witnesses_error, Reason})
@@ -1828,7 +1828,7 @@ insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
                                               ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
                                               case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
                                                   {ok, ReceiptGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
+                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW, PubkeyBin, Ledger});
                                                   {error, Reason} ->
                                                       lager:warning("exiting trying to add witness", [Reason]),
                                                       erlang:error({insert_witnesses_error, Reason})
@@ -1853,7 +1853,7 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
             GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
                                       case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
                                           {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
                                           {error, Reason} ->
                                               lager:warning("exiting trying to add witness",
                                                             [Reason]),

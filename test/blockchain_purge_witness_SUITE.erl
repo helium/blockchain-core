@@ -116,12 +116,13 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 purge_witness_test(Config) ->
-    %% Add 3 gateways and assert their locations
-    %% start POC , where GW1 = challenger, GW2 = Challengee, GW3 = Witness
+    %% Add 4 gateways and assert their locations
+    %% start POC 1 , where GW1 = challenger, GW2 = Challengee, GW3 = Witness
     %% confirm challengee GW contains witness report from GW3
     %% Reassert GW3
+    %% start POC 2 , where GW1 = challenger, GW2 = Challengee, GW4 = Witness
     %% confirm challengee GW is purged of witness report from GW3
-    %% when challengee witness list is next read
+    %% and contains witness report from GW4
 
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
@@ -309,7 +310,54 @@ purge_witness_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 7} =:= blockchain:height(Chain) end),
 
     %%
-    %% Start POC
+    %% add gateway 4
+    %%
+    #{public := GW4PubKey, secret := GW4PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    GW4 = libp2p_crypto:pubkey_to_bin(GW4PubKey),
+    GW4SigFun = libp2p_crypto:mk_sig_fun(GW4PrivKey),
+    %% add gateway base txn
+    AddGW4Tx0 = blockchain_txn_add_gateway_v1:new(Owner, GW4, Payer),
+    %% get the fees for this txn
+    AddGW4TxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGW4Tx0, Chain),
+    AddGW4StFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGW4Tx0, Chain),
+
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGW4TxFee, AddGW4StFee, AddGW4TxFee + AddGW4StFee]),
+    %% set the fees on the base txn and then sign the various txns
+    AddGW4Tx1 = blockchain_txn_add_gateway_v1:fee(AddGW4Tx0, AddGW4TxFee),
+    AddGW4Tx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGW4Tx1, AddGW4StFee),
+    SignedOwnerAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign(AddGW4Tx2, OwnerSigFun),
+    SignedGatewayAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGW4Tx2, GW4SigFun),
+    SignedPayerAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGW4Tx2, PayerSigFun),
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGW4Tx2, Chain)),
+
+    {ok, AddGW4Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGW4Tx2]),
+    %% add the block
+    _ = blockchain:add_block(AddGW4Block, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 8} =:= blockchain:height(Chain) end),
+
+    %%
+    %% Assert gateway 4
+    %%
+    AssertLocationGW4Tx = blockchain_txn_assert_location_v1:new(GW4, Owner, Payer, ?TEST_LOCATION, 1),
+    AssertLocationGW4TxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationGW4Tx, Chain),
+    AssertLocationGW4StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationGW4Tx, Chain),
+    AssertLocationGW4Tx1 = blockchain_txn_assert_location_v1:fee(AssertLocationGW4Tx, AssertLocationGW4TxFee),
+    AssertLocationGW4Tx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationGW4Tx1, AssertLocationGW4StFee),
+    PartialAssertLocationGW4Txn = blockchain_txn_assert_location_v1:sign_request(AssertLocationGW4Tx2, GW4SigFun),
+    SignedAssertLocationGW4Tx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationGW4Txn, OwnerSigFun),
+    SignedPayerAssertLocationGW4Tx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationGW4Tx, PayerSigFun),
+    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW4Tx, Chain)),
+
+    {ok, AssertLocationGW4Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationGW4Tx]),
+    %% add the block
+    _ = blockchain:add_block(AssertLocationGW4Block, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 9} =:= blockchain:height(Chain) end),
+
+
+    %%
+    %% Start POC 1
     %% GW1 = challenger, GW2 = Challengee, GW3 = Witness
     %%
 
@@ -328,7 +376,7 @@ purge_witness_test(Config) ->
 
     {ok, POCReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
     _ = blockchain_gossip_handler:add_block(POCReqBlock, Chain, self(), blockchain_swarm:swarm()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 8} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
@@ -337,7 +385,7 @@ purge_witness_test(Config) ->
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GW1Info} = blockchain_gateway_cache:get(GW1, Ledger),
-    ?assertEqual(CurHeight + 8, blockchain_ledger_gateway_v2:last_poc_challenge(GW1Info)),
+    ?assertEqual(CurHeight + 10, blockchain_ledger_gateway_v2:last_poc_challenge(GW1Info)),
     ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GW1Info)),
     ?assertEqual(0, maps:size(blockchain_ledger_gateway_v2:witnesses(GW1Info))),
 
@@ -391,12 +439,12 @@ purge_witness_test(Config) ->
     %% add the block
     _ = blockchain:add_block(AddPOCReceiptsBlock, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 9} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW3
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     {ok, GW2InfoB} = blockchain_gateway_cache:get(GW2, Ledger1),
-    GW2WitnessesB = blockchain_ledger_gateway_v2:witnesses(GW2, GW2InfoB, Ledger1),
+    GW2WitnessesB = blockchain_ledger_gateway_v2:witnesses(GW2InfoB),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
     ct:pal("GW2WitnessesB: ~p", [GW2WitnessesB]),
     ?assertEqual(1, maps:size(GW2WitnessesB)),
@@ -422,19 +470,97 @@ purge_witness_test(Config) ->
     %% add the block
     _ = blockchain:add_block(AssertLocationGW3BlockB, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 12} =:= blockchain:height(Chain) end),
 
     %%
-    %% confirm GW2 now has zero witnesses
-    %% as GW3's report has been purged due to
-    %% that GW reasserting its location
+    %% confirm GW2 still has 1 witness
+    %% even tho GW3 has reasserted loc
+    %% the purge wont happen until the next
+    %% witness is added to the challengee GW
     %%
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
-    {ok, GW2InfoC} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger2),
-    GW2WitnessesC = blockchain_ledger_gateway_v2:witnesses(GW2, GW2InfoC, Ledger2),
-    ok = blockchain_ledger_v1:commit_context(Ledger2),
+    {ok, GW2InfoC} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
+    GW2WitnessesC = blockchain_ledger_gateway_v2:witnesses(GW2InfoC),
     ct:pal("GW2WitnessesC: ~p", [GW2WitnessesC]),
-    ?assertEqual(0, maps:size(GW2WitnessesC)),
+    ?assertEqual(1, maps:size(GW2WitnessesC)),
+    ?assertNotEqual(not_found, maps:get(GW3, GW2WitnessesC, not_found)),
+
+
+
+    %%
+    %% Start POC 2
+    %% GW1 = challenger, GW2 = Challengee, GWW = Witness
+    %%
+
+    %% add some fake blocks to get POC1 past poc interval
+    Swarm =  blockchain_swarm:swarm(),
+    LastFakeBlock = add_and_gossip_fake_blocks(30, ConsensusMembers, Swarm, Chain, GW1),
+
+    Keys1 = libp2p_crypto:generate_keys(ecc_compact),
+    Secret1 = libp2p_crypto:keys_to_bin(Keys1),
+    #{public := OnionCompactKey1} = Keys1,
+    SecretHash1 = crypto:hash(sha256, Secret1),
+    OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
+    PoC2ReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(LastFakeBlock), 3),
+    SignedPoC2ReqTxn0 = blockchain_txn_poc_request_v1:sign(PoC2ReqTxn0, GW1SigFun),
+    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPoC2ReqTxn0, Chain)),
+
+    {ok, POC2ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPoC2ReqTxn0]),
+    _ = blockchain_gossip_handler:add_block(POC2ReqBlock, Chain, self(), blockchain_swarm:swarm()),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 43} =:= blockchain:height(Chain) end),
+
+    %%
+    %% Make GW2 the challengee, GW4 a witness
+    %%
+    Rx2 = blockchain_poc_receipt_v1:new(
+        GW2,
+        1000,
+        10,
+        "first_rx",
+        p2p
+    ),
+    SignedRx2 = blockchain_poc_receipt_v1:sign(Rx2, GW2SigFun),
+
+    Witness2 = blockchain_poc_witness_v1:new(
+        GW4,
+        1001,
+        10,
+        crypto:strong_rand_bytes(32),
+        9.8,
+        915.2,
+        10,
+        <<"data_rate">>
+    ),
+    SignedWitness2 = blockchain_poc_witness_v1:sign(Witness2, GW4SigFun),
+
+    P2 = blockchain_poc_path_element_v1:new(GW2, SignedRx2, [SignedWitness2]),
+    ct:pal("P1: ~p", [P1]),
+
+    PoC2ReceiptsTxn = blockchain_txn_poc_receipts_v1:new(
+        GW1,
+        Secret1,
+        OnionKeyHash1,
+        [P2]
+    ),
+    SignedPoC2ReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoC2ReceiptsTxn, GW1SigFun),
+    ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedWitness2, Ledger)),
+    ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedRx2, Ledger)),
+    ?assertEqual(ok, blockchain_txn_poc_receipts_v1:is_valid(SignedPoC2ReceiptsTxn, Chain)),
+
+    %% add the receipts txn
+    {ok, AddPOC2ReceiptsBlock} = test_utils:create_block(ConsensusMembers, [SignedPoC2ReceiptsTxn]),
+    %% add the block
+    _ = blockchain:add_block(AddPOC2ReceiptsBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 44} =:= blockchain:height(Chain) end),
+
+    %% confirm the challengee GW2, now contains a single witness report and from GW4
+    {ok, GW2InfoD} = blockchain_gateway_cache:get(GW2, Ledger),
+    GW2WitnessesD = blockchain_ledger_gateway_v2:witnesses(GW2InfoD),
+    ct:pal("GW2WitnessesD ~p", [GW2WitnessesD]),
+    ?assertEqual(1, maps:size(GW2WitnessesD)),
+    ?assertNotEqual(not_found, maps:get(GW4, GW2WitnessesD, not_found)),
+    ?assertEqual(not_found, maps:get(GW3, GW2WitnessesD, not_found)),
+
 
     ok.
 
@@ -480,3 +606,14 @@ get_prices({ok, Ps}) ->
 median(Ps) ->
     blockchain_ledger_v1:median(Ps).
 
+add_and_gossip_fake_blocks(NumFakeBlocks, ConsensusMembers, Swarm, Chain, From) ->
+    lists:foreach(
+        fun(_) ->
+            {ok, B} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(B, Chain, From, Swarm)
+        end,
+        lists:seq(1, NumFakeBlocks-1)
+    ),
+    {ok, LastFakeBlock} = test_utils:create_block(ConsensusMembers, []),
+    _ = blockchain_gossip_handler:add_block(LastFakeBlock, Chain, From, Swarm),
+    LastFakeBlock.

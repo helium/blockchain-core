@@ -28,11 +28,11 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/1, add_witness/5,
-    has_witness/4,
+    add_witness/1, add_witness/7,
+    has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
-    witnesses/1, witnesses/3,
+    witnesses/1,
     witnesses_plain/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
     oui/1, oui/2,
@@ -388,14 +388,18 @@ add_witness({poc_receipt,
              WitnessAddress,
              WitnessGW = #gateway_v2{nonce=Nonce, last_location_nonce = WitnessLocNonce},
              POCWitness,
-             Gateway = #gateway_v2{witnesses=Witnesses}}) ->
+             Gateway,
+             GatwewayAddress,
+             Ledger}) ->
     RSSI = blockchain_poc_receipt_v1:signal(POCWitness),
     TS = blockchain_poc_receipt_v1:timestamp(POCWitness),
     Freq = blockchain_poc_receipt_v1:frequency(POCWitness),
+    %% before we do anything purge any stale witnesses
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       Witness#witness{count=Count + 1,
                                                                       added_location_nonce = WitnessLocNonce,
                                                                       hist=update_histogram(RSSI, Hist),
@@ -404,8 +408,8 @@ add_witness({poc_receipt,
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Histogram = create_histogram(WitnessGW, Gateway1, Freq),
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       #witness{count=1,
                                                                nonce=Nonce,
                                                                added_location_nonce = WitnessLocNonce,
@@ -418,14 +422,18 @@ add_witness({poc_witness,
              WitnessAddress,
              WitnessGW = #gateway_v2{nonce=Nonce, last_location_nonce = WitnessLocNonce},
              POCWitness,
-             Gateway = #gateway_v2{witnesses=Witnesses}}) ->
+             Gateway,
+             GatwewayAddress,
+             Ledger}) ->
     RSSI = blockchain_poc_witness_v1:signal(POCWitness),
     TS = blockchain_poc_witness_v1:timestamp(POCWitness),
     Freq = blockchain_poc_witness_v1:frequency(POCWitness),
+    %% before we do anything purge any stale witnesses
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       Witness#witness{count=Count + 1,
                                                                       added_location_nonce = WitnessLocNonce,
                                                                       hist=update_histogram(RSSI, Hist),
@@ -434,8 +442,8 @@ add_witness({poc_witness,
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Histogram = create_histogram(WitnessGW, Gateway1, Freq),
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       #witness{count=1,
                                                                nonce=Nonce,
                                                                added_location_nonce = WitnessLocNonce,
@@ -449,33 +457,41 @@ add_witness(WitnessAddress,
             WitnessGW = #gateway_v2{nonce=Nonce, last_location_nonce = WitnessLocNonce},
             undefined,
             undefined,
-            Gateway = #gateway_v2{witnesses=Witnesses}) ->
+            Gateway,
+            GatwewayAddress,
+            Ledger) ->
+    %% before we do anything purge any stale witnesses
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
     %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       Witness#witness{count=Count + 1, added_location_nonce = WitnessLocNonce}}
                                                      | Witnesses1])};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       #witness{count=1,
                                                                nonce=Nonce,
                                                                added_location_nonce = WitnessLocNonce,
-                                                               hist=create_histogram(WitnessGW, Gateway)}}
+                                                               hist=create_histogram(WitnessGW, Gateway1)}}
                                                      | Witnesses])}
     end;
 add_witness(WitnessAddress,
             WitnessGW = #gateway_v2{nonce=Nonce, last_location_nonce = WitnessLocNonce},
             RSSI,
             TS,
-            Gateway = #gateway_v2{witnesses=Witnesses}) ->
+            Gateway,
+            GatwewayAddress,
+            Ledger) ->
+    %% before we do anything purge any stale witnesses
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       Witness#witness{count=Count + 1,
                                                                       added_location_nonce = WitnessLocNonce,
                                                                       hist=update_histogram(RSSI, Hist),
@@ -484,8 +500,8 @@ add_witness(WitnessAddress,
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway),
-            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+            Histogram = create_histogram(WitnessGW, Gateway1),
+            Gateway1#gateway_v2{witnesses=lists:sort([{WitnessAddress,
                                                       #witness{count=1,
                                                                nonce=Nonce,
                                                                added_location_nonce = WitnessLocNonce,
@@ -540,10 +556,9 @@ clear_witnesses(Gateway) ->
 remove_witness(Gateway, WitnessAddr) ->
     Gateway#gateway_v2{witnesses=lists:keydelete(WitnessAddr, 1, Gateway#gateway_v2.witnesses)}.
 
--spec has_witness(libp2p_crypto:pubkey_bin(), gateway(), libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger()) -> boolean().
-has_witness(GatewayBin, Gateway, WitnessAddr, Ledger) ->
-    PurgedGW = purge_stale_witnesses(GatewayBin, Gateway, Ledger),
-    case lists:keyfind(WitnessAddr, 1,  PurgedGW#gateway_v2.witnesses) of
+-spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
+has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
+    case lists:keyfind(WitnessAddr, 1, Witnesses) of
         false -> false;
         _ -> true
     end.
@@ -551,11 +566,6 @@ has_witness(GatewayBin, Gateway, WitnessAddr, Ledger) ->
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
     maps:from_list(Gateway#gateway_v2.witnesses).
-
--spec witnesses(libp2p_crypto:pubkey_bin(), gateway(), blockchain_ledger_v1:ledger()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
-witnesses(GatewayBin, Gateway, Ledger) ->
-    PurgedGW = purge_stale_witnesses(GatewayBin, Gateway, Ledger),
-    maps:from_list(PurgedGW#gateway_v2.witnesses).
 
 -spec witnesses_plain(gateway()) -> [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 witnesses_plain(Gateway) ->
