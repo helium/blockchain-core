@@ -754,6 +754,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = Sta
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
+-spec get_random_peer(SwarmTID :: ets:tab()) -> no_peers | string().
 get_random_peer(SwarmTID) ->
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     %% limit peers to random connections with public addresses
@@ -764,7 +765,7 @@ get_random_peer(SwarmTID) ->
     case libp2p_peerbook:random(Peerbook, [], F, 100) of
         false -> no_peers;
         {Addr, _Peer} ->
-            ["/p2p/" ++ libp2p_crypto:bin_to_b58(Addr)]
+            "/p2p/" ++ libp2p_crypto:bin_to_b58(Addr)
     end.
 
 reset_sync_timer(State)  ->
