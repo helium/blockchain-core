@@ -318,6 +318,13 @@
 -define(sc_gc_interval, sc_gc_interval).
 %% Max number of actors (hotspots) allowed per state channel
 -define(sc_max_actors, sc_max_actors).
+%% Whether to include _all_ state channels in "active" count.
+%% The "old" behavior (i.e., `false') was to count all state
+%% channels regardless of their open or closed state.
+%%
+%% The "new" behavior (i.e., `true') is to count state channels
+%% that are only in the open state and ignore closed channels.
+-define(sc_only_count_open_active, sc_only_count_open_active).
 
 
 %% ------------------------------------------------------------------

@@ -1066,7 +1066,12 @@ validate_var(?sc_gc_interval, Value) ->
     validate_int(Value, "sc_gc_interval", 10, 100, false);
 validate_var(?sc_max_actors, Value) ->
     validate_int(Value, "sc_max_actors", 500, 10000, false);
-
+validate_var(?sc_only_count_open_active, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
+    end;
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
