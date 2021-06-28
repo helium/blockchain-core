@@ -372,7 +372,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                             lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
                             ok
                     end;
-                {{Txn, InvalidReason}, true} ->
+                {{Txn, _InvalidReason}, true} ->
                     %% hmm we have a txn which is a member of the valid and the invalid list
                     %% this can only mean we have dup txns, like 2 payment txns submitted with same nonce and payload
                     %% During validate, the first will be rendered valid, the second will be declared invalid
@@ -392,7 +392,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                                                 CurBlockHeight, IsNewElection);
                         _ ->
                             %% declare this copy as invalid
-                            process_invalid_txn(CachedTxn, {error, {invalid, InvalidReason}})
+                            process_invalid_txn(CachedTxn, {error, {invalid, duplicate_txn}})
                     end;
                 {{Txn, InvalidReason}, _} ->
                     %% the txn is invalid
