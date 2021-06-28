@@ -111,7 +111,7 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
 next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
     %% Get gateway
     Gateway = find(GatewayBin, Ledger),
-    case blockchain_ledger_gateway_v2:witnesses(Gateway) of
+    case blockchain_ledger_gateway_v2:witnesses(GatewayBin, Gateway, Ledger) of
         W when map_size(W) == 0 ->
             {error, no_witness};
         Witnesses0 ->

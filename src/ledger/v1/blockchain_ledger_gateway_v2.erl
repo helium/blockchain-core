@@ -32,7 +32,7 @@
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
-    witnesses/1,
+    witnesses/1, witnesses/3,
     witnesses_plain/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
     oui/1, oui/2,
@@ -395,7 +395,7 @@ add_witness({poc_receipt,
     TS = blockchain_poc_receipt_v1:timestamp(POCWitness),
     Freq = blockchain_poc_receipt_v1:frequency(POCWitness),
     %% before we do anything purge any stale witnesses
-    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = filter_stale_witnesses(GatwewayAddress, Gateway, Ledger, true),
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
@@ -429,7 +429,7 @@ add_witness({poc_witness,
     TS = blockchain_poc_witness_v1:timestamp(POCWitness),
     Freq = blockchain_poc_witness_v1:frequency(POCWitness),
     %% before we do anything purge any stale witnesses
-    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = filter_stale_witnesses(GatwewayAddress, Gateway, Ledger, true),
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
@@ -461,7 +461,7 @@ add_witness(WitnessAddress,
             GatwewayAddress,
             Ledger) ->
     %% before we do anything purge any stale witnesses
-    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = filter_stale_witnesses(GatwewayAddress, Gateway, Ledger, true),
     %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count}}, Witnesses1} ->
@@ -487,7 +487,7 @@ add_witness(WitnessAddress,
             GatwewayAddress,
             Ledger) ->
     %% before we do anything purge any stale witnesses
-    Gateway1 = #gateway_v2{witnesses=Witnesses} = purge_stale_witnesses(GatwewayAddress, Gateway, Ledger),
+    Gateway1 = #gateway_v2{witnesses=Witnesses} = filter_stale_witnesses(GatwewayAddress, Gateway, Ledger, true),
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
@@ -566,6 +566,11 @@ has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
     maps:from_list(Gateway#gateway_v2.witnesses).
+
+-spec witnesses(libp2p_crypto:pubkey_bin(), gateway(), blockchain:ledger()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+witnesses(GatewayAddr, Gateway, Ledger) ->
+    FilteredGW = filter_stale_witnesses(GatewayAddr, Gateway, Ledger, false),
+    maps:from_list(FilteredGW#gateway_v2.witnesses).
 
 -spec witnesses_plain(gateway()) -> [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 witnesses_plain(Gateway) ->
@@ -731,8 +736,8 @@ mask_for_gateway_mode(#gateway_v2{mode = full}, Ledger)->
         {ok, V} -> V
     end.
 
--spec purge_stale_witnesses(libp2p_crypto:pubkey_bin(), gateway(), blockchain_ledger_v2:ledger()) -> gateway().
-purge_stale_witnesses(GatewayBin, GatewayToPurge = #gateway_v2{witnesses = Witnesses}, Ledger)->
+-spec filter_stale_witnesses(libp2p_crypto:pubkey_bin(), gateway(), blockchain_ledger_v2:ledger(), boolean()) -> gateway().
+filter_stale_witnesses(GatewayBin, GatewayToPurge = #gateway_v2{witnesses = Witnesses}, Ledger, PurgeGW)->
     PurgedGW =
         lists:foldl(fun
                       ({WitnessPubkeyBin, Witness}, AccGW)->
@@ -748,7 +753,12 @@ purge_stale_witnesses(GatewayBin, GatewayToPurge = #gateway_v2{witnesses = Witne
                           end
                   end,
             GatewayToPurge, Witnesses),
-    ok = blockchain_ledger_v1:update_gateway(PurgedGW, GatewayBin, Ledger),
+    case PurgeGW of
+        true ->
+            ok = blockchain_ledger_v1:update_gateway(PurgedGW, GatewayBin, Ledger);
+        _ ->
+            noop
+    end,
     PurgedGW.
 
 %% ------------------------------------------------------------------

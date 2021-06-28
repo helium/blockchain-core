@@ -477,11 +477,19 @@ purge_witness_test(Config) ->
     %% witness is added to the challengee GW
     %%
     {ok, GW2InfoC} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
+    %% witnesses/1 is not filtered of stale witnesses, it returns the unfiltered witness list
+    %% as no new witness has been added yet, GW3 should still be there
     GW2WitnessesC = blockchain_ledger_gateway_v2:witnesses(GW2InfoC),
     ct:pal("GW2WitnessesC: ~p", [GW2WitnessesC]),
     ?assertEqual(1, maps:size(GW2WitnessesC)),
     ?assertNotEqual(not_found, maps:get(GW3, GW2WitnessesC, not_found)),
 
+    %% witnesses/3 is filtered of stale witnesses, it checks for any stale entries
+    %% and purges them
+    %% GW3 should not be returned here
+    GW2WitnessesD = blockchain_ledger_gateway_v2:witnesses(GW2, GW2InfoC, Ledger),
+    ?assertEqual(0, maps:size(GW2WitnessesD)),
+    ?assertEqual(not_found, maps:get(GW3, GW2WitnessesD, not_found)),
 
 
     %%
@@ -553,12 +561,22 @@ purge_witness_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 44} =:= blockchain:height(Chain) end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW4
-    {ok, GW2InfoD} = blockchain_gateway_cache:get(GW2, Ledger),
-    GW2WitnessesPOC2 = blockchain_ledger_gateway_v2:witnesses(GW2InfoD),
+    {ok, GW2InfoE} = blockchain_gateway_cache:get(GW2, Ledger),
+    %% witnesses/1 is not filtered of stale witnesses, it returns the unfiltered witness list
+    %% which due to the new witness being added should now be purged of GW3
+    GW2WitnessesPOC2 = blockchain_ledger_gateway_v2:witnesses(GW2InfoE),
+
     ct:pal("GW2WitnessesPOC2 ~p", [GW2WitnessesPOC2]),
     ?assertEqual(1, maps:size(GW2WitnessesPOC2)),
     ?assertNotEqual(not_found, maps:get(GW4, GW2WitnessesPOC2, not_found)),
     ?assertEqual(not_found, maps:get(GW3, GW2WitnessesPOC2, not_found)),
+
+    %% witnesses/3 is filtered of stale witnesses, it should now
+    %% return same as witnesses/1
+    GW2WitnessesF = blockchain_ledger_gateway_v2:witnesses(GW2, GW2InfoE, Ledger),
+    ?assertEqual(1, maps:size(GW2WitnessesPOC2)),
+    ?assertNotEqual(not_found, maps:get(GW4, GW2WitnessesF, not_found)),
+    ?assertEqual(not_found, maps:get(GW3, GW2WitnessesF, not_found)),
 
 
     ok.
