@@ -199,10 +199,11 @@ absorb(Txn, Chain) ->
     Validator = validator(Txn),
     Stake = stake(Txn),
     Fee = fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     {ok, Entry} = blockchain_ledger_v1:find_entry(Owner, Ledger),
     Nonce = blockchain_ledger_entry_v1:nonce(Entry),
 
-    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, true) of
+    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, true, Hash, Chain) of
         {error, _Reason} = Err -> Err;
         ok ->
             case blockchain_ledger_v1:debit_account(Owner, Stake, Nonce + 1, Ledger) of

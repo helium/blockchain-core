@@ -723,7 +723,18 @@ update_state_with_ledger_channels(#state{db=DB, chain=Chain}=State0) ->
             end,
             ActiveSCIDs
         ),
-    State0#state{state_channels=SCs, active_sc_ids=SortedActiveSCIDs}.
+    State1 = State0#state{state_channels=SCs, active_sc_ids=SortedActiveSCIDs},
+    case SortedActiveSCIDs of
+        [] ->
+            case maybe_get_new_active(State1) of
+                undefined ->
+                    State1;
+                ID ->
+                    State1#state{active_sc_ids=[ID]}
+            end;
+        _ ->
+            State1
+    end.
 
 -spec get_state_channels(DB :: rocksdb:db_handle(),
                          SCF :: rocksdb:cf_handle()) ->

@@ -391,6 +391,8 @@ new_reward(Account, Amount) ->
                                Ledger :: blockchain_ledger_v1:ledger(),
                                Acc :: rewards_share_metadata() ) -> rewards_share_metadata().
 fold_blocks_for_rewards(Current, End, _Chain, _Vars, _Ledger, Acc) when Current == End + 1 -> Acc;
+fold_blocks_for_rewards(910360, End, Chain, Vars, Ledger, Acc) ->
+    fold_blocks_for_rewards(910361, End, Chain, Vars, Ledger, Acc);
 fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason} = Error -> throw(Error);
@@ -701,7 +703,19 @@ consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
       fun(Member, Acc) ->
               PercentofReward = 100/Count/100,
               Amount = erlang:round(PercentofReward*ConsensusReward),
-              maps:put({GwOrVal, consensus, Member}, Amount+OveragePerMember, Acc)
+              %% in transitional blocks and in the last reward block of v5 it's possible to still
+              %% have gateways in who need to be rewarded, so make sure that everyone gets tagged
+              %% correctly with the proper code path
+              Actual =
+                  case GwOrVal of
+                      validator ->
+                          case blockchain_ledger_v1:get_validator(Member, Ledger) of
+                              {ok, _} -> validator;
+                              {error, not_found} -> gateway
+                          end;
+                      gateway -> gateway
+                  end,
+              maps:put({Actual, consensus, Member}, Amount+OveragePerMember, Acc)
       end,
       #{},
       Members).
