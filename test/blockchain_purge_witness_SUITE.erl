@@ -123,6 +123,7 @@ purge_witness_test(Config) ->
     %% start POC 2 , where GW1 = challenger, GW2 = Challengee, GW4 = Witness
     %% confirm challengee GW is purged of witness report from GW3
     %% and contains witness report from GW4
+    %% NOTE: purging occurs upon witness add hence the need for the second POC
 
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
@@ -365,28 +366,28 @@ purge_witness_test(Config) ->
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
 
-    Keys0 = libp2p_crypto:generate_keys(ecc_compact),
-    Secret0 = libp2p_crypto:keys_to_bin(Keys0),
-    #{public := OnionCompactKey0} = Keys0,
-    SecretHash0 = crypto:hash(sha256, Secret0),
-    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
-    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(BurnBlock), 2),
-    SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GW1SigFun),
-    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPoCReqTxn0, Chain)),
+    POC1Keys = libp2p_crypto:generate_keys(ecc_compact),
+    POC1Secret = libp2p_crypto:keys_to_bin(POC1Keys),
+    #{public := POC1OnionCompactKey} = POC1Keys,
+    POC1SecretHash = crypto:hash(sha256, POC1Secret),
+    POC1OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(POC1OnionCompactKey)),
+    POC1ReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, POC1SecretHash, POC1OnionKeyHash, blockchain_block:hash_block(BurnBlock), 2),
+    SignedPOC1ReqTxn0 = blockchain_txn_poc_request_v1:sign(POC1ReqTxn0, GW1SigFun),
+    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPOC1ReqTxn0, Chain)),
 
-    {ok, POCReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
-    _ = blockchain_gossip_handler:add_block(POCReqBlock, Chain, self(), blockchain_swarm:swarm()),
+    {ok, POC1ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC1ReqTxn0]),
+    _ = blockchain_gossip_handler:add_block(POC1ReqBlock, Chain, self(), blockchain_swarm:swarm()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
-    ?assertEqual(blockchain_block:hash_block(POCReqBlock), HeadHash3),
-    ?assertEqual({ok, POCReqBlock}, blockchain:get_block(HeadHash3, Chain)),
+    ?assertEqual(blockchain_block:hash_block(POC1ReqBlock), HeadHash3),
+    ?assertEqual({ok, POC1ReqBlock}, blockchain:get_block(HeadHash3, Chain)),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GW1Info} = blockchain_gateway_cache:get(GW1, Ledger),
     ?assertEqual(CurHeight + 10, blockchain_ledger_gateway_v2:last_poc_challenge(GW1Info)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GW1Info)),
+    ?assertEqual(POC1OnionKeyHash, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GW1Info)),
     ?assertEqual(0, maps:size(blockchain_ledger_gateway_v2:witnesses(GW1Info))),
 
     %%
@@ -398,57 +399,54 @@ purge_witness_test(Config) ->
     meck:expect(blockchain_poc_path, target, fun(_, _, _) -> {GW2, GW2Info} end),
     meck:expect(blockchain_poc_path, build, fun(_, _, _, _, _) -> {ok, [GW2]} end),
 
-    Rx1 = blockchain_poc_receipt_v1:new(
+    POC1Rx1 = blockchain_poc_receipt_v1:new(
         GW2,
         1000,
         10,
         "first_rx",
         p2p
     ),
-    SignedRx1 = blockchain_poc_receipt_v1:sign(Rx1, GW2SigFun),
+    SignedPOC1Rx1 = blockchain_poc_receipt_v1:sign(POC1Rx1, GW2SigFun),
 
-    WitnessHash1 = crypto:strong_rand_bytes(32),
-    Witness = blockchain_poc_witness_v1:new(
+    POC1Witness = blockchain_poc_witness_v1:new(
         GW3,
         1001,
         10,
-        WitnessHash1,
+        crypto:strong_rand_bytes(32),
         9.8,
         915.2,
         10,
         <<"data_rate">>
     ),
-    SignedWitness = blockchain_poc_witness_v1:sign(Witness, GW3SigFun),
+    SignedPOC1Witness = blockchain_poc_witness_v1:sign(POC1Witness, GW3SigFun),
 
-    P1 = blockchain_poc_path_element_v1:new(GW2, SignedRx1, [SignedWitness]),
-    ct:pal("P1: ~p", [P1]),
+    POC1Path = blockchain_poc_path_element_v1:new(GW2, SignedPOC1Rx1, [SignedPOC1Witness]),
+    ct:pal("POC1Path: ~p", [POC1Path]),
 
-    PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(
+    POC1ReceiptsTxn = blockchain_txn_poc_receipts_v1:new(
         GW1,
-        Secret0,
-        OnionKeyHash0,
-        [P1]
+        POC1Secret,
+        POC1OnionKeyHash,
+        [POC1Path]
     ),
-    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GW1SigFun),
-    ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedWitness, Ledger)),
-    ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedRx1, Ledger)),
-    ?assertEqual(ok, blockchain_txn_poc_receipts_v1:is_valid(SignedPoCReceiptsTxn, Chain)),
+    SignedPOC1ReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(POC1ReceiptsTxn, GW1SigFun),
+    ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedPOC1Witness, Ledger)),
+    ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedPOC1Rx1, Ledger)),
+    ?assertEqual(ok, blockchain_txn_poc_receipts_v1:is_valid(SignedPOC1ReceiptsTxn, Chain)),
 
     %% add the receipts txn
-    {ok, AddPOCReceiptsBlock} = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
+    {ok, AddPOC1ReceiptsBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC1ReceiptsTxn]),
     %% add the block
-    _ = blockchain:add_block(AddPOCReceiptsBlock, Chain),
+    _ = blockchain:add_block(AddPOC1ReceiptsBlock, Chain),
     %% confirm the block is added
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW3
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    {ok, GW2InfoB} = blockchain_gateway_cache:get(GW2, Ledger1),
-    GW2WitnessesB = blockchain_ledger_gateway_v2:witnesses(GW2InfoB),
-    ok = blockchain_ledger_v1:commit_context(Ledger1),
-    ct:pal("GW2WitnessesB: ~p", [GW2WitnessesB]),
-    ?assertEqual(1, maps:size(GW2WitnessesB)),
-    ?assertNotEqual(not_found, maps:get(GW3, GW2WitnessesB, not_found)),
+    {ok, GW2InfoB} = blockchain_gateway_cache:get(GW2, Ledger),
+    GW2WitnessesPOC1 = blockchain_ledger_gateway_v2:witnesses(GW2InfoB),
+    ct:pal("GW2WitnessesPOC1: ~p", [GW2WitnessesPOC1]),
+    ?assertEqual(1, maps:size(GW2WitnessesPOC1)),
+    ?assertNotEqual(not_found, maps:get(GW3, GW2WitnessesPOC1, not_found)),
 
 
     %%
@@ -495,32 +493,33 @@ purge_witness_test(Config) ->
     Swarm =  blockchain_swarm:swarm(),
     LastFakeBlock = add_and_gossip_fake_blocks(30, ConsensusMembers, Swarm, Chain, GW1),
 
-    Keys1 = libp2p_crypto:generate_keys(ecc_compact),
-    Secret1 = libp2p_crypto:keys_to_bin(Keys1),
-    #{public := OnionCompactKey1} = Keys1,
-    SecretHash1 = crypto:hash(sha256, Secret1),
-    OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
-    PoC2ReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(LastFakeBlock), 3),
-    SignedPoC2ReqTxn0 = blockchain_txn_poc_request_v1:sign(PoC2ReqTxn0, GW1SigFun),
-    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPoC2ReqTxn0, Chain)),
+    POC2Keys = libp2p_crypto:generate_keys(ecc_compact),
+    POC2Secret = libp2p_crypto:keys_to_bin(POC2Keys),
+    #{public := POC2OnionCompactKey} = POC2Keys,
+    POC2SecretHash = crypto:hash(sha256, POC2Secret),
+    POC2OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(POC2OnionCompactKey)),
+    POC2ReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, POC2SecretHash, POC2OnionKeyHash, blockchain_block:hash_block(LastFakeBlock), 2),
+    SignedPOC2ReqTxn0 = blockchain_txn_poc_request_v1:sign(POC2ReqTxn0, GW1SigFun),
+    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPOC2ReqTxn0, Chain)),
 
-    {ok, POC2ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPoC2ReqTxn0]),
+    {ok, POC2ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC2ReqTxn0]),
     _ = blockchain_gossip_handler:add_block(POC2ReqBlock, Chain, self(), blockchain_swarm:swarm()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 43} =:= blockchain:height(Chain) end),
 
     %%
     %% Make GW2 the challengee, GW4 a witness
     %%
-    Rx2 = blockchain_poc_receipt_v1:new(
+
+    POC2Rx1 = blockchain_poc_receipt_v1:new(
         GW2,
         1000,
         10,
         "first_rx",
         p2p
     ),
-    SignedRx2 = blockchain_poc_receipt_v1:sign(Rx2, GW2SigFun),
+    SignedPOC2Rx1 = blockchain_poc_receipt_v1:sign(POC2Rx1, GW2SigFun),
 
-    Witness2 = blockchain_poc_witness_v1:new(
+    POC2Witness = blockchain_poc_witness_v1:new(
         GW4,
         1001,
         10,
@@ -530,24 +529,24 @@ purge_witness_test(Config) ->
         10,
         <<"data_rate">>
     ),
-    SignedWitness2 = blockchain_poc_witness_v1:sign(Witness2, GW4SigFun),
+    SignedPOC2Witness = blockchain_poc_witness_v1:sign(POC2Witness, GW4SigFun),
 
-    P2 = blockchain_poc_path_element_v1:new(GW2, SignedRx2, [SignedWitness2]),
-    ct:pal("P1: ~p", [P1]),
+    POC2Path = blockchain_poc_path_element_v1:new(GW2, SignedPOC2Rx1, [SignedPOC2Witness]),
+    ct:pal("POC2Path: ~p", [POC2Path]),
 
-    PoC2ReceiptsTxn = blockchain_txn_poc_receipts_v1:new(
+    POC2ReceiptsTxn = blockchain_txn_poc_receipts_v1:new(
         GW1,
-        Secret1,
-        OnionKeyHash1,
-        [P2]
+        POC2Secret,
+        POC2OnionKeyHash,
+        [POC2Path]
     ),
-    SignedPoC2ReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoC2ReceiptsTxn, GW1SigFun),
-    ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedWitness2, Ledger)),
-    ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedRx2, Ledger)),
-    ?assertEqual(ok, blockchain_txn_poc_receipts_v1:is_valid(SignedPoC2ReceiptsTxn, Chain)),
+    SignedPOC2ReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(POC2ReceiptsTxn, GW1SigFun),
+    ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedPOC2Witness, Ledger)),
+    ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedPOC2Rx1, Ledger)),
+    ?assertEqual(ok, blockchain_txn_poc_receipts_v1:is_valid(SignedPOC2ReceiptsTxn, Chain)),
 
     %% add the receipts txn
-    {ok, AddPOC2ReceiptsBlock} = test_utils:create_block(ConsensusMembers, [SignedPoC2ReceiptsTxn]),
+    {ok, AddPOC2ReceiptsBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC2ReceiptsTxn]),
     %% add the block
     _ = blockchain:add_block(AddPOC2ReceiptsBlock, Chain),
     %% confirm the block is added
@@ -555,11 +554,11 @@ purge_witness_test(Config) ->
 
     %% confirm the challengee GW2, now contains a single witness report and from GW4
     {ok, GW2InfoD} = blockchain_gateway_cache:get(GW2, Ledger),
-    GW2WitnessesD = blockchain_ledger_gateway_v2:witnesses(GW2InfoD),
-    ct:pal("GW2WitnessesD ~p", [GW2WitnessesD]),
-    ?assertEqual(1, maps:size(GW2WitnessesD)),
-    ?assertNotEqual(not_found, maps:get(GW4, GW2WitnessesD, not_found)),
-    ?assertEqual(not_found, maps:get(GW3, GW2WitnessesD, not_found)),
+    GW2WitnessesPOC2 = blockchain_ledger_gateway_v2:witnesses(GW2InfoD),
+    ct:pal("GW2WitnessesPOC2 ~p", [GW2WitnessesPOC2]),
+    ?assertEqual(1, maps:size(GW2WitnessesPOC2)),
+    ?assertNotEqual(not_found, maps:get(GW4, GW2WitnessesPOC2, not_found)),
+    ?assertEqual(not_found, maps:get(GW3, GW2WitnessesPOC2, not_found)),
 
 
     ok.
