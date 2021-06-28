@@ -577,8 +577,6 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
     %% TODO: this sometimes we're gonna have a failed snapshot sync
     %% and we need to handle that here somehow.
 
-    lager:info("sync down reason ~p", [Reason]),
-
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
@@ -594,10 +592,12 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
             %% relatively recent
             {noreply, schedule_sync(State)};
         _ when Mode == snapshot ->
+            lager:info("snapshot sync down reason ~p", [Reason]),
             {Hash, Height} = State#state.snapshot_info,
             {noreply, snapshot_sync(Hash, Height, State)};
         _ ->
-            %% we're deep in the past here, so just start the next sync
+            lager:info("block sync down reason ~p", [Reason]),
+            %% we're deep in the past here, or the last one errored out, so just start the next sync
             {noreply, start_sync(State)}
     end;
 handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
@@ -726,7 +726,7 @@ snapshot_sync(_Hash, _Height, #state{sync_pid = Pid} = State) when Pid /= undefi
     State;
 snapshot_sync(Hash, Height, #state{swarm_tid = SwarmTID} = State) ->
     case get_random_peer(SwarmTID) of
-        [] ->
+        no_peers ->
             lager:info("no snapshot peers yet"),
             %% try again later when there's peers
             reset_sync_timer(State#state{snapshot_info = {Hash, Height}, mode = snapshot});
@@ -744,7 +744,7 @@ reset_ledger_to_snap(Hash, Height, State) ->
 
 start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
     case get_random_peer(SwarmTID) of
-        [] ->
+        no_peers ->
             %% try again later when there's peers
             schedule_sync(State);
         RandomPeer ->
@@ -754,7 +754,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = Sta
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
-get_peer(SwarmTID) ->
+get_random_peer(SwarmTID) ->
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     %% limit peers to random connections with public addresses
     F = fun(Peer) ->
@@ -762,17 +762,9 @@ get_peer(SwarmTID) ->
                           libp2p_peer:listen_addrs(Peer))
         end,
     case libp2p_peerbook:random(Peerbook, [], F, 100) of
-        false -> [];
+        false -> no_peers;
         {Addr, _Peer} ->
             ["/p2p/" ++ libp2p_crypto:bin_to_b58(Addr)]
-    end.
-
-get_random_peer(SwarmTID) ->
-    case get_peer(SwarmTID) of
-        [] -> [];
-        Peers ->
-            [Random | _Tail] = blockchain_utils:shuffle(Peers),
-            Random
     end.
 
 reset_sync_timer(State)  ->
@@ -854,6 +846,10 @@ start_block_sync(Swarm, Chain, Peer) ->
                         {ok, HeadHash} = blockchain:sync_hash(Chain),
                         Stream ! {hash, HeadHash},
                         Ref1 = erlang:monitor(process, Stream),
+                        %% we have issues with rate control in some situations, so sleep for a bit
+                        %% before checking
+                        CheckDelay = application:get_env(blockchain, sync_check_delay_ms, 10000),
+                        timer:sleep(CheckDelay),
                         receive
                             cancel ->
                                 libp2p_framed_stream:close(Stream);
@@ -880,34 +876,36 @@ grab_snapshot(Height, Hash) ->
     Swarm = blockchain_swarm:swarm(),
     SwarmTID = libp2p_swarm:tid(Swarm),
 
-    Peer = get_random_peer(SwarmTID),
-
-    case libp2p_swarm:dial_framed_stream(Swarm,
-                                         Peer,
-                                         ?SNAPSHOT_PROTOCOL,
-                                         blockchain_snapshot_handler,
-                                         [Hash, Height, Chain, self()])
-    of
-        {ok, Stream} ->
-            Ref1 = erlang:monitor(process, Stream),
-            receive
-                {ok, Snapshot} ->
-                    {ok, Snapshot};
-                {error, not_found} ->
-                    {error, not_found};
-                cancel ->
-                    lager:info("snapshot sync cancelled"),
-                    libp2p_framed_stream:close(Stream);
-                {'DOWN', Ref1, process, Stream, normal} ->
-                    {error, down};
-                {'DOWN', Ref1, process, Stream, Reason} ->
-                    lager:info("snapshot sync failed with error ~p", [Reason]),
-                    {error, down, Reason}
-            after timer:minutes(1) ->
-                    {error, timeout}
-            end;
-        _ ->
-            ok
+    case get_random_peer(SwarmTID) of
+        no_peers -> {error, no_peers};
+        Peer ->
+            case libp2p_swarm:dial_framed_stream(Swarm,
+                                                 Peer,
+                                                 ?SNAPSHOT_PROTOCOL,
+                                                 blockchain_snapshot_handler,
+                                                 [Hash, Height, Chain, self()])
+            of
+                {ok, Stream} ->
+                    Ref1 = erlang:monitor(process, Stream),
+                    receive
+                        {ok, Snapshot} ->
+                            {ok, Snapshot};
+                        {error, not_found} ->
+                            {error, not_found};
+                        cancel ->
+                            lager:info("snapshot sync cancelled"),
+                            libp2p_framed_stream:close(Stream);
+                        {'DOWN', Ref1, process, Stream, normal} ->
+                            {error, down};
+                        {'DOWN', Ref1, process, Stream, Reason} ->
+                            lager:info("snapshot sync failed with error ~p", [Reason]),
+                            {error, down, Reason}
+                    after timer:minutes(1) ->
+                            {error, timeout}
+                    end;
+                _ ->
+                    ok
+            end
     end.
 
 start_snapshot_sync(Hash, Height, Peer,
