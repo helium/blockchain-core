@@ -115,7 +115,7 @@ build_(TargetPubkeyBin,
 build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _Indices, Path, _Ledger) ->
     lists:reverse(Path).
 
--spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
+-spec next_hop(GatewayBin :: libp2p_crypto:pubkey_bin(),
                GatewayScoreMap :: blockchain_utils:gateway_score_map(),
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
@@ -125,7 +125,7 @@ build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _I
 next_hop(GatewayBin, GatewayScoreMap, HeadBlockTime, Vars, RandVal, Indices, Ledger) ->
     %% Get gateway
     {Gateway, _} = maps:get(GatewayBin, GatewayScoreMap),
-    case blockchain_ledger_gateway_v2:witnesses(Gateway) of
+    case blockchain_ledger_gateway_v2:witnesses(GatewayBin, Gateway, Ledger) of
         W when map_size(W) == 0 ->
             {error, no_witness};
         Witnesses ->

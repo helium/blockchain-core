@@ -121,7 +121,7 @@
     get_sc_mod/2,
     get_sc_max_actors/1,
     state_channel_key/2,
-    
+
     allocate_subnet/2,
 
     delay_vars/3,
@@ -1627,31 +1627,10 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {ok, Height} = ?MODULE:current_height(Ledger),
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
-            %% we need to clear all our old witnesses out
-            NewGw1 = blockchain_ledger_gateway_v2:clear_witnesses(NewGw),
-            update_gateway(NewGw1, GatewayAddress, Ledger),
-            %% this is only needed if the gateway previously had a location
-            case Nonce > 1 of
-                true ->
-                    cf_fold(
-                      active_gateways,
-                      fun({Addr, BinGW}, _) ->
-                              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
-                              case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                  true ->
-                                      GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                      update_gateway(GW1, Addr, Ledger);
-                                  false ->
-                                      ok
-                              end,
-                              ok
-                      end,
-                      ignored,
-                      Ledger);
-                false ->
-                    ok
-            end
+            Gw3 = blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
+            Gw4 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
+            NewGw = blockchain_ledger_gateway_v2:clear_witnesses(Gw4),
+            update_gateway(NewGw, GatewayAddress, Ledger)
     end.
 
 -spec add_gateway_gain(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -1840,7 +1819,7 @@ insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
                                               WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
                                               case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
                                                   {ok, WitnessGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
+                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW, PubkeyBin, Ledger});
                                                   {error, Reason} ->
                                                       lager:warning("exiting trying to add witness", [Reason]),
                                                       erlang:error({insert_witnesses_error, Reason})
@@ -1849,7 +1828,7 @@ insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
                                               ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
                                               case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
                                                   {ok, ReceiptGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
+                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW, PubkeyBin, Ledger});
                                                   {error, Reason} ->
                                                       lager:warning("exiting trying to add witness", [Reason]),
                                                       erlang:error({insert_witnesses_error, Reason})
@@ -1874,7 +1853,7 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
             GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
                                       case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
                                           {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
                                           {error, Reason} ->
                                               lager:warning("exiting trying to add witness",
                                                             [Reason]),
