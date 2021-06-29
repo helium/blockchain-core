@@ -48,31 +48,52 @@
 -export([v1_to_v2/1]).
 -endif.
 
+-type reward_types() :: poc_challengers | poc_challengees | poc_witnesses | data_credits | consensus.
+
+-record(rewards_shares, {
+          type = undefined :: undefined | reward_types(),
+          shares = 0 :: number() %% shares of a reward type
+}).
+
+-type rewards_shares() :: #rewards_shares{}.
+
+-record(rewards_meta, {
+          hnt_amount = 0 :: number(), %% actual HNT value (rolling accumulator)
+          shares = [] :: [ rewards_shares() ] %% individual shares composing HNT
+}).
+
+-type rewards_meta() :: #rewards_meta{}.
+
+%% rolling accumulator for _total_ dc rewards
+-record(dc_shares, {
+          seen = [] :: [blockchain_state_channel_v1:id()],
+          total = 0 :: number()
+}).
+
 -type txn_rewards_v2() :: #blockchain_txn_rewards_v2_pb{}.
 -type reward_v2() :: #blockchain_txn_reward_v2_pb{}.
 -type rewards() :: [reward_v2()].
 -type reward_vars() :: map().
--type rewards_share_map() :: #{ libp2p_crypto:pubkey_bin() => non_neg_integer() }.
--type dc_rewards_share_map() :: #{ libp2p_crypto:pubkey_bin() => non_neg_integer(),
-                                   seen => [ blockchain_state_channel_v1:id() ] }.
--type rewards_share_metadata() :: #{ poc_challenger => rewards_share_map(),
-                                     poc_challengee => rewards_share_map(),
-                                     poc_witness => rewards_share_map(),
-                                     dc_rewards => dc_rewards_share_map(),
-                                     overages => non_neg_integer() }.
--type owner_key() :: {owner, securities, libp2p_crypto:pubkey_bin()}.
--type reward_types() :: poc_challengers | poc_challengees | poc_witnesses | data_credits | consensus.
--type gateway_key() :: {gateway, reward_types(), libp2p_crypto:pubkey_bin()}.
--type rewards_map() :: #{ owner_key() | gateway_key() => number() }.
--type rewards_metadata() :: #{ poc_challenger => rewards_map(),
-                               poc_challengee => rewards_map(),
-                               poc_witness => rewards_map(),
-                               dc_rewards => rewards_map(),
-                               consensus_rewards => rewards_map(),
-                               securities_rewards => rewards_map(),
-                               overages => non_neg_integer() }.
+-type total_shares() :: #{ poc_challengers => non_neg_integer(),
+                           poc_challengees => non_neg_integer(),
+                           poc_witnesses => non_neg_integer(),
+                           data_credits => dc_shares_record(),
+                           overages => non_neg_integer() }.
+-type dc_shares_record() :: #dc_shares{}.
+
+%% `shares_acc' is a rolling accumulator for the _total_ amount
+%% of each reward type that generates share values. These values
+%% are used in normalization calculations.
+%%
+%% The pubkey bin here is a _gateway owner_ address; we get rid
+%% of the gateway address as soon as we can and will rely on
+%% rocks caching to hopefully not hit disk for these lookups
+%% too frequently
+-type rewards_metadata() :: #{  shares_acc => total_shares(), libp2p_crypto:pubkey_bin() => rewards_meta()
+                               }.
 
 -export_type([txn_rewards_v2/0, rewards_metadata/0]).
+
 
 %% ------------------------------------------------------------------
 %% Public API
@@ -178,7 +199,7 @@ aux_absorb(Txn, AuxLedger, Chain) ->
     End = ?MODULE:end_epoch(Txn),
     %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
     %% and do 0 verification for absorption
-    case calculate_rewards_(Start, End, AuxLedger, Chain) of
+    case calculate_rewards_(Start, End, Chain) of
         {error, _}=E -> E;
         {ok, AuxRewards} ->
             TxnRewards = rewards(Txn),
@@ -197,18 +218,16 @@ aux_absorb(Txn, AuxLedger, Chain) ->
 %% rewards for use in a rewards_v2 transaction. Given how lists:sort/1 works,
 %% ordering will depend on (binary) account information.
 calculate_rewards(Start, End, Chain) ->
-    {ok, Ledger} = blockchain:ledger_at(End, Chain),
-    calculate_rewards_(Start, End, Ledger, Chain).
+    calculate_rewards_(Start, End, Chain).
 
 -spec calculate_rewards_(
         Start :: non_neg_integer(),
         End :: non_neg_integer(),
-        Ledger :: blockchain_ledger_v1:ledger(),
         Chain :: blockchain:blockchain()) -> {error, any()} | {ok, rewards()}.
-calculate_rewards_(Start, End, Ledger, Chain) ->
+calculate_rewards_(Start, End, Chain) ->
     {ok, Results} = calculate_rewards_metadata(Start, End, Chain),
     try
-        {ok, prepare_rewards_v2_txns(Results, Ledger)}
+        {ok, prepare_rewards_v2_txns(Results)}
     catch
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't prepare rewards txn because: ~p~n~p", [C, Error, Stack]),
@@ -222,25 +241,6 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
     {ok, Metadata :: rewards_metadata()} | {error, Error :: term()}.
 %% @doc Calculate <i>only</i> rewards metadata (do not return v2 reward records
 %% to the caller.)
-%%
-%% Keys that exist in the rewards metadata map include:
-%% <ul>
-%%    <li>poc_challenger</li>
-%%    <li>poc_witness</li>
-%%    <li>poc_challengee</li>
-%%    <li>dc_rewards</li>
-%%    <li>consensus_rewards</li>
-%%    <li>securities_rewards</li>
-%% </ul>
-%%
-%% Each of the keys is itself a map which has the shape of `#{ Entry => Amount }'
-%% where Entry is defined as a tuple of `{gateway, reward_type, Gateway}' or
-%% `{owner, reward_type, Owner}'
-%%
-%% There is an additional key `overages' which may or may not have an integer
-%% value. It represents the amount of excess fees paid in the given epoch which
-%% were used as bonus HNT rewards for the consensus members.
-%% @end
 calculate_rewards_metadata(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     Vars0 = get_reward_vars(Start, End, Ledger),
@@ -253,28 +253,19 @@ calculate_rewards_metadata(Start, End, Chain) ->
 
     %% Previously, if a state_channel closed in the grace blocks before an
     %% epoch ended, then it wouldn't ever get rewarded.
-    {ok, PreviousGraceBlockDCRewards} = collect_dc_rewards_from_previous_epoch_grace(Start, End,
-                                                                                     Chain, Vars,
-                                                                                     Ledger),
-
-    %% Initialize our reward accumulator. We are going to build up a map which
-    %% will be in the shape of
-    %% #{ reward_type => #{ Entry => Amount } }
     %%
-    %% where Entry is of the the shape
-    %% {owner, reward_type, Owner} or
-    %% {gateway, reward_type, Gateway}
-    AccInit = #{ dc_rewards => PreviousGraceBlockDCRewards,
-                 poc_challenger => #{},
-                 poc_challengee => #{},
-                 poc_witness => #{} },
+    %% This rewards data structure is a map, documented more fully by its
+    %% type definition.
+    {ok, RewardsInit} = collect_dc_rewards_from_previous_epoch_grace(Start, End,
+                                                                     Chain, Vars,
+                                                                     Ledger),
 
     try
         %% We only want to fold over the blocks and transaction in an epoch once,
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
-                                          Vars, Ledger, AccInit),
+                                           Vars, Ledger, RewardsInit),
 
         %% Forcing calculation of the EpochReward amount for the CG to always
         %% be around ElectionInterval (30 blocks) so that there is less incentive
@@ -304,55 +295,8 @@ print(#blockchain_txn_rewards_v2_pb{start_epoch=Start,
                   [Start, End, PrintableRewards]).
 
 -spec to_json(txn_rewards_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, Opts) ->
-    RewardToJson =
-        fun
-            ({gateway, Type, G}, Amount, Ledger, Acc) ->
-                case blockchain_ledger_v1:find_gateway_owner(G, Ledger) of
-                    {error, _Error} ->
-                        Acc;
-                    {ok, GwOwner} ->
-                        [#{account => ?BIN_TO_B58(GwOwner),
-                           gateway => ?BIN_TO_B58(G),
-                           amount => Amount,
-                           type => Type} | Acc]
-                end;
-            ({validator, Type, V}, Amount, Ledger, Acc) ->
-                case blockchain_ledger_v1:get_validator(V, Ledger) of
-                    {error, _Error} ->
-                        Acc;
-                    {ok, Val} ->
-                        Owner = blockchain_ledger_validator_v1:owner_address(Val),
-                        [#{account => ?BIN_TO_B58(Owner),
-                           gateway => ?BIN_TO_B58(V),
-                           amount => Amount,
-                           type => Type} | Acc]
-                end;
-            ({owner, Type, O}, Amount, _Ledger, Acc) ->
-                [#{account => ?BIN_TO_B58(O),
-                   gateway => undefined,
-                   amount => Amount,
-                   type => Type} | Acc]
-        end,
-    Rewards = case lists:keyfind(chain, 1, Opts) of
-        {chain, Chain} ->
-            Start = blockchain_txn_rewards_v2:start_epoch(Txn),
-            End = ?MODULE:end_epoch(Txn),
-            {ok, Ledger} = blockchain:ledger_at(End, Chain),
-            {ok, Metadata} = ?MODULE:calculate_rewards_metadata(Start, End, Chain),
-            maps:fold(
-                fun(overages, Amount, Acc) ->
-                        [#{amount => Amount,
-                           type => overages} | Acc];
-                   (_RewardCategory, Rewards, Acc0) ->
-                        maps:fold(
-                        fun(Entry, Amount, Acc) ->
-                            RewardToJson(Entry, Amount, Ledger, Acc)
-                        end, Acc0, Rewards)
-                end, [], Metadata);
-        _ -> [ reward_to_json(R, []) || R <- rewards(Txn)]
-    end,
-
+to_json(Txn, _Opts) ->
+    Rewards = [ reward_to_json(R, []) || R <- rewards(Txn)],
     #{
       type => <<"rewards_v2">>,
       hash => ?BIN_TO_B64(hash(Txn)),
@@ -380,7 +324,7 @@ reward_to_json(#blockchain_txn_reward_v2_pb{account = Account, amount = Amt}, _O
      }.
 
 -spec new_reward( Account :: libp2p_crypto:pubkey_bin(),
-                  Amount :: non_neg_integer() ) -> reward_v2().
+                  Amount :: number() ) -> reward_v2().
 new_reward(Account, Amount) ->
     #blockchain_txn_reward_v2_pb{account=Account, amount=Amount}.
 
@@ -389,7 +333,7 @@ new_reward(Account, Amount) ->
                                Chain :: blockchain:blockchain(),
                                Vars :: reward_vars(),
                                Ledger :: blockchain_ledger_v1:ledger(),
-                               Acc :: rewards_share_metadata() ) -> rewards_share_metadata().
+                               Acc :: rewards_metadata() ) -> rewards_metadata().
 fold_blocks_for_rewards(Current, End, _Chain, _Vars, _Ledger, Acc) when Current == End + 1 -> Acc;
 fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
     case blockchain:get_block(Current, Chain) of
@@ -407,18 +351,18 @@ fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
 -spec calculate_reward_for_txn( Type :: atom(),
                                 Txn :: blockchain_txn:txn(),
                                 End :: pos_integer(),
-                                Acc :: rewards_share_metadata(),
+                                Acc :: rewards_metadata(),
                                 Chain :: blockchain:blockchain(),
                                 Ledger :: blockchain_ledger_v1:ledger(),
-                                Vars :: reward_vars() ) -> rewards_share_metadata().
+                                Vars :: reward_vars() ) -> rewards_metadata().
 calculate_reward_for_txn(?MODULE, _Txn, _End, _Acc, _Chain,
                          _Ledger, _Vars) -> throw({error, already_existing_rewards_v2});
 calculate_reward_for_txn(blockchain_txn_rewards_v1, _Txn, _End, _Acc, _Chain,
                          _Ledger, _Vars) -> throw({error, already_existing_rewards_v1});
-calculate_reward_for_txn(blockchain_txn_poc_receipts_v1, Txn, _End,
-                         #{ poc_challenger := Challenger } = Acc, Chain, Ledger, Vars) ->
-    Acc0 = poc_challenger_reward(Txn, Challenger, Vars),
-    Acc1 = calculate_poc_challengee_rewards(Txn, Acc#{ poc_challenger => Acc0 }, Chain, Ledger, Vars),
+calculate_reward_for_txn(blockchain_txn_poc_receipts_v1, Txn, _End, Acc,
+                         Chain, Ledger, Vars) ->
+    Acc0 = poc_challenger_reward(Txn, Acc, Ledger, Vars),
+    Acc1 = calculate_poc_challengee_rewards(Txn, Acc0, Chain, Ledger, Vars),
     calculate_poc_witness_rewards(Txn, Acc1, Chain, Ledger, Vars);
 calculate_reward_for_txn(blockchain_txn_state_channel_close_v1, Txn, End, Acc, Chain, Ledger, Vars) ->
     calculate_dc_rewards(Txn, End, Acc, Chain, Ledger, Vars);
@@ -427,141 +371,160 @@ calculate_reward_for_txn(Type, Txn, _End, Acc, _Chain, Ledger, _Vars) ->
 
 -spec consider_overage( Type :: atom(),
                         Txn :: blockchain_txn:txn(),
-                        Acc :: rewards_share_metadata(),
-                        Ledger :: blockchain_ledger_v1:ledger() ) -> rewards_share_metadata().
-consider_overage(Type, Txn, Acc, Ledger) ->
+                        RewardsMD :: rewards_metadata(),
+                        Ledger :: blockchain_ledger_v1:ledger() ) -> rewards_metadata().
+consider_overage(Type, Txn, #{ shares_acc := Shares } = RewardsMD, Ledger) ->
     %% calculate any fee paid in excess which we will distribute as bonus HNT
     %% to consensus members
     try
         Type:calculate_fee(Txn, Ledger) - Type:fee(Txn) of
         Overage when Overage > 0 ->
-            maps:update_with(overages, fun(Overages) -> Overages + Overage end, Overage, Acc);
+            NewShares = maps:update_with(overages,
+                                         fun(Overages) -> Overages + Overage end,
+                                         Overage, Shares),
+            RewardsMD#{ shares_acc => NewShares };
         _ ->
-            Acc
+            RewardsMD
     catch
         _:_ ->
-            Acc
+            RewardsMD
     end.
 
 -spec calculate_poc_challengee_rewards( Txn :: blockchain_txn:txn(),
-                                        Acc :: rewards_share_metadata(),
+                                        Acc :: rewards_metadata(),
                                         Chain :: blockchain:blockchain(),
                                         Ledger :: blockchain_ledger_v1:ledger(),
-                                        Vars :: reward_vars() ) -> rewards_share_metadata().
-calculate_poc_challengee_rewards(Txn, #{ poc_challengee := ChallengeeMap } = Acc,
-                                 Chain, Ledger, #{ var_map := VarMap } = Vars) ->
+                                        Vars :: reward_vars() ) -> rewards_metadata().
+calculate_poc_challengee_rewards(Txn, Acc, Chain, Ledger, #{ var_map := VarMap } = Vars) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
-    NewCM = poc_challengees_rewards_(Vars, Path, Path, Txn, Chain, Ledger, true, VarMap, ChallengeeMap),
-    Acc#{ poc_challengee => NewCM }.
+    poc_challengees_rewards_(Vars, Path, Path, Txn, Chain, Ledger, true, VarMap, Acc).
 
 -spec calculate_poc_witness_rewards( Txn :: blockchain_txn:txn(),
-                                     Acc :: rewards_share_metadata(),
+                                     Acc :: rewards_metadata(),
                                      Chain :: blockchain:blockchain(),
                                      Ledger :: blockchain_ledger_v1:ledger(),
-                                     Vars :: reward_vars() ) -> rewards_share_metadata().
-calculate_poc_witness_rewards(Txn, #{ poc_witness := WitnessMap } = Acc, Chain, Ledger, Vars) ->
-    NewWM = poc_witness_reward(Txn, WitnessMap, Chain, Ledger, Vars),
-    Acc#{ poc_witness => NewWM }.
+                                     Vars :: reward_vars() ) -> rewards_metadata().
+calculate_poc_witness_rewards(Txn, Acc, Chain, Ledger, Vars) ->
+    poc_witness_reward(Txn, Acc, Chain, Ledger, Vars).
 
 -spec calculate_dc_rewards( Txn :: blockchain_txn:txn(),
                             End :: pos_integer(),
-                            Acc :: rewards_share_metadata(),
+                            Acc :: rewards_metadata(),
                             Chain :: blockchain:blockchain(),
                             Ledger :: blockchain_ledger_v1:ledger(),
-                            Vars :: reward_vars() ) -> rewards_share_metadata().
-calculate_dc_rewards(Txn, End, #{ dc_rewards := DCRewardMap } = Acc, _Chain, Ledger, Vars) ->
-    NewDCM = dc_reward(Txn, End, DCRewardMap, Ledger, Vars),
-    Acc#{ dc_rewards => NewDCM }.
+                            Vars :: reward_vars() ) -> rewards_metadata().
+calculate_dc_rewards(Txn, End, Acc, _Chain, Ledger, Vars) ->
+    dc_reward(Txn, End, Acc, Ledger, Vars).
 
--spec finalize_reward_calculations( AccIn :: rewards_share_metadata(),
+-spec finalize_reward_calculations( RewardsMD :: rewards_metadata(),
                                     Ledger :: blockchain_ledger_v1:ledger(),
                                     Vars :: reward_vars() ) -> rewards_metadata().
-finalize_reward_calculations(#{ dc_rewards := DCShares,
-                                poc_witness := WitnessShares,
-                                poc_challenger := ChallengerShares,
-                                poc_challengee := ChallengeeShares } = AccIn, Ledger, Vars) ->
-    SecuritiesRewards = securities_rewards(Ledger, Vars),
-    Overages = maps:get(overages, AccIn, 0),
-    ConsensusRewards = consensus_members_rewards(Ledger, Vars, Overages),
-    {DCRemainder, DCRewards} = normalize_dc_rewards(DCShares, Vars),
-    Vars0 = maps:put(dc_remainder, DCRemainder, Vars),
+finalize_reward_calculations(#{shares_acc := Shares} = RewardsMD, Ledger, Vars) ->
+    RewardsMD0 = securities_rewards(RewardsMD, Ledger, Vars),
+    Overages = maps:get(overages, Shares, 0),
+    RewardsMD1 = consensus_members_rewards(RewardsMD0, Ledger, Vars, Overages),
 
-    %% apply the DC remainder, if any to the other PoC categories pro rata
-    %%
-    %% these normalize functions take reward "shares" and convert them
-    %% into HNT payouts
+    {DCRemainder, DCReward} = calculate_dc_remainder(RewardsMD1, Vars),
 
-    #{ poc_witness => normalize_witness_rewards(WitnessShares, Vars0),
-       poc_challenger => normalize_challenger_rewards(ChallengerShares, Vars0),
-       poc_challengee => normalize_challengee_rewards(ChallengeeShares, Vars0),
-       dc_rewards => DCRewards,
-       consensus_rewards => ConsensusRewards,
-       securities_rewards => SecuritiesRewards,
-       overages => Overages }.
 
--spec prepare_rewards_v2_txns( Results :: rewards_metadata(),
-                               Ledger :: blockchain_ledger_v1:ledger() ) -> rewards().
-prepare_rewards_v2_txns(Results, Ledger) ->
-    %% we are going to fold over a list of keys in the rewards map (Results)
-    %% and generate a new map which has _all_ the owners and the sum of
-    %% _all_ rewards types in a new map...
-    AllRewards = lists:foldl(
-      fun(RewardCategory, Rewards) ->
-              R = maps:get(RewardCategory, Results),
-              %% R is our map of rewards of the given type
-              %% and now we are going to do a maps:fold/3
-              %% over this reward category and either
-              %% add the owner and amount for the first
-              %% time or add an amount to an existing owner
-              %% in the Rewards accumulator
+    %% ok, we are now going to calculate the total reward amount for each
+    %% reward type that uses shares - we do this here to calculate it
+    %% once for all subsequent reward calculations for each entry in
+    %% the rewards metadata rather than recalculating it over and over.
+    Vars0 = lists:foldl(fun(T, VarMap) ->
+                                {K, V} = calculate_total_reward_for_type(T, VarMap),
+                                VarMap#{K => V}
+                        end,
+                        Vars#{dc_remainder => DCRemainder,
+                              dc_reward => DCReward},
+                        [poc_challengers, poc_challengees, poc_witnesses]),
 
-              maps:fold(fun(Entry, Amt, Acc) ->
-                                case Entry of
-                                    {owner, _Type, O} ->
-                                        maps:update_with(O,
-                                                         fun(Balance) -> Balance + Amt end,
-                                                         Amt,
-                                                         Acc);
-                                    {gateway, _Type, G} ->
-                                        case blockchain_ledger_v1:find_gateway_owner(G, Ledger) of
-                                            {error, _Error} -> Acc;
-                                            {ok, GwOwner} ->
-                                                maps:update_with(GwOwner,
-                                                                 fun(Balance) -> Balance + Amt end,
-                                                                 Amt,
-                                                                 Acc)
-                                        end; % gw case
-                                    {validator, _Type, V} ->
-                                        case blockchain_ledger_v1:get_validator(V, Ledger) of
-                                            {error, _} -> Acc;
-                                            {ok, Val} ->
-                                                Owner = blockchain_ledger_validator_v1:owner_address(Val),
-                                                maps:update_with(Owner,
-                                                                 fun(Balance) -> Balance + Amt end,
-                                                                 Amt,
-                                                                 Acc)
-                                         end
-                                end % Entry case
-                        end, % function
-                        Rewards,
-                        maps:iterator(R)) %% bound memory size no matter size of map
-      end,
-      #{},
-      [poc_challenger, poc_challengee, poc_witness,
-       dc_rewards, consensus_rewards, securities_rewards]),
 
-    %% now we are going to fold over all rewards and construct our
-    %% transaction for the blockchain
+    %% we need to map over gateway owners and then fold over the list
+    %% of rewards shares and turn those shares into HNT payouts
+    maps:map(fun(shares_acc, V) -> V;
+                (_K, #rewards_meta{ shares = S } = RMD) ->
+                      HNT = lists:foldl(fun(#rewards_shares{type = T,
+                                                            shares = A}, Acc) ->
+                                                Acc + normalize_shares(T, A, Shares, Vars0)
+                                        end,
+                                        0, S),
+                      update_hnt(RMD, HNT)
+             end,
+             maps:iterator(RewardsMD)).
 
-    Rewards = maps:fold(fun(Owner, 0, Acc) ->
+-spec calculate_total_reward_for_type(Type :: reward_types(),
+                                      Vars :: reward_vars()
+                                     ) -> { Key :: atom(), Value :: number() }.
+%% @doc For each of challengers, challengees, and witnesses, calculate the entire
+%% amount of HNT available in this epoch, then return a Key and a Value to store
+%% in our rewards vars map.
+calculate_total_reward_for_type(poc_challengers,
+                                #{epoch_reward := EpochReward,
+                                  poc_challengers_percent := PocChallengersPercent}=Vars) ->
+    ShareOfDCRemainder = share_of_dc_rewards(poc_challengers_percent, Vars),
+    {poc_challengers_reward, (EpochReward * PocChallengersPercent) + ShareOfDCRemainder};
+calculate_total_reward_for_type(poc_challengees,
+                                #{epoch_reward := EpochReward,
+                                  poc_challengees_percent := PocChallengeesPercent}=Vars) ->
+    ShareOfDCRemainder = share_of_dc_rewards(poc_challengees_percent, Vars),
+    {poc_challengees_reward, (EpochReward * PocChallengeesPercent) + ShareOfDCRemainder};
+calculate_total_reward_for_type(poc_witnesses,
+                                #{epoch_reward := EpochReward,
+                                  poc_witnesses_percent := PocWitnessesPercent}=Vars) ->
+    ShareOfDCRemainder = share_of_dc_rewards(poc_witnesses_percent, Vars),
+    {poc_witnesses_reward, (EpochReward * PocWitnessesPercent) + ShareOfDCRemainder}.
+
+-spec normalize_shares( Type :: reward_types(),
+                        Amount :: number(),
+                        Totals :: total_shares(),
+                        Vars :: reward_vars() ) -> HNT :: number().
+%% @doc This function takes a reward type and a number of shares of that reward
+%% type and converts it into an HNT payout.
+normalize_shares(poc_challengers, Amount,
+                 #{poc_challengers := TotalChallengerShares},
+                 #{poc_challengers_reward := TotalChallengerReward}) ->
+    shares_to_reward(Amount, TotalChallengerShares, TotalChallengerReward);
+normalize_shares(poc_challengees, Amount,
+                 #{poc_challengees := TotalChallengeeShares},
+                 #{poc_challengees_reward := TotalChallengeeReward}) ->
+    shares_to_reward(Amount, TotalChallengeeShares, TotalChallengeeReward);
+normalize_shares(poc_witnesses, Amount,
+                 #{poc_witnesses := TotalWitnessShares},
+                 #{poc_witnesses_reward := TotalWitnessReward}) ->
+    shares_to_reward(Amount, TotalWitnessShares, TotalWitnessReward);
+normalize_shares(data_credits, Amount,
+                 #{data_credits := #dc_shares{total=TotalDCs}},
+                 #{dc_reward := DCReward}) ->
+    shares_to_reward(Amount, TotalDCs, DCReward).
+
+-spec shares_to_reward(Amount :: number(),
+                       TotalShares :: number(),
+                       TotalReward :: number() ) -> number().
+%% @doc Calculate a reward based on the total number of shares for a reward type
+%% and the total amount of HNT allocated for that reward in this epoch.
+shares_to_reward(Amount, TotalShares, TotalReward) ->
+    PercentofReward = (Amount*100/TotalShares)/100,
+    erlang:round(PercentofReward * TotalReward).
+
+-spec prepare_rewards_v2_txns( Results :: rewards_metadata() ) -> rewards().
+prepare_rewards_v2_txns(Results0) ->
+    %% fold over rewards and construct our transaction for the blockchain
+
+    %% don't need the shares acculumator term any more
+    Results = maps:remove(shares_acc, Results0),
+
+    %% reminder that the map shape is
+    %% #{ GwOwner => #rewards_meta{ hnt_amount = HNT }}
+    Rewards = maps:fold(fun(Owner, #rewards_meta{hnt_amount = 0}, Acc) ->
                                 lager:debug("Dropping reward for ~p because the amount is 0",
                                             [?BIN_TO_B58(Owner)]),
                                 Acc;
-                            (Owner, Amount, Acc) ->
-                                [ new_reward(Owner, Amount) | Acc ]
+                            (Owner, #rewards_meta{hnt_amount = A}, Acc) ->
+                                [ new_reward(Owner, A) | Acc ]
                         end,
               [],
-              maps:iterator(AllRewards)), %% again, bound memory no matter size of map
+              maps:iterator(Results)),
 
     %% sort the rewards list before it gets returned so list ordering is deterministic
     %% (map keys can be enumerated in any arbitrary order)
@@ -681,11 +644,13 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
     ElectionPerHour = BlockPerHour/ElectionInterval,
     MonthlyReward/30/24/ElectionPerHour.
 
--spec consensus_members_rewards(blockchain_ledger_v1:ledger(),
+-spec consensus_members_rewards(rewards_metadata(),
+                                blockchain_ledger_v1:ledger(),
                                 reward_vars(),
-                                non_neg_integer()) -> rewards_map().
-consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
-                                    consensus_percent := ConsensusPercent}, OverageTotal) ->
+                                non_neg_integer()) -> rewards_metadata().
+consensus_members_rewards(RewardsMD, Ledger,
+                          #{consensus_epoch_reward := EpochReward,
+                            consensus_percent := ConsensusPercent}, OverageTotal) ->
     GwOrVal =
         case blockchain:config(?election_version, Ledger) of
             {ok, N} when N >= 5 ->
@@ -701,14 +666,19 @@ consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
       fun(Member, Acc) ->
               PercentofReward = 100/Count/100,
               Amount = erlang:round(PercentofReward*ConsensusReward),
-              maps:put({GwOrVal, consensus, Member}, Amount+OveragePerMember, Acc)
+              case get_owner_address(GwOrVal, Member, Ledger) of
+                  {ok, Owner} ->
+                      update_hnt(Owner, Amount + OveragePerMember, Acc);
+                  {error, _Error} -> Acc
+              end
       end,
-      #{},
+      RewardsMD,
       Members).
 
--spec securities_rewards(blockchain_ledger_v1:ledger(),
-                         reward_vars()) -> rewards_map().
-securities_rewards(Ledger, #{epoch_reward := EpochReward,
+-spec securities_rewards(rewards_metadata(),
+                         blockchain_ledger_v1:ledger(),
+                         reward_vars()) -> rewards_metadata().
+securities_rewards(RewardsMD, Ledger, #{epoch_reward := EpochReward,
                              securities_percent := SecuritiesPercent}) ->
     Securities = blockchain_ledger_v1:securities(Ledger),
     TotalSecurities = maps:fold(
@@ -724,60 +694,103 @@ securities_rewards(Ledger, #{epoch_reward := EpochReward,
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = (Balance*100/TotalSecurities)/100,
             Amount = erlang:round(PercentofReward*SecuritiesReward),
-            maps:put({owner, securities, Key}, Amount, Acc)
+            update_hnt(Key, Amount, Acc)
         end,
-        #{},
+        RewardsMD,
         Securities
     ).
 
+-spec get_shares( Type :: reward_types(),
+                  Gateway :: libp2p_crypto:pubkey_bin(), %% NOTE: _NOT_ the owner, raw gateway
+                  RewardsMD :: rewards_metadata(),
+                  Ledger :: blockchain_ledger_v1:ledger(),
+                  Default :: non_neg_integer() ) -> CurrentShares :: number().
+%% @doc This function looks up the gateway owner, looks for the given reward type in the
+%% shares list of `#rewards_meta{}' and returns either the current value for that reward
+%% type or the default value if there is no entry for the reward type.
+get_shares(Type, Gateway, RewardsMD, Ledger, Default) ->
+    case blockchain_ledger_v1:find_gateway_owner(Gateway, Ledger) of
+        {ok, GwOwner} ->
+            case maps:get(GwOwner, RewardsMD, Default) of
+                %% this gateway owner is NOT in the rewards metadata (yet)
+                Default -> Default;
+                #rewards_meta{ shares = S } ->
+                    %% ok, this owner IS in the metadata, so let's find
+                    %% the share data for this rewards type
+                    case lists:keyfind(Type, #rewards_shares.type, S) of
+                        %% did not find the type, so return default
+                        false -> Default;
+                        #rewards_shares{ shares = Shares } -> Shares
+                    end
+            end;
+        {error, _Error} ->
+            %% XXX what to do here? could not resolve this gateway owner
+            %%
+            %% I guess we return the default - probably should blow up or skip
+            %% it or something
+            Default
+    end.
+
+-spec put_shares(Type :: reward_types(),
+                 Gateway :: libp2p_crypto:pubkey_bin(), %% NOT the owner, raw gateway
+                 RewardsMD :: rewards_metadata(),
+                 Ledger :: blockchain_ledger_v1:ledger(),
+                 Shares :: number() ) -> NewRewardsMD :: rewards_metadata().
+%% @doc Resolves gateway owner, takes an <i>absolute</i> number of shares and updates the
+%% shares metadata information for the given reward type. Also updates the _total_
+%% number of shares for the given reward type.
+put_shares(Type, Gateway, #{ shares_acc := TotalShares} = RewardsMD, Ledger, Shares) ->
+    %% update the total number of shares first
+    NewTotalShares = maps:update_with(Type,
+                                      fun(Current) -> Current + Shares end,
+                                      Shares,
+                                      TotalShares),
+
+    NewRewardsMD = case blockchain_ledger_v1:find_gateway_owner(Gateway, Ledger) of
+                       {ok, GwOwner} ->
+                           maps:update_with(GwOwner,
+                                            fun(#rewards_meta{ shares = S }=RMD) ->
+                                                    NewS = update_rewards_shares(Type, Shares, S),
+                                                    RMD#rewards_meta{ shares = NewS }
+                                            end,
+                                            new_rewards_meta(Type, Shares),
+                                            RewardsMD);
+                       {error, _Error} -> RewardsMD
+                   end,
+    NewRewardsMD#{ shares_acc => NewTotalShares }.
+
+-spec new_rewards_meta( Type :: reward_types(),
+                        Shares :: number() ) -> rewards_meta().
+new_rewards_meta(Type, Shares) ->
+    #rewards_meta{ shares = [ new_rewards_share(Type, Shares) ] }.
+
+-spec update_rewards_shares( Type :: reward_types(),
+                             Shares :: number(),
+                             SharesList :: [ rewards_shares() ] ) -> [ rewards_shares() ].
+update_rewards_shares(Type, Shares, SharesList) ->
+    case lists:keyfind(Type, #rewards_shares.type, SharesList) of
+        false -> [ new_rewards_share(Type, Shares) ];
+        #rewards_shares{ shares = Current } = Rec ->
+            lists:keyreplace(Type, #rewards_shares.type, SharesList,
+                             Rec#rewards_shares{ shares = Current + Shares })
+    end.
+
+new_rewards_share(Type, Shares) -> #rewards_shares{ type = Type, shares = Shares }.
+
 -spec poc_challenger_reward( Txn :: blockchain_txn:txn(),
-                             Acc :: rewards_share_map(),
-                             Vars :: reward_vars() ) -> rewards_share_map().
-poc_challenger_reward(Txn, ChallengerRewards, #{poc_version := Version}) ->
+                             Acc :: rewards_metadata(),
+                             Ledger :: blockchain_ledger_v1:ledger(),
+                             Vars :: reward_vars() ) -> rewards_metadata().
+poc_challenger_reward(Txn, Acc, Ledger, #{poc_version := Version}) ->
     Challenger = blockchain_txn_poc_receipts_v1:challenger(Txn),
-    I = maps:get(Challenger, ChallengerRewards, 0),
+    I = get_shares(poc_challengers, Challenger, Acc, Ledger, 0),
     case blockchain_txn_poc_receipts_v1:check_path_continuation(
            blockchain_txn_poc_receipts_v1:path(Txn)) of
         true when is_integer(Version) andalso Version > 4 ->
-            maps:put(Challenger, I+2, ChallengerRewards);
+            put_shares(poc_challengers, Challenger, Acc, Ledger, I+2);
         _ ->
-            maps:put(Challenger, I+1, ChallengerRewards)
+            put_shares(poc_challengers, Challenger, Acc, Ledger, I+1)
     end.
-
--spec normalize_challenger_rewards( ChallengerRewards :: rewards_share_map(),
-                                    Vars :: reward_vars() ) -> rewards_map().
-normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
-                                        poc_challengers_percent := PocChallengersPercent}=Vars) ->
-    TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
-    ShareOfDCRemainder = share_of_dc_rewards(poc_challengers_percent, Vars),
-    ChallengersReward = (EpochReward * PocChallengersPercent) + ShareOfDCRemainder,
-    maps:fold(
-        fun(Challenger, Challenged, Acc) ->
-            PercentofReward = (Challenged*100/TotalChallenged)/100,
-            Amount = erlang:round(PercentofReward * ChallengersReward),
-            maps:put({gateway, poc_challengers, Challenger}, Amount, Acc)
-        end,
-        #{},
-        ChallengerRewards
-    ).
-
--spec normalize_challengee_rewards( ChallengeeRewards :: rewards_share_map(),
-                                    Vars :: reward_vars() ) -> rewards_map().
-normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
-                                                  poc_challengees_percent := PocChallengeesPercent}=Vars) ->
-    TotalChallenged = lists:sum(maps:values(ChallengeeRewards)),
-    ShareOfDCRemainder = share_of_dc_rewards(poc_challengees_percent, Vars),
-    ChallengeesReward = (EpochReward * PocChallengeesPercent) + ShareOfDCRemainder,
-    maps:fold(
-        fun(Challengee, Challenged, Acc) ->
-            PercentofReward = (Challenged*100/TotalChallenged)/100,
-            % TODO: Not sure about the all round thing...
-            Amount = erlang:round(PercentofReward*ChallengeesReward),
-            maps:put({gateway, poc_challengees, Challengee}, Amount, Acc)
-        end,
-        #{},
-        ChallengeeRewards
-    ).
 
 -spec poc_challengees_rewards_( Vars :: reward_vars(),
                                 Paths :: blockchain_poc_path_element_v1:poc_path(),
@@ -787,7 +800,7 @@ normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
                                 Ledger :: blockchain_ledger_v1:ledger(),
                                 IsFirst :: boolean(),
                                 VarMap :: blockchain_hex:var_map(),
-                                Acc0 :: rewards_share_map() ) -> rewards_share_map().
+                                Acc0 :: rewards_metadata()) -> rewards_metadata().
 poc_challengees_rewards_(_Vars, [], _StaticPath, _Txn, _Chain, _Ledger, _, _, Acc) ->
     Acc;
 poc_challengees_rewards_(#{poc_version := Version}=Vars,
@@ -812,7 +825,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                         _ ->
                             undefined
                     end,
-    I = maps:get(Challengee, Acc0, 0),
+    I = get_shares(poc_challengees, Challengee, Acc0, Ledger, 0),
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
             Acc1 = case
@@ -826,14 +839,14 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                            case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                {error, _} ->
                                    %% Old behavior
-                                   maps:put(Challengee, I+1, Acc0);
+                                   put_shares(poc_challengees, Challengee, Acc0, Ledger, I+1);
                                {ok, ToAdd} ->
                                    TxScale = maybe_calc_tx_scale(Challengee,
                                                                  DensityTgtRes,
                                                                  ChallengeeLoc,
                                                                  VarMap,
                                                                  Ledger),
-                                   maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                   put_shares(poc_challengees, Challengee, Acc0, Ledger, I+(ToAdd * TxScale))
                            end;
                        true when is_integer(Version), Version > 4, IsFirst == false ->
                            %% while we don't have a receipt for this node, we do know
@@ -844,14 +857,14 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                            case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                {error, _} ->
                                    %% Old behavior
-                                   maps:put(Challengee, I+2, Acc0);
+                                   put_shares(poc_challengees, Challengee, Acc0, Ledger, I+2);
                                {ok, ToAdd} ->
                                    TxScale = maybe_calc_tx_scale(Challengee,
                                                                  DensityTgtRes,
                                                                  ChallengeeLoc,
                                                                  VarMap,
                                                                  Ledger),
-                                   maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                   put_shares(poc_challengees, Challengee, Acc0, Ledger, I+(ToAdd * TxScale))
                            end;
                        _ ->
                            Acc0
@@ -871,32 +884,32 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
-                                           maps:put(Challengee, I+3, Acc0);
+                                           put_shares(poc_challengees, Challengee, Acc0, Ledger, I+3);
                                        {ok, ToAdd} ->
                                            TxScale = maybe_calc_tx_scale(Challengee,
                                                                          DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           put_shares(poc_challengees, Challengee, Acc0, Ledger, I+(ToAdd * TxScale))
                                    end;
                                false when is_integer(Version), Version > 4 ->
                                    %% this challengee rx'd and sent a receipt
                                    case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
-                                           maps:put(Challengee, I+2, Acc0);
+                                           put_shares(poc_challengees, Challengee, Acc0, Ledger, I+2);
                                        {ok, ToAdd} ->
                                            TxScale = maybe_calc_tx_scale(Challengee,
                                                                          DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           put_shares(poc_challengees, Challengee, Acc0, Ledger, I+(ToAdd * TxScale))
                                    end;
                                _ ->
                                    %% Old behavior
-                                   maps:put(Challengee, I+1, Acc0)
+                                   put_shares(poc_challengees, Challengee, Acc0, Ledger, I+1)
                            end,
                     poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1);
                 p2p ->
@@ -914,17 +927,17 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    case poc_challengee_reward_unit(WitnessRedundancy, DecayRate, HIP15TxRewardUnitCap, Witnesses) of
                                        {error, _} ->
                                            %% Old behavior
-                                           maps:put(Challengee, I+2, Acc0);
+                                           put_shares(poc_challengees, Challengee, Acc0, Ledger, I+2);
                                        {ok, ToAdd} ->
                                            TxScale = maybe_calc_tx_scale(Challengee,
                                                                          DensityTgtRes,
                                                                          ChallengeeLoc,
                                                                          VarMap,
                                                                          Ledger),
-                                           maps:put(Challengee, I+(ToAdd * TxScale), Acc0)
+                                           put_shares(poc_challengees, Challengee, Acc0, Ledger, I+(ToAdd * TxScale))
                                    end;
                                true ->
-                                   maps:put(Challengee, I+1, Acc0)
+                                   put_shares(poc_challengees, Challengee, Acc0, Ledger, I+1)
                            end,
                     poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1)
             end
@@ -935,8 +948,8 @@ poc_challengees_rewards_(Vars, [Elem|Path], StaticPath, Txn, Chain, Ledger, _IsF
             poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc0);
         _Receipt ->
             Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-            I = maps:get(Challengee, Acc0, 0),
-            Acc1 =  maps:put(Challengee, I+1, Acc0),
+            I = get_shares(poc_challengees, Challengee, Acc0, Ledger, 0),
+            Acc1 = put_shares(poc_challengees, Challengee, Acc0, Ledger, I+1),
             poc_challengees_rewards_(Vars, Path, StaticPath, Txn, Chain, Ledger, false, VarMap, Acc1)
     end.
 
@@ -966,10 +979,10 @@ normalize_reward_unit(Unit) when Unit > 1.0 -> 1.0;
 normalize_reward_unit(Unit) -> Unit.
 
 -spec poc_witness_reward( Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),
-                          AccIn :: rewards_share_map(),
+                          AccIn :: rewards_metadata(),
                           Chain :: blockchain:blockchain(),
                           Ledger :: blockchain_ledger_v1:ledger(),
-                          Vars :: reward_vars() ) -> rewards_share_map().
+                          Vars :: reward_vars() ) -> rewards_metadata().
 poc_witness_reward(Txn, AccIn,
                    Chain, Ledger,
                    #{ poc_version := POCVersion,
@@ -1044,8 +1057,8 @@ poc_witness_reward(Txn, AccIn,
                                                                                       D,
                                                                                       Ledger)),
                                                    Value = blockchain_utils:normalize_float(ToAdd * RxScale),
-                                                   I = maps:get(Witness, Acc2, 0),
-                                                   maps:put(Witness, I+Value, Acc2)
+                                                   I = get_shares(poc_witnesses, Witness, Acc2, Ledger, 0),
+                                                   put_shares(poc_witnesses, Witness, Acc2, Ledger, I+Value)
                                            end,
                                            Acc1,
                                            ValidWitnesses)
@@ -1071,8 +1084,8 @@ poc_witness_reward(Txn, AccIn, _Chain, Ledger,
                       lists:foldl(
                         fun(WitnessRecord, Map) ->
                                 Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                I = maps:get(Witness, Map, 0),
-                                maps:put(Witness, I+1, Map)
+                                I = get_shares(poc_witnesses, Witness, Map, Ledger, 0),
+                                put_shares(poc_witnesses, Witness, Map, Ledger, I+1)
                         end,
                         A,
                         GoodQualityWitnesses)
@@ -1081,14 +1094,15 @@ poc_witness_reward(Txn, AccIn, _Chain, Ledger,
       AccIn,
       blockchain_txn_poc_receipts_v1:path(Txn)
      );
-poc_witness_reward(Txn, AccIn, _Chain, _Ledger, _Vars) ->
+poc_witness_reward(Txn, AccIn, _Chain, Ledger, _Vars) ->
     lists:foldl(
       fun(Elem, A) ->
               lists:foldl(
                 fun(WitnessRecord, Map) ->
                         Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                        I = maps:get(Witness, Map, 0),
-                        maps:put(Witness, I+1, Map)
+                        I = get_shares(poc_witnesses, Witness, Map, Ledger, 0),
+                        put_shares(poc_witnesses, Witness, Map, Ledger, I+1)
+
                 end,
                 A,
                 blockchain_poc_path_element_v1:witnesses(Elem))
@@ -1096,34 +1110,19 @@ poc_witness_reward(Txn, AccIn, _Chain, _Ledger, _Vars) ->
       AccIn,
       blockchain_txn_poc_receipts_v1:path(Txn)).
 
--spec normalize_witness_rewards( WitnessRewards :: rewards_share_map(),
-                                 Vars :: reward_vars() ) -> rewards_map().
-normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
-                                            poc_witnesses_percent := PocWitnessesPercent}=Vars) ->
-    TotalWitnesses = lists:sum(maps:values(WitnessRewards)),
-    ShareOfDCRemainder = share_of_dc_rewards(poc_witnesses_percent, Vars),
-    WitnessesReward = (EpochReward * PocWitnessesPercent) + ShareOfDCRemainder,
-    maps:fold(
-        fun(Witness, Witnessed, Acc) ->
-            PercentofReward = (Witnessed*100/TotalWitnesses)/100,
-            Amount = erlang:round(PercentofReward*WitnessesReward),
-            maps:put({gateway, poc_witnesses, Witness}, Amount, Acc)
-        end,
-        #{},
-        WitnessRewards
-    ).
-
 -spec collect_dc_rewards_from_previous_epoch_grace(
         Start :: non_neg_integer(),
         End :: non_neg_integer(),
         Chain :: blockchain:blockchain(),
         Vars :: reward_vars(),
-        Ledger :: blockchain_ledger_v1:ledger()) -> {ok, dc_rewards_share_map()} | {error, any()}.
+        Ledger :: blockchain_ledger_v1:ledger()) -> {ok, rewards_metadata()} | {error, any()}.
 collect_dc_rewards_from_previous_epoch_grace(Start, End, Chain,
                                              #{sc_grace_blocks := Grace,
                                                reward_version := RV} = Vars,
                                              Ledger) when RV > 4 ->
-    scan_grace_block(max(1, Start - Grace), Start, End, Vars, Chain, Ledger, #{});
+    AccIn = #{ shares_acc => #{ data_credits => #dc_shares{} } },
+    scan_grace_block(max(1, Start - Grace), Start, End,
+                     Vars, Chain, Ledger, AccIn);
 collect_dc_rewards_from_previous_epoch_grace(_Start, _End, _Chain, _Vars, _Ledger) -> {ok, #{}}.
 
 -spec scan_grace_block( Current :: pos_integer(),
@@ -1132,10 +1131,11 @@ collect_dc_rewards_from_previous_epoch_grace(_Start, _End, _Chain, _Vars, _Ledge
                         Vars :: reward_vars(),
                         Chain :: blockchain:blockchain(),
                         Ledger :: blockchain_ledger_v1:ledger(),
-                        Acc :: dc_rewards_share_map() ) -> {ok, dc_rewards_share_map()} | {error, term()}.
+                        Acc :: rewards_metadata() ) ->
+    {ok, Meta :: rewards_metadata()} | {error, term()}.
 scan_grace_block(Current, Start, _End, _Vars, _Chain, _Ledger, Acc)
                                            when Current == Start + 1 -> {ok, Acc};
-scan_grace_block(Current, Start, End, Vars, Chain, Ledger, Acc) ->
+scan_grace_block(Current, Start, End, Vars, Chain, Ledger, AccIn) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Error} = Err ->
             lager:error("failed to get grace block ~p ~p", [_Error, Current]),
@@ -1149,22 +1149,25 @@ scan_grace_block(Current, Start, End, Vars, Chain, Ledger, Acc) ->
                                              _ -> A
                                          end
                                  end,
-                                 Acc,
+                                 AccIn,
                                  Txns),
             scan_grace_block(Current+1, Start, End, Vars, Chain, Ledger, NewAcc)
     end.
 
 -spec dc_reward( Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
                  End :: pos_integer(),
-                 AccIn :: dc_rewards_share_map(),
+                 AccIn :: rewards_metadata(),
                  Ledger :: blockchain_ledger_v1:ledger(),
-                 Vars :: reward_vars() ) -> dc_rewards_share_map().
-dc_reward(Txn, End, AccIn, Ledger, #{ sc_grace_blocks := GraceBlocks,
-                                      sc_version := 2} = Vars) ->
+                 Vars :: reward_vars() ) -> rewards_metadata().
+dc_reward(Txn, End,
+          #{ shares_acc := #{ data_credits := DCShares } } = AccIn,
+          Ledger, #{ sc_grace_blocks := GraceBlocks,
+                     sc_version := 2} = Vars) ->
+    SeenList = DCShares#dc_shares.seen,
     case blockchain_txn_state_channel_close_v1:state_channel_expire_at(Txn) + GraceBlocks < End of
         true ->
             SCID = blockchain_txn_state_channel_close_v1:state_channel_id(Txn),
-            case lists:member(SCID, maps:get(seen, AccIn, [])) of
+            case lists:member(SCID, SeenList) of
                 false ->
                     %% haven't seen this state channel yet, pull the final result from the ledger
                     case blockchain_ledger_v1:find_state_channel(
@@ -1202,15 +1205,31 @@ dc_reward(Txn, End, AccIn, Ledger, #{ sc_grace_blocks := GraceBlocks,
                                     lists:foldl(fun(Summary, A) ->
                                                         Key = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
                                                         DCs = blockchain_state_channel_summary_v1:num_dcs(Summary) + Bonus,
-                                                        maps:update_with(Key,
-                                                                         fun(V) -> V + DCs end,
-                                                                         DCs,
-                                                                         A)
+                                                        case blockchain_ledger_v1:find_gateway_owner(Key, Ledger) of
+                                                            {ok, GWOwner} ->
+                                                                update_shares(data_credits,
+                                                                              DCs,
+                                                                              GWOwner,
+                                                                              update_total_shares(
+                                                                                data_credits,
+                                                                                DCs, A)
+                                                                             );
+                                                            {error, _Error} ->
+                                                                %% we are updating the
+                                                                %% total number of DCs to
+                                                                %% preserve previous behavior.
+                                                                %%
+                                                                %% in the old code path
+                                                                %% we collected _all_ DCs
+                                                                %% even if later we could not
+                                                                %% resolve an owner for their
+                                                                %% gateway.
+                                                                update_total_shares(
+                                                                  data_credits,
+                                                                  DCs, A)
+                                                        end
                                                 end,
-                                                maps:update_with(seen,
-                                                                 fun(Seen) -> [SCID|Seen] end,
-                                                                 [SCID],
-                                                                 AccIn),
+                                                update_seen(SCID, AccIn),
                                                 Summaries);
                                 false ->
                                     %% this is a v1 SC; ignore
@@ -1231,15 +1250,99 @@ dc_reward(Txn, End, AccIn, Ledger, #{ sc_grace_blocks := GraceBlocks,
             AccIn
     end.
 
--spec normalize_dc_rewards( DCRewards0 :: dc_rewards_share_map(),
-                            Vars :: reward_vars() ) -> {non_neg_integer(), rewards_map()}.
-normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
-                                   dc_percent := DCPercent}=Vars) ->
-    DCRewards = maps:remove(seen, DCRewards0),
+-spec update_hnt(RewardsMeta :: rewards_meta(),
+                 Amount :: number()) -> rewards_meta().
+update_hnt(#rewards_meta{hnt_amount = Current} = RMeta, Amount) ->
+    RMeta#rewards_meta{hnt_amount = Current + Amount}.
+
+-spec update_hnt(RewardsMD :: rewards_metadata(),
+                 Owner :: libp2p_crypto:pubkey_bin(),
+                 Amount :: number() ) -> rewards_metadata().
+update_hnt(RewardsMD, Owner, Amount) ->
+    maps:update_with(Owner,
+                     fun(RMD) -> update_hnt(Amount, RMD) end,
+                     #rewards_meta{hnt_amount = Amount},
+                     RewardsMD).
+
+-spec update_seen(SCID :: blockchain_state_channel_v1:id(),
+                  RewardsMD :: rewards_metadata() ) -> NewRewardsMD :: rewards_metadata().
+%% @doc Given rewards_meta, update the seen state channel id field so we don't tabulate
+%% a state channel we've seen before.
+update_seen(Id, #{ shares_acc := Shares } = RewardsMD) ->
+    NewShares = maps:update_with(data_credits,
+                                 fun(#dc_shares{ seen = S } = DCShares) ->
+                                         DCShares#dc_shares{ seen = [ Id | S ] }
+                                 end,
+                                 #dc_shares{ seen = [ Id ] },
+                                 Shares),
+    RewardsMD#{ shares_acc => NewShares }.
+
+-spec update_total_shares( Type :: reward_types(),
+                           Amount :: number(),
+                           RewardsMD :: rewards_metadata() ) -> NewRewardsMD :: rewards_metadata().
+update_total_shares(data_credits, Amount, #{ shares_acc := Shares } = RewardsMD) ->
+    NewShares = maps:update_with(data_credits,
+                                 fun(#dc_shares{total = T} = DCShares) ->
+                                         DCShares#dc_shares{total = T + Amount}
+                                 end,
+                                 #dc_shares{total = Amount},
+                                 Shares),
+    RewardsMD#{ shares_acc => NewShares };
+update_total_shares(Type, Amount, #{ shares_acc := Shares } = RewardsMD) ->
+    NewShares = maps:update_with(Type,
+                                 fun(Current) -> Current + Amount end,
+                                 Amount, Shares),
+    RewardsMD#{shares_acc => NewShares}.
+
+-spec update_shares( Type :: reward_types(),
+                     Shares :: number(),
+                     Key :: libp2p_crypto:pubkey_bin(), %% should be a gateway owner
+                     Rewards :: rewards_metadata() ) -> NewRewards :: rewards_metadata().
+update_shares(Type, Shares, Key, RewardsMeta) ->
+    maps:update_with(Key, fun(#rewards_meta{} = MD) ->
+                                  update_shares_list(Type, Shares, MD)
+                          end,
+                     #rewards_meta{shares = [new_rewards_shares(Type, Shares)]},
+                     RewardsMeta).
+
+-spec update_shares_list( Type :: reward_types(),
+                          Amount :: number(),
+                          MDRecord :: rewards_meta() ) -> NewMDRecord :: rewards_meta().
+update_shares_list(Type, Amount, #rewards_meta{shares = SharesList} = MDRecord) ->
+    NewSharesList = case lists:keyfind(Type, #rewards_shares.type, SharesList) of
+                        false ->
+                            %% no record of this type exists, add it to our list
+                            [ #rewards_shares{type = Type, shares = Amount} | SharesList ];
+                        #rewards_shares{shares = S} = Rec ->
+                            %% update existing record with new amount and put it back
+                            %% into our list
+                            lists:keyreplace(Type, #rewards_shares.type,
+                                             SharesList, Rec#rewards_shares{shares = S + Amount})
+                    end,
+    MDRecord#rewards_meta{shares = NewSharesList}.
+
+-spec new_rewards_shares( Type :: reward_types(),
+                          Amount :: number() ) -> RewardsShares :: rewards_shares().
+new_rewards_shares(Type, Amount) -> #rewards_shares{type = Type, shares = Amount}.
+
+get_owner_address(validator, Addr, Ledger) ->
+    case blockchain_ledger_v1:get_validator(Addr, Ledger) of
+        {error, _} = Err -> Err;
+        {ok, Val} ->
+            Owner = blockchain_ledger_validator_v1:owner_address(Val),
+            {ok, Owner}
+    end;
+get_owner_address(gateway, Addr, Ledger) ->
+    blockchain_ledger_v1:find_gateway_owner(Addr, Ledger).
+
+-spec calculate_dc_remainder(rewards_metadata(), reward_vars()) -> {number(), number()}.
+calculate_dc_remainder(#{ shares_acc := #{ data_credits := #dc_shares{ total = TotalDCs } } },
+                          #{epoch_reward := EpochReward,
+                            dc_percent := DCPercent}=Vars) ->
     OraclePrice = maps:get(oracle_price, Vars, 0),
     RewardVersion = maps:get(reward_version, Vars, 1),
-    TotalDCs = lists:sum(maps:values(DCRewards)),
     MaxDCReward = EpochReward * DCPercent,
+
     %% compute the price HNT equivalent of the DCs burned in this epoch
     DCReward = case OraclePrice == 0 orelse RewardVersion < 3 of
         true ->
@@ -1257,16 +1360,7 @@ normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
             end
     end,
 
-    {max(0, round(MaxDCReward - DCReward)),
-     maps:fold(
-       fun(Key, NumDCs, Acc) ->
-               PercentofReward = (NumDCs*100/TotalDCs)/100,
-               Amount = erlang:round(PercentofReward*DCReward),
-               maps:put({gateway, data_credits, Key}, Amount, Acc)
-       end,
-       #{},
-       DCRewards
-      )}.
+    {max(0, round(MaxDCReward - DCReward)), DCReward}.
 
 -spec poc_reward_tx_unit(R :: float(),
                          W :: pos_integer(),
@@ -1340,7 +1434,6 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
                       + maps:get(poc_challengees_percent, Vars)
                       + maps:get(poc_witnesses_percent, Vars))))
                 ).
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
