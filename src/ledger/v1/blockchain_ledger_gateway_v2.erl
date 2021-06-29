@@ -655,9 +655,9 @@ deserialize(<<2, Bin/binary>>) ->
         fun(Witness)->
             case size(Witness) of
                 7 ->
-                    %% pre challengee_location_nonce upgrade
+                    %% pre added_location_nonce upgrade
                     WL = tuple_to_list(Witness),
-                    WL1 = lists:append(WL, [undefined]),
+                    WL1 = lists:append(WL, [0]),
                     list_to_tuple(WL1);
                 8 ->
                     Witness
