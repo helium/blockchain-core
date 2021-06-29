@@ -57,7 +57,7 @@
           first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
           recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
           time = #{} :: #{integer() => integer()}, %% TODO: add time of flight histogram
-          added_location_nonce :: undefined | non_neg_integer()  %% the nonce value of the witness GW at the time the witness was added to the challengee GW
+          added_location_nonce = 0 :: non_neg_integer()  %% the nonce value of the witness GW at the time the witness was added to the challengee GW
          }).
 
 -record(gateway_v2, {
@@ -76,7 +76,7 @@
     gain = ?DEFAULT_GAIN :: integer(),
     elevation = ?DEFAULT_ELEVATION :: integer(),
     mode = full :: mode(),
-    last_location_nonce :: undefined | non_neg_integer()       %% the value of the GW nonce at the time of the last location assertion
+    last_location_nonce = 0 :: non_neg_integer()       %% the value of the GW nonce at the time of the last location assertion
 }).
 
 -type gateway() :: #gateway_v2{}.
@@ -165,7 +165,7 @@ mode(Mode, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_location_nonce(Gateway :: gateway()) ->  undefined | non_neg_integer().
+-spec last_location_nonce(Gateway :: gateway()) ->  non_neg_integer().
 last_location_nonce(Gateway) ->
     Gateway#gateway_v2.last_location_nonce.
 
@@ -629,20 +629,20 @@ deserialize(<<2, Bin/binary>>) ->
                 L = tuple_to_list(Gw),
                 %% add an undefined OUI slot
                 %% and add defaults for gain, elevation,  mode and last_location_nonce
-                L1 = lists:append(L, [undefined, ?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full, undefined]),
+                L1 = lists:append(L, [undefined, ?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full, 0]),
                 G1 = list_to_tuple(L1),
                 neighbors([], G1);
             13 ->
                 %% pre gain, elevation, mode update and last_location_nonce
                 L = tuple_to_list(Gw),
                 %% add defaults for gain, elevation and mode
-                L1 = lists:append(L, [?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full, undefined]),
+                L1 = lists:append(L, [?DEFAULT_GAIN, ?DEFAULT_ELEVATION, full, 0]),
                 list_to_tuple(L1);
             16 ->
                 %% pre last_location_nonce
                 L = tuple_to_list(Gw),
                 %% add default last_location_nonce
-                L1 = lists:append(L, [undefined]),
+                L1 = lists:append(L, [0]),
                 list_to_tuple(L1);
             17 ->
                 Gw
