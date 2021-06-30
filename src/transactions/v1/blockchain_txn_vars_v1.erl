@@ -957,6 +957,16 @@ validate_var(?poc_per_hop_max_witnesses, Value) ->
     validate_int(Value, "poc_per_hop_max_witnesses", 5, 50, false);
 validate_var(?poc_addr_hash_byte_count, Value) ->
     validate_int(Value, "poc_addr_hash_byte_count", 4, 32, false);
+validate_var(?fspl_loss, Value) ->
+    validate_float(Value, "fspl_loss", 0.0, 1.0);
+validate_var(?poc_distance_limit, Value) ->
+    validate_int(Value, "poc_distance_limit", 0, 1000, false);
+validate_var(?check_snr, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_check_snr, Value}})
+    end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
@@ -1292,11 +1302,11 @@ validate_var(?net_emissions_max_rate, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"as923_1,as923_2,as923_3,au915,cn470,eu433,eu868,in865,kr920,ru864,us915">>
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
     %% First check is a relatively conservative byte_size check on the value
-    C1 = byte_size(Value) =< 80,
+    C1 = byte_size(Value) =< 148,
     %% Second check is that we're able to get the regions and it's not some random data
     %% And it's atleast >= 11 (the number of regions we know about)
     C2 = length(string:tokens(binary:bin_to_list(Value), ",")) >= 11,

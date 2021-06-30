@@ -155,7 +155,9 @@
 
 %% define loss factor for SNR curve, floating point number
 -define(fspl_loss, fspl_loss).
+%% define poc_distance_limit, set to some max distance in Kms, pos_integer
 -define(poc_distance_limit, poc_distance_limit).
+%% define whether to check snr or not, boolean
 -define(check_snr, check_snr).
 
 %%%
@@ -495,7 +497,8 @@
 %% ------------------------------------------------------------------
 %% regulatory_region related variables
 
-%% This is a comma separated string like so: "as923_1,as923_2,as923_3,au915,..."
+%% This is a comma separated string like so:
+%% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 -define(regulatory_regions, regulatory_regions).
 
 %% Each of the following is a serialized form of an h3_region set determined at h3_res: 7

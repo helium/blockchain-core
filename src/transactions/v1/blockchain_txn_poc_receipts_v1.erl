@@ -1143,8 +1143,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             undefined;
         Receipt ->
             DstPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
-            {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(
-                                blockchain_poc_path_element_v1:challengee(PreviousElement), Ledger),
+            SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(PreviousElement),
+            {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
             {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
@@ -1165,7 +1165,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
-                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
                     case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
@@ -1220,8 +1220,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                       Channel :: non_neg_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
 valid_witnesses(Element, Channel, Ledger) ->
-    {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(
-                        blockchain_poc_path_element_v1:challengee(Element), Ledger),
+    SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
+    {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
 
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
 
@@ -1247,8 +1247,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 Receipt = blockchain_poc_path_element_v1:receipt(Element),
-                                 MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
+                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
 
                                  case RSSI < MinRcvSig of
                                      false ->
@@ -1305,28 +1304,33 @@ valid_witnesses(Element, Channel, Ledger) ->
     DstLoc :: h3:h3_index()
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
-    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
-        {ok, SrcRegionVar} ->
-            %% This call should work as-is without case-clausing
-            {ok, SrcRegionBin} = blockchain_ledger_v1:config(SrcRegionVar, Ledger),
-            try h3:contains(DstLoc, SrcRegionBin) of
-                false ->
-                    %% NOTE: This is the only false scenario
-                    false;
-                {true, _Parent} ->
-                    true
-            catch
-                What:Why:Stack ->
-                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
-                        What,
-                        Why,
-                        Stack
-                    ]),
-                    %% XXX: We could not check h3 membership for dst, default to true
-                    true
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V > 10 ->
+            case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
+                {ok, SrcRegionVar} ->
+                    %% Check DstLoc is in the same region as SourceLoc
+                    case blockchain_region_v1:h3_in_region(DstLoc, SrcRegionVar, Ledger) of
+                        false -> false;
+                        true -> true;
+                        {error, _} ->
+                            %% If this errored out:
+                            %% - either the var is not set (improbable because we'll set it)
+                            %% - dst location is somehow not found in the regions we know about but SourceLoc was, sus
+                            false
+                    end;
+                {error, unknown_region} ->
+                    %% We don't know anything about this region
+                    %% Check if this ledger has aux
+                    case blockchain_ledger_v1:has_aux(Ledger) of
+                        true ->
+                            %% Yes, default to true
+                            true;
+                        false ->
+                            false
+                    end
             end;
         _ ->
-            %% var not set, true
+            %% We're not in poc-v11+
             true
     end.
 
@@ -1336,7 +1340,8 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                        Channel :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
-    {ok, Source} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(Element), Ledger),
+    SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
+    {ok, Source} = blockchain_gateway_cache:get(SrcPubkeyBin, Ledger),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
@@ -1365,8 +1370,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 Receipt = blockchain_poc_path_element_v1:receipt(Element),
-                                 MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
 
                                  case RSSI < MinRcvSig of
                                      false ->
@@ -1496,39 +1500,83 @@ get_channels(Txn, Chain) ->
             {ok, Channels1}
     end.
 
-min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+    %% Receipt can be undefined
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
-            TxPower = maybe_tx_power_from_receipt(Receipt, SourceLoc, Freq, Ledger),
-            SrcPubkeyBin = blockchain_poc_receipt_v1:gateway(Receipt),
-            {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
-            {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
-            GT = blockchain_ledger_gateway_v2:gain(SrcGW),
-            GR = blockchain_ledger_gateway_v2:gain(DstGW),
-            {ok, Loss} = blockchain:config(?fspl_loss, Ledger),
-            FSPL = blockchain_utils:free_space_path_loss(
-                     SourceLoc,
-                     DestinationLoc,
-                     Freq,
-                     GT,
-                     GR
-                    ),
-            blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
+            %% Estimate tx power because there is no receipt with attached tx_power
+            lager:debug("SourceLoc: ~p, Freq: ~p", [SourceLoc, Freq]),
+
+            case estimated_tx_power(SourceLoc, Freq, Ledger) of
+                {ok, not_required} ->
+                    %% Just do the old behavior
+                    blockchain_utils:min_rcv_sig(
+                      blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
+                     );
+                {ok, TxPower} ->
+                    FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+                    case blockchain:config(?fspl_loss, Ledger) of
+                        {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
+                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+                    end;
+                {error, _}=E ->
+                    throw(E)
+            end;
+        _ ->
+            %% Prior to poc-v11
+            blockchain_utils:min_rcv_sig(
+                blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
+            )
+    end;
+min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+    %% We do have a receipt
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, POCVersion} when POCVersion >= 11 ->
+            %% Get tx_power from attached receipt and use it to calculate min_rcv_sig
+            TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
+            FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+            case blockchain:config(?fspl_loss, Ledger) of
+                {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
+                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+            end;
         _ ->
             blockchain_utils:min_rcv_sig(
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
     end.
 
-maybe_tx_power_from_receipt(undefined, SourceLoc, Freq, Ledger) ->
-    {ok, Region} = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
-    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-    FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),
-                  blockchain_region_param_v1:max_eirp(I)} || I <- Params],
-    %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
-    eirp_from_closest_freq(Freq * ?MHzToHzMultiplier, FreqEirps);
-maybe_tx_power_from_receipt(Receipt, _SourceLoc, _Freq, _Ledger) ->
-    blockchain_poc_receipt_v1:tx_power(Receipt).
+calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
+    %% XXX: Investigate why these blow up with aux ledger...
+    {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
+    {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
+    GT = blockchain_ledger_gateway_v2:gain(SrcGW),
+    GR = blockchain_ledger_gateway_v2:gain(DstGW),
+    blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq, GT, GR).
+
+estimated_tx_power(SourceLoc, Freq, Ledger) ->
+    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
+        {ok, Region} ->
+            {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+            FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),
+                          blockchain_region_param_v1:max_eirp(I)} || I <- Params],
+            %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
+            EIRP = eirp_from_closest_freq(Freq * ?MHzToHzMultiplier, FreqEirps),
+            {ok, EIRP};
+        {error, _}=E ->
+            %% We cannot estimate tx_power because we don't know anything
+            %% about this region. We need to investigate and add unsupported
+            %% regions over time
+            %%
+            %% However, let's also check if we're running in aux ledger mode
+            case blockchain_ledger_v1:has_aux(Ledger) of
+                false ->
+                    %% hmm, aux ledger is not set yet, region not found either
+                    E;
+                true ->
+                    %% aux ledger detected, tx_power is not required
+                    {ok, not_required}
+            end
+    end.
 
 eirp_from_closest_freq(Freq, [Head | Tail]) ->
     eirp_from_closest_freq(Freq, Tail, Head).
