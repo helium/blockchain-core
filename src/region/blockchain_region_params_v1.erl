@@ -8,6 +8,7 @@
 %% TODO
 %% -behavior(blockchain_json).
 
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_region_param_v1_pb.hrl").
 
 -export([
@@ -22,6 +23,18 @@
 ]).
 
 -type region_params_v1() :: #blockchain_region_params_v1_pb{}.
+-type region_param_var() ::
+    'region_params_us915'
+    | 'region_params_eu868'
+    | 'region_params_as923_1'
+    | 'region_params_as923_2'
+    | 'region_params_as923_3'
+    | 'region_params_au915'
+    | 'region_params_ru864'
+    | 'region_params_cn470'
+    | 'region_params_in865'
+    | 'region_params_kr920'
+    | 'region_params_eu433'.
 
 -export_type([region_params_v1/0]).
 
@@ -29,16 +42,37 @@
 %% api
 %%--------------------------------------------------------------------
 
--spec for_region(RegionVar :: atom(), Ledger :: blockchain_ledger_v1:ledger()) ->
+-spec for_region(
+    RegionVar :: blockchain_region_v1:region_var(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) ->
     {ok, [blockchain_region_param_v1:region_param_v1()]} | {error, any()}.
 for_region(RegionVar, Ledger) ->
-    case blockchain:config(RegionVar, Ledger) of
+    case blockchain:config(region_param(RegionVar), Ledger) of
         {ok, Bin} ->
             Deser = deserialize(Bin),
             {ok, region_params(Deser)};
         _ ->
             {error, {not_set, RegionVar}}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Map region to region parameters
+%% @end
+%%-------------------------------------------------------------------
+-spec region_param(blockchain_region_v1:region_var()) -> region_param_var().
+region_param(?region_as923_1) -> ?region_params_as923_1;
+region_param(?region_as923_2) -> ?region_params_as923_2;
+region_param(?region_as923_3) -> ?region_params_as923_3;
+region_param(?region_au915) -> ?region_params_au915;
+region_param(?region_cn470) -> ?region_params_cn470;
+region_param(?region_eu433) -> ?region_params_eu433;
+region_param(?region_eu868) -> ?region_params_eu868;
+region_param(?region_in865) -> ?region_params_in865;
+region_param(?region_kr920) -> ?region_params_kr920;
+region_param(?region_ru864) -> ?region_params_ru864;
+region_param(?region_us915) -> ?region_params_us915.
 
 -spec get_spreading(
     Params :: region_params_v1() | [blockchain_region_param_v1:region_param_v1()],
