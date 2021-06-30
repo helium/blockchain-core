@@ -451,6 +451,8 @@ sweep_old_checkpoints(Ledger) ->
     ok.
 
 clean_checkpoints(#ledger_v1{dir = RecordDir}) ->
+    clean_checkpoints(RecordDir);
+clean_checkpoints(RecordDir) ->
     try
         BaseDir = checkpoint_base(RecordDir),
         CPs = filename:join([BaseDir, "checkpoints"]),
@@ -3885,7 +3887,7 @@ open_db(active, Dir, true, ReadOnly) ->
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ delayed_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly);
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, false);
 open_db(aux, Dir, false, ReadOnly) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
@@ -3893,13 +3895,13 @@ open_db(aux, Dir, false, ReadOnly) ->
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ aux_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly);
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, false);
 open_db(active, _Dir, false, _) ->
     {error, not_opening_active_without_delayed};
 open_db(aux, _Dir, true, _) ->
     {error, not_opening_aux_with_delayed}.
 
-open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly) ->
+open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3908,28 +3910,38 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly) ->
                 ["default"]
         end,
 
-    {ok, DB, OpenedCFs} = case ReadOnly of
+     OpenResult = case ReadOnly of
                               true ->
                                   rocksdb:open_with_cf_readonly(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]);
                               false ->
                                   rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs])
                           end,
-
-    L1 = lists:zip(ExistingCFs, OpenedCFs),
-    L2 = lists:map(
-        fun(CF) ->
-                case ReadOnly of
-                    true ->
-                        {CF, undefined};
-                    false ->
-                        {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
-                        {CF, CF1}
-                end
-        end,
-        DefaultCFs -- ExistingCFs
-    ),
-    L3 = L1 ++ L2,
-    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
+     case OpenResult of
+         {error, {db_open,"Corruption:" ++ Reason}} when Retry == false ->
+             lager:warning("deleting corrupted ledger: ~p", [Reason]),
+             BaseDir = filename:dirname(DBDir),
+             rocksdb:destroy(DBDir, []),
+             clean_checkpoints(BaseDir),
+             open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, true);
+         {error, Reason} ->
+             error(Reason);
+         {ok, DB, OpenedCFs} ->
+             L1 = lists:zip(ExistingCFs, OpenedCFs),
+             L2 = lists:map(
+                    fun(CF) ->
+                            case ReadOnly of
+                                true ->
+                                    {CF, undefined};
+                                false ->
+                                    {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
+                                    {CF, CF1}
+                            end
+                    end,
+                    DefaultCFs -- ExistingCFs
+                   ),
+             L3 = L1 ++ L2,
+             {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}
+     end.
 
 -spec default_cfs() -> list().
 default_cfs() ->
