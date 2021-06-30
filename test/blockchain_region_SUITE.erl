@@ -9,6 +9,7 @@
 
 -module(blockchain_region_SUITE).
 
+-include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include("blockchain_region_test.hrl").
 -include("blockchain_vars.hrl").
@@ -44,14 +45,22 @@
     kr920_region_param_test/1,
     eu433_region_param_test/1,
 
-    get_spreading_test/1
+    get_spreading_test/1,
+
+    region_param_test/1
 
 ]).
 
 all() ->
     [
         {group, without_h3_data},
-        {group, with_h3_data}
+        {group, with_h3_data},
+        {group, with_all_data}
+    ].
+
+with_all_data_test_cases() ->
+    [
+        region_param_test
     ].
 
 with_h3_data_test_cases() ->
@@ -86,7 +95,8 @@ without_h3_data_test_cases() ->
 groups() ->
     [
         {without_h3_data, [], without_h3_data_test_cases()},
-        {with_h3_data, [], with_h3_data_test_cases()}
+        {with_h3_data, [], with_h3_data_test_cases()},
+        {with_all_data, [], with_all_data_test_cases()}
     ].
 
 %%--------------------------------------------------------------------
@@ -151,6 +161,14 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% test cases
 %%--------------------------------------------------------------------
+region_param_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    USH3 = 631183727389488639,
+    {ok, Region} = blockchain_region_v1:h3_to_region(USH3, Ledger),
+    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+    ?assert(length(Params) /= 0),
+    ok.
+
 all_regions_test(Config) ->
     Ledger = ?config(ledger, Config),
     {ok, Regions} = blockchain_region_v1:get_all_regions(Ledger),
@@ -160,8 +178,8 @@ all_regions_test(Config) ->
 as923_1_test(Config) ->
     Ledger = ?config(ledger, Config),
     JH3 = 631319855840474623,
-    {ok, true} = blockchain_region_v1:h3_in_region(JH3, ?region_as923_1, Ledger),
-    {ok, false} = blockchain_region_v1:h3_in_region(JH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(JH3, ?region_as923_1, Ledger),
+    false = blockchain_region_v1:h3_in_region(JH3, ?region_us915, Ledger),
     ok.
 
 %% as923_2_test(Config) ->
@@ -201,8 +219,8 @@ au915_test(Config) ->
 cn470_test(Config) ->
     Ledger = ?config(ledger, Config),
     CNH3 = 631645363084543487,
-    {ok, true} = blockchain_region_v1:h3_in_region(CNH3, ?region_cn470, Ledger),
-    {ok, false} = blockchain_region_v1:h3_in_region(CNH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(CNH3, ?region_cn470, Ledger),
+    false = blockchain_region_v1:h3_in_region(CNH3, ?region_us915, Ledger),
     ok.
 
 %% eu433_test(Config) ->
@@ -219,8 +237,8 @@ cn470_test(Config) ->
 eu868_test(Config) ->
     Ledger = ?config(ledger, Config),
     EUH3 = 631051317836014591,
-    {ok, true} = blockchain_region_v1:h3_in_region(EUH3, ?region_eu868, Ledger),
-    {ok, false} = blockchain_region_v1:h3_in_region(EUH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(EUH3, ?region_eu868, Ledger),
+    false = blockchain_region_v1:h3_in_region(EUH3, ?region_us915, Ledger),
     ok.
 
 %% in865_test(Config) ->
@@ -249,15 +267,15 @@ ru864_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% massive-crimson-cat
     RUH3 = 630812791472857599,
-    {ok, true} = blockchain_region_v1:h3_in_region(RUH3, ?region_ru864, Ledger),
-    {ok, false} = blockchain_region_v1:h3_in_region(RUH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(RUH3, ?region_ru864, Ledger),
+    false = blockchain_region_v1:h3_in_region(RUH3, ?region_us915, Ledger),
     ok.
 
 us915_test(Config) ->
     Ledger = ?config(ledger, Config),
     USH3 = 631183727389488639,
-    {ok, true} = blockchain_region_v1:h3_in_region(USH3, ?region_us915, Ledger),
-    {ok, false} = blockchain_region_v1:h3_in_region(USH3, ?region_in865, Ledger),
+    true = blockchain_region_v1:h3_in_region(USH3, ?region_us915, Ledger),
+    false = blockchain_region_v1:h3_in_region(USH3, ?region_in865, Ledger),
     ok.
 
 region_not_found_test(Config) ->
@@ -448,13 +466,23 @@ do_param_checks(ParamVarBin, KnownBin, KnownParams) ->
             ParamVarBin,
     C1 andalso C2 andalso C3 andalso C4.
 
+extra_vars(with_all_data) ->
+    Combined = maps:merge(region_vars(), region_param_vars()),
+    maps:put(regulatory_regions, ?regulatory_region_bin_str, Combined);
 extra_vars(with_h3_data) ->
+    maps:put(regulatory_regions, ?regulatory_region_bin_str, region_vars());
+extra_vars(without_h3_data) ->
+    maps:put(regulatory_regions, ?regulatory_region_bin_str, region_param_vars());
+extra_vars(_) ->
+    #{}.
+
+region_vars() ->
     RegionURLs = region_urls(),
     Regions = download_regions(RegionURLs),
-    maps:put(regulatory_regions, ?regulatory_region_bin_str, maps:from_list(Regions));
-extra_vars(without_h3_data) ->
+    maps:from_list(Regions).
+
+region_param_vars() ->
     #{
-        regulatory_regions => ?regulatory_region_bin_str,
         region_params_us915 => region_params_us915(),
         region_params_eu868 => region_params_eu868(),
         region_params_au915 => region_params_au915(),
@@ -466,9 +494,7 @@ extra_vars(without_h3_data) ->
         region_params_in865 => region_params_in865(),
         region_params_kr920 => region_params_kr920(),
         region_params_eu433 => region_params_eu433()
-    };
-extra_vars(_) ->
-    #{}.
+    }.
 
 region_urls() ->
     [
