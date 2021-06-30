@@ -717,7 +717,7 @@ get_shares(Type, Gateway, RewardsMD, Ledger, Default) ->
                 #rewards_meta{ shares = S } ->
                     %% ok, this owner IS in the metadata, so let's find
                     %% the share data for this rewards type
-                    case lists:keyfind(Type, #rewards_shares.type, S) of
+                    case find_reward_share_by_type(Type, S) of
                         %% did not find the type, so return default
                         false -> Default;
                         #rewards_shares{ shares = Shares } -> Shares
@@ -729,6 +729,19 @@ get_shares(Type, Gateway, RewardsMD, Ledger, Default) ->
             %% I guess we return the default - probably should blow up or skip
             %% it or something
             Default
+    end.
+
+-spec find_reward_share_by_type(Type :: reward_types(),
+                                S :: [rewards_shares()]) -> false | rewards_shares().
+find_reward_share_by_type(Type, S) ->
+    FilterFun = fun(#rewards_shares{type=T}) ->
+                        T == Type
+                end,
+    %% XXX: Not sure if the filter can return a list of more than one element
+    %% Blow up if it does?
+    case lists:filter(FilterFun, S) of
+        [] -> false;
+        [R] -> R
     end.
 
 -spec put_shares(Type :: reward_types(),
@@ -768,11 +781,13 @@ new_rewards_meta(Type, Shares) ->
                              Shares :: number(),
                              SharesList :: [ rewards_shares() ] ) -> [ rewards_shares() ].
 update_rewards_shares(Type, Shares, SharesList) ->
-    case lists:keyfind(Type, #rewards_shares.type, SharesList) of
+    case find_reward_share_by_type(Type, SharesList) of
         false -> [ new_rewards_share(Type, Shares) ];
         #rewards_shares{ shares = Current } = Rec ->
-            lists:keyreplace(Type, #rewards_shares.type, SharesList,
-                             Rec#rewards_shares{ shares = Current + Shares })
+            case find_reward_share_by_type(Type, SharesList) of
+                false -> Rec;
+                Rec -> Rec#rewards_shares{ shares = Current + Shares }
+            end
     end.
 
 new_rewards_share(Type, Shares) -> #rewards_shares{ type = Type, shares = Shares }.
@@ -1314,10 +1329,11 @@ update_shares_list(Type, Amount, #rewards_meta{shares = SharesList} = MDRecord) 
                             %% no record of this type exists, add it to our list
                             [ #rewards_shares{type = Type, shares = Amount} | SharesList ];
                         #rewards_shares{shares = S} = Rec ->
-                            %% update existing record with new amount and put it back
-                            %% into our list
-                            lists:keyreplace(Type, #rewards_shares.type,
-                                             SharesList, Rec#rewards_shares{shares = S + Amount})
+                            %% update existing record with new amount and put it back into our list
+                            case find_reward_share_by_type(Type, SharesList) of
+                                false -> Rec;
+                                Rec -> Rec#rewards_shares{ shares = S + Amount }
+                            end
                     end,
     MDRecord#rewards_meta{shares = NewSharesList}.
 
