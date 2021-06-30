@@ -1,17 +1,15 @@
 -define(SUPPORTED_REGIONS, [
-    "as923_1",
-    "as923_2",
-    "as923_3",
-    "au915",
-    "cn470",
-    "eu433",
-    "eu868",
-    "in865",
-    "kr920",
-    "ru864",
-    "us915"
-
-    %% We will not support cn779
+    "region_as923_1",
+    "region_as923_2",
+    "region_as923_3",
+    "region_au915",
+    "region_cn470",
+    "region_eu433",
+    "region_eu868",
+    "region_in865",
+    "region_kr920",
+    "region_ru864",
+    "region_us915"
 ]).
 
 %% TODO: Left the last ones out, can add if needed

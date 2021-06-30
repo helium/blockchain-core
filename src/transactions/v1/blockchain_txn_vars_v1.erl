@@ -1274,11 +1274,11 @@ validate_var(?penalty_history_limit, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"as923_1,as923_2,as923_3,au915,cn470,eu433,eu868,in865,kr920,ru864,us915">>
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
     %% First check is a relatively conservative byte_size check on the value
-    C1 = byte_size(Value) =< 80,
+    C1 = byte_size(Value) =< 148,
     %% Second check is that we're able to get the regions and it's not some random data
     %% And it's atleast >= 11 (the number of regions we know about)
     C2 = length(string:tokens(binary:bin_to_list(Value), ",")) >= 11,
