@@ -1324,7 +1324,7 @@ update_shares(Type, Shares, Key, RewardsMeta) ->
                           Amount :: number(),
                           MDRecord :: rewards_meta() ) -> NewMDRecord :: rewards_meta().
 update_shares_list(Type, Amount, #rewards_meta{shares = SharesList} = MDRecord) ->
-    NewSharesList = case lists:keyfind(Type, #rewards_shares.type, SharesList) of
+    NewSharesList = case find_reward_share_by_type(Type, SharesList) of
                         false ->
                             %% no record of this type exists, add it to our list
                             [ #rewards_shares{type = Type, shares = Amount} | SharesList ];
