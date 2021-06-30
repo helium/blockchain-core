@@ -596,7 +596,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
             {Hash, Height} = State#state.snapshot_info,
             {noreply, snapshot_sync(Hash, Height, State)};
         _ ->
-            lager:info("block sync down reason ~p", [Reason]),
+            case Reason of dial -> ok; _ -> lager:info("block sync down: ~p", [Reason]) end,
             %% we're deep in the past here, or the last one errored out, so just start the next sync
             {noreply, start_sync(State)}
     end;
@@ -859,15 +859,15 @@ start_block_sync(Swarm, Chain, Peer) ->
                                 ok;
                             {'DOWN', Ref1, process, Stream, Reason} ->
                                 lager:info("block sync failed with error ~p", [Reason]),
-                                error({down, Reason})
+                                exit({down, Reason})
                         after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 5)) ->
                                 libp2p_framed_stream:close(Stream),
                                 lager:info("block sync timed out"),
-                                error(timeout)
+                                exit(timeout)
                         end;
                     {error, _Reason} ->
                         lager:debug("dialing sync stream failed: ~p",[_Reason]),
-                        error(dial)
+                        exit(dial)
                 end
         end,
     spawn_monitor(fun() -> DialFun() end).
