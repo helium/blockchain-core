@@ -766,7 +766,7 @@ new_rewards_meta(Type, Shares) ->
                              SharesList :: [ rewards_shares() ] ) -> [ rewards_shares() ].
 update_rewards_shares(Type, Shares, SharesList) ->
     case lists:keyfind(Type, #rewards_shares.type, SharesList) of
-        false -> [ new_rewards_share(Type, Shares) ];
+        false -> [ new_rewards_share(Type, Shares) | SharesList];
         #rewards_shares{shares = Current} = Rec ->
             lists:keyreplace(Type, #rewards_shares.type, SharesList,
                              Rec#rewards_shares{ shares = Current+Shares })
