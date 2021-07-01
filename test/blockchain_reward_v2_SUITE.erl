@@ -16,7 +16,7 @@
         ]).
 
 suite() ->
-    [{timetrap,{seconds,200}}].
+    [{timetrap,{seconds,600}}].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(lager),
