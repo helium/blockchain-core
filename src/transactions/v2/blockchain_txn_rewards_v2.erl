@@ -693,7 +693,7 @@ consensus_members_rewards(RewardsMD, Ledger,
               %% This _should_ work as is and handle the transitional case
               case get_owner_address(GwOrVal, Member, Ledger) of
                   {ok, Owner} ->
-                      update_hnt(Owner, Amount + OveragePerMember, Acc);
+                      update_hnt(Acc, Owner, Amount + OveragePerMember);
                   {error, _Error} -> Acc
               end
       end,
@@ -719,7 +719,7 @@ securities_rewards(RewardsMD, Ledger, #{epoch_reward := EpochReward,
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = (Balance*100/TotalSecurities)/100,
             Amount = erlang:round(PercentofReward*SecuritiesReward),
-            update_hnt(Key, Amount, Acc)
+            update_hnt(Acc, Key, Amount)
         end,
         RewardsMD,
         Securities
@@ -1257,7 +1257,7 @@ update_hnt(#rewards_meta{hnt_amount = Current} = RMeta, Amount) ->
                  Amount :: number() ) -> rewards_metadata().
 update_hnt(RewardsMD, Owner, Amount) ->
     maps:update_with(Owner,
-                     fun(RMD) -> update_hnt(Amount, RMD) end,
+                     fun(RMD) -> update_hnt(RMD, Amount) end,
                      #rewards_meta{hnt_amount = Amount},
                      RewardsMD).
 
