@@ -12,6 +12,7 @@
 -include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include_lib("public_key/include/public_key.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
@@ -202,6 +203,7 @@ is_valid(Txn, Chain) ->
         true ->
             case blockchain_ledger_v1:find_gateway_mode(Challenger, Ledger) of
                 {error, _Reason}=Error ->
+                    lager:info("poc_receipts: gateway not found",[]),
                     Error;
                 {ok, ChallengerGWMode} ->
                     %% check the challenger is allowed to issue POCs
@@ -230,7 +232,7 @@ is_valid(Txn, Chain) ->
 check_is_valid_poc(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, _Height} = blockchain_ledger_v1:current_height(Ledger),
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     POCID = ?MODULE:poc_id(Txn),
     StartPre = maybe_start_duration(),
@@ -251,8 +253,8 @@ check_is_valid_poc(Txn, Chain) ->
                     case blockchain:get_block_info(LastChallenge, Chain) of
                         {error, Reason}=Error ->
                             lager:warning([{poc_id, POCID}],
-                                          "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                          [LastChallenge, Reason]),
+                                          "poc_receipts error get_block, request block hash: ~p, reason: ~p",
+                                          [PrePoCBlockHash, Reason]),
                             Error;
                         {ok, #block_info{height = BlockHeight,
                                          time = BlockTime,
@@ -310,7 +312,6 @@ check_is_valid_poc(Txn, Chain) ->
                                                            RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
                                                            StartP = maybe_log_duration(build, StartB),
                                                            RetB;
-
                                                        {ok, V} when V >= 7 ->
                                                            %% If we make it to this point, we are bound to have a target.
                                                            {ok, Target} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
@@ -319,7 +320,6 @@ check_is_valid_poc(Txn, Chain) ->
                                                            RetB = blockchain_poc_path_v3:build(Target, OldLedger, BlockTime, Entropy, Vars),
                                                            StartP = maybe_log_duration(build, StartB),
                                                            RetB;
-
                                                        {ok, V} when V >= 4 ->
                                                            GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
                                                            StartFT2 = maybe_log_duration(scored, StartFT),
@@ -341,6 +341,9 @@ check_is_valid_poc(Txn, Chain) ->
                                                            StartP = maybe_log_duration(build, StartB),
                                                            RetB;
                                                        _ ->
+                                                           {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
+                                                           PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                                                           Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                                            {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
                                                            {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
                                                            StartP = maybe_start_duration(),
@@ -367,7 +370,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                     Ret = case POCVer >= 10 of
                                                               true ->
                                                                   %% check the block hash in the receipt txn is correct
-                                                                  case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
+                                                                  case PrePoCBlockHash == ?MODULE:request_block_hash(Txn) of
                                                                       true ->
                                                                           validate(Txn, Path, LayerData, LayerHashes, OldLedger);
                                                                       false ->
@@ -390,9 +393,9 @@ check_is_valid_poc(Txn, Chain) ->
                                                     Ret
                                             end
                                     end
-                            end
+%%                            end
                     end
-            end
+%%            end
     end.
 
 %% TODO: I'm not sure that this is actually faster than checking the time, but I suspect that it'll
@@ -782,8 +785,9 @@ absorb(Txn, Chain) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),
     Secret = ?MODULE:secret(Txn),
+    PoCStartAtBlockHash = ?MODULE:request_block_hash(Txn),
     Ledger = blockchain:ledger(Chain),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+%%    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     POCID = ?MODULE:poc_id(Txn),
 
     try
@@ -831,7 +835,7 @@ absorb(Txn, Chain) ->
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
-                        case get_lower_and_upper_bounds(Secret, LastOnionKeyHash, Challenger, Ledger, Chain) of
+                        case get_lower_and_upper_bounds(Secret, LastOnionKeyHash, PoCStartAtBlockHash, Challenger, Ledger, Chain) of
                             {error, _}=E ->
                                 E;
                             {ok, {Lower, Upper}} ->
@@ -877,7 +881,7 @@ absorb(Txn, Chain) ->
                                                     ?MODULE:deltas(Txn))
                                 end
                         end
-                end
+%%                end
         end
     catch throw:Reason ->
             {error, Reason};
@@ -889,6 +893,7 @@ absorb(Txn, Chain) ->
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),
                                  OnionKeyHash :: binary(),
+                                 PoCStartAtBlockHash :: binary(),
                                  Challenger :: libp2p_crypto:pubkey_bin(),
                                  Ledger :: blockchain_ledger_v1:ledger(),
                                  Chain :: blockchain:blockchain()) -> {error, any()} | {ok, {non_neg_integer(), non_neg_integer()}}.
@@ -912,7 +917,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                             case blockchain:get_block_info(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
                                     lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                                [LastChallenge, Reason]),
+                                                [PoCStartAtBlockHash, Reason]),
                                     Error3;
                                 {ok, #block_info{time = TimeLower}} ->
                                     {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
@@ -925,10 +930,10 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                             UpperBound = TimeUpper * 1000000000,
                                             {ok, {LowerBound, UpperBound}}
                                     end
-                            end
-                    end
-            end
-    end.
+                            end.
+%%                    end
+%%            end
+%%    end.
 
 %%--------------------------------------------------------------------
 %% @doc

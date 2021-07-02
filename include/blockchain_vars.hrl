@@ -135,6 +135,9 @@
 %% Number of blocks to wait before a hotspot can submit a poc challenge request
 -define(poc_challenge_interval, poc_challenge_interval).
 
+%% Number of challenges per block
+-define(poc_challenge_rate, poc_challenge_rate).
+
 %% Allow to switch POC version
 -define(poc_version, poc_version).
 
