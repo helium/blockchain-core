@@ -45,7 +45,12 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--export([v1_to_v2/1]).
+-export([
+         v1_to_v2/1,
+         sum_shares_by_type/1,
+         rewards_by_type/2,
+         rewards_by_type/3
+        ]).
 -endif.
 
 -type reward_types() :: poc_challengers | poc_challengees | poc_witnesses | data_credits | consensus.
@@ -1437,6 +1442,47 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-spec sum_shares_by_type( RewardsMD :: rewards_metadata() ) -> map().
+%% #{ type => share_sum } calculated by summing all of the entries
+%% in the metadata map
+sum_shares_by_type(RewardsMD) ->
+    maps:fold(fun(shares_acc, _V, Acc ) -> Acc;
+                 (_K, #rewards_meta{ shares = S }, Acc) ->
+                      lists:foldl(fun(#rewards_shares{type = T, shares = A}, Acc1) ->
+                                          maps:update_with(T,
+                                                           fun(C) -> C + A end,
+                                                           A,
+                                                           Acc1)
+                                  end,
+                                  Acc, S)
+              end,
+              #{},
+              RewardsMD).
+
+-spec rewards_by_type( RewardsMD :: rewards_metadata(),
+                       Vars :: reward_vars() ) -> map().
+rewards_by_type(#{ shares_acc := Shares} = RewardsMD, Vars) ->
+    rewards_by_type(RewardsMD, Shares, Vars).
+
+-spec rewards_by_type( RewardsMD :: rewards_metadata(),
+                       Shares :: map(),
+                       Vars :: reward_vars() ) -> map().
+rewards_by_type(RewardsMD, Shares, Vars) ->
+    maps:fold(fun(shares_acc, _V, Acc) -> Acc;
+                 (K, #rewards_meta{ shares = S }, Acc) ->
+                      Acc#{K => rewards_by_type_from_shares(S, Shares, Vars)}
+              end,
+              #{},
+              RewardsMD).
+
+%% #{ GwOwner => #{ type => HNT } }
+rewards_by_type_from_shares(SharesList, TotalShares, Vars) ->
+    lists:foldl(fun(#rewards_shares{type = T, shares = S}, Acc) ->
+                        Acc#{ T => normalize_shares(T, S, TotalShares, Vars) }
+                end,
+                #{},
+                SharesList).
+
 %% @doc Given a list of reward_v1 txns, return the equivalent reward_v2
 %% list.
 -spec v1_to_v2( RewardsV1 :: [blockchain_txn_reward_v1:rewards()] ) -> rewards().
@@ -1506,13 +1552,13 @@ poc_challengers_rewards_2_runner() ->
     RewardsMD = lists:foldl(
                   fun(T, Acc) -> poc_challenger_reward(T, Acc, fakeLedger, Vars) end,
                   #{ shares_acc => #{ poc_challengers => 0} }, Txns),
-    ?debugFmt("rewards metadata: ~p", [RewardsMD]),
+    %?debugFmt("rewards metadata: ~p", [RewardsMD]),
     {K, V} = calculate_total_reward_for_type(poc_challengers, Vars),
-    ?debugFmt("total poc_challengers reward: ~p", [V]),
+    %?debugFmt("total poc_challengers reward: ~p", [V]),
 
     RewardsMD1 = normalize_all_reward_shares(RewardsMD, Vars#{K => V}),
 
-    ?debugFmt("final rewards metadata: ~p", [RewardsMD1]),
+    %?debugFmt("final rewards metadata: ~p", [RewardsMD1]),
 
     Calculated = prepare_rewards_v2_txns(RewardsMD1),
 
@@ -1595,257 +1641,319 @@ poc_challengees_rewards_3_test() ->
                             end,
                             #{ shares_acc => #{ poc_challengees => 0} },
                             Txns),
-    ?debugFmt("rewards metadata: ~p", [RewardsMD]),
+    %?debugFmt("rewards metadata: ~p", [RewardsMD]),
     {K, V} = calculate_total_reward_for_type(poc_challengees, Vars),
-    ?debugFmt("total poc_challengees reward: ~p", [V]),
+    %?debugFmt("total poc_challengees reward: ~p", [V]),
 
     RewardsMD1 = normalize_all_reward_shares(RewardsMD, Vars#{K => V}),
 
-    ?debugFmt("final rewards metadata: ~p", [RewardsMD1]),
+    %?debugFmt("final rewards metadata: ~p", [RewardsMD1]),
 
     Calculated = prepare_rewards_v2_txns(RewardsMD1),
 
     ?assertEqual(Expected, Calculated),
     test_utils:cleanup_tmp_dir(BaseDir).
 
-%poc_witnesses_rewards_test() ->
-%    BaseDir = test_utils:tmp_dir("poc_witnesses_rewards_test"),
-%    Block = blockchain_block:new_genesis_block([]),
-%    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-%    Ledger = blockchain:ledger(Chain),
-%    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-%    EpochVars = #{
-%      epoch_reward => 1000,
-%      poc_witnesses_percent => 0.05,
-%      poc_challengees_percent => 0.0,
-%      poc_challengers_percent => 0.0,
-%      dc_remainder => 0,
-%      poc_version => 5
-%     },
-%
-%    LedgerVars = maps:merge(common_poc_vars(), EpochVars),
-%
-%    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
-%
-%    One = 631179381270930431,
-%    Two = 631196173757531135,
-%    Three = 631196173214364159,
-%    Four = 631179381325720575,
-%    Five = 631179377081096191,
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"a">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"b">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"c">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"d">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"d">>, Four, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"e">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"e">>, Five, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:commit_context(Ledger1),
-%
-%    Witness1 = blockchain_poc_witness_v1:new(<<"a">>, 1, -80, <<>>),
-%    Witness2 = blockchain_poc_witness_v1:new(<<"b">>, 1, -80, <<>>),
-%    Elem = blockchain_poc_path_element_v1:new(<<"c">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
-%    Txns = [
-%        blockchain_txn_poc_receipts_v1:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
-%        blockchain_txn_poc_receipts_v1:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
-%    ],
-%
-%    Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
-%                {gateway,poc_witnesses,<<"b">>} => 25},
-%
-%    WitnessShares = lists:foldl(fun(T, Acc) -> poc_witness_reward(T, Acc, Chain, Ledger, EpochVars) end,
-%                                #{}, Txns),
-%    ?assertEqual(Rewards, normalize_witness_rewards(WitnessShares, EpochVars)),
-%    test_utils:cleanup_tmp_dir(BaseDir).
-%
-%dc_rewards_v3_test() ->
-%    BaseDir = test_utils:tmp_dir("dc_rewards_v3_test"),
-%    Ledger = blockchain_ledger_v1:new(BaseDir),
-%    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-%
-%    Vars = #{
-%        epoch_reward => 100000,
-%        dc_percent => 0.3,
-%        consensus_percent => 0.06 + 0.025,
-%        poc_challengees_percent => 0.18,
-%        poc_challengers_percent => 0.0095,
-%        poc_witnesses_percent => 0.0855,
-%        securities_percent => 0.34,
-%        sc_version => 2,
-%        sc_grace_blocks => 5,
-%        reward_version => 3,
-%        oracle_price => 100000000, %% 1 dollar
-%        consensus_members => [<<"c">>, <<"d">>]
-%    },
-%
-%    LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
-%
-%    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
-%
-%    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
-%    SC = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1), blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
-%
-%    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
-%
-%    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
-%
-%    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SC, <<"id">>, false, Ledger1),
-%
-%    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
-%
-%
-%    SCClose = blockchain_txn_state_channel_close_v1:new(SC, <<"owner">>),
-%    {ok, DCsInEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(3, 100000000), %% 3 DCs burned at HNT price of 1 dollar
-%    %% NOTE: Rewards are split 33-66%
-%    Rewards = #{
-%        {gateway, data_credits, <<"a">>} => round(DCsInEpochAsHNT * (1/3)),
-%        {gateway, data_credits, <<"b">>} => round(DCsInEpochAsHNT * (2/3))
-%    },
-%    DCShares = dc_reward(SCClose, 100, #{}, Ledger1, Vars),
-%    ?assertEqual({26999, Rewards}, normalize_dc_rewards(DCShares, Vars)),
-%    test_utils:cleanup_tmp_dir(BaseDir).
-%
-%dc_rewards_v3_spillover_test() ->
-%    BaseDir = test_utils:tmp_dir("dc_rewards_v3_spillover_test"),
-%    Block = blockchain_block:new_genesis_block([]),
-%    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-%    Ledger = blockchain:ledger(Chain),
-%    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-%
-%    Vars = #{
-%        epoch_reward => 100000,
-%        dc_percent => 0.05,
-%        consensus_percent => 0.1,
-%        poc_challengees_percent => 0.20,
-%        poc_challengers_percent => 0.15,
-%        poc_witnesses_percent => 0.15,
-%        securities_percent => 0.35,
-%        sc_version => 2,
-%        sc_grace_blocks => 5,
-%        reward_version => 3,
-%        poc_version => 5,
-%        dc_remainder => 0,
-%        oracle_price => 100000000, %% 1 dollar
-%        var_map => undefined,
-%        consensus_members => [<<"c">>, <<"d">>]
-%    },
-%
-%    LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
-%
-%    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
-%
-%    One = 631179381270930431,
-%    Two = 631196173757531135,
-%    Three = 631196173214364159,
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"a">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"b">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
-%
-%    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"c">>, Ledger1),
-%    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
-%
-%    ReceiptForA = blockchain_poc_receipt_v1:new(<<"a">>, 1, -120, <<"data">>, radio),
-%    WitnessForA = blockchain_poc_witness_v1:new(<<"c">>, 1, -120, <<>>),
-%    ReceiptForB = blockchain_poc_receipt_v1:new(<<"b">>, 1, -70, <<"data">>, radio),
-%    WitnessForB = blockchain_poc_witness_v1:new(<<"c">>, 1, -120, <<>>),
-%    ReceiptForC = blockchain_poc_receipt_v1:new(<<"c">>, 1, -120, <<"data">>, radio),
-%
-%    ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, []),
-%    ElemForAWithWitness = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, [WitnessForA]),
-%    ElemForB = blockchain_poc_path_element_v1:new(<<"b">>, undefined, []),
-%    ElemForBWithWitness = blockchain_poc_path_element_v1:new(<<"b">>, ReceiptForB, [WitnessForB]),
-%    ElemForC = blockchain_poc_path_element_v1:new(<<"c">>, ReceiptForC, []),
-%
-%    Txns = [
-%        %% No rewards here, Only receipt with no witness or subsequent receipt
-%        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA]),  %% 1, 2
-%        %% Reward because of witness
-%        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness]), %% 3
-%        %% Reward because of next elem has receipt
-%        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC]), %% 3, 2, 2
-%        %% Reward because of witness (adding to make reward 50/50)
-%        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness]) %% 3
-%    ],
-%
-%
-%    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
-%    SC = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1), blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
-%
-%    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
-%
-%    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
-%
-%    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SC, <<"id">>, false, Ledger1),
-%
-%    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
-%
-%    ok = blockchain_ledger_v1:commit_context(Ledger1),
-%
-%    Txns2 = [
-%         blockchain_txn_state_channel_close_v1:new(SC, <<"owner">>)
-%    ],
-%    AllTxns = Txns ++ Txns2,
-%    {ok, DCsInEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(3, 100000000), %% 3 DCs burned at HNT price of 1 dollar
-%    %% NOTE: Rewards are split 33-66%
-%    Rewards = #{
-%        {gateway, data_credits, <<"a">>} => round(DCsInEpochAsHNT * (1/3)),
-%        {gateway, data_credits, <<"b">>} => round(DCsInEpochAsHNT * (2/3))
-%    },
-%
-%    RewardSharesInit = #{
-%      dc_rewards => #{},
-%      poc_challenger => #{},
-%      poc_challengee => #{},
-%      poc_witness => #{}
-%     },
-%
-%    NoSpillover = lists:foldl(fun(T, Acc) -> calculate_reward_for_txn(
-%                                               blockchain_txn:type(T), T, 100,
-%                                               Acc, Chain, Ledger, Vars)
-%                                    end,
-%                                    RewardSharesInit,
-%                                    AllTxns),
-%    DCShares = maps:get(dc_rewards, NoSpillover),
-%    {DCRemainder, DCRewards} = normalize_dc_rewards(DCShares, Vars),
-%    DCAward = trunc(maps:get(epoch_reward, Vars) * maps:get(dc_percent, Vars)),
-%    ?assertEqual({DCAward - DCsInEpochAsHNT, Rewards}, {DCRemainder, DCRewards}),
-%
-%    NewVars = maps:put(dc_remainder, DCRemainder, Vars),
-%
-%    Spillover = lists:foldl(fun(T, Acc) -> calculate_reward_for_txn(
-%                                               blockchain_txn:type(T), T, 100,
-%                                               Acc, Chain, Ledger, NewVars)
-%                                    end,
-%                                    RewardSharesInit,
-%                                    AllTxns),
-%
-%    ChallengerShares = maps:get(poc_challenger, NoSpillover),
-%    ChallengeeShares = maps:get(poc_challengee, NoSpillover),
-%    WitnessShares = maps:get(poc_witness, NoSpillover),
-%
-%    ChallengerRewards = normalize_challenger_rewards(ChallengerShares, Vars),
-%    ChallengeeRewards = normalize_challengee_rewards(ChallengeeShares, Vars),
-%    WitnessRewards = normalize_witness_rewards(WitnessShares, Vars),
-%
-%    ChallengersAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengers_percent, Vars)),
+poc_witnesses_rewards_test() ->
+    BaseDir = test_utils:tmp_dir("poc_witnesses_rewards_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    EpochVars = #{
+      epoch_reward => 1000,
+      poc_witnesses_percent => 0.05,
+      poc_challengees_percent => 0.0,
+      poc_challengers_percent => 0.0,
+      dc_remainder => 0,
+      poc_version => 5
+     },
+
+    LedgerVars = maps:merge(common_poc_vars(), EpochVars),
+
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    One = 631179381270930431,
+    Two = 631196173757531135,
+    Three = 631196173214364159,
+    Four = 631179381325720575,
+    Five = 631179377081096191,
+
+    ok = blockchain_ledger_v1:add_gateway(<<"a">>, <<"a">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"b">>, <<"b">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"c">>, <<"c">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"d">>, <<"d">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"d">>, Four, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"e">>, <<"e">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"e">>, Five, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    Witness1 = blockchain_poc_witness_v1:new(<<"a">>, 1, -80, <<>>),
+    Witness2 = blockchain_poc_witness_v1:new(<<"b">>, 1, -80, <<>>),
+    Elem = blockchain_poc_path_element_v1:new(<<"c">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
+    Txns = [
+        blockchain_txn_poc_receipts_v1:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
+        blockchain_txn_poc_receipts_v1:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
+    ],
+
+    Expected = [
+        new_reward(<<"a">>, 25), %% expect 4 shares
+        new_reward(<<"b">>, 25)  %% expect 4 shares
+    ],
+
+    RewardsMD = lists:foldl(fun(T, Acc) ->
+                                    poc_witness_reward(T, Acc, Chain, Ledger, EpochVars)
+                            end,
+                            #{ shares_acc => #{ poc_witnesses => 0} },
+                            Txns),
+    %?debugFmt("rewards metadata: ~p", [RewardsMD]),
+    {K, V} = calculate_total_reward_for_type(poc_witnesses, EpochVars),
+    %?debugFmt("total poc_witnesses reward: ~p", [V]),
+
+    RewardsMD1 = normalize_all_reward_shares(RewardsMD, EpochVars#{K => V}),
+
+    %?debugFmt("final rewards metadata: ~p", [RewardsMD1]),
+
+    Calculated = prepare_rewards_v2_txns(RewardsMD1),
+
+    ?assertEqual(Expected, Calculated),
+
+    test_utils:cleanup_tmp_dir(BaseDir).
+
+dc_rewards_v3_test() ->
+    BaseDir = test_utils:tmp_dir("dc_rewards_v3_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    Vars = #{
+        epoch_reward => 100000,
+        dc_percent => 0.3,
+        consensus_percent => 0.06 + 0.025,
+        poc_challengees_percent => 0.18,
+        poc_challengers_percent => 0.0095,
+        poc_witnesses_percent => 0.0855,
+        securities_percent => 0.34,
+        sc_version => 2,
+        sc_grace_blocks => 5,
+        reward_version => 3,
+        oracle_price => 100000000, %% 1 dollar
+        consensus_members => [<<"c">>, <<"d">>]
+    },
+
+    LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
+
+    One = 631179381270930431,
+    Two = 631196173757531135,
+
+    ok = blockchain_ledger_v1:add_gateway(<<"a">>, <<"a">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"b">>, <<"b">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
+    SC = blockchain_state_channel_v1:summaries(
+           [blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1),
+            blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
+
+    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SC, <<"id">>, false, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    SCClose = blockchain_txn_state_channel_close_v1:new(SC, <<"owner">>),
+    {ok, DCsInEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(3, 100000000), %% 3 DCs burned at HNT price of 1 dollar
+
+    %% NOTE: Rewards are split 33-66%
+    Expected = [
+        new_reward(<<"a">>, round(DCsInEpochAsHNT * (1/3))),
+        new_reward(<<"b">>, round(DCsInEpochAsHNT * (2/3)))
+    ],
+
+    AccIn = #{ shares_acc => #{ data_credits => #dc_shares{} } },
+    RewardsMD = dc_reward(SCClose, 100, AccIn, Ledger1, Vars),
+
+    %?debugFmt("rewards metadata: ~p", [RewardsMD]),
+
+    {DCRemainder, DCReward} = calculate_dc_remainder(RewardsMD, Vars),
+    %?debugFmt("dc remainder ~p, dc reward ~p", [DCRemainder, DCReward]),
+
+    %?assertEqual(26999, DCRemainder),
+    RewardsMD1 = normalize_all_reward_shares(RewardsMD,
+                                             Vars#{dc_remainder => DCRemainder,
+                                                        dc_reward => DCReward}),
+
+    %?debugFmt("final rewards metadata: ~p", [RewardsMD1]),
+
+    Calculated = prepare_rewards_v2_txns(RewardsMD1),
+
+    ?assertEqual(Expected, Calculated),
+
+    test_utils:cleanup_tmp_dir(BaseDir).
+
+dc_rewards_v3_spillover_test() ->
+    BaseDir = test_utils:tmp_dir("dc_rewards_v3_spillover_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    Vars = #{
+        epoch_reward => 100000,
+        dc_percent => 0.05,
+        consensus_percent => 0.1,
+        poc_challengees_percent => 0.20,
+        poc_challengers_percent => 0.15,
+        poc_witnesses_percent => 0.15,
+        securities_percent => 0.35,
+        sc_version => 2,
+        sc_grace_blocks => 5,
+        reward_version => 3,
+        poc_version => 5,
+        dc_remainder => 0,
+        oracle_price => 100000000, %% 1 dollar
+        var_map => undefined,
+        consensus_members => [<<"c">>, <<"d">>]
+    },
+
+    LedgerVars = maps:merge(#{?poc_version => 5,
+                              ?sc_version => 2,
+                              ?sc_grace_blocks => 5}, common_poc_vars()),
+
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    One = 631179381270930431,
+    Two = 631196173757531135,
+    Three = 631196173214364159,
+
+    ok = blockchain_ledger_v1:add_gateway(<<"a">>, <<"a">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"b">>, <<"b">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"c">>, <<"c">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
+
+    ReceiptForA = blockchain_poc_receipt_v1:new(<<"a">>, 1, -120, <<"data">>, radio),
+    WitnessForA = blockchain_poc_witness_v1:new(<<"c">>, 1, -120, <<>>),
+    ReceiptForB = blockchain_poc_receipt_v1:new(<<"b">>, 1, -70, <<"data">>, radio),
+    WitnessForB = blockchain_poc_witness_v1:new(<<"c">>, 1, -120, <<>>),
+    ReceiptForC = blockchain_poc_receipt_v1:new(<<"c">>, 1, -120, <<"data">>, radio),
+
+    ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, []),
+    ElemForAWithWitness = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, [WitnessForA]),
+    ElemForB = blockchain_poc_path_element_v1:new(<<"b">>, undefined, []),
+    ElemForBWithWitness = blockchain_poc_path_element_v1:new(<<"b">>, ReceiptForB, [WitnessForB]),
+    ElemForC = blockchain_poc_path_element_v1:new(<<"c">>, ReceiptForC, []),
+
+    Txns = [
+        %% No rewards here, Only receipt with no witness or subsequent receipt
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA]),  %% 1, 2
+        %% Reward because of witness
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness]), %% 3
+        %% Reward because of next elem has receipt
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC]), %% 3, 2, 2
+        %% Reward because of witness (adding to make reward 50/50)
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness]) %% 3
+    ],
+
+
+    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
+    SC = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1), blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
+
+    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SC, <<"id">>, false, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    Txns2 = [
+         blockchain_txn_state_channel_close_v1:new(SC, <<"owner">>)
+    ],
+    AllTxns = Txns ++ Txns2,
+    {ok, DCsInEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(3, 100000000), %% 3 DCs burned at HNT price of 1 dollar
+    %% NOTE: Rewards are split 33-66%
+    %Rewards = #{
+    %    {gateway, data_credits, <<"a">>} => round(DCsInEpochAsHNT * (1/3)),
+    %    {gateway, data_credits, <<"b">>} => round(DCsInEpochAsHNT * (2/3))
+    %},
+
+    AccInit = #{ shares_acc => #{ data_credits => #dc_shares{} } },
+
+    RewardsMD = lists:foldl(fun(T, Acc) -> calculate_reward_for_txn(
+                                               blockchain_txn:type(T), T, 100,
+                                               Acc, Chain, Ledger, Vars)
+                                    end,
+                                    AccInit,
+                                    AllTxns),
+
+    ?debugFmt("rewards metadata: ~p", [RewardsMD]),
+
+    {DCRemainder, DCReward} = calculate_dc_remainder(RewardsMD, Vars),
+    ?debugFmt("dc remainder: ~p dc reward ~p", [DCRemainder, DCReward]),
+
+    NoSpillVars = lists:foldl(fun(T, VarMap) ->
+                                {K, V} = calculate_total_reward_for_type(T, VarMap),
+                                VarMap#{K => V}
+                        end,
+                        Vars#{dc_remainder => 0,
+                              dc_reward => DCReward},
+                        [poc_challengers, poc_challengees, poc_witnesses]),
+
+    ResultsNoSpillover = normalize_all_reward_shares(RewardsMD, NoSpillVars),
+    ?debugFmt("no spillover: ~p", [ResultsNoSpillover]),
+
+
+    DCAward = trunc(maps:get(epoch_reward, NoSpillVars) * maps:get(dc_percent, NoSpillVars)),
+    ?assertEqual(DCAward - DCsInEpochAsHNT, DCRemainder),
+
+    SpillVars = lists:foldl(fun(T, VarMap) ->
+                                {K, V} = calculate_total_reward_for_type(T, VarMap),
+                                VarMap#{K => V}
+                        end,
+                        Vars#{dc_remainder => DCRemainder,
+                              dc_reward => DCReward},
+                        [poc_challengers, poc_challengees, poc_witnesses]),
+
+    ResultsSpillover = normalize_all_reward_shares(RewardsMD, SpillVars),
+    ?debugFmt("spillover: ~p", [ResultsSpillover]),
+
+    SharesSum = sum_shares_by_type(ResultsSpillover),
+    ?debugFmt("shares sum: ~p", [SharesSum]),
+
+    RewardsByType = rewards_by_type(RewardsMD, SpillVars),
+    ?debugFmt("rewards by type: ~p", [RewardsByType]),
+
+    ChallengersAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengers_percent, Vars)),
+    ChallengeesAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengees_percent, Vars)),
+    WitnessesAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_witnesses_percent, Vars)),
+
+    ?debugFmt("challengers ~p, challengees ~p, witnesses ~p",
+              [ChallengersAward, ChallengeesAward, WitnessesAward]),
+
 %    ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward}, ChallengerRewards), %% entire 15% allocation
-%    ChallengeesAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengees_percent, Vars)),
 %    ?assertEqual(#{{gateway,poc_challengees,<<"a">>} => trunc(ChallengeesAward * 4/8), %% 4 of 8 shares of 20% allocation
 %                   {gateway,poc_challengees,<<"b">>} => trunc(ChallengeesAward * 3/8), %% 3 shares
 %                   {gateway,poc_challengees,<<"c">>} => trunc(ChallengeesAward * 1/8)}, %% 1 share
 %                 ChallengeeRewards),
-%    WitnessesAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_witnesses_percent, Vars)),
 %    ?assertEqual(#{{gateway,poc_witnesses,<<"c">>} => WitnessesAward}, %% entire 15% allocation
 %                 WitnessRewards),
 %
@@ -1859,24 +1967,36 @@ poc_challengees_rewards_3_test() ->
 %    SpilloverChallengeeRewards = normalize_challengee_rewards(SpilloverChallengeeShares, NewVars),
 %    SpilloverWitnessRewards = normalize_witness_rewards(SpilloverWitnessShares, NewVars),
 %
-%    ChallengerSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengers_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
-%                                                                                                       maps:get(poc_witnesses_percent, Vars) +
-%                                                                                                       maps:get(poc_challengers_percent, Vars))))),
-%
+    ChallengerSpilloverAward = erlang:round(DCRemainder *
+                                            ((maps:get(poc_challengers_percent, Vars) /
+                                              (maps:get(poc_challengees_percent, Vars) +
+                                               maps:get(poc_witnesses_percent, Vars) +
+                                               maps:get(poc_challengers_percent, Vars))))),
+
 %    ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward + ChallengerSpilloverAward}, SpilloverChallengerRewards), %% entire 15% allocation
-%    ChallengeeSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengees_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
-%                                                                                                       maps:get(poc_witnesses_percent, Vars) +
-%                                                                                                       maps:get(poc_challengers_percent, Vars))))),
+
+    ChallengeeSpilloverAward = erlang:round(DCRemainder *
+                                            ((maps:get(poc_challengees_percent, Vars) /
+                                              (maps:get(poc_challengees_percent, Vars) +
+                                               maps:get(poc_witnesses_percent, Vars) +
+                                               maps:get(poc_challengers_percent, Vars))))),
+
 %    ?assertEqual(#{{gateway,poc_challengees,<<"a">>} => trunc((ChallengeesAward + ChallengeeSpilloverAward) * 4/8), %% 4 of 8 shares of 20% allocation
 %                   {gateway,poc_challengees,<<"b">>} => trunc((ChallengeesAward + ChallengeeSpilloverAward) * 3/8), %% 3 shares
 %                   {gateway,poc_challengees,<<"c">>} => trunc((ChallengeesAward + ChallengeeSpilloverAward) * 1/8)}, %% 1 share
 %                 SpilloverChallengeeRewards),
-%    WitnessesSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_witnesses_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
-%                                                                                                       maps:get(poc_witnesses_percent, Vars) +
-%                                                                                                       maps:get(poc_challengers_percent, Vars))))),
+
+    WitnessesSpilloverAward = erlang:round(DCRemainder *
+                                           ((maps:get(poc_witnesses_percent, Vars) /
+                                             (maps:get(poc_challengees_percent, Vars) +
+                                              maps:get(poc_witnesses_percent, Vars) +
+                                              maps:get(poc_challengers_percent, Vars))))),
+
+    ?debugFmt("challengers ~p, challengees ~p, witnesses ~p",
+              [ChallengerSpilloverAward, ChallengeeSpilloverAward, WitnessesSpilloverAward]),
 %    ?assertEqual(#{{gateway,poc_witnesses,<<"c">>} => WitnessesAward + WitnessesSpilloverAward}, %% entire 15% allocation
 %                 SpilloverWitnessRewards),
-%    test_utils:cleanup_tmp_dir(BaseDir).
+    test_utils:cleanup_tmp_dir(BaseDir).
 %
 fixed_normalize_reward_unit_test() ->
     Rewards = [0.1, 0.9, 1.0, 1.8, 2.5, 2000, 0],
