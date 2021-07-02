@@ -49,7 +49,8 @@
          v1_to_v2/1,
          sum_shares_by_type/1,
          rewards_by_type/2,
-         rewards_by_type/3
+         rewards_by_type/3,
+         to_new_v2_metadata/2
         ]).
 -endif.
 
@@ -741,10 +742,17 @@ securities_rewards(RewardsMD, Ledger, #{epoch_reward := EpochReward,
 %% Also updates the _total_ number of shares for the given reward type.
 add_shares(Type, Gateway, #{ shares_acc := TotalShares} = RewardsMD, Ledger, Shares) ->
     %% update the total number of shares first
-    NewTotalShares = maps:update_with(Type,
+    NewTotalShares = case Type of
+                         data_credits ->
+                             #dc_shares{ total = T } = DCS = maps:get(data_credits, TotalShares),
+                             UpdatedDCS = DCS#dc_shares{ total = T + Shares },
+                             TotalShares#{ data_credits => UpdatedDCS };
+                         Other ->
+                             maps:update_with(Other,
                                       fun(Current) -> Current + Shares end,
                                       Shares,
-                                      TotalShares),
+                                      TotalShares)
+                     end,
 
     NewRewardsMD = case blockchain_ledger_v1:find_gateway_owner(Gateway, Ledger) of
                        {ok, GwOwner} ->
@@ -1207,29 +1215,7 @@ dc_reward(Txn, End,
                                     lists:foldl(fun(Summary, A) ->
                                                         Key = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
                                                         DCs = blockchain_state_channel_summary_v1:num_dcs(Summary) + Bonus,
-                                                        case blockchain_ledger_v1:find_gateway_owner(Key, Ledger) of
-                                                            {ok, GWOwner} ->
-                                                                update_shares(data_credits,
-                                                                              DCs,
-                                                                              GWOwner,
-                                                                              update_total_shares(
-                                                                                data_credits,
-                                                                                DCs, A)
-                                                                             );
-                                                            {error, _Error} ->
-                                                                %% we are updating the
-                                                                %% total number of DCs to
-                                                                %% preserve previous behavior.
-                                                                %%
-                                                                %% in the old code path
-                                                                %% we collected _all_ DCs
-                                                                %% even if later we could not
-                                                                %% resolve an owner for their
-                                                                %% gateway.
-                                                                update_total_shares(
-                                                                  data_credits,
-                                                                  DCs, A)
-                                                        end
+                                                        add_shares(data_credits, Key, A, Ledger, DCs)
                                                 end,
                                                 update_seen(SCID, AccIn),
                                                 Summaries);
@@ -1278,54 +1264,6 @@ update_seen(Id, #{ shares_acc := Shares } = RewardsMD) ->
                                  #dc_shares{ seen = [ Id ] },
                                  Shares),
     RewardsMD#{ shares_acc => NewShares }.
-
--spec update_total_shares( Type :: reward_types(),
-                           Amount :: number(),
-                           RewardsMD :: rewards_metadata() ) -> NewRewardsMD :: rewards_metadata().
-update_total_shares(data_credits, Amount, #{ shares_acc := Shares } = RewardsMD) ->
-    NewShares = maps:update_with(data_credits,
-                                 fun(#dc_shares{total = T} = DCShares) ->
-                                         DCShares#dc_shares{total = T + Amount}
-                                 end,
-                                 #dc_shares{total = Amount},
-                                 Shares),
-    RewardsMD#{ shares_acc => NewShares };
-update_total_shares(Type, Amount, #{ shares_acc := Shares } = RewardsMD) ->
-    NewShares = maps:update_with(Type,
-                                 fun(Current) -> Current + Amount end,
-                                 Amount, Shares),
-    RewardsMD#{shares_acc => NewShares}.
-
--spec update_shares( Type :: reward_types(),
-                     Shares :: number(),
-                     Key :: libp2p_crypto:pubkey_bin(), %% should be a gateway owner
-                     Rewards :: rewards_metadata() ) -> NewRewards :: rewards_metadata().
-update_shares(Type, Shares, Key, RewardsMeta) ->
-    maps:update_with(Key, fun(#rewards_meta{} = MD) ->
-                                  update_shares_list(Type, Shares, MD)
-                          end,
-                     #rewards_meta{shares = [new_rewards_shares(Type, Shares)]},
-                     RewardsMeta).
-
--spec update_shares_list( Type :: reward_types(),
-                          Amount :: number(),
-                          MDRecord :: rewards_meta() ) -> NewMDRecord :: rewards_meta().
-update_shares_list(Type, Amount, #rewards_meta{shares = SharesList} = MDRecord) ->
-    NewSharesList = case lists:keyfind(Type, #rewards_shares.type, SharesList) of
-                        false ->
-                            %% no record of this type exists, add it to our list
-                            [ #rewards_shares{type = Type, shares = Amount} | SharesList ];
-                        #rewards_shares{shares = S} = Rec ->
-                            %% update existing record with new amount and put it back
-                            %% into our list
-                            lists:keyreplace(Type, #rewards_shares.type,
-                                             SharesList, Rec#rewards_shares{shares = S + Amount})
-                    end,
-    MDRecord#rewards_meta{shares = NewSharesList}.
-
--spec new_rewards_shares( Type :: reward_types(),
-                          Amount :: number() ) -> RewardsShares :: rewards_shares().
-new_rewards_shares(Type, Amount) -> #rewards_shares{type = Type, shares = Amount}.
 
 get_owner_address(validator, Addr, Ledger) ->
     case blockchain_ledger_v1:get_validator(Addr, Ledger) of
@@ -1482,6 +1420,44 @@ rewards_by_type_from_shares(SharesList, TotalShares, Vars) ->
                 end,
                 #{},
                 SharesList).
+
+-spec to_new_v2_metadata( OldSharesMetadata :: blockchain_txn_rewards_v2_old:rewards_share_map(),
+                          Ledger :: blockchain_ledger_v1:ledger() ) -> rewards_metadata().
+%% @doc Take an "old" v2 rewards share map and turn it into a new style v2 metadata map
+to_new_v2_metadata( OldMD, Ledger ) ->
+    NewInit = #{ shares_acc => #{ data_credits => #dc_shares{} } },
+    {_, RewardsMD} = lists:foldl(fun({OldRewardType, NewRewardType}, {Acc, NewAcc}) ->
+                        ShareMap = maps:get(OldRewardType, Acc),
+                        Updated = maps:fold(fun(Gateway, Shares, Acc1) ->
+                                                    case blockchain_ledger_v1:find_gateway_owner(
+                                                           Gateway, Ledger) of
+                                                        {ok, _GwOwner} ->
+                                                            add_shares(NewRewardType, Gateway,
+                                                                       Acc1, Ledger, Shares);
+                                                        {error, _Err} ->
+                                                            %% we want to record gateways
+                                                            %% we couldn't resolve to an owner
+                                                            maps:update_with(no_owner,
+                                                                             fun(M) ->
+                                                                                     M#{Gateway
+                                                                                        => Shares}
+                                                                             end,
+                                                                             #{ Gateway => Shares },
+                                                                             Acc1)
+                                                    end % case
+                                            end, % maps fold fun
+                                            NewAcc,
+                                            ShareMap),
+                        {Acc, Updated}
+                end,
+                {OldMD, NewInit},
+                [
+                 {poc_witness, poc_witnesses},
+                 {poc_challenger, poc_challengers},
+                 {poc_challengee, poc_challengees},
+                 {dc_rewards, data_credits}
+                ]),
+    RewardsMD.
 
 %% @doc Given a list of reward_v1 txns, return the equivalent reward_v2
 %% list.
