@@ -84,7 +84,50 @@ calc_v1_and_v2_test(Config) ->
           end),
     ct:pal("rewards v2: ~p ms", [Time2 div 1000]),
 
+    {Time4, OldRewardsV2} =
+    timer:tc(
+      fun() ->
+              {ok, R4} = blockchain_txn_rewards_v2_old:calculate_rewards(Height - 15, Height, Chain),
+              R4
+      end),
+    ct:pal("old rewards v2: ~p ms", [Time4 div 1000]),
+
+    {Time3, {OldRewardsShareMD, OldVars}} =
+        timer:tc(
+          fun() ->
+                  {ok, R3, R3Vars} = blockchain_txn_rewards_v2_old:calculate_rewards_share_metadata(
+                                       Height - 15,
+                                       Height,
+                                       Chain),
+                  {R3, R3Vars}
+          end),
+    ct:pal("old rewards v2 share time: ~p ms", [Time3 div 1000]),
+    %ct:pal("old rewards v2 share raw: ~p", [OldRewardsShareMD]),
+
+    {ok, #{ shares_acc := NewShares } = RewardsV2Meta} =
+        blockchain_txn_rewards_v2:calculate_rewards_metadata(Height - 15, Height, Chain),
+
+    OldToNew = blockchain_txn_rewards_v2:to_new_v2_metadata(OldRewardsShareMD, Ledger),
+    #{ shares_acc := OldShares } = OldToNewFinal = blockchain_txn_rewards_v2:finalize_reward_calculations(OldToNew, Ledger, OldVars),
+    %ct:pal("old rewards to new v2: ~p", [OldToNewFinal]),
+
+    NewVars = blockchain_txn_rewards_v2:calculate_reward_from_total_shares(NewShares, OldVars),
+    OldVars1 = blockchain_txn_rewards_v2:calculate_reward_from_total_shares(OldShares, OldVars),
+
+    NewByType = blockchain_txn_rewards_v2:rewards_by_type(RewardsV2Meta, NewVars),
+    OldByType = blockchain_txn_rewards_v2:rewards_by_type(OldToNewFinal, OldVars1),
+
+    ct:pal("diff by type: ~p", [diff_by_type(NewByType, OldByType)]),
+
     V1 = blockchain_txn_rewards_v2:v1_to_v2(RewardsV1),
+
+    case RewardsV2 == OldRewardsV2 of
+        true -> ok;
+        false ->
+            _Diff = diff_v2(RewardsV2, OldRewardsV2),
+            %ct:pal("diff new vs old~n~p", [Diff]),
+            ct:fail("v2 different")
+    end,
 
     case V1 == RewardsV2 of
         true -> ok;
@@ -139,6 +182,52 @@ calc_v2_and_compare_to_chain(Config) ->
     end.
 
 %% Internal functions
+diff_by_type(New, Old) ->
+    maps:fold(fun(K, NewTypes, Acc) ->
+                     OldTypes = maps:get(K, Old),
+                     case NewTypes == OldTypes of
+                         true -> Acc;
+                         false ->
+                             maps:fold(fun(Type, Amount, Acc1) ->
+                                               OldAmount = maps:get(Type, OldTypes),
+                                               case Amount == OldAmount of
+                                                   true -> Acc1;
+                                                   false ->
+                                                       Diff = Amount - OldAmount,
+                                                       Acc1#{ Type => #{ new => Amount,
+                                                                         old => OldAmount,
+                                                                         diff => Diff } }
+                                               end
+                                       end,
+                                       Acc,
+                                       NewTypes)
+                     end
+              end,
+              #{}, New).
+
+
+
+diff_v2(New, Old) ->
+    lists:foldl(fun({_RecTag, Owner, Amount}, Acc) ->
+                        case lists:keyfind(Owner, 2, New) of
+                            false ->
+                                maps:update_with(not_in_new,
+                                                 fun(E) -> [ {Owner, Amount} | E ] end,
+                                                 [{Owner, Amount}], Acc);
+                            {_RecTag, Owner, Amount} ->
+                                maps:update_with(same,
+                                                 fun(C) -> C + 1 end,
+                                                 1, Acc);
+                            {_RecTag, Owner, NewAmount} ->
+                                maps:update_with(new_amt_different,
+                                                 fun(E) -> [ {Owner, Amount, NewAmount} | E ] end,
+                                                 [{Owner, Amount, NewAmount}], Acc)
+                        end
+                end,
+                #{},
+                Old).
+
+
 diff_v1_v2(RewardsV1, V1, RewardsV2) ->
     %% compare V1 to V2
     I0 = lists:foldl(fun({_RType, Owner, Amount}, Acc) ->

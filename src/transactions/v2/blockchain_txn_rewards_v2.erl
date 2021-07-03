@@ -50,7 +50,10 @@
          sum_shares_by_type/1,
          rewards_by_type/2,
          rewards_by_type/3,
-         to_new_v2_metadata/2
+         to_new_v2_metadata/2,
+         finalize_reward_calculations/3,
+         get_reward_vars/3,
+         calculate_reward_from_total_shares/2
         ]).
 -endif.
 
@@ -432,21 +435,25 @@ finalize_reward_calculations(#{shares_acc := Shares} = RewardsMD, Ledger, Vars) 
     Overages = maps:get(overages, Shares, 0),
     RewardsMD1 = consensus_members_rewards(RewardsMD0, Ledger, Vars, Overages),
 
-    {DCRemainder, DCReward} = calculate_dc_remainder(RewardsMD1, Vars),
+    Vars0 = calculate_reward_from_total_shares(Shares, Vars),
+    normalize_all_reward_shares(RewardsMD1, Vars0).
+
+-spec calculate_reward_from_total_shares( Shares :: total_shares(),
+                                          Vars :: reward_vars() ) -> NewVars :: reward_vars().
+calculate_reward_from_total_shares(Shares, Vars) ->
+    {DCRemainder, DCReward} = calculate_dc_remainder(Shares, Vars),
 
     %% ok, we are now going to calculate the total reward amount for each
     %% reward type that uses shares - we do this here to calculate it
     %% once for all subsequent reward calculations for each entry in
     %% the rewards metadata rather than recalculating it over and over.
-    Vars0 = lists:foldl(fun(T, VarMap) ->
-                                {K, V} = calculate_total_reward_for_type(T, VarMap),
-                                VarMap#{K => V}
-                        end,
-                        Vars#{dc_remainder => DCRemainder,
-                              dc_reward => DCReward},
-                        [poc_challengers, poc_challengees, poc_witnesses]),
-
-    normalize_all_reward_shares(RewardsMD1, Vars0).
+    lists:foldl(fun(T, VarMap) ->
+                        {K, V} = calculate_total_reward_for_type(T, VarMap),
+                        VarMap#{K => V}
+                end,
+                Vars#{dc_remainder => DCRemainder,
+                      dc_reward => DCReward},
+                [poc_challengers, poc_challengees, poc_witnesses]).
 
 -spec normalize_all_reward_shares(
         RewardsMD :: rewards_metadata(),
@@ -1275,8 +1282,8 @@ get_owner_address(validator, Addr, Ledger) ->
 get_owner_address(gateway, Addr, Ledger) ->
     blockchain_ledger_v1:find_gateway_owner(Addr, Ledger).
 
--spec calculate_dc_remainder(rewards_metadata(), reward_vars()) -> {number(), number()}.
-calculate_dc_remainder(#{ shares_acc := #{ data_credits := #dc_shares{ total = TotalDCs } } },
+-spec calculate_dc_remainder(total_shares(), reward_vars()) -> {number(), number()}.
+calculate_dc_remainder(#{ data_credits := #dc_shares{ total = TotalDCs } },
                           #{epoch_reward := EpochReward,
                             dc_percent := DCPercent}=Vars) ->
     OraclePrice = maps:get(oracle_price, Vars, 0),
@@ -1300,7 +1307,9 @@ calculate_dc_remainder(#{ shares_acc := #{ data_credits := #dc_shares{ total = T
             end
     end,
 
-    {max(0, round(MaxDCReward - DCReward)), DCReward}.
+    DCRemainder = max(0, round(MaxDCReward - DCReward)),
+    lager:debug("dc reward ~p dc remainder: ~p", [DCReward, DCRemainder]),
+    {DCRemainder, DCReward}.
 
 -spec poc_reward_tx_unit(R :: float(),
                          W :: pos_integer(),
@@ -1427,7 +1436,12 @@ rewards_by_type_from_shares(SharesList, TotalShares, Vars) ->
 to_new_v2_metadata( OldMD, Ledger ) ->
     NewInit = #{ shares_acc => #{ data_credits => #dc_shares{} } },
     {_, RewardsMD} = lists:foldl(fun({OldRewardType, NewRewardType}, {Acc, NewAcc}) ->
-                        ShareMap = maps:get(OldRewardType, Acc),
+                        ShareMap0 = maps:get(OldRewardType, Acc),
+                        ShareMap = case OldRewardType of
+                                       dc_rewards ->
+                                           maps:remove(seen, ShareMap0);
+                                       _ -> ShareMap0
+                                   end,
                         Updated = maps:fold(fun(Gateway, Shares, Acc1) ->
                                                     case blockchain_ledger_v1:find_gateway_owner(
                                                            Gateway, Ledger) of

@@ -39,7 +39,7 @@
     absorb/2,
     calculate_rewards/3,
     calculate_rewards_metadata/3,
-    calculate_rewards_share_metadata/4,
+    calculate_rewards_share_metadata/3,
     print/1,
     to_json/2
 ]).
@@ -246,6 +246,15 @@ calculate_rewards_metadata(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     {ok, SharesMap, Vars} = calculate_rewards_share_metadata(Start, End, Ledger, Chain),
     shares_to_hnt_rewards(SharesMap, Ledger, Vars).
+
+-spec calculate_rewards_share_metadata(
+        Start :: non_neg_integer(),
+        End :: non_neg_integer(),
+        Chain :: blockchain:blockchain() ) ->
+    {ok, Metadata :: rewards_share_map(), Vars :: reward_vars()} | {error, Error :: term()}.
+calculate_rewards_share_metadata(Start, End, Chain) ->
+    {ok, Ledger} = blockchain:ledger_at(End, Chain),
+    calculate_rewards_share_metadata(Start, End, Ledger, Chain).
 
 -spec calculate_rewards_share_metadata(
         Start :: non_neg_integer(),
