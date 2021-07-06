@@ -646,9 +646,9 @@ bad_max_actors_test(Config) ->
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
     RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
 
-    %% SET sc_max_actors above normal
-    NewSCMAxActors = 200,
-    ok = ct_rpc:call(RouterNode, application, set_env, [blockchain, sc_max_actors, NewSCMAxActors]),
+    %% SET sc_overload
+    OverLoad = 2,
+    ok = ct_rpc:call(RouterNode, application, set_env, [blockchain, sc_overload, OverLoad]),
 
     %% Check that the meck txn forwarding works
     Self = self(),
@@ -724,20 +724,21 @@ bad_max_actors_test(Config) ->
             [#{public => PubKey, secret => PrivKey}|Acc]
         end,
         [],
-        lists:seq(1, MaxActorsAllowed + 1)
+        lists:seq(1, MaxActorsAllowed * 2)
     ),
 
     %% Checking that we are not spilling over
     ok = blockchain_ct_utils:wait_until(fun() ->
         ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
         ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
-        [ID1] == ActiveSCIDs1
+        [ID1, ID2] == ActiveSCIDs1
     end, 30, timer:seconds(1)),
 
-
-    [SCA1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
-    ?assertEqual(MaxActorsAllowed + 1, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
-    ?assertEqual(MaxActorsAllowed + 1, blockchain_state_channel_v1:total_packets(SCA1)),
+    [SCA1, SCAB1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
+    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCA1)),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCAB1))),
+    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCAB1)),
 
     _ = lists:foldl(
         fun(_I, Acc) ->
@@ -760,22 +761,16 @@ bad_max_actors_test(Config) ->
             [#{public => PubKey, secret => PrivKey}|Acc]
         end,
         [],
-        lists:seq(1, NewSCMAxActors - (MaxActorsAllowed + 1) + 1)
+        lists:seq(1, OverLoad)
     ),
 
-    %% Checking that we are not spilling over
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
-        ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
-        [ID1, ID2] == ActiveSCIDs1
-    end, 30, timer:seconds(1)),
-
+    timer:sleep(2000),
 
     [SCA2, SCB2] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
-    ?assertEqual(NewSCMAxActors, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
-    ?assertEqual(NewSCMAxActors, blockchain_state_channel_v1:total_packets(SCA2)),
-    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
-    ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB2)),
+    ?assertEqual(MaxActorsAllowed+OverLoad, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
+    ?assertEqual(MaxActorsAllowed+OverLoad, blockchain_state_channel_v1:total_packets(SCA2)),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
+    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCB2)),
 
     ok.
 

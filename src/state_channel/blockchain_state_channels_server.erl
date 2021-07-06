@@ -366,6 +366,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
 handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, active_sc_ids=ActiveSCIDs,
                                          state_channels=SCs, blooms=Blooms, owner={_Owner, OwnerSigFun},
                                          max_actors_allowed=MaxActorsAllowed}=State0) ->
+    lager:debug("max ~p", [MaxActorsAllowed]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
@@ -380,9 +381,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                     lager:debug("could not get a good active SC (~p)", [_Reason]),
                     case maybe_get_new_active(State0) of
                         undefined ->
-                            lager:warning("could not get a new active SC (~p), rejecting", [_Reason]),
-                            ok = send_rejection(HandlerPid),
-                            State0;
+                             maybe_overload_sc(SCOffer, HandlerPid, State0);
                         NewActiveID ->
                             lager:info("adding new active SC ~p", [blockchain_utils:addr2name(NewActiveID)]),
                             handle_offer(SCOffer, HandlerPid, State0#state{active_sc_ids=ActiveSCIDs ++ [NewActiveID]})
@@ -985,3 +984,34 @@ update_state_with_blooms(#state{state_channels=SCs, max_actors_allowed=MaxActors
                               {ClientBloom, PacketBloom}
                       end, SCs),
     State#state{blooms=Blooms}.
+
+
+%% THIS IS BAD, REMOVE ASAP
+maybe_overload_sc(SCOffer, HandlerPid, #state{max_actors_allowed=MaxActorsAllowed}=State0) ->
+    case sc_overload() of
+        false ->
+            lager:warning("could not get a new active SC, rejecting"),
+            ok = send_rejection(HandlerPid),
+            State0;
+         OverLoad ->
+                lager:debug("overloading SCs to ~p", [MaxActorsAllowed + OverLoad]),
+                State1 = handle_offer(SCOffer, HandlerPid, State0#state{max_actors_allowed=MaxActorsAllowed + OverLoad}),
+                State1#state{max_actors_allowed=MaxActorsAllowed}
+    end.
+
+sc_overload() ->
+    case application:get_env(blockchain, sc_overload, false) of
+        Str when is_list(Str) ->
+            try erlang:list_to_integer(Str) of
+                OverLoad ->
+                    OverLoad
+            catch
+                What:Why ->
+                    lager:info("failed to convert force_default_devaddr to atom ~p", [{What, Why}]),
+                    false
+            end;
+        OverLoad when is_integer(OverLoad) ->
+            OverLoad;
+        _ ->
+            false
+    end.
