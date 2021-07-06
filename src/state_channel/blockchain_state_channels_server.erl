@@ -366,7 +366,6 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
 handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, active_sc_ids=ActiveSCIDs,
                                          state_channels=SCs, blooms=Blooms, owner={_Owner, OwnerSigFun},
                                          max_actors_allowed=MaxActorsAllowed}=State0) ->
-    lager:debug("max ~p", [MaxActorsAllowed]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
