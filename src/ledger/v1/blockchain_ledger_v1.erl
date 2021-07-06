@@ -4976,20 +4976,20 @@ get_sc_mod(Channel, Ledger) ->
 %%--------------------------------------------------------------------
 -spec get_sc_max_actors(Ledger :: ledger()) -> pos_integer().
 get_sc_max_actors(Ledger) ->
-    DefaultMaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
-    case application:get_env(blockchain, sc_max_actors, DefaultMaxActorsAllowed) of
+    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+    case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
         Str when is_list(Str) ->
             try erlang:list_to_integer(Str) of
-                TooHigh when TooHigh > DefaultMaxActorsAllowed ->
-                    DefaultMaxActorsAllowed;
+                TooHigh when TooHigh > MaxActorsAllowed ->
+                    MaxActorsAllowed;
                 Max ->
                     Max
             catch What:Why ->
                 lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
-                DefaultMaxActorsAllowed
+                MaxActorsAllowed
             end;
-        TooHigh when TooHigh > DefaultMaxActorsAllowed ->
-            DefaultMaxActorsAllowed;
+        TooHigh when TooHigh > MaxActorsAllowed ->
+            MaxActorsAllowed;
         Max ->
             Max
     end.
