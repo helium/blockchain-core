@@ -4980,16 +4980,16 @@ get_sc_max_actors(Ledger) ->
     case application:get_env(blockchain, sc_max_actors, DefaultMaxActorsAllowed) of
         Str when is_list(Str) ->
             try erlang:list_to_integer(Str) of
-                %% TooHigh when TooHigh > DefaultMaxActorsAllowed ->
-                %%     DefaultMaxActorsAllowed;
+                TooHigh when TooHigh > DefaultMaxActorsAllowed ->
+                    DefaultMaxActorsAllowed;
                 Max ->
                     Max
             catch What:Why ->
                 lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
                 DefaultMaxActorsAllowed
             end;
-        %% TooHigh when TooHigh > DefaultMaxActorsAllowed ->
-        %%     DefaultMaxActorsAllowed;
+        TooHigh when TooHigh > DefaultMaxActorsAllowed ->
+            DefaultMaxActorsAllowed;
         Max ->
             Max
     end.
