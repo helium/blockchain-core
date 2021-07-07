@@ -29,6 +29,7 @@
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_json.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -216,12 +217,12 @@ print(Validator, Height, Verbose, Ledger) ->
 
     case Verbose of
         true ->
-            [{validator_address, libp2p_crypto:bin_to_b58(address(Validator))},
+            [{validator_address, ?BIN_TO_B58(address(Validator))},
              {nonce, nonce(Validator)}];
         false -> []
     end ++
         [
-         {owner_address, libp2p_crypto:bin_to_b58(owner_address(Validator))},
+         {owner_address, ?BIN_TO_B58(owner_address(Validator))},
          {last_heartbeat, Height - last_heartbeat(Validator)},
          {stake, stake(Validator)},
          {status, status(Validator)},
@@ -233,7 +234,7 @@ print(Validator, Height, Verbose, Ledger) ->
         ].
 
 flt(F) ->
-    io_lib:format("~.2f", [F]).
+    iolist_to_binary(io_lib:format("~.2f", [F])).
 
 -spec penalty_type(penalty()) -> penalty_type().
 penalty_type(#penalty{type = Type}) ->
