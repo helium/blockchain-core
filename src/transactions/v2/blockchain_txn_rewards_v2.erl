@@ -51,9 +51,9 @@
          rewards_by_type/2,
          rewards_by_type/3,
          to_new_v2_metadata/2,
+         calculate_reward_from_total_shares/2,
          finalize_reward_calculations/3,
-         get_reward_vars/3,
-         calculate_reward_from_total_shares/2
+         calculate_rewards_metadata_with_vars/3
         ]).
 -endif.
 
@@ -103,6 +103,7 @@
 
 -export_type([txn_rewards_v2/0, rewards_metadata/0]).
 
+-define(WITNESS_KEY, '__poc_witness_key'). %% XXX DELETE ME
 
 %% ------------------------------------------------------------------
 %% Public API
@@ -236,6 +237,7 @@ calculate_rewards(Start, End, Chain) ->
 calculate_rewards_(Start, End, Chain) ->
     {ok, Results} = calculate_rewards_metadata(Start, End, Chain),
     try
+
         {ok, prepare_rewards_v2_txns(Results)}
     catch
         C:Error:Stack ->
@@ -251,6 +253,30 @@ calculate_rewards_(Start, End, Chain) ->
 %% @doc Calculate <i>only</i> rewards metadata (do not return v2 reward records
 %% to the caller.)
 calculate_rewards_metadata(Start, End, Chain) ->
+    case calculate_rewards_metadata_with_vars(Start, End, Chain) of
+        {ok, #{ shares_acc := TotalShares} = Metadata, Vars} ->
+            GatewayWitnesses = erlang:get(?WITNESS_KEY),
+            file:write_file("/tmp/new-shares-witness.t2b",
+                        term_to_binary(GatewayWitnesses, [compressed])), %% XXX
+            WitnessRewards = maps:map(fun(_K, Shares) ->
+                                              normalize_shares(poc_witnesses, Shares,
+                                                               TotalShares, Vars)
+                                      end,
+                                      GatewayWitnesses),
+            file:write_file("/tmp/new-bones-witness.t2b",
+                            term_to_binary(WitnessRewards, [compressed])),
+            {ok, Metadata};
+        Error -> Error
+    end.
+
+-spec calculate_rewards_metadata_with_vars(
+        Start :: non_neg_integer(),
+        End :: non_neg_integer(),
+        Chain :: blockchain:blockchain() ) ->
+    {ok, Metadata :: rewards_metadata(), Vars :: reward_vars()} | {error, Error :: term()}.
+%% @doc Calculate <i>only</i> rewards metadata (do not return v2 reward records
+%% to the caller) and return the rewards vars used to calculate the rewards.
+calculate_rewards_metadata_with_vars(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     Vars0 = get_reward_vars(Start, End, Ledger),
     VarMap = case blockchain_hex:var_map(Ledger) of
@@ -282,12 +308,12 @@ calculate_rewards_metadata(Start, End, Chain) ->
         ConsensusEpochReward = calculate_epoch_reward(1, Start, End, Ledger),
         Vars1 = Vars#{ consensus_epoch_reward => ConsensusEpochReward },
 
-        Results = finalize_reward_calculations(Results0, Ledger, Vars1),
+        {Results, Vars2} = finalize_reward_calculations(Results0, Ledger, Vars1),
         %% we are only keeping hex density calculations memoized for a single
         %% rewards transaction calculation, then we discard that work and avoid
         %% cache invalidation issues.
         true = blockchain_hex:destroy_memoization(),
-        {ok, Results}
+        {ok, Results, Vars2}
     catch
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't calculate rewards metadata because: ~p~n~p", [C, Error, Stack]),
@@ -429,14 +455,14 @@ calculate_dc_rewards(Txn, End, Acc, _Chain, Ledger, Vars) ->
 
 -spec finalize_reward_calculations( RewardsMD :: rewards_metadata(),
                                     Ledger :: blockchain_ledger_v1:ledger(),
-                                    Vars :: reward_vars() ) -> rewards_metadata().
+                                    Vars :: reward_vars() ) -> {rewards_metadata(), reward_vars()}.
 finalize_reward_calculations(#{shares_acc := Shares} = RewardsMD, Ledger, Vars) ->
     RewardsMD0 = securities_rewards(RewardsMD, Ledger, Vars),
     Overages = maps:get(overages, Shares, 0),
     RewardsMD1 = consensus_members_rewards(RewardsMD0, Ledger, Vars, Overages),
 
     Vars0 = calculate_reward_from_total_shares(Shares, Vars),
-    normalize_all_reward_shares(RewardsMD1, Vars0).
+    {normalize_all_reward_shares(RewardsMD1, Vars0), Vars0}.
 
 -spec calculate_reward_from_total_shares( Shares :: total_shares(),
                                           Vars :: reward_vars() ) -> NewVars :: reward_vars().
@@ -497,7 +523,7 @@ calculate_total_reward_for_type(poc_witnesses,
 -spec normalize_shares( Type :: reward_types(),
                         Amount :: number(),
                         Totals :: total_shares(),
-                        Vars :: reward_vars() ) -> HNT :: number().
+                        Vars :: reward_vars() ) -> Bones :: number().
 %% @doc This function takes a reward type and a number of shares of that reward
 %% type and converts it into an HNT payout.
 normalize_shares(poc_challengers, Amount,
@@ -519,7 +545,7 @@ normalize_shares(data_credits, Amount,
 
 -spec shares_to_reward(Amount :: number(),
                        TotalShares :: number(),
-                       TotalReward :: number() ) -> number().
+                       TotalReward :: number() ) -> Bones :: number().
 %% @doc Calculate a reward based on the total number of shares for a reward type
 %% and the total amount of HNT allocated for that reward in this epoch.
 shares_to_reward(Amount, TotalShares, TotalReward) ->
@@ -747,7 +773,21 @@ securities_rewards(RewardsMD, Ledger, #{epoch_reward := EpochReward,
 %% these new shares to the existing metadata information for the given reward type.
 %%
 %% Also updates the _total_ number of shares for the given reward type.
-add_shares(Type, Gateway, #{ shares_acc := TotalShares} = RewardsMD, Ledger, Shares) ->
+add_shares(poc_witnesses, Gateway, RewardsMD, Ledger, Shares) ->
+    Temp = case erlang:get(?WITNESS_KEY) of
+               undefined -> #{};
+               Data -> Data
+           end,
+    NewTemp = maps:update_with(Gateway,
+                               fun(C) -> C + Shares end,
+                               Shares, Temp),
+    erlang:put(?WITNESS_KEY, NewTemp),
+    add_shares(poc_witnesses, Gateway, RewardsMD, Ledger, Shares);
+add_shares(Type, Gateway, RewardsMD, Ledger, Shares) ->
+    add_shares_(Type, Gateway, RewardsMD, Ledger, Shares).
+
+
+add_shares_(Type, Gateway, #{ shares_acc := TotalShares} = RewardsMD, Ledger, Shares) ->
     %% update the total number of shares first
     NewTotalShares = case Type of
                          data_credits ->
@@ -1053,8 +1093,8 @@ poc_witness_reward(Txn, AccIn,
                                          lists:foldl(
                                            fun(WitnessRecord, Acc2) ->
                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                   I = maps:get(Witness, Acc2, 0),
-                                                   maps:put(Witness, I+ToAdd, Acc2)
+                                                   add_shares(poc_witnesses, Witness, Acc2,
+                                                              Ledger, ToAdd)
                                            end,
                                            Acc1,
                                            ValidWitnesses);

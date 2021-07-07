@@ -12,11 +12,13 @@
 
 -export([
          calc_v1_and_v2_test/1,
-         calc_v2_and_compare_to_chain/1
+         calc_v2_and_compare_to_chain/1,
+         diff_vars/2,
+         diff_by_type/2
         ]).
 
 suite() ->
-    [{timetrap,{seconds,600}}].
+    [{timetrap,{hours,2}}].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(lager),
@@ -92,33 +94,6 @@ calc_v1_and_v2_test(Config) ->
       end),
     ct:pal("old rewards v2: ~p ms", [Time4 div 1000]),
 
-    {Time3, {OldRewardsShareMD, OldVars}} =
-        timer:tc(
-          fun() ->
-                  {ok, R3, R3Vars} = blockchain_txn_rewards_v2_old:calculate_rewards_share_metadata(
-                                       Height - 15,
-                                       Height,
-                                       Chain),
-                  {R3, R3Vars}
-          end),
-    ct:pal("old rewards v2 share time: ~p ms", [Time3 div 1000]),
-    %ct:pal("old rewards v2 share raw: ~p", [OldRewardsShareMD]),
-
-    {ok, #{ shares_acc := NewShares } = RewardsV2Meta} =
-        blockchain_txn_rewards_v2:calculate_rewards_metadata(Height - 15, Height, Chain),
-
-    OldToNew = blockchain_txn_rewards_v2:to_new_v2_metadata(OldRewardsShareMD, Ledger),
-    #{ shares_acc := OldShares } = OldToNewFinal = blockchain_txn_rewards_v2:finalize_reward_calculations(OldToNew, Ledger, OldVars),
-    %ct:pal("old rewards to new v2: ~p", [OldToNewFinal]),
-
-    NewVars = blockchain_txn_rewards_v2:calculate_reward_from_total_shares(NewShares, OldVars),
-    OldVars1 = blockchain_txn_rewards_v2:calculate_reward_from_total_shares(OldShares, OldVars),
-
-    NewByType = blockchain_txn_rewards_v2:rewards_by_type(RewardsV2Meta, NewVars),
-    OldByType = blockchain_txn_rewards_v2:rewards_by_type(OldToNewFinal, OldVars1),
-
-    ct:pal("diff by type: ~p", [diff_by_type(NewByType, OldByType)]),
-
     V1 = blockchain_txn_rewards_v2:v1_to_v2(RewardsV1),
 
     case RewardsV2 == OldRewardsV2 of
@@ -182,6 +157,20 @@ calc_v2_and_compare_to_chain(Config) ->
     end.
 
 %% Internal functions
+
+diff_vars(New, Old) ->
+    maps:fold(fun(K, V, Acc) ->
+                      case maps:get(K, Old, undefined) of
+                          undefined -> maps:update_with(key_not_in_old_vars,
+                                                        fun(C) -> [ K | C ] end,
+                                                        [ K ],
+                                                        Acc);
+                          V -> Acc; %% same in old and new
+                          OldVal -> Acc#{ K => {V, OldVal} }
+                      end
+              end,
+              #{}, New).
+
 diff_by_type(New, Old) ->
     maps:fold(fun(K, NewTypes, Acc) ->
                      OldTypes = maps:get(K, Old),

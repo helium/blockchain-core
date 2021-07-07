@@ -1136,7 +1136,7 @@ normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
     TotalWitnesses = lists:sum(maps:values(WitnessRewards)),
     ShareOfDCRemainder = share_of_dc_rewards(poc_witnesses_percent, Vars),
     WitnessesReward = (EpochReward * PocWitnessesPercent) + ShareOfDCRemainder,
-    maps:fold(
+    T = maps:fold(
         fun(Witness, Witnessed, Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
             Amount = erlang:round(PercentofReward*WitnessesReward),
@@ -1144,7 +1144,12 @@ normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
         end,
         #{},
         WitnessRewards
-    ).
+    ),
+    file:write_file("/tmp/old-shares-witness.t2b",
+                    term_to_binary(WitnessRewards, [compressed])), %% XXX
+    file:write_file("/tmp/old-bones-witness.t2b",
+                    term_to_binary(T, [compressed])), %% XXX
+    T.
 
 -spec collect_dc_rewards_from_previous_epoch_grace(
         Start :: non_neg_integer(),
