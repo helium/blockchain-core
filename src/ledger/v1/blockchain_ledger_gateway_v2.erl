@@ -769,9 +769,9 @@ fix_witness_last_location_nonce(GW = #gateway_v2{witnesses = Witnesses}, Ledger)
                                          0 ->
                                              %% default value, read actual nonce from ledger
                                              {ok, WitnessGW} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
-                                             {true, [Witness#witness{added_location_nonce=WitnessGW#gateway_v2.last_location_nonce}|Acc]};
+                                             {true, [{WitnessPubkeyBin, Witness#witness{added_location_nonce=WitnessGW#gateway_v2.last_location_nonce}}|Acc]};
                                          _ ->
-                                             {HasChanged, [Witness|Acc]}
+                                             {HasChanged, [{WitnessPubkeyBin, Witness}|Acc]}
                                      end
                              end, {false, []}, Witnesses),
     case Updated of
