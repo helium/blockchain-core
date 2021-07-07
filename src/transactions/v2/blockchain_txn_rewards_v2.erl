@@ -391,6 +391,8 @@ new_reward(Account, Amount) ->
                                Ledger :: blockchain_ledger_v1:ledger(),
                                Acc :: rewards_share_metadata() ) -> rewards_share_metadata().
 fold_blocks_for_rewards(Current, End, _Chain, _Vars, _Ledger, Acc) when Current == End + 1 -> Acc;
+fold_blocks_for_rewards(910360, End, Chain, Vars, Ledger, Acc) ->
+    fold_blocks_for_rewards(910361, End, Chain, Vars, Ledger, Acc);
 fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason} = Error -> throw(Error);
