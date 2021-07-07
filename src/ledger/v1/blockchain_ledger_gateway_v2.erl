@@ -37,7 +37,8 @@
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
     oui/1, oui/2,
     mask/2,
-    is_valid_capability/3
+    is_valid_capability/3,
+    fix_witness_last_location_nonce/2
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -760,6 +761,27 @@ filter_stale_witnesses(GatewayBin, GatewayToPurge = #gateway_v2{witnesses = Witn
             noop
     end,
     PurgedGW.
+
+fix_witness_last_location_nonce(GW = #gateway_v2{witnesses = Witnesses}, Ledger) ->
+
+    {Updated, NewWitnesses} = lists:foldl(fun({WitnessPubkeyBin, Witness}, {HasChanged, Acc}) ->
+                                     case Witness#witness.added_location_nonce of
+                                         0 ->
+                                             %% default value, read actual nonce from ledger
+                                             {ok, WitnessGW} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
+                                             {true, [Witness#witness{added_location_nonce=WitnessGW#gateway_v2.last_location_nonce}|Acc]};
+                                         _ ->
+                                             {HasChanged, [Witness|Acc]}
+                                     end
+                             end, {false, []}, Witnesses),
+    case Updated of
+        true ->
+            GW#gateway_v2{witnesses=lists:reverse(NewWitnesses)};
+        false ->
+            not_changed
+    end.
+
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

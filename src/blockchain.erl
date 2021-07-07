@@ -109,7 +109,8 @@
                           %% reinitializing it with a different name specified in the hrl
                           fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1,
-                          fun upgrade_gateways_lg/1]).
+                          fun upgrade_gateways_lg/1,
+                          fun fix_witness_last_location_nonce/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -242,6 +243,22 @@ upgrade_gateways_lg(Ledger) ->
       end,
       whatever,
       Ledger).
+
+fix_witness_last_location_nonce(Ledger) ->
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, _) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              case blockchain_ledger_gateway_v2:fix_witness_last_location_nonce(Gw, Ledger) of
+                  not_changed ->
+                      ok;
+                  NewGw ->
+                      blockchain_ledger_v1:update_gateway(NewGw, Addr, Ledger)
+              end
+      end,
+      whatever,
+      Ledger).
+
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
 get_upgrades(Ledger) ->
