@@ -37,7 +37,8 @@
          rescue_absorb/2,
          sign/2,
          print/1,
-         to_json/2
+         to_json/2,
+         process_hooks/3
         ]).
 
 %% helper API
@@ -594,6 +595,7 @@ delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
     Unsets = decode_unsets(unsets(Txn)),
     ok = blockchain_ledger_v1:vars(Vars, Unsets, Ledger),
+    ok = process_hooks(Vars, Unsets, Ledger),
     case blockchain:config(?use_multi_keys, Ledger) of
         {ok, true} ->
             case multi_keys(Txn) of
@@ -1348,6 +1350,26 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+-spec process_hooks(Vars :: map(), Unsets :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+process_hooks(Vars, Unsets, Ledger) ->
+    _ = maps:map(
+          fun(Var, Value) ->
+                  var_hook(Var, Value, Ledger)
+          end, Vars),
+    _ = lists:foreach(
+          fun(Var) ->
+                  unset_hook(Var, Ledger)
+          end, Unsets),
+    ok.
+
+%% separate out hook functions and call them in separate functions
+%% below the hook section.
+var_hook(_Var, _Value, _Ledger) ->
+    ok.
+
+unset_hook(_Var, _Ledger) ->
+    ok.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
