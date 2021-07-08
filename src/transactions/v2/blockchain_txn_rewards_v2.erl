@@ -703,7 +703,19 @@ consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
       fun(Member, Acc) ->
               PercentofReward = 100/Count/100,
               Amount = erlang:round(PercentofReward*ConsensusReward),
-              maps:put({GwOrVal, consensus, Member}, Amount+OveragePerMember, Acc)
+              %% in transitional blocks and in the last reward block of v5 it's possible to still
+              %% have gateways in who need to be rewarded, so make sure that everyone gets tagged
+              %% correctly with the proper code path
+              Actual =
+                  case GwOrVal of
+                      validator ->
+                          case blockchain_ledger_v1:get_validator(Member, Ledger) of
+                              {ok, _} -> validator;
+                              {error, not_found} -> gateway
+                          end;
+                      gateway -> gateway
+                  end,
+              maps:put({Actual, consensus, Member}, Amount+OveragePerMember, Acc)
       end,
       #{},
       Members).
