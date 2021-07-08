@@ -38,7 +38,7 @@
     oui/1, oui/2,
     mask/2,
     is_valid_capability/3,
-    fix_witness_last_location_nonce/2
+    fix_witness_location_nonces/3
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -762,23 +762,32 @@ filter_stale_witnesses(GatewayBin, GatewayToPurge = #gateway_v2{witnesses = Witn
     end,
     PurgedGW.
 
-fix_witness_last_location_nonce(GW = #gateway_v2{witnesses = Witnesses}, Ledger) ->
-
-    {Updated, NewWitnesses} = lists:foldl(fun({WitnessPubkeyBin, Witness}, {HasChanged, Acc}) ->
+fix_witness_location_nonces(GW = #gateway_v2{witnesses = Witnesses}, GWAddr, Ledger) ->
+    %% iterate over the witnesses for the current GW
+    %% check if the witness has default location values ( a value of zero )
+    %% if so update each witness record's added_location_nonce and the
+    %% witnesses GW's last_location_nonce to be that of the witness GWs current
+    %% nonce value
+    {UpdatedWitnesses, NewWitnesses} = lists:foldl(fun({WitnessPubkeyBin, Witness}, {HasChanged, Acc}) ->
                                      case Witness#witness.added_location_nonce of
                                          0 ->
-                                             %% default value, read actual nonce from ledger
-                                             {ok, WitnessGW} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
-                                             {true, [{WitnessPubkeyBin, Witness#witness{added_location_nonce=WitnessGW#gateway_v2.last_location_nonce}}|Acc]};
+                                             %% default value, read actual nonce from witness GW ledger
+                                             {ok, #gateway_v2{nonce = WitnessGWNonce} = WitnessGW} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
+                                             %% update the witnesses GW with the updated last_location_nonce
+                                             UpdatedWitnessGW = WitnessGW#gateway_v2{last_location_nonce = WitnessGWNonce},
+                                             blockchain_ledger_v1:update_gateway(UpdatedWitnessGW, WitnessPubkeyBin, Ledger),
+                                             %% update the witness record's added_location_nonce
+                                             {true, [{WitnessPubkeyBin, Witness#witness{added_location_nonce=WitnessGWNonce}}|Acc]};
                                          _ ->
                                              {HasChanged, [{WitnessPubkeyBin, Witness}|Acc]}
                                      end
                              end, {false, []}, Witnesses),
-    case Updated of
+    case UpdatedWitnesses of
         true ->
-            GW#gateway_v2{witnesses=lists:reverse(NewWitnesses)};
+            UpdatedGW = GW#gateway_v2{witnesses=lists:reverse(NewWitnesses)},
+            blockchain_ledger_v1:update_gateway(UpdatedGW, GWAddr, Ledger);
         false ->
-            not_changed
+            noop
     end.
 
 

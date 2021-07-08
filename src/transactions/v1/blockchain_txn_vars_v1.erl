@@ -1363,8 +1363,10 @@ process_hooks(Vars, Unsets, Ledger) ->
           end, Unsets),
     ok.
 
-%% separate out hook functions and call them in separate functions
-%% below the hook section.
+
+var_hook(?unknown_chain_var, 1, Ledger) ->
+    %% peg the updating of default witness location nonces to the XX chain var
+    blockchain:fix_witness_location_nonces(Ledger);
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
