@@ -1363,7 +1363,11 @@ process_hooks(Vars, Unsets, Ledger) ->
           end, Unsets),
     ok.
 
-
+%% TODO:  determine a chain var to peg these hooks to
+%% Option1: add a new dedicated chain var specific to hooks, increment its value with each newly added hook
+%% Option2: piggy back on some existing chain var
+%% Option3: ???
+%% Option1 would likely make most sense
 var_hook(?unknown_chain_var, 1, Ledger) ->
     %% peg the updating of default witness location nonces to the XX chain var
     blockchain:fix_witness_location_nonces(Ledger);
