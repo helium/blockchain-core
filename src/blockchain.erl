@@ -109,8 +109,7 @@
                           %% reinitializing it with a different name specified in the hrl
                           fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1,
-                          fun upgrade_gateways_lg/1,
-                          fun fix_witness_location_nonces/1]).
+                          fun upgrade_gateways_lg/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
