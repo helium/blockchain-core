@@ -781,14 +781,16 @@ can_add_block(Block, Blockchain) ->
                                     %% check the block is not contiguous
                                     case Height > (ChainHeight + 1) of
                                         true ->
-                                            lager:warning("block doesn't fit with our chain,
-                                                block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                            blockchain_block:height(HeadBlock)]),
                                             case is_block_plausible(Block, Blockchain) of
                                                 true -> plausible;
-                                                false -> {error, disjoint_chain}
+                                                false ->
+                                                    lager:warning("higher block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                                                                                blockchain_block:height(HeadBlock)]),
+                                                    {error, disjoint_chain}
                                             end;
                                         false ->
+                                            lager:warning("lower block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                                                                        blockchain_block:height(HeadBlock)]),
                                             %% if the block height is lower we probably don't care about it
                                             {error, disjoint_chain}
                                     end
