@@ -352,7 +352,9 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
                     #{version := v5} = S = maps:from_list(binary_to_term(Bin)),
                     S;
                 6 ->
-                    maps:from_list(deserialize_pairs(Bin))
+                    Pairs = deserialize_pairs(Bin),
+                    lager:debug("Successfully deserialized snapshot pairs. Constructing map..."),
+                    maps:from_list(Pairs)
             end,
         case DigestOpt of
             %% if we don't care what the hash is,
@@ -1092,9 +1094,12 @@ serialize_pairs(Pairs) ->
 
 deserialize_pairs(<<Bin/binary>>) ->
     lists:map(
-        fun({K0, V}) ->
+        fun({K0, V0}) ->
             K = binary_to_term(K0),
-            {K, deserialize_field(K, V)}
+            lager:debug("Successfully deserialized key: ~p", [K]),
+            V = deserialize_field(K, V0),
+            lager:debug("Successfully deserialized val for key: ~p", [K]),
+            {K, V}
         end,
         bin_pairs_from_bin(Bin)
     ).
