@@ -192,8 +192,9 @@ absorb(Txn, Chain) ->
     Validator = address(Txn),
     StakeReleaseHeight = stake_release_height(Txn),
     Fee = fee(Txn),
+    Hash = ?MODULE:hash(Txn),
 
-    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, true) of
+    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, true, Hash, Chain) of
         {error, _Reason} = Err -> Err;
         ok ->
             blockchain_ledger_v1:deactivate_validator(Validator, StakeReleaseHeight, Ledger)

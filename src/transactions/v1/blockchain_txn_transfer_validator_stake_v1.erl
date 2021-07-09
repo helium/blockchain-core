@@ -288,8 +288,9 @@ absorb(Txn, Chain) ->
     OldValidator = old_validator(Txn),
     Amount = payment_amount(Txn),
     Fee = fee(Txn),
+    Hash = ?MODULE:hash(Txn),
 
-    case blockchain_ledger_v1:debit_fee(OldOwner, Fee, Ledger, true) of
+    case blockchain_ledger_v1:debit_fee(OldOwner, Fee, Ledger, true, Hash, Chain) of
         {error, _Reason} = Err -> Err;
         ok ->
             case blockchain_ledger_v1:get_validator(OldValidator, Ledger) of
