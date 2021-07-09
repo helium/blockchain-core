@@ -367,7 +367,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                          max_actors_allowed=MaxActorsAllowed}=State0) ->
     Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
     HotspotName = blockchain_utils:addr2name(Hotspot),
-    lager:debug("handling offer for ~p", [HotspotName]),
+    lager:debug("handling offer from ~p", [HotspotName]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
@@ -427,22 +427,16 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
                                     Region = blockchain_state_channel_offer_v1:region(SCOffer),
-                                    lager:debug("START send purchase ~p", [HotspotName]),
                                     ok = blockchain_state_channel_handler:send_purchase(HandlerPid,
                                                                                         SignedPurchaseSC,
                                                                                         Hotspot,
                                                                                         PacketHash,
                                                                                         Region),
-                                    lager:debug("END send purchase ~p", [HotspotName]),
                                     {_, Skewed} = maps:get(ActiveSCID, SCs),
                                     ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
-                                    lager:debug("END save ~p", [HotspotName]),
-                                    State1 =
-                                        maybe_add_stream(Hotspot,
+                                    maybe_add_stream(Hotspot,
                                                          HandlerPid,
-                                                         State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)}),
-                                    lager:debug("END maybe_add_stream ~p", [HotspotName]),
-                                    State1
+                                                         State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)})
                             end
                             
                     end
@@ -689,7 +683,7 @@ update_state_with_ledger_channels(#state{db=DB, chain=Chain}=State0) ->
     %% These don't exist in the ledger but we have them in the sc db,
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(LedgerSCKeys, DBSCs)),
-    lager:debug("presumably closed sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- ClosedSCIDs]]),
+    lager:info("presumably closed sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- ClosedSCIDs]]),
 
     {ok, BlockHeight} = blockchain:height(Chain),
     Headroom =
@@ -872,7 +866,6 @@ maybe_get_new_active(WithoutSCIDs, #state{chain=Chain, sc_version=SCVersion, act
                          MaxActorsAllowed :: non_neg_integer()) ->
     {ok, blockchain_state_channel_v1:state_channel()} | {error, does_not_fit}.
 try_update_summary(SC, Hotspot, PayloadSize, DCPayloadSize, MaxActorsAllowed) ->
-    lager:debug("try_update_summary ~p", [blockchain_utils:addr2name(Hotspot)]),
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
     case update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0, MaxActorsAllowed) of
@@ -907,7 +900,6 @@ send_rejection(Stream) ->
                         MaxActorsAllowed :: non_neg_integer()) ->
     {blockchain_state_channel_v1:state_channel(), boolean()}.
 update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) ->
-    lager:debug("update_sc_summary ~p", [blockchain_utils:addr2name(ClientPubKeyBin)]),
     case blockchain_state_channel_v1:get_summary(ClientPubKeyBin, SC) of
         {error, not_found} ->
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
@@ -919,7 +911,6 @@ update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, MaxActorsAllo
                                                                              MaxActorsAllowed),
             {NewSC, DidFit};
         {ok, ExistingSummary} ->
-            lager:debug("update_sc_summary ~p", [blockchain_utils:addr2name(ClientPubKeyBin)]),
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
             %% Update DC count for this client
@@ -928,14 +919,11 @@ update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, MaxActorsAllo
             NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                     ExistingNumPackets + 1,
                                                                     ExistingSummary),
-            lager:debug("update_sc_summary ~p", [blockchain_utils:addr2name(ClientPubKeyBin)]),
             %% Update summaries
             {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(ClientPubKeyBin,
                                                                              NewSummary,
                                                                              SC,
                                                                              MaxActorsAllowed),
-            lager:debug("update_sc_summary ~p", [blockchain_utils:addr2name(ClientPubKeyBin)]),
-            lager:debug("update_sc_summary ~p", [blockchain_utils:addr2name(ClientPubKeyBin)]),
             {NewSC, DidFit}
     end.
 
