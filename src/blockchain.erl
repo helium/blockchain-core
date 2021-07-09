@@ -63,7 +63,8 @@
 
     db_handle/1,
     blocks_cf/1,
-    heights_cf/1
+    heights_cf/1,
+    fix_witness_location_nonces/1
 
 ]).
 
@@ -242,6 +243,17 @@ upgrade_gateways_lg(Ledger) ->
       end,
       whatever,
       Ledger).
+
+fix_witness_location_nonces(Ledger) ->
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, _) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              blockchain_ledger_gateway_v2:fix_witness_location_nonces(Gw, Addr, Ledger)
+      end,
+      whatever,
+      Ledger).
+
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
 get_upgrades(Ledger) ->
@@ -1877,7 +1889,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 %% the gateway, and the given owner and payer
 %%
 %% NOTE: This is an alternative add_gateway creation that calculates the fee and
-%% staking fee from the current live blockchain. 
+%% staking fee from the current live blockchain.
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58) ->

@@ -37,7 +37,8 @@
          rescue_absorb/2,
          sign/2,
          print/1,
-         to_json/2
+         to_json/2,
+         process_hooks/3
         ]).
 
 %% helper API
@@ -594,6 +595,7 @@ delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
     Unsets = decode_unsets(unsets(Txn)),
     ok = blockchain_ledger_v1:vars(Vars, Unsets, Ledger),
+    ok = process_hooks(Vars, Unsets, Ledger),
     case blockchain:config(?use_multi_keys, Ledger) of
         {ok, true} ->
             case multi_keys(Txn) of
@@ -1161,6 +1163,10 @@ validate_var(?txn_fee_multiplier, Value) ->
 validate_var(?data_aggregation_version, Value) ->
     validate_int(Value, "data_aggregation_version", 1, 3, false);
 
+%% ledger hook vars
+validate_var(?ledger_hook_trigger, Value) ->
+    validate_int(Value, "ledger_hook_trigger", 0, 65536, false);
+
 validate_var(?use_multi_keys, Value) ->
     case Value of
         true -> ok;
@@ -1348,6 +1354,35 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+-spec process_hooks(Vars :: map(), Unsets :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+process_hooks(Vars, Unsets, Ledger) ->
+    lager:debug("process hooks with vars ~p", [Vars]),
+    _ = maps:map(
+          fun(Var, Value) ->
+                  var_hook(Var, Value, Ledger)
+          end, Vars),
+    _ = lists:foreach(
+          fun(Var) ->
+                  unset_hook(Var, Ledger)
+          end, Unsets),
+    ok.
+
+%% TODO:  determine a chain var to peg these hooks to
+%% Option1: add a new dedicated chain var specific to hooks, increment its value with each newly added hook
+%% Option2: piggy back on some existing chain var
+%% Option3: other ???
+%% Went with option 1 here....
+var_hook(?ledger_hook_trigger, 1, Ledger) ->
+    %% peg the updating of default witness location nonces to the ledger_hook_trigger
+    %% being present in current txn with a value of 1
+    %% TODO: need to consider the scenario of the chain var being present in later second txn with the same value ?
+    blockchain:fix_witness_location_nonces(Ledger);
+var_hook(_Var, _Value, _Ledger) ->
+    ok.
+
+unset_hook(_Var, _Ledger) ->
+    ok.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
