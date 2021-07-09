@@ -30,7 +30,7 @@ all() -> [
 init_per_testcase(TestCase, Config0) ->
     Config = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config0),
     BaseDir = ?config(base_dir, Config),
-    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
 
     {ok, OracleKeys} = make_oracles(3),
     {ok, EncodedOracleKeys} = make_encoded_oracle_keys(OracleKeys),
@@ -45,14 +45,16 @@ init_per_testcase(TestCase, Config0) ->
       price_oracle_price_scan_max => 50,
       txn_fees => true,
       txn_fee_multiplier => 5000,
-      max_payments => 10
+      max_payments => 10,
+      ledger_hook_trigger => 0,
+      witness_refresh_interval => 500 %% set this high so it doesnt interfere with our witness update test
     },
 
 
     Balance = 50000 * ?BONES_PER_HNT,
     BlocksN = 50,
 
-    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, ExtraConfig} =
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
             test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars0),
     Chain = blockchain_worker:blockchain(),
 
@@ -105,7 +107,8 @@ init_per_testcase(TestCase, Config0) ->
      {chain, Chain},
      {consensus_members, ConsensusMembers},
      {payer_opening_hnt_bal, PayerOpenHNTBal},
-     ExtraConfig   | Config ].
+     {opts, Opts},
+     Keys   | Config ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -591,11 +594,12 @@ reset_witness_test(Config) ->
     %% Once we have a challengee with a witness
     %% we then rewrite that witness record and the witnesses own GW
     %% so that it emulates an upgraded witness with the newly added
-    %% witness.added_location_nonce and gateway_v2.last_location_nonce field
+    %% witness.added_location_nonce and gateway_v2.last_location_nonce fields
     %% both these fields are set to zero which is the default upgrade value
     %% we will then trigger the newly added fix_witness_location_nonces function
-    %% and confirm the added_location_nonce and the last_location_nonce field
-    %% get updated to be that of the witness GW's nonce field
+    %% and confirm the added_location_nonce and the last_location_nonce fields
+    %% get updated to be that of the witness GW's current nonce field
+    %% which is now 2 after its reassert
     %% a lot of setup here...so bear with
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
@@ -603,7 +607,6 @@ reset_witness_test(Config) ->
     Payer = ?config(payer, Config),
     PayerSigFun = ?config(payer_sig_fun, Config),
 
-    Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
 
     %% get the current height
@@ -920,37 +923,36 @@ reset_witness_test(Config) ->
     %% this replicates the state of a newly upgraded witness record and witness GW record
     %%
     Ledger0 = blockchain_ledger_v1:new_context(Ledger),
-    WC2 = setelement(8, WC1, 0),
+    WC2 = setelement(8, WC1, 0), % added_location_nonce is at element 8 in witness record
     GW2InfoCA = setelement(12, GW2InfoC, [{WC1Addr, WC2}]),
-    blockchain_ledger_v1:update_gateway(GW2InfoCA, GW2, Ledger0),
-    WC1GWInfo2 = setelement(17, WC1GWInfo, 0),
-    blockchain_ledger_v1:update_gateway(WC1GWInfo2, WC1Addr, Ledger0),
+    ok = blockchain_ledger_v1:update_gateway(GW2InfoCA, GW2, Ledger0),
+    WC1GWInfo2 = setelement(17, WC1GWInfo, 0), % last_location_nonce is at element 17 in gateway_v2 record
+    ok = blockchain_ledger_v1:update_gateway(WC1GWInfo2, WC1Addr, Ledger0),
+    ok = blockchain_ledger_v1:commit_context(Ledger0),
+
+    {ok, _GW2InfoC2} = blockchain_gateway_cache:get(GW2, Ledger),
+    ct:pal("GW2InfoC2: ~p", [_GW2InfoC2]),
 
     %% add a var txn which has a ledger hook value set of 1
     %% this will trigger the fix_witness_location_nonces function
     %% and the witness location nonces will be reset equal to that of the
     %% witness GW current nonce value ( which is now 2 after the re assert )
+    {Priv, _} = ?config(master_key, Config),
+    Vars = #{ledger_hook_trigger => 1},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    ?assertEqual(ok, blockchain_txn_vars_v1:is_valid(VarTxn1, Chain)),
+    {ok, VarTxn1Block} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain:add_block(VarTxn1Block, Chain),
 
-    %% TODO - could not get this txn var to trigger the hook so
-    %%        manually calling fix_witness_location_nonces/3 to confirm it is working
-    %%        will come back to the hook issue
-
-%%    {Priv, _} = ?config(master_key, Config),
-%%    Vars = #{ledger_hook_trigger => 1},
-%%    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
-%%    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
-%%    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
-%%
-%%    ?assertEqual(ok, blockchain_txn_vars_v1:is_valid(VarTxn1, Chain)),
-%%    {ok, VarTxn1Block} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-%%    _ = blockchain:add_block(VarTxn1Block, Chain),
-%%    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
-
-    blockchain_ledger_gateway_v2:fix_witness_location_nonces(GW2InfoCA, GW2, Ledger0),
-    blockchain_ledger_v1:commit_context(Ledger0),
+    _LastFakeBlock = add_and_gossip_fake_blocks(15, ConsensusMembers, blockchain_swarm:swarm(), Chain, GW2),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 26} =:= blockchain:height(Chain) end),
+    {ok, 1} = blockchain:config(?ledger_hook_trigger, Ledger),
 
     %% confirm the witness report from GW3 in challengee GW2, has had its added_location_nonce value updated
     {ok, GW2InfoE} = blockchain_gateway_cache:get(GW2, Ledger),
+    ct:pal("GW2InfoE: ~p", [GW2InfoE]),
     [{WE1Addr, WE1}] = blockchain_ledger_gateway_v2:witnesses_plain(GW2InfoE),
     ct:pal("WE1: ~p", [WE1]),
     ?assertEqual(2, element(8, WE1)),

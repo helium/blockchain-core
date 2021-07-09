@@ -1165,8 +1165,7 @@ validate_var(?data_aggregation_version, Value) ->
 
 %% ledger hook vars
 validate_var(?ledger_hook_trigger, Value) ->
-    validate_int(Value, "ledger_hook_trigger", 1, 65536, false);
-
+    validate_int(Value, "ledger_hook_trigger", 0, 65536, false);
 
 validate_var(?use_multi_keys, Value) ->
     case Value of
@@ -1358,6 +1357,7 @@ invalid_var(Var, Value) ->
 
 -spec process_hooks(Vars :: map(), Unsets :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 process_hooks(Vars, Unsets, Ledger) ->
+    lager:debug("process hooks with vars ~p", [Vars]),
     _ = maps:map(
           fun(Var, Value) ->
                   var_hook(Var, Value, Ledger)
