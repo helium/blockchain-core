@@ -70,6 +70,13 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
 
 add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
+    case blockchain:has_block(Block, Chain) == false andalso blockchain:is_block_plausible(Block, Chain) of
+        true ->
+            %% eagerly re-gossip plausible blocks we don't have
+            regossip_block(Block, SwarmTID);
+        false ->
+            ok
+    end,
     %% try to acquire the lock with a timeout
     case blockchain_lock:acquire(5000) of
         error ->
@@ -80,13 +87,11 @@ add_block(Block, Chain, Sender, SwarmTID) ->
                 ok ->
                     lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
                     %% pass it along
-                    regossip_block(Block, SwarmTID),
                     ok;
                 plausible ->
-                    lager:warning("plausible gossipped block doesn't fit with our chain, will start sync if not already active"),
+                    lager:info("plausible gossipped block doesn't fit with our chain, will start sync if not already active"),
                     blockchain_worker:maybe_sync(),
                     %% pass it along
-                    regossip_block(Block, SwarmTID),
                     ok;
                 exists ->
                     ok;
