@@ -1163,6 +1163,11 @@ validate_var(?txn_fee_multiplier, Value) ->
 validate_var(?data_aggregation_version, Value) ->
     validate_int(Value, "data_aggregation_version", 1, 3, false);
 
+%% ledger hook vars
+validate_var(?ledger_hook_trigger, Value) ->
+    validate_int(Value, "ledger_hook_trigger", 1, 65536, false);
+
+
 validate_var(?use_multi_keys, Value) ->
     case Value of
         true -> ok;
@@ -1366,10 +1371,12 @@ process_hooks(Vars, Unsets, Ledger) ->
 %% TODO:  determine a chain var to peg these hooks to
 %% Option1: add a new dedicated chain var specific to hooks, increment its value with each newly added hook
 %% Option2: piggy back on some existing chain var
-%% Option3: ???
-%% Option1 would likely make most sense
-var_hook(?unknown_chain_var, 1, Ledger) ->
-    %% peg the updating of default witness location nonces to the XX chain var
+%% Option3: other ???
+%% Went with option 1 here....
+var_hook(?ledger_hook_trigger, 1, Ledger) ->
+    %% peg the updating of default witness location nonces to the ledger_hook_trigger
+    %% being present in current txn with a value of 1
+    %% TODO: need to consider the scenario of the chain var being present in later second txn with the same value ?
     blockchain:fix_witness_location_nonces(Ledger);
 var_hook(_Var, _Value, _Ledger) ->
     ok.

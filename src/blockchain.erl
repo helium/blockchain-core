@@ -63,7 +63,8 @@
 
     db_handle/1,
     blocks_cf/1,
-    heights_cf/1
+    heights_cf/1,
+    fix_witness_location_nonces/1
 
 ]).
 
