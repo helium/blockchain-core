@@ -29,28 +29,24 @@
          terminate/2,
          code_change/3]).
 
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -define(SERVER, ?MODULE).
 
 -record(state,{
-          db :: rocksdb:db_handle(),
-          cf :: rocksdb:cf_handle(),
-          swarm :: pid(),
-          pubkey_bin :: libp2p_crypto:pubkey_bin(),
-          sig_fun :: libp2p_crypto:sig_fun(),
-          chain = undefined :: undefined | blockchain:blockchain(),
-          streams = #{} :: streams(),
-          packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
-          waiting = #{} :: waiting(),
-          pending_closes = [] :: list() %% TODO GC these
-         }).
+    db :: rocksdb:db_handle(),
+    cf :: rocksdb:cf_handle(),
+    swarm :: pid(),
+    pubkey_bin :: libp2p_crypto:pubkey_bin(),
+    sig_fun :: libp2p_crypto:sig_fun(),
+    chain = undefined :: undefined | blockchain:blockchain(),
+    streams = #{} :: streams(),
+    packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
+    waiting = #{} :: waiting(),
+    pending_closes = [] :: list(), %% TODO GC these
+    routes = #{} :: map()
+}).
 
 -type state() :: #state{}.
 -type stream_key() :: non_neg_integer() | string().
@@ -152,16 +148,19 @@ handle_cast({banner, Banner, HandlerPid}, State) ->
                     {noreply, maybe_send_packets(AddressOrOUI, HandlerPid, State)}
             end
     end;
-handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, #state{chain=Chain}=State) ->
-    NewState = case find_routing(Packet, Chain) of
-                   {error, _Reason} ->
-                     lager:notice("failed to find router for join packet with routing information ~p:~p, trying default routers",
-                                   [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
-                       handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
-                   {ok, Routes} ->
-                       handle_packet(Packet, Routes, Region, ReceivedTime, State)
-               end,
-    {noreply, NewState};
+handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, State0) ->
+    State2 = 
+        case find_routing(Packet, State0) of
+            {error, _Reason} ->
+                lager:notice(
+                    "failed to find router for join packet with routing information ~p:~p, trying default routers",
+                    [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
+                ),
+                handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State0);
+            {ok, Routes, State1} ->
+                handle_packet(Packet, Routes, Region, ReceivedTime, State1)
+        end,
+    {noreply, State2};
 handle_cast({reject, Rejection, HandlerPid}, State) ->
     lager:warning("Got rejection: ~p for: ~p, dropping packet", [Rejection, HandlerPid]),
     NewState = case dequeue_packet(HandlerPid, State) of
@@ -523,15 +522,26 @@ dequeue_packet(Stream, #state{packets=Packets}=State) ->
     end.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
-                   Chain :: blockchain:blockchain() | undefined) -> {ok, [blockchain_ledger_routing_v1:routing()]} | {error, any()}.
-find_routing(_Packet, undefined) ->
+                   State :: state()) -> {ok, [blockchain_ledger_routing_v1:routing()], state()} | {error, any()}.
+find_routing(_Packet, #state{chain=undefined}) ->
     {error, no_chain};
-find_routing(Packet, Chain) ->
+find_routing(Packet, #state{chain=Chain, routes=CachedRoutes}=State) ->
     %% transitional shim for ignoring on-chain OUIs
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
-            Ledger = blockchain:ledger(Chain),
-            blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger);
+            Info = blockchain_helium_packet_v1:routing_info(Packet),
+            case maps:get(Info, CachedRoutes, undefined) of
+                undefined ->
+                    Ledger = blockchain:ledger(Chain),
+                    case blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger) of
+                        {error, _}=Error ->
+                            Error;
+                        {ok, Routes} ->
+                            {ok, Routes, State#state{routes=maps:put(Info, Routes, CachedRoutes)}}
+                    end;
+                Routes ->
+                    {ok, Routes, State}
+            end;
         false ->
             {error, oui_routing_disabled}
     end.
@@ -982,10 +992,3 @@ debug_multiple_scs(SC, KnownSCs) ->
             ok = file:write_file("/tmp/known_scs", BinKnownSCs),
             ok
     end.
-
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
-
--ifdef(TEST).
--endif.
