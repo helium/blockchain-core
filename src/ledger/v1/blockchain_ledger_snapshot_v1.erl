@@ -342,34 +342,39 @@ deserialize(<<Bin0/binary>>) ->
     | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
 deserialize(DigestOpt, <<Bin0/binary>>) ->
-    try
-        <<Vsn:8/integer, Siz:32/little-unsigned-integer, Bin:Siz/binary>> = Bin0,
-        Snapshot =
-            case Vsn of
-                V when (V >= 1) and (V < 5) ->
-                    binary_to_term(Bin);
-                5 ->
-                    #{version := v5} = S = maps:from_list(binary_to_term(Bin)),
-                    S;
-                6 ->
-                    Pairs = deserialize_pairs(Bin),
-                    lager:debug("Successfully deserialized snapshot pairs. Constructing map..."),
-                    maps:from_list(Pairs)
-            end,
-        case DigestOpt of
-            %% if we don't care what the hash is,
-            %% don't bother to compute it
-            none -> {ok, upgrade(Snapshot)};
-            Digest when is_binary(Digest)->
-                case hash(Snapshot) of
-                    Digest -> {ok, upgrade(Snapshot)};
-                    _Other -> {error, bad_snapshot_hash}
-                end
-        end
-    catch C:E:St ->
-            lager:warning("deserialize failed: ~p:~p:~p", [C, E, St]),
-            {error, bad_snapshot_binary}
-    end.
+    lager:info("snapshot deserialize BEGIN"),
+    Result =
+        try
+            <<Vsn:8/integer, Siz:32/little-unsigned-integer, Bin:Siz/binary>> = Bin0,
+            lager:info("snapshot deserialize version: ~p", [Vsn]),
+            Snapshot =
+                case Vsn of
+                    V when (V >= 1) and (V < 5) ->
+                        binary_to_term(Bin);
+                    5 ->
+                        #{version := v5} = S = maps:from_list(binary_to_term(Bin)),
+                        S;
+                    6 ->
+                        Pairs = deserialize_pairs(Bin),
+                        lager:info("Successfully deserialized snapshot pairs. Constructing map..."),
+                        maps:from_list(Pairs)
+                end,
+            case DigestOpt of
+                %% if we don't care what the hash is,
+                %% don't bother to compute it
+                none -> {ok, upgrade(Snapshot)};
+                Digest when is_binary(Digest)->
+                    case hash(Snapshot) of
+                        Digest -> {ok, upgrade(Snapshot)};
+                        _Other -> {error, bad_snapshot_hash}
+                    end
+            end
+        catch C:E:St ->
+                lager:warning("deserialize failed: ~p:~p:~p", [C, E, St]),
+                {error, bad_snapshot_binary}
+        end,
+    lager:info("snapshot deserialize END with ~p", [element(1, Result)]),
+    Result.
 
 %% sha will be stored externally
 -spec import(blockchain:blockchain(), binary(), snapshot()) ->
@@ -1096,9 +1101,9 @@ deserialize_pairs(<<Bin/binary>>) ->
     lists:map(
         fun({K0, V0}) ->
             K = binary_to_term(K0),
-            lager:debug("Successfully deserialized key: ~p", [K]),
+            lager:info("Successfully deserialized key: ~p", [K]),
             V = deserialize_field(K, V0),
-            lager:debug("Successfully deserialized val for key: ~p", [K]),
+            lager:info("Successfully deserialized val for key: ~p", [K]),
             {K, V}
         end,
         bin_pairs_from_bin(Bin)
