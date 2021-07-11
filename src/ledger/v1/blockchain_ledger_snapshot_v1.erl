@@ -301,7 +301,7 @@ serialize_v6(Snapshot, BlocksOrNoBlocks) when is_list(Snapshot) ->
             noblocks ->
                 []
         end,
-    Pairs = lists:keysort(1, lists:keyreplace(Key, 1, Blocks, Snapshot)),
+    Pairs = lists:keysort(1, lists:keyreplace(Key, 1, Snapshot, {Key, Blocks})),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
