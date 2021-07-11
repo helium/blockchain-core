@@ -109,7 +109,7 @@ basic_test(_Config) ->
 
     ?assertMatch(
         [_|_],
-        maps:get(upgrades, SnapshotA, undefined),
+        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotA, undefined)),
         "New snapshot (A) has \"upgrades\" field."
     ),
     SnapshotAIOList = blockchain_ledger_snapshot_v1:serialize(SnapshotA),
@@ -121,7 +121,7 @@ basic_test(_Config) ->
     {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(SnapshotABin),
     ?assertMatch(
         [_|_],
-        maps:get(upgrades, SnapshotB, undefined),
+        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotB, undefined)),
         "Deserialized snapshot (B) has \"upgrades\" field."
     ),
     ?assertEqual(
@@ -138,7 +138,7 @@ basic_test(_Config) ->
     {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, []),
     ?assertMatch(
         [_|_],
-        maps:get(upgrades, SnapshotC, undefined),
+        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotC, undefined)),
         "New snapshot (C) has \"upgrades\" field."
     ),
     ?assertEqual(
@@ -252,9 +252,6 @@ ledger() ->
 
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
-
-    {ok, _GWCache} = blockchain_gateway_cache:start_link(),
-    {ok, _Pid} = blockchain_score_cache:start_link(),
 
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
     GenesisBlock = blockchain_block:deserialize(BinGen),

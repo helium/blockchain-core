@@ -26,14 +26,20 @@
          diff/2
         ]).
 
+-ifdef(TEST).
+-export([
+         deserialize_field/2
+        ]).
+-endif.
+
 -export_type([
     snapshot/0,
     snapshot_v5/0
 ]).
 
--type state_channel() ::
-      {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
-    | {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2()}.
+%% -type state_channel() ::
+%%       {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
+%%     | {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2()}.
 
 %% this assumes that everything will have loaded the genesis block
 %% already.  I'm not sure that's totally safe in all cases, but it's
@@ -44,38 +50,38 @@
 %% format and functionality down.  once it's final we can move on to a
 %% more permanent and less flexible format, like protobufs, or
 %% cauterize.
--type snapshot_v5_or_v6(Version) ::
-    #{
-        version           => Version,
-        current_height    => non_neg_integer(),
-        transaction_fee   =>  non_neg_integer(),
-        consensus_members => [libp2p_crypto:pubkey_bin()],
-        election_height   => non_neg_integer(),
-        election_epoch    => non_neg_integer(),
-        delayed_vars      => [{integer(), [{Hash :: term(), TODO :: term()}]}], % TODO More specific
-        threshold_txns    => [{binary(), binary()}], % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
-        master_key        => binary(),
-        multi_keys        => [binary()],
-        vars_nonce        => pos_integer(),
-        vars              => [{binary(), term()}], % TODO What is the term()?
-        htlcs             => [{Address :: binary(), blockchain_ledger_htlc_v1:htlc()}],
-        ouis              => [term()], % TODO Be more specific
-        subnets           => [term()], % TODO Be more specific
-        oui_counter       => pos_integer(),
-        hexes             => [term()], % TODO Be more specific
-        h3dex             => [{integer(), [binary()]}],
-        state_channels    => [{binary(), state_channel()}],
-        blocks            => [blockchain_block:block()],
-        oracle_price      => non_neg_integer(),
-        oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
+-type snapshot_v5_or_v6(Version) :: #{version => Version, atom() => binary()}.
+    %% #{
+    %%     version           => Version,
+    %%     current_height    => non_neg_integer(),
+    %%     transaction_fee   =>  non_neg_integer(),
+    %%     consensus_members => [libp2p_crypto:pubkey_bin()],
+    %%     election_height   => non_neg_integer(),
+    %%     election_epoch    => non_neg_integer(),
+    %%     delayed_vars      => [{integer(), [{Hash :: term(), TODO :: term()}]}], % TODO More specific
+    %%     threshold_txns    => [{binary(), binary()}], % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
+    %%     master_key        => binary(),
+    %%     multi_keys        => [binary()],
+    %%     vars_nonce        => pos_integer(),
+    %%     vars              => [{binary(), term()}], % TODO What is the term()?
+    %%     htlcs             => [{Address :: binary(), blockchain_ledger_htlc_v1:htlc()}],
+    %%     ouis              => [term()], % TODO Be more specific
+    %%     subnets           => [term()], % TODO Be more specific
+    %%     oui_counter       => pos_integer(),
+    %%     hexes             => [term()], % TODO Be more specific
+    %%     h3dex             => [{integer(), [binary()]}],
+    %%     state_channels    => [{binary(), state_channel()}],
+    %%     blocks            => [blockchain_block:block()],
+    %%     oracle_price      => non_neg_integer(),
+    %%     oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
 
-        %% Raw
-        gateways          => [{binary(), binary()}],
-        pocs              => [{binary(), binary()}],
-        accounts          => [{binary(), binary()}],
-        dc_accounts       => [{binary(), binary()}],
-        security_accounts => [{binary(), binary()}]
-    }.
+    %%     %% Raw
+    %%     gateways          => [{binary(), binary()}],
+    %%     pocs              => [{binary(), binary()}],
+    %%     accounts          => [{binary(), binary()}],
+    %%     dc_accounts       => [{binary(), binary()}],
+    %%     security_accounts => [{binary(), binary()}]
+    %% }.
 
 %% v5 and v6 differ only in serialization format.
 -type snapshot_v5() :: snapshot_v5_or_v6(v5).
@@ -247,7 +253,13 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {oracle_price_list, OraclePriceList},
                 {upgrades         , Upgrades}
              ],
-        {ok, maps:from_list(Pairs)}
+        M = maps:from_list(Pairs),
+        M1 = maps:map(fun(version, V) ->
+                              V;
+                         (K, V) ->
+                              iolist_to_binary(serialize_field(K, V))
+                      end, M),
+        {ok, M1}
     catch C:E:S ->
         {error, {error_taking_snapshot, C, E, S}}
     end.
@@ -287,15 +299,16 @@ serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
     Blocks =
         case BlocksOrNoBlocks of
             blocks ->
-                lists:map(
+                term_to_binary(
+                  lists:map(
                     fun (B) when is_tuple(B) ->
                             blockchain_block:serialize(B);
                         (B) -> B
                     end,
-                    maps:get(Key, Snapshot0, [])
-                );
+                    deserialize_field(Key, maps:get(Key, Snapshot0, []))
+                   ));
             noblocks ->
-                []
+                term_to_binary([])
         end,
     Snapshot1 = maps:put(Key, Blocks, Snapshot0),
     Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
@@ -839,6 +852,10 @@ v3_to_v4(#blockchain_snapshot_v3{
        oracle_price_list = OraclePriceList
       }.
 
+-dialyzer([
+    {nowarn_function, upgrade/1}
+]).
+
 v4_to_v5(#blockchain_snapshot_v4{
             current_height = CurrHeight,
             transaction_fee = _TxnFee,
@@ -880,6 +897,7 @@ v4_to_v5(#blockchain_snapshot_v4{
            }) ->
     #{
       version => v5,
+      %% TODO these need to be reserialized to please dialyzer (and probably to work?)
       current_height => CurrHeight,
       transaction_fee => 0,
       consensus_members => ConsensusMembers,
@@ -942,7 +960,19 @@ version(#blockchain_snapshot_v3{}) -> v3;
 version(#blockchain_snapshot_v2{}) -> v2;
 version(#blockchain_snapshot_v1{}) -> v1.
 
-diff(#{}=A, #{}=B) ->
+diff(#{}=A0, #{}=B0) ->
+    A = maps:from_list(
+          lists:map(fun({version, V}) ->
+                            {version, V};
+                       ({K, V}) ->
+                            {K, deserialize_field(K, V)}
+                    end, maps:to_list(A0))),
+    B = maps:from_list(
+          lists:map(fun({version, V}) ->
+                            {version, V};
+                       ({K, V}) ->
+                            {K, deserialize_field(K, V)}
+                    end, maps:to_list(B0))),
     lists:foldl(
       fun({Field, AI, BI}, Acc) ->
               case AI == BI of
@@ -1098,18 +1128,29 @@ kvl_map_vals(F, KVL) ->
 
 -spec serialize_pairs([{key(), term()}]) -> iolist().
 serialize_pairs(Pairs) ->
-    [bin_pair_to_iolist({term_to_binary(K), serialize_field(K, V)}) || {K, V} <- Pairs].
+    [case K of
+         version ->
+             bin_pair_to_iolist({term_to_binary(K), term_to_binary(V)});
+         _ ->
+             bin_pair_to_iolist({term_to_binary(K), V})
+     end
+     || {K, V} <- Pairs].
 
 deserialize_pairs(<<Bin/binary>>) ->
     lists:map(
         fun({K0, V}) ->
             K = binary_to_term(K0),
-            {K, V}
+            case K of
+                version -> {K, binary_to_term(V)};
+                _  -> {K, V}
+            end
         end,
         bin_pairs_from_bin(Bin)
     ).
 
 -spec deserialize_field(key(), binary()) -> term().
+deserialize_field(master_key, <<Bin/binary>>) ->
+    Bin;
 deserialize_field(K, <<Bin/binary>>) ->
     case is_raw_field(K) of
         true -> bin_pairs_from_bin(Bin);
@@ -1129,7 +1170,7 @@ serialize_field(K, V) ->
 is_raw_field(Key) ->
     lists:member(Key, [gateways, pocs, accounts, dc_accounts, security_accounts]).
 
--spec bin_pair_to_iolist({binary(), iolist()}) -> iolist().
+-spec bin_pair_to_iolist({binary(), binary()}) -> iolist().
 bin_pair_to_iolist({<<K/binary>>, V}) ->
     [
         <<(byte_size(K)):32/little-unsigned-integer>>,
