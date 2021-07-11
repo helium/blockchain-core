@@ -1115,6 +1115,8 @@ deserialize_field(K, <<Bin/binary>>) ->
     end.
 
 -spec serialize_field(key(), term()) -> iolist().
+serialize_field(_K, V) when is_binary(V) ->
+    V;
 serialize_field(K, V) ->
     case is_raw_field(K) of
         true -> lists:map(fun bin_pair_to_iolist/1, V);
