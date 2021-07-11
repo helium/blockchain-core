@@ -388,7 +388,7 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
                 %% true, but later it will have come from the snap.
 
                 %% fail into the catch if it's an older record
-                true = blockchain_ledger_snapshot_v1:is_v6(Snapshot),
+                v6 = blockchain_ledger_snapshot_v1:version(Snapshot),
                 %% fail into the catch if it's missing
                 H3dex = blockchain_ledger_snapshot_v1:get_h3dex(Snapshot),
 

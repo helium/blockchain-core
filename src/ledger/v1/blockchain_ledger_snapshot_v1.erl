@@ -8,7 +8,6 @@
          deserialize/1,
          deserialize/2,
 
-         is_v6/1,
          version/1,
 
          snapshot/2,
@@ -282,27 +281,23 @@ serialize(Snapshot, BlocksOrNoBlocks) ->
     Serialize(Snapshot, BlocksOrNoBlocks).
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
-serialize_v6(Snapshot, BlocksOrNoBlocks) when is_list(Snapshot) ->
+serialize_v6([_|_]=Snapshot0, BlocksOrNoBlocks) ->
     Key = blocks,
     Blocks =
         case BlocksOrNoBlocks of
             blocks ->
-                Bs = case lists:keyfind(Key, 1, Snapshot) of
-                         {_, Blks} -> Blks;
-                         _ -> []
-                     end,
                 lists:map(
-                  fun (B) when is_tuple(B) ->
-                          blockchain_block:serialize(B);
-                      (B) -> B
-                  end,
-                  Bs
-                 );
+                    % TODO Can these tuples be of different sizes? If not, then match instead of guard.
+                    fun (B) when is_tuple(B) -> blockchain_block:serialize(B);
+                        (B) -> B
+                    end,
+                    kvl_get(Key, Snapshot0, [])
+                );
             noblocks ->
                 []
         end,
-    Pairs = lists:keysort(1, lists:keyreplace(Key, 1, Snapshot, {Key, Blocks})),
-    frame(6, serialize_pairs(Pairs)).
+    Snapshot1 = lists:keysort(1, kvl_set(Key, Blocks, Snapshot0)),
+    frame(6, serialize_pairs(Snapshot1)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
 serialize_v5(Snapshot, noblocks) ->
@@ -421,10 +416,7 @@ import(Chain, SHA, Snapshot) when is_list(Snapshot) ->
     L :: blockchain_ledger_v1:ledger(),
     M :: blockchain_ledger_v1:mode().
 load_into_ledger(Snapshot, L0, Mode) ->
-    Get = fun (K) ->
-                  {value, {K, V}} = lists:keysearch(K, 1, Snapshot),
-                  deserialize_field(K, V)
-          end,
+    Get = fun (K) -> deserialize_field(K, kvl_get_exn(K, Snapshot)) end,
     L1 = blockchain_ledger_v1:mode(Mode, L0),
     L = blockchain_ledger_v1:new_context(L1),
     ok = blockchain_ledger_v1:current_height(Get(current_height), L),
@@ -441,25 +433,18 @@ load_into_ledger(Snapshot, L0, Mode) ->
     ok = blockchain_ledger_v1:load_raw_gateways(Get(gateways), L),
 
     %% optional validator era stuff will be missing in pre validator snaps
-    case lists:keyfind(validators, 1, Snapshot) of
-        false ->
-            ok;
-        {_, Validators} ->
-            ok = blockchain_ledger_v1:load_validators(deserialize_field(validators, Validators), L)
-    end,
-    case lists:keyfind(delayed_hnt, 1, Snapshot) of
-        false ->
-            ok;
-        {_, DelayedHNT} ->
-            ok = blockchain_ledger_v1:load_delayed_hnt(deserialize_field(delayed_hnt, DelayedHNT), L)
-    end,
-
-    case lists:keyfind(upgrades, 1, Snapshot) of
-        false ->
-            ok;
-        {_, Upgrades} ->
-            ok = blockchain:mark_upgrades(deserialize_field(upgrades, Upgrades), L)
-    end,
+    kvl_iter_val(validators, Snapshot, fun (Validators0) ->
+        Validators1 = deserialize_field(validators, Validators0),
+        ok = blockchain_ledger_v1:load_validators(Validators1, L)
+    end),
+    kvl_iter_val(delayed_hnt, Snapshot, fun (DelayedHNT0) ->
+        DelayedHNT1 = deserialize_field(delayed_hnt, DelayedHNT0),
+        ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT1, L)
+    end),
+    kvl_iter_val(upgrades, Snapshot, fun (Upgrades0) ->
+        Upgrades1 = deserialize_field(upgrades, Upgrades0),
+        ok = blockchain:mark_upgrades(Upgrades1, L)
+    end),
 
     ok = blockchain_ledger_v1:load_raw_pocs(Get(pocs), L),
     ok = blockchain_ledger_v1:load_raw_accounts(Get(accounts), L),
@@ -484,10 +469,13 @@ load_into_ledger(Snapshot, L0, Mode) ->
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
-    Blocks = case lists:keyfind(blocks, 1, Snapshot) of
-                 {_, Bs} -> binary_to_term(Bs);
-                 _ -> []
-             end,
+    Blocks =
+        case kvl_get(blocks, Snapshot) of
+            {some, BlocksBin} ->
+                binary_to_term(BlocksBin);
+            none ->
+                []
+        end,
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
@@ -578,16 +566,11 @@ get_blocks(Chain) ->
      end
      || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
 
-is_v6(L) when is_list(L) -> true;
-is_v6(_) -> false.
-
 get_h3dex(L) ->
-    {_, H} = lists:keyfind(h3dex, 1, L),
-    binary_to_term(H).
+    binary_to_term(kvl_get_exn(h3dex, L)).
 
 height(L) ->
-    {_, H} = lists:keyfind(current_height, 1, L),
-    binary_to_term(H).
+    binary_to_term(kvl_get_exn(current_height, L)).
 
 -spec hash(snapshot_of_any_version()) -> binary().
 hash(Snap) ->
@@ -938,7 +921,7 @@ upgrade(S) ->
     end.
 
 -spec version(snapshot_of_any_version()) -> v1 | v2 | v3 | v4 | v5 | v6.
-version(L) when is_list(L)         -> v6;
+version([_|_]=Snap               ) -> kvl_get_exn(version, Snap);
 version(#{version := V}          ) -> V;
 version(#blockchain_snapshot_v4{}) -> v4;
 version(#blockchain_snapshot_v3{}) -> v3;
@@ -1012,11 +995,11 @@ diff_gateways([] , BList, Acc) ->
     [lists:map(fun({Addr, _}) -> {Addr, a_missing} end, BList)
      | Acc];
 diff_gateways([{Addr, A} | T] , BList, Acc) ->
-    case gwget(Addr, BList) of
-        missing ->
+    case kvl_get(Addr, BList) of
+        none ->
             diff_gateways(T, lists:keydelete(Addr, 1, BList),
                           [{Addr, b_missing} | Acc]);
-        B ->
+        {some, B} ->
             %% sometimes map encoding lies to us
             case minimize_gw(A, B) of
                 [] ->
@@ -1026,14 +1009,6 @@ diff_gateways([{Addr, A} | T] , BList, Acc) ->
                     diff_gateways(T, lists:keydelete(Addr, 1, BList),
                                   [{Addr, MiniGw} | Acc])
             end
-    end.
-
-gwget(Addr, L) ->
-    case lists:keyfind(Addr, 1, L) of
-        {_, GW} ->
-            GW;
-        false ->
-            missing
     end.
 
 minimize_gw(A0, B0) ->
@@ -1100,6 +1075,48 @@ minimize_witnesses(A, B) ->
 -spec kvl_map_vals(fun((V1) -> V2), [{K, V1}]) -> [{K, V2}].
 kvl_map_vals(F, KVL) ->
     [{K, F(V)} || {K, V} <- KVL].
+
+-spec kvl_iter_val(K, [{K, V}], fun((V) -> ok)) -> ok.
+kvl_iter_val(K, KVL, F) ->
+    case kvl_get(K, KVL) of
+        {some, V} ->
+            _ = F(V),
+            ok;
+        none ->
+            ok
+    end.
+
+
+-spec kvl_get_exn(K, [{K, V}]) -> V.
+kvl_get_exn(K, KVL) ->
+    case kvl_get(K, KVL) of
+        {some, V} ->
+            V;
+        none ->
+            erlang:error({key_not_found, K})
+    end.
+
+-spec kvl_get(K, [{K, V}], V) -> V.
+kvl_get(K, KVL, Default) ->
+    case kvl_get(K, KVL) of
+        {some, V} ->
+            V;
+        none ->
+            Default
+    end.
+
+-spec kvl_get(K, [{K, V}]) -> none | {some, V}.
+kvl_get(K, KVL) ->
+    case lists:keysearch(K, 1, KVL) of
+        {value, {K, V}} ->
+            {some, V};
+        false ->
+            none
+    end.
+
+-spec kvl_set(K, V, [{K, V}]) -> [{K, V}].
+kvl_set(K, V, KVL) ->
+    lists:keystore(K, 1, KVL, {K, V}).
 
 -spec serialize_pairs([{key(), term()}]) -> iolist().
 serialize_pairs(Pairs) ->

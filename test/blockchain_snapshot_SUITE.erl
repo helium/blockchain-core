@@ -253,8 +253,14 @@ ledger() ->
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
-    {ok, _GWCache} = blockchain_gateway_cache:start_link(),
-    {ok, _Pid} = blockchain_score_cache:start_link(),
+    case blockchain_gateway_cache:start_link() of
+        {ok, _GWCache} -> ok;
+        {error, {already_started, _}} -> ok
+    end,
+    case blockchain_score_cache:start_link() of
+        {ok, _Pid} -> ok;
+        {error, {already_started, _}} -> ok
+    end,
 
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
     GenesisBlock = blockchain_block:deserialize(BinGen),
