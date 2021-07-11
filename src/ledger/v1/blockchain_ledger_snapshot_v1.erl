@@ -287,17 +287,21 @@ serialize_v6(Snapshot, BlocksOrNoBlocks) when is_list(Snapshot) ->
     Blocks =
         case BlocksOrNoBlocks of
             blocks ->
-                    lists:map(
-                        fun (B) when is_tuple(B) ->
-                                blockchain_block:serialize(B);
-                            (B) -> B
-                        end,
-                        maps:get(Key, Snapshot, [])
-                    );
+                Bs = case lists:keyfind(Key, 1, Snapshot) of
+                         {_, Blks} -> Blks;
+                         _ -> []
+                     end,
+                lists:map(
+                  fun (B) when is_tuple(B) ->
+                          blockchain_block:serialize(B);
+                      (B) -> B
+                  end,
+                  Bs
+                 );
             noblocks ->
                 []
         end,
-    Pairs = lists:keysort(1, maps:to_list(maps:put(Key, Blocks, Snapshot))),
+    Pairs = lists:keysort(1, lists:keyreplace(Key, 1, Blocks, Snapshot)),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
