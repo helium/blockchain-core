@@ -7,7 +7,8 @@
 
 -export([
     basic_test/1,
-    new_test/1
+    new_test/1,
+    mem_limit_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -25,13 +26,27 @@
 all() ->
     [
         basic_test,
-        new_test
+        new_test,
+        mem_limit_test
     ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 
+init_per_testcase(mem_limit_test, Config) ->
+    {ok, _} = application:ensure_all_started(lager),
+
+    {ok, Dir} = file:get_cwd(),
+    PrivDir = filename:join([Dir, "priv"]),
+    NewDir = PrivDir ++ "/ledger/",
+    ok = filelib:ensure_dir(NewDir),
+
+    os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-913684"),
+
+    Filename = Dir ++ "/snap-913684",
+
+    [{filename, Filename} | Config];
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     Balance = 5000,
@@ -195,53 +210,61 @@ new_test(Config) ->
 
     ok.
 
+mem_limit_test(Config) ->
+    Filename = ?config(filename, Config),
+
+    {ok, BinSnap} = file:read_file(Filename),
+
+    {Pid, Ref} =
+        spawn_monitor(
+          fun() ->
+                  %% on master, this takes MB = 160 to pass on my laptop reliably, but this version
+                  %% seems fine with 10?  I'm not sure how this works.
+                  MB = 10,
+                  erlang:process_flag(max_heap_size, #{kill => true, size => (MB * 1024 * 1024) div 8}),
+                  {ok, _Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap)
+          end),
+    receive
+        {'DOWN', Ref, process, Pid, normal} -> ok;
+        {'DOWN', Ref, process, Pid, Info} -> error(Info)
+    end,
+
+    ok.
+
+
 %% utils
 -spec snap_hash_without_field(atom(), map()) -> map().
 snap_hash_without_field(Field, Snap) ->
     blockchain_ledger_snapshot_v1:hash(maps:remove(Field, Snap)).
 
 ledger() ->
-    %% Ledger at height: 194196
-    %% ActiveGateway Count: 3023
-    {ok, TestDir} = file:get_cwd(),  % this is deep in the test hierarchy
 
-    Comps = filename:split(TestDir),
-    Trimmed = lists:reverse(lists:sublist(lists:reverse(Comps), 5, length(Comps))),
-    Dir = filename:join(Trimmed),
-    %% Ensure priv dir exists
+    {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
-    ok = filelib:ensure_dir(PrivDir ++ "/"),
-    %% Path to static ledger tar
-    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
-    %% Extract ledger tar if required
-    ok = extract_ledger_tar(PrivDir, LedgerTar),
-    %% Get the ledger
-    Ledger = blockchain_ledger_v1:new(PrivDir),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    %% If the hexes aren't on the ledger add them
-    blockchain:bootstrap_hexes(Ledger1),
-    blockchain_ledger_v1:commit_context(Ledger1),
-    Ledger.
+    NewDir = PrivDir ++ "/ledger/",
+    ok = filelib:ensure_dir(NewDir),
 
-extract_ledger_tar(PrivDir, LedgerTar) ->
-    case filelib:is_file(LedgerTar) of
-        true ->
-            %% if we have already unpacked it, no need to do it again
-            LedgerDB = filename:join([PrivDir, "ledger.db"]),
-            case filelib:is_dir(LedgerDB) of
-                true ->
-                    ok;
-                false ->
-                    %% ledger tar file present, extract
-                    erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
-            end;
-        false ->
-            %% ledger tar file not found, download & extract
-            ok = ssl:start(),
-            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-387747.tar.gz"),
-            ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
-            erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
-    end.
+    os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-913684"),
+
+    Filename = Dir ++ "/snap-913684",
+
+    {ok, BinSnap} = file:read_file(Filename),
+
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+    SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
+
+    {ok, _GWCache} = blockchain_gateway_cache:start_link(),
+    {ok, _Pid} = blockchain_score_cache:start_link(),
+
+    {ok, BinGen} = file:read_file("../../../../test/genesis"),
+    GenesisBlock = blockchain_block:deserialize(BinGen),
+    {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
+
+    Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
+
+    ct:pal("loaded ledger at height ~p", [Height]),
+    Ledger1.
 
 
 add_k_blocks(Config, K) ->

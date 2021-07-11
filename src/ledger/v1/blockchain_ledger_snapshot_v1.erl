@@ -352,7 +352,7 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
                     #{version := v5} = S = maps:from_list(binary_to_term(Bin)),
                     S;
                 6 ->
-                    maps:from_list(deserialize_pairs(Bin))
+                    deserialize_pairs(Bin)
             end,
         case DigestOpt of
             %% if we don't care what the hash is,
@@ -372,7 +372,7 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 %% sha will be stored externally
 -spec import(blockchain:blockchain(), binary(), snapshot()) ->
     blockchain_ledger_v1:ledger().
-import(Chain, SHA, #{version := v6}=Snapshot) ->
+import(Chain, SHA, Snapshot) when is_list(Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
     Ledger0 =
@@ -417,7 +417,10 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
     L :: blockchain_ledger_v1:ledger(),
     M :: blockchain_ledger_v1:mode().
 load_into_ledger(Snapshot, L0, Mode) ->
-    Get = fun (K) -> maps:get(K, Snapshot) end,
+    Get = fun (K) ->
+                  {value, {K, V}} = lists:keysearch(K, 1, Snapshot),
+                  deserialize_field(K, V)
+          end,
     L1 = blockchain_ledger_v1:mode(Mode, L0),
     L = blockchain_ledger_v1:new_context(L1),
     ok = blockchain_ledger_v1:current_height(Get(current_height), L),
@@ -568,7 +571,7 @@ get_blocks(Chain) ->
      end
      || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
 
-is_v6(#{version := v6}) -> true;
+is_v6(L) when is_list(L) -> true;
 is_v6(_) -> false.
 
 get_h3dex(#{h3dex := H3Dex}) ->
@@ -926,6 +929,7 @@ upgrade(S) ->
     end.
 
 -spec version(snapshot_of_any_version()) -> v1 | v2 | v3 | v4 | v5 | v6.
+version(L) when is_list(L)         -> v6;
 version(#{version := V}          ) -> V;
 version(#blockchain_snapshot_v4{}) -> v4;
 version(#blockchain_snapshot_v3{}) -> v3;
@@ -1094,7 +1098,7 @@ deserialize_pairs(<<Bin/binary>>) ->
     lists:map(
         fun({K0, V}) ->
             K = binary_to_term(K0),
-            {K, deserialize_field(K, V)}
+            {K, V}
         end,
         bin_pairs_from_bin(Bin)
     ).
