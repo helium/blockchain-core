@@ -282,7 +282,7 @@ serialize(Snapshot, BlocksOrNoBlocks) ->
     Serialize(Snapshot, BlocksOrNoBlocks).
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
-serialize_v6(#{version := v6}=Snapshot, BlocksOrNoBlocks) ->
+serialize_v6(Snapshot, BlocksOrNoBlocks) when is_list(Snapshot) ->
     Key = blocks,
     Blocks =
         case BlocksOrNoBlocks of
