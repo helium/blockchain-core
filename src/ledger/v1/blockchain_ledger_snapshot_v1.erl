@@ -247,7 +247,7 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {oracle_price_list, OraclePriceList},
                 {upgrades         , Upgrades}
              ],
-        {ok, Pairs}
+        {ok, maps:from_list(Pairs)}
     catch C:E:S ->
         {error, {error_taking_snapshot, C, E, S}}
     end.
@@ -282,26 +282,23 @@ serialize(Snapshot, BlocksOrNoBlocks) ->
     Serialize(Snapshot, BlocksOrNoBlocks).
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
-serialize_v6(Snapshot, BlocksOrNoBlocks) when is_list(Snapshot) ->
+serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
     Key = blocks,
     Blocks =
         case BlocksOrNoBlocks of
             blocks ->
-                Bs = case lists:keyfind(Key, 1, Snapshot) of
-                         {_, Blks} -> Blks;
-                         _ -> []
-                     end,
                 lists:map(
-                  fun (B) when is_tuple(B) ->
-                          blockchain_block:serialize(B);
-                      (B) -> B
-                  end,
-                  Bs
-                 );
+                    fun (B) when is_tuple(B) ->
+                            blockchain_block:serialize(B);
+                        (B) -> B
+                    end,
+                    maps:get(Key, Snapshot0, [])
+                );
             noblocks ->
                 []
         end,
-    Pairs = lists:keysort(1, lists:keyreplace(Key, 1, Snapshot, {Key, Blocks})),
+    Snapshot1 = maps:put(Key, Blocks, Snapshot0),
+    Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
@@ -356,7 +353,8 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
                     #{version := v5} = S = maps:from_list(binary_to_term(Bin)),
                     S;
                 6 ->
-                    deserialize_pairs(Bin)
+                    Pairs = deserialize_pairs(Bin),
+                    maps:from_list(Pairs)
             end,
         case DigestOpt of
             %% if we don't care what the hash is,
@@ -376,7 +374,7 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 %% sha will be stored externally
 -spec import(blockchain:blockchain(), binary(), snapshot()) ->
     blockchain_ledger_v1:ledger().
-import(Chain, SHA, Snapshot) when is_list(Snapshot) ->
+import(Chain, SHA, #{version := v6}=Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
     Ledger0 =
@@ -421,10 +419,7 @@ import(Chain, SHA, Snapshot) when is_list(Snapshot) ->
     L :: blockchain_ledger_v1:ledger(),
     M :: blockchain_ledger_v1:mode().
 load_into_ledger(Snapshot, L0, Mode) ->
-    Get = fun (K) ->
-                  {value, {K, V}} = lists:keysearch(K, 1, Snapshot),
-                  deserialize_field(K, V)
-          end,
+    Get = fun (K) -> deserialize_field(K, maps:get(K, Snapshot)) end,
     L1 = blockchain_ledger_v1:mode(Mode, L0),
     L = blockchain_ledger_v1:new_context(L1),
     ok = blockchain_ledger_v1:current_height(Get(current_height), L),
@@ -441,23 +436,23 @@ load_into_ledger(Snapshot, L0, Mode) ->
     ok = blockchain_ledger_v1:load_raw_gateways(Get(gateways), L),
 
     %% optional validator era stuff will be missing in pre validator snaps
-    case lists:keyfind(validators, 1, Snapshot) of
-        false ->
+    case maps:find(validators, Snapshot) of
+        error ->
             ok;
-        {_, Validators} ->
+        {ok, Validators} ->
             ok = blockchain_ledger_v1:load_validators(deserialize_field(validators, Validators), L)
     end,
-    case lists:keyfind(delayed_hnt, 1, Snapshot) of
-        false ->
+    case maps:find(delayed_hnt, Snapshot) of
+        error ->
             ok;
-        {_, DelayedHNT} ->
+        {ok, DelayedHNT} ->
             ok = blockchain_ledger_v1:load_delayed_hnt(deserialize_field(delayed_hnt, DelayedHNT), L)
     end,
 
-    case lists:keyfind(upgrades, 1, Snapshot) of
-        false ->
+    case maps:find(upgrades, Snapshot) of
+        error ->
             ok;
-        {_, Upgrades} ->
+        {ok, Upgrades} ->
             ok = blockchain:mark_upgrades(deserialize_field(upgrades, Upgrades), L)
     end,
 
@@ -484,10 +479,13 @@ load_into_ledger(Snapshot, L0, Mode) ->
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
-    Blocks = case lists:keyfind(blocks, 1, Snapshot) of
-                 {_, Bs} -> binary_to_term(Bs);
-                 _ -> []
-             end,
+    Blocks =
+        case maps:find(blocks, Snapshot) of
+            {ok, Bs} ->
+                binary_to_term(Bs);
+            error ->
+                []
+        end,
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
@@ -578,16 +576,16 @@ get_blocks(Chain) ->
      end
      || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
 
-is_v6(L) when is_list(L) -> true;
+is_v6(#{version := v6}) -> true;
 is_v6(_) -> false.
 
-get_h3dex(L) ->
-    {_, H} = lists:keyfind(h3dex, 1, L),
-    binary_to_term(H).
+-spec get_h3dex(snapshot()) -> [{integer(), [binary()]}].
+get_h3dex(#{h3dex := H3DexBin}) ->
+    binary_to_term(H3DexBin).
 
-height(L) ->
-    {_, H} = lists:keyfind(current_height, 1, L),
-    binary_to_term(H).
+-spec height(snapshot()) -> non_neg_integer().
+height(#{current_height := HeightBin}) ->
+    binary_to_term(HeightBin).
 
 -spec hash(snapshot_of_any_version()) -> binary().
 hash(Snap) ->
@@ -938,16 +936,13 @@ upgrade(S) ->
     end.
 
 -spec version(snapshot_of_any_version()) -> v1 | v2 | v3 | v4 | v5 | v6.
-version(L) when is_list(L)         -> v6;
 version(#{version := V}          ) -> V;
 version(#blockchain_snapshot_v4{}) -> v4;
 version(#blockchain_snapshot_v3{}) -> v3;
 version(#blockchain_snapshot_v2{}) -> v2;
 version(#blockchain_snapshot_v1{}) -> v1.
 
-diff(A0, B0) ->
-    A = maps:from_list(A0),
-    B = maps:from_list(B0),
+diff(#{}=A, #{}=B) ->
     lists:foldl(
       fun({Field, AI, BI}, Acc) ->
               case AI == BI of
