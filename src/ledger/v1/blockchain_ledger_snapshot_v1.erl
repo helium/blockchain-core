@@ -247,7 +247,7 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {oracle_price_list, OraclePriceList},
                 {upgrades         , Upgrades}
              ],
-        {ok, maps:from_list(Pairs)}
+        {ok, Pairs}
     catch C:E:S ->
         {error, {error_taking_snapshot, C, E, S}}
     end.
@@ -441,24 +441,24 @@ load_into_ledger(Snapshot, L0, Mode) ->
     ok = blockchain_ledger_v1:load_raw_gateways(Get(gateways), L),
 
     %% optional validator era stuff will be missing in pre validator snaps
-    case maps:find(validators, Snapshot) of
-        error ->
+    case lists:keyfind(validators, 1, Snapshot) of
+        false ->
             ok;
-        {ok, Validators} ->
-            ok = blockchain_ledger_v1:load_validators(Validators, L)
+        {_, Validators} ->
+            ok = blockchain_ledger_v1:load_validators(deserialize_field(validators, Validators), L)
     end,
-    case maps:find(delayed_hnt, Snapshot) of
-        error ->
+    case lists:keyfind(delayed_hnt, 1, Snapshot) of
+        false ->
             ok;
-        {ok, DelayedHNT} ->
-            ok = blockchain_ledger_v1:load_delayed_hnt(DelayedHNT, L)
+        {_, DelayedHNT} ->
+            ok = blockchain_ledger_v1:load_delayed_hnt(deserialize_field(delayed_hnt, DelayedHNT), L)
     end,
 
-    case maps:find(upgrades, Snapshot) of
-        error ->
+    case lists:keyfind(upgrades, 1, Snapshot) of
+        false ->
             ok;
-        {ok, Upgrades} ->
-            ok = blockchain:mark_upgrades(Upgrades, L)
+        {_, Upgrades} ->
+            ok = blockchain:mark_upgrades(deserialize_field(upgrades, Upgrades), L)
     end,
 
     ok = blockchain_ledger_v1:load_raw_pocs(Get(pocs), L),
@@ -484,7 +484,10 @@ load_into_ledger(Snapshot, L0, Mode) ->
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
-    Blocks = maps:get(blocks, Snapshot, []),
+    Blocks = case lists:keyfind(blocks, 1, Snapshot) of
+                 {_, Bs} -> binary_to_term(Bs);
+                 _ -> []
+             end,
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
@@ -578,12 +581,13 @@ get_blocks(Chain) ->
 is_v6(L) when is_list(L) -> true;
 is_v6(_) -> false.
 
-get_h3dex(#{h3dex := H3Dex}) ->
-    H3Dex.
+get_h3dex(L) ->
+    {_, H} = lists:keyfind(h3dex, 1, L),
+    binary_to_term(H).
 
 height(L) ->
     {_, H} = lists:keyfind(current_height, 1, L),
-    H.
+    binary_to_term(H).
 
 -spec hash(snapshot_of_any_version()) -> binary().
 hash(Snap) ->
@@ -941,7 +945,9 @@ version(#blockchain_snapshot_v3{}) -> v3;
 version(#blockchain_snapshot_v2{}) -> v2;
 version(#blockchain_snapshot_v1{}) -> v1.
 
-diff(#{}=A, #{}=B) ->
+diff(A0, B0) ->
+    A = maps:from_list(A0),
+    B = maps:from_list(B0),
     lists:foldl(
       fun({Field, AI, BI}, Acc) ->
               case AI == BI of
