@@ -581,7 +581,8 @@ is_v6(_) -> false.
 get_h3dex(#{h3dex := H3Dex}) ->
     H3Dex.
 
-height(#{current_height := H}) ->
+height(L) ->
+    {_, H} = lists:keyfind(current_height, 1, L),
     H.
 
 -spec hash(snapshot_of_any_version()) -> binary().
