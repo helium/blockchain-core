@@ -33,6 +33,8 @@
 -include("blockchain_vars.hrl").
 
 -define(SERVER, ?MODULE).
+-define(ROUTING_CACHE, sc_client_routing).
+-define(ROUTING_CACHE_TIMEOUT, 60 * 60 * 6). %% 6 hours in seconds
 
 -record(state,{
     db :: rocksdb:db_handle(),
@@ -44,8 +46,7 @@
     streams = #{} :: streams(),
     packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
     waiting = #{} :: waiting(),
-    pending_closes = [] :: list(), %% TODO GC these
-    routes = #{} :: map()
+    pending_closes = [] :: list() %% TODO GC these
 }).
 
 -type state() :: #state{}.
@@ -148,17 +149,17 @@ handle_cast({banner, Banner, HandlerPid}, State) ->
                     {noreply, maybe_send_packets(AddressOrOUI, HandlerPid, State)}
             end
     end;
-handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, State0) ->
+handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, #state{chain=Chain}=State) ->
     State2 = 
-        case find_routing(Packet, State0) of
+        case find_routing(Packet, Chain) of
             {error, _Reason} ->
                 lager:notice(
                     "failed to find router for join packet with routing information ~p:~p, trying default routers",
                     [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
                 ),
-                handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State0);
-            {ok, Routes, State1} ->
-                handle_packet(Packet, Routes, Region, ReceivedTime, State1)
+                handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
+            {ok, Routes} ->
+                handle_packet(Packet, Routes, Region, ReceivedTime, State)
         end,
     {noreply, State2};
 handle_cast({reject, Rejection, HandlerPid}, State) ->
@@ -224,9 +225,7 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
 handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
-            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, 
-                   pending_closes=PendingCloses, routes=Routes0}=State) when Chain /= undefined ->
-
+            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     Block =
         case blockchain:get_block(BlockHash, Chain) of
             {error, Reason} ->
@@ -235,29 +234,22 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
             {ok, B} ->
                 B
         end,
-    Routes1 =
-        case Block of
-            undefined ->
-                Routes0;
-            {ok, Block} ->
-                lists:foldl(
-                    fun(T, Acc) ->
-                        %% We cleanup our cache anytime a routing txn comes in (just in case)
-                        case blockchain_txn:type(T) == blockchain_txn_routing_v1 of
-                            true ->
-                                #{};
-                            false ->
-                                Acc
-                        end
-                    end,
-                    Routes0,
-                    blockchain_block:transactions(Block))
-        end,
+    case Block of
+        undefined ->
+            ok;
+        Block ->
+            Txns = lists:filter(fun(T) -> blockchain_txn:type(T) == blockchain_txn_routing_v1 end,
+                                blockchain_block:transactions(Block)),
+            case erlang:length(Txns) > 0 of
+                false -> ok;
+                true -> e2qc:teardown(?ROUTING_CACHE)
+            end
+    end,
     ClosingChannels =
         case Block of
             undefined ->
                 [];
-            {ok, Block} ->
+            Block ->
                 lists:foldl(
                     fun(T, Acc) ->
                         case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
@@ -332,8 +324,7 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
                                                    Acc
                                            end
                                    end, [], SCs),
-    {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels),
-                          routes=Routes1}};
+    {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, State) ->
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams, packets=Packets}=State) ->
@@ -554,26 +545,27 @@ dequeue_packet(Stream, #state{packets=Packets}=State) ->
     end.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
-                   State :: state()) -> {ok, [blockchain_ledger_routing_v1:routing()], state()} | {error, any()}.
-find_routing(_Packet, #state{chain=undefined}) ->
+                   Chain :: blockchain:blockchain()) -> {ok, [blockchain_ledger_routing_v1:routing()]} | {error, any()}.
+find_routing(_Packet, undefined) ->
     {error, no_chain};
-find_routing(Packet, #state{chain=Chain, routes=CachedRoutes}=State) ->
+find_routing(Packet, Chain) ->
     %% transitional shim for ignoring on-chain OUIs
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
-            Info = blockchain_helium_packet_v1:routing_info(Packet),
-            case maps:get(Info, CachedRoutes, undefined) of
-                undefined ->
-                    Ledger = blockchain:ledger(Chain),
-                    case blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger) of
-                        {error, _}=Error ->
-                            Error;
-                        {ok, Routes} ->
-                            {ok, Routes, State#state{routes=maps:put(Info, Routes, CachedRoutes)}}
-                    end;
-                Routes ->
-                    {ok, Routes, State}
-            end;
+            RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet),
+            e2qc:cache(
+                ?ROUTING_CACHE,
+                RoutingInfo,
+                ?ROUTING_CACHE_TIMEOUT,
+                fun() ->
+                        Ledger = blockchain:ledger(Chain),
+                        case blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger) of
+                            {error, _}=Error ->
+                                Error;
+                            {ok, Routes} ->
+                                {ok, Routes}
+                        end
+                end);
         false ->
             {error, oui_routing_disabled}
     end.
@@ -1024,3 +1016,5 @@ debug_multiple_scs(SC, KnownSCs) ->
             ok = file:write_file("/tmp/known_scs", BinKnownSCs),
             ok
     end.
+
+

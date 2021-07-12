@@ -548,11 +548,10 @@ cached_routing_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Checking that we have a cached route
-    State0 = ct_rpc:call(GatewayNode1, sys, get_state, [blockchain_state_channels_client]),
-    CacheRoutes0 = erlang:element(12, State0),
+    _RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet0),
+    Stats0 = ct_rpc:call(GatewayNode1, e2qc, stats, [sc_client_routing]),
+    ?assert(proplists:get_value(q1size, Stats0) > 0),
 
-    ?assert(maps:size(CacheRoutes0) > 0),
-    ?assert(maps:is_key(blockchain_helium_packet_v1:routing_info(Packet0), CacheRoutes0)),
 
     %% send a routing txn to clear cache
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
@@ -570,10 +569,8 @@ cached_routing_test(Config) ->
     %% Wait till the block is gossiped
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 3),
 
-    State1 = ct_rpc:call(GatewayNode1, sys, get_state, [blockchain_state_channels_client]),
-    CacheRoutes1 = erlang:element(12, State1),
-
-    ?assertEqual(0, maps:size(CacheRoutes1)),
+    Stats1 = ct_rpc:call(GatewayNode1, e2qc, stats, [sc_client_routing]),
+    ?assert(proplists:get_value(q1size, Stats1) == 0),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
