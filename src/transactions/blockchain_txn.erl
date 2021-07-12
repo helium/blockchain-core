@@ -461,7 +461,6 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
          lists:filter(
            fun(T) -> Ty = ?MODULE:type(T),
                      Ty == blockchain_txn_vars_v1
-                         orelse Ty == blockchain_txn_consensus_group_v1
            end, (Transactions0)),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->

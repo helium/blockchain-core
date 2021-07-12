@@ -656,7 +656,7 @@ new_snapshot(#ledger_v1{db=DB,
         _ ->
             CheckpointDir = checkpoint_dir(Ledger, Height),
             ok = filelib:ensure_dir(CheckpointDir),
-            %% take a real rocksdb snaoshot here and put that in the cache
+            %% take a real rocksdb snapshot here and put that in the cache
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
             case rocksdb:snapshot(DB) of
                 {ok, SnapshotHandle} ->
@@ -675,16 +675,24 @@ new_snapshot(#ledger_v1{db=DB,
                     %% take a checkpoint as well for use after a restart
                     %% This is treated as atomic and there are no further updates required, unlike
                     %% context_snapshot
-                    case rocksdb:checkpoint(DB, CheckpointDir) of
-                        ok ->
-                            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-                            {ok, DelayedHeight} = current_height(DelayedLedger),
-                            OldDir = checkpoint_dir(Ledger, DeleteHeight),
-                            remove_checkpoint(OldDir),
+
+                    %% checkpoints are not needed in follow mode, and are quite expensive to create
+                    %% each block.
+                    case application:get_env(blockchain, follow_mode, false) of
+                        true ->
                             {ok, Ledger};
-                        {error, Reason1}=Error1 ->
-                            lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
-                            Error1
+                        false ->
+                            case rocksdb:checkpoint(DB, CheckpointDir) of
+                                ok ->
+                                    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+                                    {ok, DelayedHeight} = current_height(DelayedLedger),
+                                    OldDir = checkpoint_dir(Ledger, DeleteHeight),
+                                    remove_checkpoint(OldDir),
+                                    {ok, Ledger};
+                                {error, Reason1}=Error1 ->
+                                    lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
+                                    Error1
+                            end
                     end;
                 {error, Reason}=Error ->
                     lager:error("Error creating new snapshot reason: ~p", [Reason]),
