@@ -8,12 +8,12 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_vars.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
--include("blockchain_vars.hrl").
--include("blockchain.hrl").
 
 -export([
          new/2, new/3,
@@ -890,7 +890,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 10 ->
+        N when is_integer(N), N >= 1,  N =< 11 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -1272,9 +1272,90 @@ validate_var(?penalty_history_limit, Value) ->
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
+validate_var(?regulatory_regions, Value) when is_binary(Value) ->
+    %% The regulatory_regions value we support must look like this:
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% The order does not matter in validation
+
+    %% First check is a relatively conservative byte_size check on the value
+    C1 = byte_size(Value) =< 148,
+    %% Second check is that we're able to get the regions and it's not some random data
+    %% And it's atleast >= 11 (the number of regions we know about)
+    C2 = length(string:tokens(binary:bin_to_list(Value), ",")) >= 11,
+
+    case {C1, C2} of
+        {true, true} -> ok;
+        {false, _} -> throw({error, {invalid_byte_size, Value}});
+        {_, false} -> throw({error, {invalid_region_list, Value}})
+    end;
+validate_var(?regulatory_regions, Value) ->
+    throw({error, {invalid_regulatory_regions_not_binary, Value}});
+
+validate_var(?region_as923_1, Value) ->
+    validate_region_var(?region_as923_1, Value);
+validate_var(?region_as923_2, Value) ->
+    validate_region_var(?region_as923_2, Value);
+validate_var(?region_as923_3, Value) ->
+    validate_region_var(?region_as923_3, Value);
+validate_var(?region_au915, Value) ->
+    validate_region_var(?region_au915, Value);
+validate_var(?region_cn470, Value) ->
+    validate_region_var(?region_cn470, Value);
+validate_var(?region_eu433, Value) ->
+    validate_region_var(?region_eu433, Value);
+validate_var(?region_eu868, Value) ->
+    validate_region_var(?region_eu868, Value);
+validate_var(?region_in865, Value) ->
+    validate_region_var(?region_in865, Value);
+validate_var(?region_kr920, Value) ->
+    validate_region_var(?region_kr920, Value);
+validate_var(?region_ru864, Value) ->
+    validate_region_var(?region_ru864, Value);
+validate_var(?region_us915, Value) ->
+    validate_region_var(?region_us915, Value);
+
+%% TODO: Revisit
+validate_var(?region_params_us915, Value) ->
+    validate_region_params(?region_params_us915, Value);
+validate_var(?region_params_eu868, Value) ->
+    validate_region_params(?region_params_eu868, Value);
+validate_var(?region_params_au915, Value) ->
+    validate_region_params(?region_params_au915, Value);
+validate_var(?region_params_as923_1, Value) ->
+    validate_region_params(?region_params_as923_1, Value);
+validate_var(?region_params_as923_2, Value) ->
+    validate_region_params(?region_params_as923_2, Value);
+validate_var(?region_params_as923_3, Value) ->
+    validate_region_params(?region_params_as923_3, Value);
+validate_var(?region_params_ru864, Value) ->
+    validate_region_params(?region_params_ru864, Value);
+validate_var(?region_params_cn470, Value) ->
+    validate_region_params(?region_params_cn470, Value);
+validate_var(?region_params_in865, Value) ->
+    validate_region_params(?region_params_in865, Value);
+validate_var(?region_params_kr920, Value) ->
+    validate_region_params(?region_params_kr920, Value);
+validate_var(?region_params_eu433, Value) ->
+    validate_region_params(?region_params_eu433, Value);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
+
+validate_region_var(Var, Value) when is_binary(Value) ->
+    case size(Value) rem 8 of
+        %% This is always supposed to be true
+        0 ->
+            case byte_size(Value) of
+                %% All serialized regions we know so far are below 1MB
+                B when B =< 1 * 1024 * 1024 ->
+                    ok;
+                _ -> throw({error, {invalid_region_var_byte_size, Var, Value}})
+            end;
+        _ -> throw({error, {invalid_region_var_size, Var, Value}})
+    end;
+validate_region_var(Var, Value) ->
+    throw({error, {invalid_region_var, Var, Value}}).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
@@ -1348,6 +1429,19 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+validate_region_params(Var, Value) when is_binary(Value) ->
+    Deser = blockchain_region_params_v1:deserialize(Value),
+    Ser = blockchain_region_params_v1:serialize(Deser),
+    case Ser == Value of
+        true ->
+            %% TODO: Maybe add some checks around deserialized key-values
+            ok;
+        _ -> throw({error, {invalid_region_param_roundtrip, Var, Value}})
+    end;
+validate_region_params(Var, Value) ->
+    throw({error, {invalid_region_param_not_binary, Var, Value}}).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
