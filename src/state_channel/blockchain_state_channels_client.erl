@@ -224,33 +224,64 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
 handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
-            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
-    ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
-                            {error, Reason} ->
-                                lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
-                                [];
-                            {ok, Block} ->
-                                lists:foldl(fun(T, Acc) ->
-                                                      case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
-                                                          true ->
-                                                              SC = blockchain_txn_state_channel_close_v1:state_channel(T),
-                                                              SCID = blockchain_txn_state_channel_close_v1:state_channel_id(T),
-                                                              case lists:member(SCID, PendingCloses) orelse
-                                                                   is_causally_correct_sc(SC, State) of
-                                                                  true ->
-                                                                      ok;
-                                                                  false ->
-                                                                      %% submit our own close with the conflicting view(s)
-                                                                      close_state_channel(SC, State)
-                                                              end,
-                                                              %% add it to the list of closing channels so we don't try to double
-                                                              %% close it below, irregardless of if we're disputing it
-                                                              [SCID|Acc];
-                                                          false ->
-                                                              Acc
-                                                      end
-                                              end, [], blockchain_block:transactions(Block))
-                        end,
+            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, 
+                   pending_closes=PendingCloses, routes=Routes0}=State) when Chain /= undefined ->
+
+    Block =
+        case blockchain:get_block(BlockHash, Chain) of
+            {error, Reason} ->
+                lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
+                undefined;
+            {ok, B} ->
+                B
+        end,
+    Routes1 =
+        case Block of
+            undefined ->
+                Routes0;
+            {ok, Block} ->
+                lists:foldl(
+                    fun(T, Acc) ->
+                        %% We cleanup our cache anytime a routing txn comes in (just in case)
+                        case blockchain_txn:type(T) == blockchain_txn_routing_v1 of
+                            true ->
+                                #{};
+                            false ->
+                                Acc
+                        end
+                    end,
+                    Routes0,
+                    blockchain_block:transactions(Block))
+        end,
+    ClosingChannels =
+        case Block of
+            undefined ->
+                [];
+            {ok, Block} ->
+                lists:foldl(
+                    fun(T, Acc) ->
+                        case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
+                            true ->
+                                SC = blockchain_txn_state_channel_close_v1:state_channel(T),
+                                SCID = blockchain_txn_state_channel_close_v1:state_channel_id(T),
+                                case lists:member(SCID, PendingCloses) orelse
+                                    is_causally_correct_sc(SC, State) of
+                                    true ->
+                                        ok;
+                                    false ->
+                                        %% submit our own close with the conflicting view(s)
+                                        close_state_channel(SC, State)
+                                end,
+                                %% add it to the list of closing channels so we don't try to double
+                                %% close it below, irregardless of if we're disputing it
+                                [SCID|Acc];
+                            false ->
+                                Acc
+                        end
+                    end,
+                    [],
+                    blockchain_block:transactions(Block))
+        end,
     %% check if any other channels are expiring
     SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
                   {ok, G} -> G;
@@ -301,7 +332,8 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
                                                    Acc
                                            end
                                    end, [], SCs),
-    {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
+    {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels),
+                          routes=Routes1}};
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, State) ->
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams, packets=Packets}=State) ->
