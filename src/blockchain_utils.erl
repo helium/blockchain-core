@@ -24,6 +24,8 @@
     free_space_path_loss/3,
     vars_binary_keys_to_atoms/1,
     icdf_select/2,
+    icdf_select_b/2,
+    trial/3,
     find_txn/2,
     map_to_bitvector/1,
     bitvector_to_map/2,
@@ -318,6 +320,11 @@ icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
 
+-spec icdf_select_b([{any(), pos_integer()}, ...], pos_integer()) -> {ok, any()} | {error, zero_weight}.
+icdf_select_b(PopulationList, Rnd) ->
+    Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
+    icdf_select_b(PopulationList, Rnd * Sum, Rnd * Sum).
+
 -spec find_txn(Block :: blockchain_block:block(),
                PredFun :: fun()) -> [blockchain_txn:txn()].
 find_txn(Block, PredFun) ->
@@ -337,6 +344,42 @@ icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
     icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
 
 
+icdf_select_b([{_Node, 0}], _Rnd, _OrigRnd) ->
+    {error, zero_weight};
+icdf_select_b([{Node, _Weight}], _Rnd, _OrigRnd) ->
+    {ok, Node};
+icdf_select_b([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
+    {ok, Node};
+icdf_select_b([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
+    icdf_select(Tail, Rnd - Weight, OrigRnd).
+
+trial(Len, Iter, Type) ->
+    L1 = lists:duplicate(Len - 2, 10),
+    L2 = [1, 5 | L1 ],
+    L3 = lists:zip(lists:seq(1, Len), L2),
+
+    LoopF = fun LF(0, A) ->
+                    A;
+                LF(I, A) ->
+                    {ok, N} = blockchain_utils:icdf_select(L3, rand:uniform()),
+                    LF(I - 1, maps:update_with(N, fun(X) -> X + 1 end, 1, A))
+            end,
+    LoopB = fun LF(0, A) ->
+                    A;
+                LF(I, A) ->
+                    {ok, N} = blockchain_utils:icdf_select_b(L3, rand:uniform()),
+                    LF(I - 1, maps:update_with(N, fun(X) -> X + 1 end, 1, A))
+            end,
+
+    M = case Type of
+            int ->
+                LoopB(Iter, #{});
+            float ->
+                LoopF(Iter, #{})
+        end,
+    Res = lists:sort(maps:to_list(M)),
+    {Hd, _Tl} = lists:split(10, Res),
+    Hd.
 
 -spec map_to_bitvector(#{pos_integer() => boolean()}) -> binary().
 map_to_bitvector(Map) ->
