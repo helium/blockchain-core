@@ -12,11 +12,13 @@
 
 -export([
          calc_v1_and_v2_test/1,
-         calc_v2_and_compare_to_chain/1
+         calc_v2_and_compare_to_chain/1,
+         diff_vars/2,
+         diff_by_type/2
         ]).
 
 suite() ->
-    [{timetrap,{seconds,200}}].
+    [{timetrap,{hours,2}}].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(lager),
@@ -84,7 +86,23 @@ calc_v1_and_v2_test(Config) ->
           end),
     ct:pal("rewards v2: ~p ms", [Time2 div 1000]),
 
+    {Time4, OldRewardsV2} =
+    timer:tc(
+      fun() ->
+              {ok, R4} = blockchain_txn_rewards_v2_old:calculate_rewards(Height - 15, Height, Chain),
+              R4
+      end),
+    ct:pal("old rewards v2: ~p ms", [Time4 div 1000]),
+
     V1 = blockchain_txn_rewards_v2:v1_to_v2(RewardsV1),
+
+    case RewardsV2 == OldRewardsV2 of
+        true -> ok;
+        false ->
+            _Diff = diff_v2(RewardsV2, OldRewardsV2),
+            %ct:pal("diff new vs old~n~p", [Diff]),
+            ct:fail("v2 different")
+    end,
 
     case V1 == RewardsV2 of
         true -> ok;
@@ -139,6 +157,66 @@ calc_v2_and_compare_to_chain(Config) ->
     end.
 
 %% Internal functions
+
+diff_vars(New, Old) ->
+    maps:fold(fun(K, V, Acc) ->
+                      case maps:get(K, Old, undefined) of
+                          undefined -> maps:update_with(key_not_in_old_vars,
+                                                        fun(C) -> [ K | C ] end,
+                                                        [ K ],
+                                                        Acc);
+                          V -> Acc; %% same in old and new
+                          OldVal -> Acc#{ K => {V, OldVal} }
+                      end
+              end,
+              #{}, New).
+
+diff_by_type(New, Old) ->
+    maps:fold(fun(K, NewTypes, Acc) ->
+                     OldTypes = maps:get(K, Old),
+                     case NewTypes == OldTypes of
+                         true -> Acc;
+                         false ->
+                             maps:fold(fun(Type, Amount, Acc1) ->
+                                               OldAmount = maps:get(Type, OldTypes),
+                                               case Amount == OldAmount of
+                                                   true -> Acc1;
+                                                   false ->
+                                                       Diff = Amount - OldAmount,
+                                                       Acc1#{ Type => #{ new => Amount,
+                                                                         old => OldAmount,
+                                                                         diff => Diff } }
+                                               end
+                                       end,
+                                       Acc,
+                                       NewTypes)
+                     end
+              end,
+              #{}, New).
+
+
+
+diff_v2(New, Old) ->
+    lists:foldl(fun({_RecTag, Owner, Amount}, Acc) ->
+                        case lists:keyfind(Owner, 2, New) of
+                            false ->
+                                maps:update_with(not_in_new,
+                                                 fun(E) -> [ {Owner, Amount} | E ] end,
+                                                 [{Owner, Amount}], Acc);
+                            {_RecTag, Owner, Amount} ->
+                                maps:update_with(same,
+                                                 fun(C) -> C + 1 end,
+                                                 1, Acc);
+                            {_RecTag, Owner, NewAmount} ->
+                                maps:update_with(new_amt_different,
+                                                 fun(E) -> [ {Owner, Amount, NewAmount} | E ] end,
+                                                 [{Owner, Amount, NewAmount}], Acc)
+                        end
+                end,
+                #{},
+                Old).
+
+
 diff_v1_v2(RewardsV1, V1, RewardsV2) ->
     %% compare V1 to V2
     I0 = lists:foldl(fun({_RType, Owner, Amount}, Acc) ->
