@@ -42,8 +42,7 @@
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>). % also copied in sc_db_owner
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
-%% https://hur.st/bloomfilter/?n=500000&p=1.0E-6&m=&k=20
--define(BITMAP_SIZE, 15000000).
+-define(FP_RATE, 0.99).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -64,8 +63,7 @@
 -type sc_key() :: blockchain_state_channel_v1:id().
 -type sc_value() :: {blockchain_state_channel_v1:state_channel(), skewed:skewed()}.
 -type state_channels() :: #{sc_key() => sc_value()}.
--type bloom_value() :: {ClientBloom :: bloom_nif:bloom(), PacketBloom :: bloom_nif:bloom()}.
--type blooms() :: #{sc_key() => bloom_value()}.
+-type blooms() :: #{sc_key() => bloom_nif:bloom()}.
 -type streams() :: #{libp2p_crypto:pubkey_bin() => {pid(), reference()}}.
 
 -ifdef(TEST).
@@ -331,7 +329,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
             State;
         {ok, SC} ->
             ActiveSCID = blockchain_state_channel_v1:id(SC),
-            {ClientBloom, PacketBloom} = maps:get(ActiveSCID, Blooms),
+            PacketBloom = maps:get(ActiveSCID, Blooms),
             {_, Skewed} = maps:get(ActiveSCID, SCs),
             case SCVer > 1 andalso bloom:check_and_set(PacketBloom, Payload) of
                 true ->
@@ -348,8 +346,8 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
                                     SC2;
                                 _ ->
                                     {SC3, _} =
-                                        update_sc_summary(ClientPubKeyBin, byte_size(Payload), State#state.dc_payload_size,
-                                                          SC2, ClientBloom, MaxActorsAllowed),
+                                        update_sc_summary(ClientPubKeyBin, byte_size(Payload),
+                                                          State#state.dc_payload_size, SC2, MaxActorsAllowed),
                                     SC3
                             end,
 
@@ -364,8 +362,11 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
     end.
 
 handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, active_sc_ids=ActiveSCIDs,
-                                         state_channels=SCs, blooms=Blooms, owner={_Owner, OwnerSigFun},
+                                         state_channels=SCs, owner={_Owner, OwnerSigFun},
                                          max_actors_allowed=MaxActorsAllowed}=State0) ->
+    Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
+    HotspotName = blockchain_utils:addr2name(Hotspot),
+    lager:debug("handling offer from ~p", [HotspotName]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
@@ -374,7 +375,6 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
             ok = send_rejection(HandlerPid),
             {noreply, State0};
         true ->
-            Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             case select_best_active_sc(Hotspot, State0) of
                 {error, _Reason} ->
                     lager:debug("could not get a good active SC (~p)", [_Reason]),
@@ -411,11 +411,10 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                             State1;
                         false ->
                             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
-                            lager:debug("routing: ~p, hotspot: ~p", [Routing, Hotspot]),
-                            {ClientBloom, _} = maps:get(ActiveSCID, Blooms),
+                            lager:debug("routing: ~p, hotspot: ~p", [Routing, HotspotName]),
                             case
                                 try_update_summary(ActiveSC, Hotspot, PayloadSize,
-                                                   DCPayloadSize, ClientBloom, MaxActorsAllowed)
+                                                   DCPayloadSize, MaxActorsAllowed)
                             of
                                 {error, _Reason} ->
                                     lager:warning("dropping this packet because: ~p ~p",
@@ -423,6 +422,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                     ok = send_rejection(HandlerPid),
                                     State0;
                                 {ok, PurchaseSC} ->
+                                    lager:debug("purchasing offer from ~p", [HotspotName]),
                                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
                                     Region = blockchain_state_channel_offer_v1:region(SCOffer),
@@ -433,11 +433,9 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                                                                         Region),
                                     {_, Skewed} = maps:get(ActiveSCID, SCs),
                                     ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
-                                    State1 =
-                                        maybe_add_stream(Hotspot,
+                                    maybe_add_stream(Hotspot,
                                                          HandlerPid,
-                                                         State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)}),
-                                    State1
+                                                         State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)})
                             end
                             
                     end
@@ -475,8 +473,7 @@ update_state_sc_open(Txn,
                      #state{owner={Owner, OwnerSigFun},
                             state_channels=SCs,
                             active_sc_ids=ActiveSCIDs,
-                            blooms=Blooms,
-                            max_actors_allowed=MaxActorsAllowed}=State) ->
+                            blooms=Blooms}=State) ->
     case blockchain_txn_state_channel_open_v1:owner(Txn) of
         %% Do the map put when we are the owner of the state_channel
         Owner ->
@@ -491,8 +488,7 @@ update_state_sc_open(Txn,
 
             SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
 
-            {ok, ClientBloom} = bloom:new(?BITMAP_SIZE, MaxActorsAllowed),
-            {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, max(Amt, 1)),
+            {ok, PacketBloom} = bloom:new_optimal(max(Amt, 1), ?FP_RATE),
 
             case ActiveSCIDs of
                 [] ->
@@ -501,11 +497,11 @@ update_state_sc_open(Txn,
                     ok = maybe_broadcast_banner([SignedSC], State),
                     State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs),
                                 active_sc_ids=[ID],
-                                blooms=maps:put(ID, {ClientBloom, PacketBloom}, Blooms)};
+                                blooms=maps:put(ID, PacketBloom, Blooms)};
                 _ ->
                     lager:debug("already got ~p active", [[blockchain_utils:addr2name(I) || I <- ActiveSCIDs]]),
                     State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs),
-                                blooms=maps:put(ID, {ClientBloom, PacketBloom}, Blooms)}
+                                blooms=maps:put(ID, PacketBloom, Blooms)}
             end;
         _ ->
             %% Don't do anything cuz we're not the owner
@@ -686,7 +682,7 @@ update_state_with_ledger_channels(#state{db=DB, chain=Chain}=State0) ->
     %% These don't exist in the ledger but we have them in the sc db,
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(LedgerSCKeys, DBSCs)),
-    lager:debug("presumably closed sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- ClosedSCIDs]]),
+    lager:info("presumably closed sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- ClosedSCIDs]]),
 
     {ok, BlockHeight} = blockchain:height(Chain),
     Headroom =
@@ -866,13 +862,12 @@ maybe_get_new_active(WithoutSCIDs, #state{chain=Chain, sc_version=SCVersion, act
                          Hotspot :: libp2p_crypto:pubkey_bin(),
                          PayloadSize :: pos_integer(),
                          DCPayloadSize :: undefined | pos_integer(),
-                         ClientBloom :: bloom_nif:bloom(),
                          MaxActorsAllowed :: non_neg_integer()) ->
     {ok, blockchain_state_channel_v1:state_channel()} | {error, does_not_fit}.
-try_update_summary(SC, Hotspot, PayloadSize, DCPayloadSize, ClientBloom, MaxActorsAllowed) ->
+try_update_summary(SC, Hotspot, PayloadSize, DCPayloadSize, MaxActorsAllowed) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
-    case update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0, ClientBloom, MaxActorsAllowed) of
+    case update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0, MaxActorsAllowed) of
         {NewPurchaseSC1, true} -> {ok, NewPurchaseSC1};
         {_SC, false} -> {error, does_not_fit}
     end.
@@ -901,10 +896,9 @@ send_rejection(Stream) ->
                         PayloadSize :: pos_integer(),
                         DCPayloadSize :: undefined | pos_integer(),
                         SC :: blockchain_state_channel_v1:state_channel(),
-                        ClientBloom :: bloom_nif:bloom(),
                         MaxActorsAllowed :: non_neg_integer()) ->
     {blockchain_state_channel_v1:state_channel(), boolean()}.
-update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom, MaxActorsAllowed) ->
+update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) ->
     case blockchain_state_channel_v1:get_summary(ClientPubKeyBin, SC) of
         {error, not_found} ->
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
@@ -913,9 +907,7 @@ update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom, 
             {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(ClientPubKeyBin,
                                                                              NewSummary,
                                                                              SC,
-                                                                             bloom:check(ClientBloom, ClientPubKeyBin),
                                                                              MaxActorsAllowed),
-            ok = maybe_set_client_bloom(ClientPubKeyBin, ClientBloom, DidFit),
             {NewSC, DidFit};
         {ok, ExistingSummary} ->
             %% Update packet count for this client
@@ -930,18 +922,9 @@ update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom, 
             {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(ClientPubKeyBin,
                                                                              NewSummary,
                                                                              SC,
-                                                                             bloom:check(ClientBloom, ClientPubKeyBin),
                                                                              MaxActorsAllowed),
-            ok = maybe_set_client_bloom(ClientPubKeyBin, ClientBloom, DidFit),
             {NewSC, DidFit}
     end.
-
--spec maybe_set_client_bloom(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
-                             ClientBloom :: bloom_nif:bloom(),
-                             DidFit :: boolean()) -> ok.
-maybe_set_client_bloom(_ClientPubKeyBin, _ClientBloom, false) -> ok;
-maybe_set_client_bloom(ClientPubKeyBin, ClientBloom, true) ->
-    bloom:set(ClientBloom, ClientPubKeyBin).
 
 -spec maybe_broadcast_banner(SC :: [blockchain_state_channel_v1:state_channel()],
                              State :: state()) -> ok.
@@ -988,11 +971,10 @@ send_banner(SC, Stream) ->
 -spec update_state_with_blooms(State :: state()) -> state().
 update_state_with_blooms(#state{state_channels=SCs}=State) when map_size(SCs) == 0 ->
     State;
-update_state_with_blooms(#state{state_channels=SCs, max_actors_allowed=MaxActorsAllowed}=State) ->
+update_state_with_blooms(#state{state_channels=SCs}=State) ->
     Blooms = maps:map(fun(_, {SC, _}) ->
-                              {ok, ClientBloom} = bloom:new(?BITMAP_SIZE, MaxActorsAllowed),
                               Amount = blockchain_state_channel_v1:amount(SC),
-                              {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, max(Amount, 1)),
-                              {ClientBloom, PacketBloom}
+                              {ok, PacketBloom} = bloom:new_optimal(max(Amount, 1), ?FP_RATE),
+                              PacketBloom
                       end, SCs),
     State#state{blooms=Blooms}.
