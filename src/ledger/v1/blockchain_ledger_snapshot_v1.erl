@@ -1149,8 +1149,6 @@ deserialize_pairs(<<Bin/binary>>) ->
     ).
 
 -spec deserialize_field(key(), binary()) -> term().
-deserialize_field(master_key, <<Bin/binary>>) ->
-    Bin;
 deserialize_field(K, <<Bin/binary>>) ->
     case is_raw_field(K) of
         true -> bin_pairs_from_bin(Bin);
@@ -1158,8 +1156,6 @@ deserialize_field(K, <<Bin/binary>>) ->
     end.
 
 -spec serialize_field(key(), term()) -> iolist().
-serialize_field(_K, V) when is_binary(V) ->
-    V;
 serialize_field(K, V) ->
     case is_raw_field(K) of
         true -> lists:map(fun bin_pair_to_iolist/1, V);
