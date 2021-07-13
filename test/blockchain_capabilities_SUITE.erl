@@ -17,14 +17,16 @@
     dataonly_gateway_simple_checks/1,
     dataonly_gateway_poc_checks/1,
     full_gateway_poc_checks/1,
-    light_gateway_poc_checks/1
+    light_gateway_poc_checks/1,
+    no_staking_mapping_test/1
 ]).
 
 all() -> [
     dataonly_gateway_simple_checks,
     dataonly_gateway_poc_checks,
     full_gateway_poc_checks,
-    light_gateway_poc_checks
+    light_gateway_poc_checks,
+    no_staking_mapping_test
 ].
 
 %%--------------------------------------------------------------------
@@ -33,7 +35,8 @@ all() -> [
 init_per_testcase(TestCase, Config0)  when TestCase == dataonly_gateway_simple_checks;
                                            TestCase == dataonly_gateway_poc_checks;
                                            TestCase == full_gateway_poc_checks;
-                                           TestCase == light_gateway_poc_checks ->
+                                           TestCase == light_gateway_poc_checks;
+                                           TestCase == no_staking_mapping_test ->
     Config = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config0),
     BaseDir = ?config(base_dir, Config),
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -80,7 +83,14 @@ init_per_testcase(TestCase, Config0)  when TestCase == dataonly_gateway_simple_c
     {ok, MappingsBin} = make_staking_keys_mode_mappings(Mappings),
 
     %% add the mappings chainvar to the list along with the dataonly gateway add txn fee
-    ExtraVars1 = maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0),
+    ExtraVars1 = case TestCase of
+                     no_staking_mapping_test ->
+                         %% put the staking keys in also to forcefully hit the fallback path
+                         %% where staking_keys_to_mode_mappings is not set but everything else is
+                         maps:put(staking_keys, staking_keys(), ExtraVars0);
+                     _ ->
+                         maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0)
+                 end,
 
     %% some extra config which the tests will need access too
     ExtraConfig = [{dataonly_staking_key, DataOnlyStakingKey}, {dataonly_staking_key_pub_bin, DataOnlyStakingKeyPubBin},
@@ -896,3 +906,110 @@ setup(Config)->
         {poc_secret, Secret0},
         {poc_onion, OnionKeyHash0} | Config
     ].
+
+no_staking_mapping_test(Config) ->
+    %% NOTE: Var txn: https://github.com/helium/miner/blob/master/audit/var-73.md
+    %% did not provide an empty staking_keys_to_mode_mappings value. This test
+    %% invokes the same scenario
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
+    ct:pal("base dir: ~p", [BaseDir]),
+    ct:pal("base SIM dir: ~p", [SimDir]),
+    Payer = ?config(payer, Config),
+    PayerSigFun = ?config(payer_sig_fun, Config),
+
+    Chain = ?config(chain, Config),
+    Ledger = ?config(ledger, Config),
+
+    %%
+    %% NOTE: Check that staking_keys_to_mode_mappings is not_found on ledger
+    %%
+    {error, not_found} = blockchain:config(staking_keys_to_mode_mappings, Ledger),
+    not_found = blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    {ok, CurHeight} = blockchain:height(Chain),
+
+    %%
+    %% create a payment txn to fund staking account
+    %%
+    #{public := StakingPub, secret := StakingPrivKey} = _StakingKey = libp2p_crypto:generate_keys(ecc_compact),
+    Staker = libp2p_crypto:pubkey_to_bin(StakingPub),
+    StakerSigFun = libp2p_crypto:mk_sig_fun(StakingPrivKey),
+    %% base txn
+    PaymentTx0 = blockchain_txn_payment_v1:new(Payer, Staker, 5000 * ?BONES_PER_HNT, 1),
+    PaymentTxFee = blockchain_txn_payment_v1:calculate_fee(PaymentTx0, Chain),
+    ct:pal("payment txn fee ~p, staking fee ~p, total: ~p", [PaymentTxFee, 'NA', PaymentTxFee ]),
+    PaymentTx1 = blockchain_txn_payment_v1:fee(PaymentTx0, PaymentTxFee),
+    SignedPaymentTx1 = blockchain_txn_payment_v1:sign(PaymentTx1, PayerSigFun),
+    ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
+
+    %% check is_valid behaves as expected
+    ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
+    {ok, PaymentBlock} = test_utils:create_block(ConsensusMembers, [SignedPaymentTx1]),
+    %% add the block
+    blockchain:add_block(PaymentBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 1} =:= blockchain:height(Chain) end),
+
+    %% add the gateway using Staker as the payer, will be added as a dataonly gateway as payer has no mapping in staking key mappings
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Owner = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    %% add gateway base txn
+    AddGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Staker),
+    %% get the fees for this txn
+    AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
+    AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
+
+    %% set the fees on the base txn and then sign the various txns
+    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx0, AddGatewayTxFee),
+    AddGatewayTx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx1, AddGatewayStFee),
+    SignedOwnerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx2, OwnerSigFun),
+    SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
+    SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
+
+    %% NOTE: This txn is invalid because gateway_mode/2 -> full, thus doing the lists:member check
+    %% in is_valid_staking_key for add_gateway_txn
+    {error, _} = blockchain_txn:is_valid(SignedPayerAddGatewayTx2, Chain),
+
+    ok.
+
+staking_keys() ->
+    %% On chain staking keys, doesn't really matter what these are set to really
+    [<<1,37,193,104,249,129,155,16,116,103,223,160,89,196,199,
+       11,94,109,49,204,84,242,3,141,250,172,153,4,226,99,215,
+       122,202>>,
+     <<1,90,111,210,126,196,168,67,148,63,188,231,78,255,150,
+       151,91,237,189,148,99,248,41,4,103,140,225,49,117,68,
+       212,132,113>>,
+     <<1,81,215,107,13,100,54,92,182,84,235,120,236,201,115,77,
+       249,2,33,68,206,129,109,248,58,188,53,45,34,109,251,217,
+       130>>,
+     <<1,251,174,74,242,43,25,156,188,167,30,41,145,14,91,0,
+       202,115,173,26,162,174,205,45,244,46,171,200,191,85,222,
+       98,120>>,
+     <<1,253,88,22,88,46,94,130,1,58,115,46,153,194,91,1,57,
+       194,165,181,225,251,12,13,104,171,131,151,164,83,113,
+       147,216>>,
+     <<1,6,76,109,192,213,45,64,27,225,251,102,247,132,42,154,
+       145,70,61,127,106,188,70,87,23,13,91,43,28,70,197,41,91>>,
+     <<1,53,200,215,84,164,84,136,102,97,157,211,75,206,229,73,
+       177,83,153,199,255,43,180,114,30,253,206,245,194,79,156,
+       218,193>>,
+     <<1,229,253,194,42,80,229,8,183,20,35,52,137,60,18,191,28,
+       127,218,234,118,173,23,91,129,251,16,39,223,252,71,165,
+       120>>,
+     <<1,54,171,198,219,118,150,6,150,227,80,208,92,252,28,183,
+       217,134,4,217,2,166,9,57,106,38,182,158,255,19,16,239,
+       147>>,
+     <<1,51,170,177,11,57,0,18,245,73,13,235,147,51,37,187,248,
+       125,197,173,25,11,36,187,66,9,240,61,104,28,102,194,66>>,
+     <<1,187,46,236,46,25,214,204,51,20,191,86,116,0,174,4,
+       247,132,145,22,83,66,159,78,13,54,52,251,8,143,59,191,
+       196>>].
