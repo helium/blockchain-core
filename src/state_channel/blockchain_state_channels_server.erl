@@ -42,8 +42,7 @@
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>). % also copied in sc_db_owner
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
-%% https://hur.st/bloomfilter/?n=500000&p=1.0E-6&m=&k=20
--define(BITMAP_SIZE, 15000000).
+-define(FP_RATE, 0.99).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -489,7 +488,7 @@ update_state_sc_open(Txn,
 
             SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
 
-            {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, max(Amt, 1)),
+            {ok, PacketBloom} = bloom:new_optimal(max(Amt, 1), ?FP_RATE),
 
             case ActiveSCIDs of
                 [] ->
@@ -975,7 +974,7 @@ update_state_with_blooms(#state{state_channels=SCs}=State) when map_size(SCs) ==
 update_state_with_blooms(#state{state_channels=SCs}=State) ->
     Blooms = maps:map(fun(_, {SC, _}) ->
                               Amount = blockchain_state_channel_v1:amount(SC),
-                              {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, max(Amount, 1)),
+                              {ok, PacketBloom} = bloom:new_optimal(max(Amount, 1), ?FP_RATE),
                               PacketBloom
                       end, SCs),
     State#state{blooms=Blooms}.
