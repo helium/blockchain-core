@@ -293,7 +293,7 @@ clear_witnesses(Ledger) ->
               case blockchain_ledger_gateway_v2:serialize(Gw1) of
                   BinGw -> ok;
                   _ ->
-                      blockchain_ledger_v1:update_gateway(Gw, Addr, Ledger)
+                      blockchain_ledger_v1:update_gateway(Gw1, Addr, Ledger)
               end
       end,
       whatever,
