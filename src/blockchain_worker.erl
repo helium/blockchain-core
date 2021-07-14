@@ -279,7 +279,8 @@ signed_metadata_fun() ->
                             #{}
                     end,
                 Ledger = blockchain:ledger(Chain),
-                FPMD = case blockchain:sync_height(Chain) == blockchain_ledger_v1:current_height(Ledger) of
+                IsFollowing = application:get_env(blockchain, follow_mode, false),
+                FPMD = case IsFollowing == false andalso blockchain:sync_height(Chain) == blockchain_ledger_v1:current_height(Ledger) of
                            true ->
                                Ht0 = maps:get(<<"height">>, HeightMD, 1),
                                Ht = max(1, Ht0 - (Ht0 rem 40)),

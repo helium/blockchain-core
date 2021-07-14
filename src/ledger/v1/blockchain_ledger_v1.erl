@@ -654,8 +654,6 @@ new_snapshot(#ledger_v1{db=DB,
     case ets:insert_new(Cache, Old) of
         false -> {ok, Ledger};
         _ ->
-            CheckpointDir = checkpoint_dir(Ledger, Height),
-            ok = filelib:ensure_dir(CheckpointDir),
             %% take a real rocksdb snapshot here and put that in the cache
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
             case rocksdb:snapshot(DB) of
@@ -682,6 +680,8 @@ new_snapshot(#ledger_v1{db=DB,
                         true ->
                             {ok, Ledger};
                         false ->
+                            CheckpointDir = checkpoint_dir(Ledger, Height),
+                            ok = filelib:ensure_dir(CheckpointDir),
                             case rocksdb:checkpoint(DB, CheckpointDir) of
                                 ok ->
                                     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
@@ -724,63 +724,68 @@ remove_checkpoint(CheckpointDir) ->
     file:del_dir(filename:dirname(CheckpointDir)).
 
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
-    {ok, Height} = current_height(Ledger),
-    CheckpointDir = checkpoint_dir(Ledger, Height),
-    case ets:lookup(Cache, Height) of
-        [{Height, {pending, _Pid}}] ->
-            has_snapshot(Height, Ledger);
-        [{_Height, _SnapLedger}] ->
-            %% ledger already exists
-            has_snapshot(Height, Ledger);
-        [] ->
-            Me = self(),
-            Old = {Height, {pending, Me}},
-            case ets:insert_new(Cache, Old) of
-                false -> has_snapshot(Height, Ledger);
-                _ ->
-                    case filelib:is_dir(CheckpointDir) of
-                        true ->
-                            %% this should be quite unlikely
-                            has_snapshot(Height, Ledger);
-                        false ->
-                            ok = filelib:ensure_dir(CheckpointDir),
-                            %% use a temp dir and then an atomic rename so we don't accidentally
-                            %% take a checkpoint and omit writing the delayed file or the updates
-                            %% because of a crash or a restart
-                            %% note that this MUST be a subdirectory, not a sibling directory
-                            %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
-                            TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
-                            ok = filelib:ensure_dir(TmpDir),
-                            ok = rocksdb:checkpoint(DB, TmpDir),
-                            case Mode of
-                                delayed ->
-                                    file:write_file(filename:join(TmpDir, "delayed"), <<>>);
-                                active ->
-                                    ok
-                            end,
-                            %% open the checkpoint read-write and commit the changes in the ETS table into it
-                            Ledger2 = new(filename:dirname(TmpDir), false),
-                            Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
-                            #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
-                            lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
-                            commit_context(context_cache(ECache, GwCache, Ledger3)),
-                            close(Ledger3),
-                            %% ok, we've done everything we need to do to the checkpoint, so move it into place
-                            %% now.
-                            case file:rename(TmpDir, CheckpointDir) of
-                                ok ->
-                                    lager:info("renamed checkpoint from ~p to ~p", [TmpDir, CheckpointDir]),
-                                    file:del_dir(filename:dirname(TmpDir)),
-                                    ok;
-                                {error, Reason} ->
-                                    lager:info("rename ~p to ~p failed ~p", [TmpDir, CheckpointDir, Reason]),
-                                    %% someone likely beat us to it
-                                    file:delete(filename:join([TmpDir, "delayed"])),
-                                    rocksdb:destroy(TmpDir, []),
-                                    file:del_dir(filename:dirname(TmpDir)),
-                                    ets:delete(Cache, Height)
-                            end,
-                            has_snapshot(Height, Ledger)
+    case application:get_env(blockchain, follow_mode, false) of
+        true ->
+            {ok, Ledger};
+        false ->
+            {ok, Height} = current_height(Ledger),
+            CheckpointDir = checkpoint_dir(Ledger, Height),
+            case ets:lookup(Cache, Height) of
+                [{Height, {pending, _Pid}}] ->
+                    has_snapshot(Height, Ledger);
+                [{_Height, _SnapLedger}] ->
+                    %% ledger already exists
+                    has_snapshot(Height, Ledger);
+                [] ->
+                    Me = self(),
+                    Old = {Height, {pending, Me}},
+                    case ets:insert_new(Cache, Old) of
+                        false -> has_snapshot(Height, Ledger);
+                        _ ->
+                            case filelib:is_dir(CheckpointDir) of
+                                true ->
+                                    %% this should be quite unlikely
+                                    has_snapshot(Height, Ledger);
+                                false ->
+                                    ok = filelib:ensure_dir(CheckpointDir),
+                                    %% use a temp dir and then an atomic rename so we don't accidentally
+                                    %% take a checkpoint and omit writing the delayed file or the updates
+                                    %% because of a crash or a restart
+                                    %% note that this MUST be a subdirectory, not a sibling directory
+                                    %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
+                                    TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
+                                    ok = filelib:ensure_dir(TmpDir),
+                                    ok = rocksdb:checkpoint(DB, TmpDir),
+                                    case Mode of
+                                        delayed ->
+                                            file:write_file(filename:join(TmpDir, "delayed"), <<>>);
+                                        active ->
+                                            ok
+                                    end,
+                                    %% open the checkpoint read-write and commit the changes in the ETS table into it
+                                    Ledger2 = new(filename:dirname(TmpDir), false),
+                                    Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
+                                    #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                                    lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
+                                    commit_context(context_cache(ECache, GwCache, Ledger3)),
+                                    close(Ledger3),
+                                    %% ok, we've done everything we need to do to the checkpoint, so move it into place
+                                    %% now.
+                                    case file:rename(TmpDir, CheckpointDir) of
+                                        ok ->
+                                            lager:info("renamed checkpoint from ~p to ~p", [TmpDir, CheckpointDir]),
+                                            file:del_dir(filename:dirname(TmpDir)),
+                                            ok;
+                                        {error, Reason} ->
+                                            lager:info("rename ~p to ~p failed ~p", [TmpDir, CheckpointDir, Reason]),
+                                            %% someone likely beat us to it
+                                            file:delete(filename:join([TmpDir, "delayed"])),
+                                            rocksdb:destroy(TmpDir, []),
+                                            file:del_dir(filename:dirname(TmpDir)),
+                                            ets:delete(Cache, Height)
+                                    end,
+                                    has_snapshot(Height, Ledger)
+                            end
                     end
             end
     end.

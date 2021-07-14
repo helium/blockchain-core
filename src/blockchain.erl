@@ -983,9 +983,13 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
       fun(H, ok) ->
               {ok, B} = get_block(H, Chain),
               Hash = blockchain_block:hash_block(B),
-              case blockchain_txn:absorb_and_commit(B, Chain,
-                                                    fun(FChain, FHash) -> ok = run_gc_hooks(FChain, FHash) end,
-                                                    blockchain_block:is_rescue_block(B)) of
+              Fun = case follow_mode() of
+                        true -> unvalidated_absorb_and_commit;
+                        _ -> absorb_and_commit
+                    end,
+              case blockchain_txn:Fun(B, Chain,
+                                      fun(FChain, FHash) -> ok = run_gc_hooks(FChain, FHash) end,
+                                      blockchain_block:is_rescue_block(B)) of
                   ok ->
                       run_absorb_block_hooks(Syncing, Hash, Chain);
                   {error, Reason} ->
