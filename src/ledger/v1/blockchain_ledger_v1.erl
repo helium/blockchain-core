@@ -1970,28 +1970,28 @@ insert_witnesses(_PubkeyBin, _Witnesses, _Ledger) ->
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                             WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
-add_gateway_witnesses(_GatewayAddress, _WitnessInfo, _Ledger) ->
-    ok.
-    %% TODO: if we want to bring this stuff back, we need to make sure that we have a var in place
-    %% to limit it more strictly.  in order to make it deterministic after this code goes in, we'll
-    %% need to start the var at 0 and then raise it.
-
-    %% case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
-    %%     {error, _}=Error ->
-    %%         Error;
-    %%     {ok, GW0} ->
-    %%         GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
-    %%                                   case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-    %%                                       {ok, Witness} ->
-    %%                                           blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
-    %%                                       {error, Reason} ->
-    %%                                           lager:warning("exiting trying to add witness",
-    %%                                                         [Reason]),
-    %%                                           erlang:error({add_gateway_error, Reason})
-    %%                                   end
-    %%                           end, GW0, WitnessInfo),
-    %%         update_gateway(GW1, GatewayAddress, Ledger)
-    %% end.
+add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, GW0} ->
+            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+                                          {ok, Witness} ->
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
+                                          {error, Reason} ->
+                                              lager:warning("exiting trying to add witness",
+                                                            [Reason]),
+                                              erlang:error({add_gateway_error, Reason})
+                                      end
+                              end, GW0, WitnessInfo),
+            Limit = case ?MODULE:config(?witness_storage_limit, Ledger) of
+                        {ok, N} -> N;
+                        _ -> undefined
+                    end,
+            GW2 = blockchain_ledger_gateway_v2:limit_witnesses(Limit, GW1),
+            update_gateway(GW0, GW2, GatewayAddress, Ledger)
+    end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
                              Ledger :: ledger()) -> ok | {error, any()}.
@@ -2006,49 +2006,53 @@ remove_gateway_witness(GatewayPubkeyBin, Ledger) ->
 
 -spec refresh_gateway_witnesses(blockchain_block:hash(), ledger()) -> ok | {error, any()}.
 refresh_gateway_witnesses(Hash, Ledger) ->
-    case ?MODULE:config(?witness_refresh_interval, Ledger) of
-        {ok, RefreshInterval} when is_integer(RefreshInterval) ->
-            case ?MODULE:config(?witness_refresh_rand_n, Ledger) of
-                {ok, RandN} when is_integer(RandN) ->
-                    %% We need to do all the calculation within this context
-                    %% create a new context if we don't already have one
-                    case ?MODULE:get_context(Ledger) of
-                        undefined ->
-                            error(refresh_out_of_context);
+    case ?MODULE:config(?witness_storage_limit, Ledger) of
+        {ok, 0} -> ok;
+        {ok, _Limit} ->
+            case ?MODULE:config(?witness_refresh_interval, Ledger) of
+                {ok, RefreshInterval} when is_integer(RefreshInterval) ->
+                    case ?MODULE:config(?witness_refresh_rand_n, Ledger) of
+                        {ok, RandN} when is_integer(RandN) ->
+                            %% We need to do all the calculation within this context
+                            %% create a new context if we don't already have one
+                            case ?MODULE:get_context(Ledger) of
+                                undefined ->
+                                    error(refresh_out_of_context);
+                                _ ->
+                                    ok
+                            end,
+
+                            case ?MODULE:get_hexes(Ledger) of
+                                {error, not_found} ->
+                                    ok;
+                                {error, _}=Error ->
+                                    Error;
+                                {ok, HexMap} ->
+                                    ZoneList = maps:keys(HexMap),
+                                    GatewayPubkeyBins = zone_list_to_pubkey_bins(ZoneList, Ledger),
+                                    GatewayOffsets = pubkey_bins_to_offset(GatewayPubkeyBins),
+                                    GatewaysToRefresh = filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN),
+                                    lager:debug("Refreshing witnesses for: ~p", [GatewaysToRefresh]),
+
+                                    Res = lists:map(fun({_, GwPubkeyBin}) ->
+                                                            remove_gateway_witness(GwPubkeyBin, Ledger)
+                                                    end,
+                                                    GatewaysToRefresh),
+
+                                    case lists:all(fun(T) -> T == ok end, Res) of
+                                        false ->
+                                            lager:warning("Witness refresh failed for: ~p", [GatewaysToRefresh]),
+                                            {error, witness_refresh_failed};
+                                        true ->
+                                            ok
+                                    end
+                            end;
                         _ ->
                             ok
-                    end,
-
-                    case ?MODULE:get_hexes(Ledger) of
-                        {error, not_found} ->
-                            ok;
-                        {error, _}=Error ->
-                            Error;
-                        {ok, HexMap} ->
-                            ZoneList = maps:keys(HexMap),
-                            GatewayPubkeyBins = zone_list_to_pubkey_bins(ZoneList, Ledger),
-                            GatewayOffsets = pubkey_bins_to_offset(GatewayPubkeyBins),
-                            GatewaysToRefresh = filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN),
-                            lager:debug("Refreshing witnesses for: ~p", [GatewaysToRefresh]),
-
-                            Res = lists:map(fun({_, GwPubkeyBin}) ->
-                                                    remove_gateway_witness(GwPubkeyBin, Ledger)
-                                            end,
-                                            GatewaysToRefresh),
-
-                            case lists:all(fun(T) -> T == ok end, Res) of
-                                false ->
-                                    lager:warning("Witness refresh failed for: ~p", [GatewaysToRefresh]),
-                                    {error, witness_refresh_failed};
-                                true ->
-                                    ok
-                            end
                     end;
                 _ ->
                     ok
-            end;
-        _ ->
-            ok
+            end
     end.
 
 find_poc(OnionKeyHash, Challenger, Ledger) ->
