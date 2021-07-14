@@ -1822,61 +1822,67 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
 -spec insert_witnesses(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                        Witnesses :: [blockchain_poc_witness_v1:poc_witness() | blockchain_poc_receipt_v1:poc_receipt()],
                        Ledger :: ledger()) -> ok | {error, any()}.
-insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
-        %% only works with poc-v9 and above
-        {ok, V} when V >= 9 ->
-            case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                {ok, GW0} ->
-                    GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
-                                              WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
-                                              case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
-                                                  {ok, WitnessGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW, PubkeyBin, Ledger});
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness", [Reason]),
-                                                      erlang:error({insert_witnesses_error, Reason})
-                                              end;
-                                         (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
-                                              ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
-                                              case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
-                                                  {ok, ReceiptGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW, PubkeyBin, Ledger});
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness", [Reason]),
-                                                      erlang:error({insert_witnesses_error, Reason})
-                                              end;
-                                         (_, _) ->
-                                              erlang:error({invalid, unknown_witness_type})
-                                      end, GW0, Witnesses),
-                    update_gateway(GW1, PubkeyBin, Ledger)
-            end;
-        _ ->
-            {error, incorrect_poc_version}
-    end.
+insert_witnesses(_PubkeyBin, _Witnesses, _Ledger) ->
+    ok.
+    %% case blockchain:config(?poc_version, Ledger) of
+    %%     %% only works with poc-v9 and above
+    %%     {ok, V} when V >= 9 ->
+    %%         case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
+    %%             {error, _}=Error ->
+    %%                 Error;
+    %%             {ok, GW0} ->
+    %%                 GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
+    %%                                           WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
+    %%                                           case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
+    %%                                               {ok, WitnessGw} ->
+    %%                                                   blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW, PubkeyBin, Ledger});
+    %%                                               {error, Reason} ->
+    %%                                                   lager:warning("exiting trying to add witness", [Reason]),
+    %%                                                   erlang:error({insert_witnesses_error, Reason})
+    %%                                           end;
+    %%                                      (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
+    %%                                           ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
+    %%                                           case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
+    %%                                               {ok, ReceiptGw} ->
+    %%                                                   blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW, PubkeyBin, Ledger});
+    %%                                               {error, Reason} ->
+    %%                                                   lager:warning("exiting trying to add witness", [Reason]),
+    %%                                                   erlang:error({insert_witnesses_error, Reason})
+    %%                                           end;
+    %%                                      (_, _) ->
+    %%                                           erlang:error({invalid, unknown_witness_type})
+    %%                                   end, GW0, Witnesses),
+    %%                 update_gateway(GW1, PubkeyBin, Ledger)
+    %%         end;
+    %%     _ ->
+    %%         {error, incorrect_poc_version}
+    %% end.
 
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                             WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
-add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
-    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, GW0} ->
-            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
-                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-                                          {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
-                                          {error, Reason} ->
-                                              lager:warning("exiting trying to add witness",
-                                                            [Reason]),
-                                              erlang:error({add_gateway_error, Reason})
-                                      end
-                              end, GW0, WitnessInfo),
-            update_gateway(GW1, GatewayAddress, Ledger)
-    end.
+add_gateway_witnesses(_GatewayAddress, _WitnessInfo, _Ledger) ->
+    ok.
+    %% TODO: if we want to bring this stuff back, we need to make sure that we have a var in place
+    %% to limit it more strictly.  in order to make it deterministic after this code goes in, we'll
+    %% need to start the var at 0 and then raise it.
+
+    %% case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+    %%     {error, _}=Error ->
+    %%         Error;
+    %%     {ok, GW0} ->
+    %%         GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+    %%                                   case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+    %%                                       {ok, Witness} ->
+    %%                                           blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
+    %%                                       {error, Reason} ->
+    %%                                           lager:warning("exiting trying to add witness",
+    %%                                                         [Reason]),
+    %%                                           erlang:error({add_gateway_error, Reason})
+    %%                                   end
+    %%                           end, GW0, WitnessInfo),
+    %%         update_gateway(GW1, GatewayAddress, Ledger)
+    %% end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
                              Ledger :: ledger()) -> ok | {error, any()}.

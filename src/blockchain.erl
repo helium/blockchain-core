@@ -109,7 +109,8 @@
                           %% reinitializing it with a different name specified in the hrl
                           fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1,
-                          fun upgrade_gateways_lg/1]).
+                          fun upgrade_gateways_lg/1,
+                          fun clear_witnesses/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -280,6 +281,23 @@ upgrade_gateways_oui(Ledger) ->
               blockchain_ledger_v1:update_gateway(G, A, Ledger)
       end, Gateways),
     ok.
+
+clear_witnesses(Ledger) ->
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, _) ->
+              %% deser will do the conversion
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              Gw1 = blockchain_ledger_gateway_v2:clear_witnesses(Gw),
+              %% check if re-serialization changes and only write if so
+              case blockchain_ledger_gateway_v2:serialize(Gw1) of
+                  BinGw -> ok;
+                  _ ->
+                      blockchain_ledger_v1:update_gateway(Gw1, Addr, Ledger)
+              end
+      end,
+      whatever,
+      Ledger).
 
 -spec bootstrap_h3dex(blockchain_ledger_v1:ledger()) -> ok.
 %% @doc Bootstrap the H3Dex for both the active and delayed ledgers
@@ -2380,16 +2398,16 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
              end,
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
-run_gc_hooks(Blockchain, Hash) ->
+run_gc_hooks(Blockchain, _Hash) ->
     Ledger = blockchain:ledger(Blockchain),
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
         ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain, Ledger),
 
-        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
+        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger) %,
 
-        ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
+        %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
     catch What:Why:Stack ->
             lager:warning("hooks failed ~p ~p ~s", [What, Why, lager:pr_stacktrace(Stack, {What, Why})]),
             {error, gc_hooks_failed}
