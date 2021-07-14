@@ -300,8 +300,17 @@ is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
 -spec is_valid_staking_key(txn_add_gateway(), blockchain_ledger_v1:ledger())-> boolean().
 is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger) ->
     case blockchain_ledger_v1:staking_keys(Ledger) of
-        not_found -> true; %% chain var not active, so default to true
-        Keys -> lists:member(Payer, Keys)
+        not_found -> 
+            true; %% chain var not active, so default to true
+        Keys -> 
+            case gateway_mode(Ledger, Payer) of
+                dataonly -> 
+                    %% dataonly gatewas are always allowed
+                    true;
+                _ -> 
+                    %% All other modes require a staking key present
+                    lists:member(Payer, Keys)
+            end
     end.
 
 %%--------------------------------------------------------------------
