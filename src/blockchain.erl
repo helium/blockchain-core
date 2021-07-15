@@ -58,7 +58,7 @@
     add_implicit_burn/3,
     get_implicit_burn/2,
 
-    mark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
+    mark_upgrades/2, unmark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
     snapshot_height/1,
 
     db_handle/1,
@@ -212,6 +212,14 @@ mark_upgrades(Upgrades, Ledger) ->
     blockchain_ledger_v1:commit_context(Ledger1),
     ok.
 
+unmark_upgrades(Upgrades, Ledger) ->
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    lists:foreach(fun(Key) ->
+                          blockchain_ledger_v1:unmark_key(Key, Ledger1)
+                  end, Upgrades),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    ok.
+
 upgrade_gateways_v2(Ledger) ->
     %% the initial load here will automatically convert these into v2 records
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -289,11 +297,12 @@ clear_witnesses(Ledger) ->
               %% deser will do the conversion
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
               Gw1 = blockchain_ledger_gateway_v2:clear_witnesses(Gw),
+              Gw2 = blockchain_ledger_gateway_v2:last_location_nonce(0, Gw1),
               %% check if re-serialization changes and only write if so
-              case blockchain_ledger_gateway_v2:serialize(Gw1) of
+              case blockchain_ledger_gateway_v2:serialize(Gw2) of
                   BinGw -> ok;
                   _ ->
-                      blockchain_ledger_v1:update_gateway(Gw1, Addr, Ledger)
+                      blockchain_ledger_v1:update_gateway(Gw2, Addr, Ledger)
               end
       end,
       whatever,

@@ -19,7 +19,7 @@
     diff_aux_rewards_for/2, diff_aux_rewards/1,
     diff_aux_reward_sums/1,
 
-    check_key/2, mark_key/2,
+    check_key/2, mark_key/2, unmark_key/2,
 
     new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
@@ -562,6 +562,11 @@ check_key(Key, Ledger) ->
 mark_key(Key, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, Key, <<"true">>).
+
+unmark_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_delete(Ledger, DefaultCF, Key).
+
 
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
@@ -1642,7 +1647,8 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {ok, Height} = ?MODULE:current_height(Ledger),
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            Gw3 = blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
+            %% Disable setting the last location nonce until we build a chain var to restore witnesses
+            Gw3 = Gw2, %blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
             Gw4 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
             NewGw = blockchain_ledger_gateway_v2:clear_witnesses(Gw4),
             update_gateway(NewGw, GatewayAddress, Ledger)
