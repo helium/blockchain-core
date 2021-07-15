@@ -85,38 +85,43 @@
 
 -type snapshot_v6() ::
     #{
-        version           => v6,
-        current_height    => binary(),
-        transaction_fee   => binary(),
-        consensus_members => binary(),
-        election_height   => binary(),
-        election_epoch    => binary(),
-        delayed_vars      => binary(),
-        threshold_txns    => binary(),
-        master_key        => binary(),
-        multi_keys        => binary(),
-        vars_nonce        => binary(),
-        vars              => binary(),
-        htlcs             => binary(),
-        ouis              => binary(),
-        subnets           => binary(),
-        oui_counter       => binary(),
-        hexes             => binary(),
-        h3dex             => binary(),
-        state_channels    => binary(),
-        blocks            => binary(),
-        oracle_price      => binary(),
-        oracle_price_list => binary(),
-
-        %% Raw
-        gateways          => binary(),
-        pocs              => binary(),
-        accounts          => binary(),
-        dc_accounts       => binary(),
-        security_accounts => binary()
+        version              => v6,
+        key_except_version() => binary()
     }.
 
--type key() :: atom().
+-type key() ::
+    version | key_except_version().
+
+-type key_except_version() ::
+      current_height
+    | transaction_fee
+    | consensus_members
+    | election_height
+    | election_epoch
+    | delayed_vars
+    | threshold_txns
+    | master_key
+    | multi_keys
+    | vars_nonce
+    | vars
+    | htlcs
+    | ouis
+    | subnets
+    | oui_counter
+    | hexes
+    | h3dex
+    | state_channels
+    | blocks
+    | oracle_price
+    | oracle_price_list
+
+    %% Raw
+    | gateways
+    | pocs
+    | accounts
+    | dc_accounts
+    | security_accounts
+    .
 
 -type snapshot_of_any_version() ::
     #blockchain_snapshot_v1{}
