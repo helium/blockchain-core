@@ -987,7 +987,7 @@ validate_var(?poc_reward_decay_rate, Value) ->
     validate_float(Value, "poc_reward_decay_rate", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 5 ->
+        N when is_integer(N), N >= 1,  N =< 6 ->
             ok;
         _ ->
             throw({error, {invalid_reward_version, Value}})
