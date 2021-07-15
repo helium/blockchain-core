@@ -155,7 +155,9 @@
 
 %% define loss factor for SNR curve, floating point number
 -define(fspl_loss, fspl_loss).
+%% define poc_distance_limit, set to some max distance in Kms, pos_integer
 -define(poc_distance_limit, poc_distance_limit).
+%% define whether to check snr or not, boolean
 -define(check_snr, check_snr).
 
 %%%
