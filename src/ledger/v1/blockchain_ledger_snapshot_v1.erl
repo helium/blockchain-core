@@ -85,9 +85,35 @@
 
 -type snapshot_v6() ::
     #{
-        version => v6,
-        %% TODO List fields explicitly
-        atom() => binary()
+        version           => v6,
+        current_height    => binary(),
+        transaction_fee   => binary(),
+        consensus_members => binary(),
+        election_height   => binary(),
+        election_epoch    => binary(),
+        delayed_vars      => binary(),
+        threshold_txns    => binary(),
+        master_key        => binary(),
+        multi_keys        => binary(),
+        vars_nonce        => binary(),
+        vars              => binary(),
+        htlcs             => binary(),
+        ouis              => binary(),
+        subnets           => binary(),
+        oui_counter       => binary(),
+        hexes             => binary(),
+        h3dex             => binary(),
+        state_channels    => binary(),
+        blocks            => binary(),
+        oracle_price      => binary(),
+        oracle_price_list => binary(),
+
+        %% Raw
+        gateways          => binary(),
+        pocs              => binary(),
+        accounts          => binary(),
+        dc_accounts       => binary(),
+        security_accounts => binary()
     }.
 
 -type key() :: atom().
