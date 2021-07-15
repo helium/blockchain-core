@@ -19,7 +19,7 @@
     diff_aux_rewards_for/2, diff_aux_rewards/1,
     diff_aux_reward_sums/1,
 
-    check_key/2, mark_key/2,
+    check_key/2, mark_key/2, unmark_key/2,
 
     new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
@@ -451,6 +451,8 @@ sweep_old_checkpoints(Ledger) ->
     ok.
 
 clean_checkpoints(#ledger_v1{dir = RecordDir}) ->
+    clean_checkpoints(RecordDir);
+clean_checkpoints(RecordDir) ->
     try
         BaseDir = checkpoint_base(RecordDir),
         CPs = filename:join([BaseDir, "checkpoints"]),
@@ -561,6 +563,11 @@ mark_key(Key, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, Key, <<"true">>).
 
+unmark_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_delete(Ledger, DefaultCF, Key).
+
+
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
     %% accumulate ledger changes in a read-through ETS cache
@@ -652,9 +659,7 @@ new_snapshot(#ledger_v1{db=DB,
     case ets:insert_new(Cache, Old) of
         false -> {ok, Ledger};
         _ ->
-            CheckpointDir = checkpoint_dir(Ledger, Height),
-            ok = filelib:ensure_dir(CheckpointDir),
-            %% take a real rocksdb snaoshot here and put that in the cache
+            %% take a real rocksdb snapshot here and put that in the cache
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
             case rocksdb:snapshot(DB) of
                 {ok, SnapshotHandle} ->
@@ -673,16 +678,26 @@ new_snapshot(#ledger_v1{db=DB,
                     %% take a checkpoint as well for use after a restart
                     %% This is treated as atomic and there are no further updates required, unlike
                     %% context_snapshot
-                    case rocksdb:checkpoint(DB, CheckpointDir) of
-                        ok ->
-                            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-                            {ok, DelayedHeight} = current_height(DelayedLedger),
-                            OldDir = checkpoint_dir(Ledger, DeleteHeight),
-                            remove_checkpoint(OldDir),
+
+                    %% checkpoints are not needed in follow mode, and are quite expensive to create
+                    %% each block.
+                    case application:get_env(blockchain, follow_mode, false) of
+                        true ->
                             {ok, Ledger};
-                        {error, Reason1}=Error1 ->
-                            lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
-                            Error1
+                        false ->
+                            CheckpointDir = checkpoint_dir(Ledger, Height),
+                            ok = filelib:ensure_dir(CheckpointDir),
+                            case rocksdb:checkpoint(DB, CheckpointDir) of
+                                ok ->
+                                    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+                                    {ok, DelayedHeight} = current_height(DelayedLedger),
+                                    OldDir = checkpoint_dir(Ledger, DeleteHeight),
+                                    remove_checkpoint(OldDir),
+                                    {ok, Ledger};
+                                {error, Reason1}=Error1 ->
+                                    lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
+                                    Error1
+                            end
                     end;
                 {error, Reason}=Error ->
                     lager:error("Error creating new snapshot reason: ~p", [Reason]),
@@ -714,63 +729,68 @@ remove_checkpoint(CheckpointDir) ->
     file:del_dir(filename:dirname(CheckpointDir)).
 
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
-    {ok, Height} = current_height(Ledger),
-    CheckpointDir = checkpoint_dir(Ledger, Height),
-    case ets:lookup(Cache, Height) of
-        [{Height, {pending, _Pid}}] ->
-            has_snapshot(Height, Ledger);
-        [{_Height, _SnapLedger}] ->
-            %% ledger already exists
-            has_snapshot(Height, Ledger);
-        [] ->
-            Me = self(),
-            Old = {Height, {pending, Me}},
-            case ets:insert_new(Cache, Old) of
-                false -> has_snapshot(Height, Ledger);
-                _ ->
-                    case filelib:is_dir(CheckpointDir) of
-                        true ->
-                            %% this should be quite unlikely
-                            has_snapshot(Height, Ledger);
-                        false ->
-                            ok = filelib:ensure_dir(CheckpointDir),
-                            %% use a temp dir and then an atomic rename so we don't accidentally
-                            %% take a checkpoint and omit writing the delayed file or the updates
-                            %% because of a crash or a restart
-                            %% note that this MUST be a subdirectory, not a sibling directory
-                            %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
-                            TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
-                            ok = filelib:ensure_dir(TmpDir),
-                            ok = rocksdb:checkpoint(DB, TmpDir),
-                            case Mode of
-                                delayed ->
-                                    file:write_file(filename:join(TmpDir, "delayed"), <<>>);
-                                active ->
-                                    ok
-                            end,
-                            %% open the checkpoint read-write and commit the changes in the ETS table into it
-                            Ledger2 = new(filename:dirname(TmpDir), false),
-                            Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
-                            #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
-                            lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
-                            commit_context(context_cache(ECache, GwCache, Ledger3)),
-                            close(Ledger3),
-                            %% ok, we've done everything we need to do to the checkpoint, so move it into place
-                            %% now.
-                            case file:rename(TmpDir, CheckpointDir) of
-                                ok ->
-                                    lager:info("renamed checkpoint from ~p to ~p", [TmpDir, CheckpointDir]),
-                                    file:del_dir(filename:dirname(TmpDir)),
-                                    ok;
-                                {error, Reason} ->
-                                    lager:info("rename ~p to ~p failed ~p", [TmpDir, CheckpointDir, Reason]),
-                                    %% someone likely beat us to it
-                                    file:delete(filename:join([TmpDir, "delayed"])),
-                                    rocksdb:destroy(TmpDir, []),
-                                    file:del_dir(filename:dirname(TmpDir)),
-                                    ets:delete(Cache, Height)
-                            end,
-                            has_snapshot(Height, Ledger)
+    case application:get_env(blockchain, follow_mode, false) of
+        true ->
+            {ok, Ledger};
+        false ->
+            {ok, Height} = current_height(Ledger),
+            CheckpointDir = checkpoint_dir(Ledger, Height),
+            case ets:lookup(Cache, Height) of
+                [{Height, {pending, _Pid}}] ->
+                    has_snapshot(Height, Ledger);
+                [{_Height, _SnapLedger}] ->
+                    %% ledger already exists
+                    has_snapshot(Height, Ledger);
+                [] ->
+                    Me = self(),
+                    Old = {Height, {pending, Me}},
+                    case ets:insert_new(Cache, Old) of
+                        false -> has_snapshot(Height, Ledger);
+                        _ ->
+                            case filelib:is_dir(CheckpointDir) of
+                                true ->
+                                    %% this should be quite unlikely
+                                    has_snapshot(Height, Ledger);
+                                false ->
+                                    ok = filelib:ensure_dir(CheckpointDir),
+                                    %% use a temp dir and then an atomic rename so we don't accidentally
+                                    %% take a checkpoint and omit writing the delayed file or the updates
+                                    %% because of a crash or a restart
+                                    %% note that this MUST be a subdirectory, not a sibling directory
+                                    %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
+                                    TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
+                                    ok = filelib:ensure_dir(TmpDir),
+                                    ok = rocksdb:checkpoint(DB, TmpDir),
+                                    case Mode of
+                                        delayed ->
+                                            file:write_file(filename:join(TmpDir, "delayed"), <<>>);
+                                        active ->
+                                            ok
+                                    end,
+                                    %% open the checkpoint read-write and commit the changes in the ETS table into it
+                                    Ledger2 = new(filename:dirname(TmpDir), false),
+                                    Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
+                                    #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                                    lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
+                                    commit_context(context_cache(ECache, GwCache, Ledger3)),
+                                    close(Ledger3),
+                                    %% ok, we've done everything we need to do to the checkpoint, so move it into place
+                                    %% now.
+                                    case file:rename(TmpDir, CheckpointDir) of
+                                        ok ->
+                                            lager:info("renamed checkpoint from ~p to ~p", [TmpDir, CheckpointDir]),
+                                            file:del_dir(filename:dirname(TmpDir)),
+                                            ok;
+                                        {error, Reason} ->
+                                            lager:info("rename ~p to ~p failed ~p", [TmpDir, CheckpointDir, Reason]),
+                                            %% someone likely beat us to it
+                                            file:delete(filename:join([TmpDir, "delayed"])),
+                                            rocksdb:destroy(TmpDir, []),
+                                            file:del_dir(filename:dirname(TmpDir)),
+                                            ets:delete(Cache, Height)
+                                    end,
+                                    has_snapshot(Height, Ledger)
+                            end
                     end
             end
     end.
@@ -1627,31 +1647,11 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {ok, Height} = ?MODULE:current_height(Ledger),
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
-            %% we need to clear all our old witnesses out
-            NewGw1 = blockchain_ledger_gateway_v2:clear_witnesses(NewGw),
-            update_gateway(NewGw1, GatewayAddress, Ledger),
-            %% this is only needed if the gateway previously had a location
-            case Nonce > 1 of
-                true ->
-                    cf_fold(
-                      active_gateways,
-                      fun({Addr, BinGW}, _) ->
-                              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
-                              case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                  true ->
-                                      GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                      update_gateway(GW1, Addr, Ledger);
-                                  false ->
-                                      ok
-                              end,
-                              ok
-                      end,
-                      ignored,
-                      Ledger);
-                false ->
-                    ok
-            end
+            %% Disable setting the last location nonce until we build a chain var to restore witnesses
+            Gw3 = Gw2, %blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
+            Gw4 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
+            NewGw = blockchain_ledger_gateway_v2:clear_witnesses(Gw4),
+            update_gateway(NewGw, GatewayAddress, Ledger)
     end.
 
 -spec add_gateway_gain(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -1828,61 +1828,67 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
 -spec insert_witnesses(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                        Witnesses :: [blockchain_poc_witness_v1:poc_witness() | blockchain_poc_receipt_v1:poc_receipt()],
                        Ledger :: ledger()) -> ok | {error, any()}.
-insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
-        %% only works with poc-v9 and above
-        {ok, V} when V >= 9 ->
-            case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                {ok, GW0} ->
-                    GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
-                                              WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
-                                              case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
-                                                  {ok, WitnessGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness", [Reason]),
-                                                      erlang:error({insert_witnesses_error, Reason})
-                                              end;
-                                         (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
-                                              ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
-                                              case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
-                                                  {ok, ReceiptGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness", [Reason]),
-                                                      erlang:error({insert_witnesses_error, Reason})
-                                              end;
-                                         (_, _) ->
-                                              erlang:error({invalid, unknown_witness_type})
-                                      end, GW0, Witnesses),
-                    update_gateway(GW1, PubkeyBin, Ledger)
-            end;
-        _ ->
-            {error, incorrect_poc_version}
-    end.
+insert_witnesses(_PubkeyBin, _Witnesses, _Ledger) ->
+    ok.
+    %% case blockchain:config(?poc_version, Ledger) of
+    %%     %% only works with poc-v9 and above
+    %%     {ok, V} when V >= 9 ->
+    %%         case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
+    %%             {error, _}=Error ->
+    %%                 Error;
+    %%             {ok, GW0} ->
+    %%                 GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
+    %%                                           WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
+    %%                                           case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
+    %%                                               {ok, WitnessGw} ->
+    %%                                                   blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW, PubkeyBin, Ledger});
+    %%                                               {error, Reason} ->
+    %%                                                   lager:warning("exiting trying to add witness", [Reason]),
+    %%                                                   erlang:error({insert_witnesses_error, Reason})
+    %%                                           end;
+    %%                                      (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
+    %%                                           ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
+    %%                                           case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
+    %%                                               {ok, ReceiptGw} ->
+    %%                                                   blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW, PubkeyBin, Ledger});
+    %%                                               {error, Reason} ->
+    %%                                                   lager:warning("exiting trying to add witness", [Reason]),
+    %%                                                   erlang:error({insert_witnesses_error, Reason})
+    %%                                           end;
+    %%                                      (_, _) ->
+    %%                                           erlang:error({invalid, unknown_witness_type})
+    %%                                   end, GW0, Witnesses),
+    %%                 update_gateway(GW1, PubkeyBin, Ledger)
+    %%         end;
+    %%     _ ->
+    %%         {error, incorrect_poc_version}
+    %% end.
 
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                             WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
-add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
-    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, GW0} ->
-            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
-                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-                                          {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
-                                          {error, Reason} ->
-                                              lager:warning("exiting trying to add witness",
-                                                            [Reason]),
-                                              erlang:error({add_gateway_error, Reason})
-                                      end
-                              end, GW0, WitnessInfo),
-            update_gateway(GW1, GatewayAddress, Ledger)
-    end.
+add_gateway_witnesses(_GatewayAddress, _WitnessInfo, _Ledger) ->
+    ok.
+    %% TODO: if we want to bring this stuff back, we need to make sure that we have a var in place
+    %% to limit it more strictly.  in order to make it deterministic after this code goes in, we'll
+    %% need to start the var at 0 and then raise it.
+
+    %% case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+    %%     {error, _}=Error ->
+    %%         Error;
+    %%     {ok, GW0} ->
+    %%         GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+    %%                                   case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+    %%                                       {ok, Witness} ->
+    %%                                           blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
+    %%                                       {error, Reason} ->
+    %%                                           lager:warning("exiting trying to add witness",
+    %%                                                         [Reason]),
+    %%                                           erlang:error({add_gateway_error, Reason})
+    %%                                   end
+    %%                           end, GW0, WitnessInfo),
+    %%         update_gateway(GW1, GatewayAddress, Ledger)
+    %% end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
                              Ledger :: ledger()) -> ok | {error, any()}.
@@ -3929,7 +3935,7 @@ open_db(active, Dir, true, ReadOnly) ->
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ delayed_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly);
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, false);
 open_db(aux, Dir, false, ReadOnly) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
@@ -3937,13 +3943,13 @@ open_db(aux, Dir, false, ReadOnly) ->
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ aux_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly);
+    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, false);
 open_db(active, _Dir, false, _) ->
     {error, not_opening_active_without_delayed};
 open_db(aux, _Dir, true, _) ->
     {error, not_opening_aux_with_delayed}.
 
-open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly) ->
+open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3952,28 +3958,38 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly) ->
                 ["default"]
         end,
 
-    {ok, DB, OpenedCFs} = case ReadOnly of
+     OpenResult = case ReadOnly of
                               true ->
                                   rocksdb:open_with_cf_readonly(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]);
                               false ->
                                   rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs])
                           end,
-
-    L1 = lists:zip(ExistingCFs, OpenedCFs),
-    L2 = lists:map(
-        fun(CF) ->
-                case ReadOnly of
-                    true ->
-                        {CF, undefined};
-                    false ->
-                        {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
-                        {CF, CF1}
-                end
-        end,
-        DefaultCFs -- ExistingCFs
-    ),
-    L3 = L1 ++ L2,
-    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
+     case OpenResult of
+         {error, {db_open,"Corruption:" ++ Reason}} when Retry == false ->
+             lager:warning("deleting corrupted ledger: ~p", [Reason]),
+             BaseDir = filename:dirname(DBDir),
+             rocksdb:destroy(DBDir, []),
+             clean_checkpoints(BaseDir),
+             open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, true);
+         {error, Reason} ->
+             error(Reason);
+         {ok, DB, OpenedCFs} ->
+             L1 = lists:zip(ExistingCFs, OpenedCFs),
+             L2 = lists:map(
+                    fun(CF) ->
+                            case ReadOnly of
+                                true ->
+                                    {CF, undefined};
+                                false ->
+                                    {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
+                                    {CF, CF1}
+                            end
+                    end,
+                    DefaultCFs -- ExistingCFs
+                   ),
+             L3 = L1 ++ L2,
+             {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}
+     end.
 
 -spec default_cfs() -> list().
 default_cfs() ->

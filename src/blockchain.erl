@@ -58,7 +58,7 @@
     add_implicit_burn/3,
     get_implicit_burn/2,
 
-    mark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
+    mark_upgrades/2, unmark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
     snapshot_height/1,
 
     db_handle/1,
@@ -109,7 +109,8 @@
                           %% reinitializing it with a different name specified in the hrl
                           fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1,
-                          fun upgrade_gateways_lg/1]).
+                          fun upgrade_gateways_lg/1,
+                          fun clear_witnesses/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -211,6 +212,14 @@ mark_upgrades(Upgrades, Ledger) ->
     blockchain_ledger_v1:commit_context(Ledger1),
     ok.
 
+unmark_upgrades(Upgrades, Ledger) ->
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    lists:foreach(fun(Key) ->
+                          blockchain_ledger_v1:unmark_key(Key, Ledger1)
+                  end, Upgrades),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    ok.
+
 upgrade_gateways_v2(Ledger) ->
     %% the initial load here will automatically convert these into v2 records
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -280,6 +289,24 @@ upgrade_gateways_oui(Ledger) ->
               blockchain_ledger_v1:update_gateway(G, A, Ledger)
       end, Gateways),
     ok.
+
+clear_witnesses(Ledger) ->
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, _) ->
+              %% deser will do the conversion
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              Gw1 = blockchain_ledger_gateway_v2:clear_witnesses(Gw),
+              Gw2 = blockchain_ledger_gateway_v2:last_location_nonce(0, Gw1),
+              %% check if re-serialization changes and only write if so
+              case blockchain_ledger_gateway_v2:serialize(Gw2) of
+                  BinGw -> ok;
+                  _ ->
+                      blockchain_ledger_v1:update_gateway(Gw2, Addr, Ledger)
+              end
+      end,
+      whatever,
+      Ledger).
 
 -spec bootstrap_h3dex(blockchain_ledger_v1:ledger()) -> ok.
 %% @doc Bootstrap the H3Dex for both the active and delayed ledgers
@@ -781,14 +808,16 @@ can_add_block(Block, Blockchain) ->
                                     %% check the block is not contiguous
                                     case Height > (ChainHeight + 1) of
                                         true ->
-                                            lager:warning("block doesn't fit with our chain,
-                                                block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                            blockchain_block:height(HeadBlock)]),
                                             case is_block_plausible(Block, Blockchain) of
                                                 true -> plausible;
-                                                false -> {error, disjoint_chain}
+                                                false ->
+                                                    lager:warning("higher block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                                                                                blockchain_block:height(HeadBlock)]),
+                                                    {error, disjoint_chain}
                                             end;
                                         false ->
+                                            lager:warning("lower block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                                                                        blockchain_block:height(HeadBlock)]),
                                             %% if the block height is lower we probably don't care about it
                                             {error, disjoint_chain}
                                     end
@@ -981,9 +1010,13 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
       fun(H, ok) ->
               {ok, B} = get_block(H, Chain),
               Hash = blockchain_block:hash_block(B),
-              case blockchain_txn:absorb_and_commit(B, Chain,
-                                                    fun(FChain, FHash) -> ok = run_gc_hooks(FChain, FHash) end,
-                                                    blockchain_block:is_rescue_block(B)) of
+              Fun = case follow_mode() of
+                        true -> unvalidated_absorb_and_commit;
+                        _ -> absorb_and_commit
+                    end,
+              case blockchain_txn:Fun(B, Chain,
+                                      fun(FChain, FHash) -> ok = run_gc_hooks(FChain, FHash) end,
+                                      blockchain_block:is_rescue_block(B)) of
                   ok ->
                       run_absorb_block_hooks(Syncing, Hash, Chain);
                   {error, Reason} ->
@@ -2374,16 +2407,16 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
              end,
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
-run_gc_hooks(Blockchain, Hash) ->
+run_gc_hooks(Blockchain, _Hash) ->
     Ledger = blockchain:ledger(Blockchain),
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
         ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain, Ledger),
 
-        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
+        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger) %,
 
-        ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
+        %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
     catch What:Why:Stack ->
             lager:warning("hooks failed ~p ~p ~s", [What, Why, lager:pr_stacktrace(Stack, {What, Why})]),
             {error, gc_hooks_failed}

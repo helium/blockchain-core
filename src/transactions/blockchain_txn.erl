@@ -461,7 +461,6 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
          lists:filter(
            fun(T) -> Ty = ?MODULE:type(T),
                      Ty == blockchain_txn_vars_v1
-                         orelse Ty == blockchain_txn_consensus_group_v1
            end, (Transactions0)),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
@@ -833,11 +832,11 @@ absorb_aux(Block0, Chain0) ->
 plain_absorb_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, _} ->
-            Hash = blockchain_block:hash_block(Block),
+            %% Hash = blockchain_block:hash_block(Block),
             Ledger0 = blockchain:ledger(Chain0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
-            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+            %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
             ok;
         Error ->

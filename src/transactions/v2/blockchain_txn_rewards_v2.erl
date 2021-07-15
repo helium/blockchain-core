@@ -391,6 +391,8 @@ new_reward(Account, Amount) ->
                                Ledger :: blockchain_ledger_v1:ledger(),
                                Acc :: rewards_share_metadata() ) -> rewards_share_metadata().
 fold_blocks_for_rewards(Current, End, _Chain, _Vars, _Ledger, Acc) when Current == End + 1 -> Acc;
+fold_blocks_for_rewards(910360, End, Chain, Vars, Ledger, Acc) ->
+    fold_blocks_for_rewards(910361, End, Chain, Vars, Ledger, Acc);
 fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason} = Error -> throw(Error);
@@ -701,7 +703,19 @@ consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
       fun(Member, Acc) ->
               PercentofReward = 100/Count/100,
               Amount = erlang:round(PercentofReward*ConsensusReward),
-              maps:put({GwOrVal, consensus, Member}, Amount+OveragePerMember, Acc)
+              %% in transitional blocks and in the last reward block of v5 it's possible to still
+              %% have gateways in who need to be rewarded, so make sure that everyone gets tagged
+              %% correctly with the proper code path
+              Actual =
+                  case GwOrVal of
+                      validator ->
+                          case blockchain_ledger_v1:get_validator(Member, Ledger) of
+                              {ok, _} -> validator;
+                              {error, not_found} -> gateway
+                          end;
+                      gateway -> gateway
+                  end,
+              maps:put({Actual, consensus, Member}, Amount+OveragePerMember, Acc)
       end,
       #{},
       Members).
@@ -1167,52 +1181,59 @@ dc_reward(Txn, End, AccIn, Ledger, #{ sc_grace_blocks := GraceBlocks,
             case lists:member(SCID, maps:get(seen, AccIn, [])) of
                 false ->
                     %% haven't seen this state channel yet, pull the final result from the ledger
-                    {ok, SC} = blockchain_ledger_v1:find_state_channel(
-                                 blockchain_txn_state_channel_close_v1:state_channel_id(Txn),
-                                 blockchain_txn_state_channel_close_v1:state_channel_owner(Txn),
-                                 Ledger),
-                    %% check for a holdover v1 channel
-                    case blockchain_ledger_state_channel_v2:is_v2(SC) of
-                        true ->
-                            %% pull out the final version of the state channel
-                            FinalSC = blockchain_ledger_state_channel_v2:state_channel(SC),
-                            RewardVersion = maps:get(reward_version, Vars, 1),
+                    case blockchain_ledger_v1:find_state_channel(
+                           blockchain_txn_state_channel_close_v1:state_channel_id(Txn),
+                           blockchain_txn_state_channel_close_v1:state_channel_owner(Txn),
+                           Ledger) of
+                        {ok, SC} ->
+                            %% check for a holdover v1 channel
+                            case blockchain_ledger_state_channel_v2:is_v2(SC) of
+                                true ->
+                                    %% pull out the final version of the state channel
+                                    FinalSC = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                    RewardVersion = maps:get(reward_version, Vars, 1),
 
-                            Summaries = case RewardVersion > 3 of
-                                            %% reward version 4 normalizes payouts
-                                            true -> blockchain_state_channel_v1:summaries(blockchain_state_channel_v1:normalize(FinalSC));
-                                            false -> blockchain_state_channel_v1:summaries(FinalSC)
-                                        end,
-                            %% check the dispute status
-                            Bonus = case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                        %% Reward version 4 or higher just slashes overcommit
-                                        dispute when RewardVersion < 4 ->
-                                            %% the owner of the state channel
-                                            %% did a naughty thing, divide
-                                            %% their overcommit between the
-                                            %% participants
-                                            OverCommit = blockchain_ledger_state_channel_v2:amount(SC)
-                                                           - blockchain_ledger_state_channel_v2:original(SC),
-                                            OverCommit div length(Summaries);
-                                        _ ->
-                                            0
-                                    end,
+                                    Summaries = case RewardVersion > 3 of
+                                                    %% reward version 4 normalizes payouts
+                                                    true -> blockchain_state_channel_v1:summaries(blockchain_state_channel_v1:normalize(FinalSC));
+                                                    false -> blockchain_state_channel_v1:summaries(FinalSC)
+                                                end,
+                                    %% check the dispute status
+                                    Bonus = case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                %% Reward version 4 or higher just slashes overcommit
+                                                dispute when RewardVersion < 4 ->
+                                                    %% the owner of the state channel
+                                                    %% did a naughty thing, divide
+                                                    %% their overcommit between the
+                                                    %% participants
+                                                    OverCommit = blockchain_ledger_state_channel_v2:amount(SC)
+                                                        - blockchain_ledger_state_channel_v2:original(SC),
+                                                    OverCommit div length(Summaries);
+                                                _ ->
+                                                    0
+                                            end,
 
-                            lists:foldl(fun(Summary, A) ->
-                                                Key = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
-                                                DCs = blockchain_state_channel_summary_v1:num_dcs(Summary) + Bonus,
-                                                maps:update_with(Key,
-                                                                 fun(V) -> V + DCs end,
-                                                                 DCs,
-                                                                 A)
-                                        end,
-                                        maps:update_with(seen,
-                                                         fun(Seen) -> [SCID|Seen] end,
-                                                         [SCID],
-                                                         AccIn),
-                                        Summaries);
-                        false ->
-                            %% this is a v1 SC; ignore
+                                    lists:foldl(fun(Summary, A) ->
+                                                        Key = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                                        DCs = blockchain_state_channel_summary_v1:num_dcs(Summary) + Bonus,
+                                                        maps:update_with(Key,
+                                                                         fun(V) -> V + DCs end,
+                                                                         DCs,
+                                                                         A)
+                                                end,
+                                                maps:update_with(seen,
+                                                                 fun(Seen) -> [SCID|Seen] end,
+                                                                 [SCID],
+                                                                 AccIn),
+                                                Summaries);
+                                false ->
+                                    %% this is a v1 SC; ignore
+                                    AccIn
+                            end;
+                        {error, not_found} ->
+                            ExpireAt = blockchain_txn_state_channel_close_v1:state_channel_expire_at(Txn),
+                            lager:warning("missing scid ~p", [SCID]),
+                            lager:warning("expire ~p + grace ~p > end ~p?", [ExpireAt, GraceBlocks, End]),
                             AccIn
                     end;
                 true ->

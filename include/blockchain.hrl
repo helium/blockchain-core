@@ -25,8 +25,12 @@
 % Misc
 -define(EVT_MGR, blockchain_event_mgr).
 
--define(BC_UPGRADE_NAMES, [<<"gateway_v2">>, <<"hex_targets">>, <<"gateway_oui">>,
-                           <<"h3dex">>, <<"h3dex2">>,
-                           <<"gateway_lg2">>]).
+-define(BC_UPGRADE_NAMES, [<<"gateway_v2">>,
+                           <<"hex_targets">>,
+                           <<"gateway_oui">>,
+                           <<"h3dex">>,
+                           <<"h3dex2">>,
+                           <<"gateway_lg3">>,
+                           <<"clear_witnesses">>]).
 
 -define(bones(HNT), HNT * 100000000).
