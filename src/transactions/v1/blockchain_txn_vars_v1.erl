@@ -957,6 +957,16 @@ validate_var(?poc_per_hop_max_witnesses, Value) ->
     validate_int(Value, "poc_per_hop_max_witnesses", 5, 50, false);
 validate_var(?poc_addr_hash_byte_count, Value) ->
     validate_int(Value, "poc_addr_hash_byte_count", 4, 32, false);
+validate_var(?fspl_loss, Value) ->
+    validate_float(Value, "fspl_loss", 0.0, 1.0);
+validate_var(?poc_distance_limit, Value) ->
+    validate_int(Value, "poc_distance_limit", 0, 1000, false);
+validate_var(?check_snr, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_check_snr, Value}})
+    end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
