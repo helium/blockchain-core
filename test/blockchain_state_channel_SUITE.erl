@@ -11,6 +11,7 @@
     full_test/1,
     dup_packets_test/1,
     expired_test/1,
+    cached_routing_test/1,
     max_actor_test/1,
     replay_test/1,
     multiple_test/1,
@@ -41,6 +42,7 @@ all() ->
         basic_test,
         full_test,
         expired_test,
+        cached_routing_test,
         max_actor_test,
         replay_test,
         multiple_test,
@@ -488,6 +490,87 @@ expired_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
+
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok.
+
+cached_routing_test(Config) ->
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+
+    %% Check that the meck txn forwarding works
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+
+    %% Create OUI txn
+    OUI = 1,
+    SignedOUITxn = create_oui_txn(OUI, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% Create state channel open txn
+    ID = crypto:strong_rand_bytes(32),
+    ExpireWithin = 11,
+    Nonce = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
+
+    %% Add block with oui and sc open txns
+    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]),
+    ct:pal("Block0: ~p", [Block0]),
+
+    %% Fake gossip block
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
+
+    %% Wait till the block is gossiped
+    ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
+
+    %% Checking that state channel got created properly
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+
+    %% Check that the nonce of the sc server is okay
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
+
+    %% Sending 1 packet
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
+
+    %% Checking state channel on server/client
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
+
+    %% Checking that we have a cached route
+    _RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet0),
+    Stats0 = ct_rpc:call(GatewayNode1, e2qc, stats, [sc_client_routing]),
+    ?assert(proplists:get_value(q1size, Stats0) > 0),
+
+
+    %% send a routing txn to clear cache
+    {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RoutingTxn = blockchain_txn_routing_v1:update_router_addresses(OUI, RouterPubkeyBin, [], 2),
+    SignedRoutingTxn = blockchain_txn_routing_v1:sign(RoutingTxn, RouterSigFun),
+
+    %% Add block with oui and sc open txns
+    {ok, Block1} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedRoutingTxn]),
+    ct:pal("Block1: ~p", [Block1]),
+
+    %% Fake gossip block
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm]),
+
+    %% Wait till the block is gossiped
+    ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 3),
+
+    Stats1 = ct_rpc:call(GatewayNode1, e2qc, stats, [sc_client_routing]),
+    ?assert(proplists:get_value(q1size, Stats1) == 0),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.

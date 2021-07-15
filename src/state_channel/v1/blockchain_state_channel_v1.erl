@@ -22,7 +22,7 @@
     signature/1, sign/2, validate/1, quick_validate/2,
     encode/1, decode/1,
     save/3, fetch/2,
-    summaries/1, summaries/2, update_summary_for/5,
+    summaries/1, summaries/2, update_summary_for/4,
 
     normalize/1,
 
@@ -126,14 +126,12 @@ summaries(Summaries, SC) ->
 -spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                          NewSummary :: blockchain_state_channel_summary_v1:summary(),
                          SC :: state_channel(),
-                         WillFit :: boolean(),
                          MaxActorsAllowed :: pos_integer()) -> {state_channel(), boolean()}.
 update_summary_for(ClientPubkeyBin,
                    NewSummary,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
-                   WillFit,
                    MaxActorsAllowed) ->
-    case WillFit orelse ?MODULE:can_fit(ClientPubkeyBin, SC, MaxActorsAllowed) of
+    case ?MODULE:can_fit(ClientPubkeyBin, SC, MaxActorsAllowed) of
         false ->
             %% Cannot fit this into summaries
             {SC, false};
@@ -488,14 +486,14 @@ merge(SCA, SCB, MaxActorsAllowed) ->
                             {error, not_found} ->
                                 {SC, _} =
                                     update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
-                                                       Summary, SCAcc, true, MaxActorsAllowed),
+                                                       Summary, SCAcc, MaxActorsAllowed),
                                 SC;
                             {ok, OurSummary} ->
                                 case blockchain_state_channel_summary_v1:num_dcs(OurSummary) < blockchain_state_channel_summary_v1:num_dcs(Summary) of
                                     true ->
                                         {SC, _} =
                                             update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
-                                                               Summary, SCAcc, true, MaxActorsAllowed),
+                                                               Summary, SCAcc, MaxActorsAllowed),
                                         SC;
                                     false ->
                                         SCAcc
@@ -647,7 +645,7 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, false, 2000),
+    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, 2000),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 

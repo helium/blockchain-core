@@ -29,28 +29,25 @@
          terminate/2,
          code_change/3]).
 
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -define(SERVER, ?MODULE).
+-define(ROUTING_CACHE, sc_client_routing).
+-define(ROUTING_CACHE_TIMEOUT, 60 * 60 * 6). %% 6 hours in seconds
 
 -record(state,{
-          db :: rocksdb:db_handle(),
-          cf :: rocksdb:cf_handle(),
-          swarm :: pid(),
-          pubkey_bin :: libp2p_crypto:pubkey_bin(),
-          sig_fun :: libp2p_crypto:sig_fun(),
-          chain = undefined :: undefined | blockchain:blockchain(),
-          streams = #{} :: streams(),
-          packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
-          waiting = #{} :: waiting(),
-          pending_closes = [] :: list() %% TODO GC these
-         }).
+    db :: rocksdb:db_handle(),
+    cf :: rocksdb:cf_handle(),
+    swarm :: pid(),
+    pubkey_bin :: libp2p_crypto:pubkey_bin(),
+    sig_fun :: libp2p_crypto:sig_fun(),
+    chain = undefined :: undefined | blockchain:blockchain(),
+    streams = #{} :: streams(),
+    packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
+    waiting = #{} :: waiting(),
+    pending_closes = [] :: list() %% TODO GC these
+}).
 
 -type state() :: #state{}.
 -type stream_key() :: non_neg_integer() | string().
@@ -153,15 +150,18 @@ handle_cast({banner, Banner, HandlerPid}, State) ->
             end
     end;
 handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, #state{chain=Chain}=State) ->
-    NewState = case find_routing(Packet, Chain) of
-                   {error, _Reason} ->
-                     lager:notice("failed to find router for join packet with routing information ~p:~p, trying default routers",
-                                   [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
-                       handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
-                   {ok, Routes} ->
-                       handle_packet(Packet, Routes, Region, ReceivedTime, State)
-               end,
-    {noreply, NewState};
+    State2 = 
+        case find_routing(Packet, Chain) of
+            {error, _Reason} ->
+                lager:notice(
+                    "failed to find router for join packet with routing information ~p:~p, trying default routers",
+                    [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
+                ),
+                handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
+            {ok, Routes} ->
+                handle_packet(Packet, Routes, Region, ReceivedTime, State)
+        end,
+    {noreply, State2};
 handle_cast({reject, Rejection, HandlerPid}, State) ->
     lager:warning("Got rejection: ~p for: ~p, dropping packet", [Rejection, HandlerPid]),
     NewState = case dequeue_packet(HandlerPid, State) of
@@ -226,32 +226,54 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
     end;
 handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
             #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
-    ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
-                            {error, Reason} ->
-                                lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
-                                [];
-                            {ok, Block} ->
-                                lists:foldl(fun(T, Acc) ->
-                                                      case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
-                                                          true ->
-                                                              SC = blockchain_txn_state_channel_close_v1:state_channel(T),
-                                                              SCID = blockchain_txn_state_channel_close_v1:state_channel_id(T),
-                                                              case lists:member(SCID, PendingCloses) orelse
-                                                                   is_causally_correct_sc(SC, State) of
-                                                                  true ->
-                                                                      ok;
-                                                                  false ->
-                                                                      %% submit our own close with the conflicting view(s)
-                                                                      close_state_channel(SC, State)
-                                                              end,
-                                                              %% add it to the list of closing channels so we don't try to double
-                                                              %% close it below, irregardless of if we're disputing it
-                                                              [SCID|Acc];
-                                                          false ->
-                                                              Acc
-                                                      end
-                                              end, [], blockchain_block:transactions(Block))
-                        end,
+    Block =
+        case blockchain:get_block(BlockHash, Chain) of
+            {error, Reason} ->
+                lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
+                undefined;
+            {ok, B} ->
+                B
+        end,
+    case Block of
+        undefined ->
+            ok;
+        Block ->
+            Txns = lists:filter(fun(T) -> blockchain_txn:type(T) == blockchain_txn_routing_v1 end,
+                                blockchain_block:transactions(Block)),
+            case erlang:length(Txns) > 0 of
+                false -> ok;
+                true -> e2qc:teardown(?ROUTING_CACHE)
+            end
+    end,
+    ClosingChannels =
+        case Block of
+            undefined ->
+                [];
+            Block ->
+                lists:foldl(
+                    fun(T, Acc) ->
+                        case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
+                            true ->
+                                SC = blockchain_txn_state_channel_close_v1:state_channel(T),
+                                SCID = blockchain_txn_state_channel_close_v1:state_channel_id(T),
+                                case lists:member(SCID, PendingCloses) orelse
+                                    is_causally_correct_sc(SC, State) of
+                                    true ->
+                                        ok;
+                                    false ->
+                                        %% submit our own close with the conflicting view(s)
+                                        close_state_channel(SC, State)
+                                end,
+                                %% add it to the list of closing channels so we don't try to double
+                                %% close it below, irregardless of if we're disputing it
+                                [SCID|Acc];
+                            false ->
+                                Acc
+                        end
+                    end,
+                    [],
+                    blockchain_block:transactions(Block))
+        end,
     %% check if any other channels are expiring
     SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
                   {ok, G} -> G;
@@ -523,15 +545,27 @@ dequeue_packet(Stream, #state{packets=Packets}=State) ->
     end.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
-                   Chain :: blockchain:blockchain() | undefined) -> {ok, [blockchain_ledger_routing_v1:routing()]} | {error, any()}.
+                   Chain :: blockchain:blockchain()) -> {ok, [blockchain_ledger_routing_v1:routing()]} | {error, any()}.
 find_routing(_Packet, undefined) ->
     {error, no_chain};
 find_routing(Packet, Chain) ->
     %% transitional shim for ignoring on-chain OUIs
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
-            Ledger = blockchain:ledger(Chain),
-            blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger);
+            RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet),
+            e2qc:cache(
+                ?ROUTING_CACHE,
+                RoutingInfo,
+                ?ROUTING_CACHE_TIMEOUT,
+                fun() ->
+                        Ledger = blockchain:ledger(Chain),
+                        case blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger) of
+                            {error, _}=Error ->
+                                Error;
+                            {ok, Routes} ->
+                                {ok, Routes}
+                        end
+                end);
         false ->
             {error, oui_routing_disabled}
     end.
@@ -983,9 +1017,4 @@ debug_multiple_scs(SC, KnownSCs) ->
             ok
     end.
 
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
 
--ifdef(TEST).
--endif.
