@@ -650,9 +650,10 @@ context_cache(Ledger) ->
 new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
                         snapshots=Cache,
-                        mode=active,
+                        mode=Mode,
                         active=#sub_ledger_v1{cache=undefined},
-                        delayed=#sub_ledger_v1{cache=undefined}}=Ledger) ->
+                        delayed=#sub_ledger_v1{cache=undefined}}=Ledger)
+  when Mode == active; Mode == aux_load ->
     {ok, Height} = current_height(Ledger),
     Me = self(),
     Old = {Height, {pending, Me}},
