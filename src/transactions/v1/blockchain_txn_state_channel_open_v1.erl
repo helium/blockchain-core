@@ -207,7 +207,6 @@ to_json(Txn, _Opts) ->
 do_is_valid_checks(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     ExpireWithin = ?MODULE:expire_within(Txn),
-    ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     OUI = ?MODULE:oui(Txn),
 
@@ -232,51 +231,28 @@ do_is_valid_checks(Txn, Chain) ->
                                         true ->
                                             case blockchain_ledger_v1:find_sc_ids_by_owner(Owner, Ledger) of
                                                 {ok, BinIds} when length(BinIds) >= MaxOpenSC ->
-                                                    lager:error("already have max open state_channels for router: ~p", [Owner]),
-                                                    {error, {max_scs_open, Owner}};
+                                                    case blockchain:config(?sc_only_count_open_active, Ledger) of
+                                                        {ok, true} ->
+                                                            %% Even if BinIds have exceeded MaxOpenSC, we want to further
+                                                            %% check the sc count for this owner in Ledger
+                                                            OpenSCCountForOwner = blockchain_ledger_v1:count_open_scs_for_owner(BinIds, Owner, Ledger),
+                                                            case OpenSCCountForOwner =< MaxOpenSC of
+                                                                true ->
+                                                                    %% We still need to check remaining things related to this txn
+                                                                    check_remaining(Txn, Ledger, Chain);
+                                                                false ->
+                                                                    %% NOW they truly cannot open
+                                                                    {error, {max_scs_open, Owner}}
+                                                            end;
+                                                        _ ->
+                                                            %% follow old behavior
+                                                            lager:error("already have max open state_channels for router: ~p", [Owner]),
+                                                            {error, {max_scs_open, Owner}}
+                                                    end;
                                                 _ ->
-                                                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-                                                        {error, not_found} ->
-                                                            %% No state channel with this ID for this Owner exists
-                                                            LedgerNonce =
-                                                                case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
-                                                                    {error, _} ->
-                                                                        %% if we dont have a DC entry then default expected next nonce to 1
-                                                                        0;
-                                                                    {ok, Entry} ->
-                                                                        blockchain_ledger_data_credits_entry_v1:nonce(Entry)
-                                                                end,
-                                                                TxnNonce = ?MODULE:nonce(Txn),
-                                                                case TxnNonce =:= LedgerNonce + 1 of
-                                                                    false ->
-                                                                        {error, {bad_nonce, {state_channel_open, TxnNonce, LedgerNonce}}};
-                                                                    true ->
-
-                                                                        AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                                        TxnFee = ?MODULE:fee(Txn),
-                                                                        OriginalAmount = ?MODULE:amount(Txn),
-                                                                        ActualAmount = actual_amount(OriginalAmount, Ledger),
-                                                                        ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                                        case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                                            false ->
-                                                                                {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                                            true ->
-                                                                                case blockchain:config(?sc_open_validation_bugfix, Ledger) of
-                                                                                    {ok, 1} ->
-                                                                                        %% Check whether the actual amount (overcommit *
-                                                                                        %% original amount) + txn_fee is payable by this
-                                                                                        %% owner
-                                                                                        blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
-                                                                                    _ ->
-                                                                                        blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
-                                                                                end
-                                                                        end
-                                                                end;
-                                                        {ok, _} ->
-                                                            {error, state_channel_already_exists};
-                                                        {error, _}=Err ->
-                                                            Err
-                                                    end
+                                                    %% NOTE: It doesn't matter whether sc_only_count_open_active is true/false/not_found when here
+                                                    %% because MaxOpenSC is the upper limit, anything below that should just check the remaining things
+                                                    check_remaining(Txn, Ledger, Chain)
                                             end
                                     end
                             end
@@ -286,6 +262,55 @@ do_is_valid_checks(Txn, Chain) ->
             end;
         _ ->
             {error, min_expire_within_not_set}
+    end.
+
+-spec check_remaining(Txn :: txn_state_channel_open(),
+                      Ledger :: blockchain_ledger_v1:ledger(),
+                      Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+check_remaining(Txn, Ledger, Chain) ->
+    ID = ?MODULE:id(Txn),
+    Owner = ?MODULE:owner(Txn),
+    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
+        {error, not_found} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            %% No state channel with this ID for this Owner exists
+            LedgerNonce =
+            case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
+                {error, _} ->
+                    %% if we dont have a DC entry then default expected next nonce to 1
+                    0;
+                {ok, Entry} ->
+                    blockchain_ledger_data_credits_entry_v1:nonce(Entry)
+            end,
+            case TxnNonce =:= LedgerNonce + 1 of
+                false ->
+                    {error, {bad_nonce, {state_channel_open, TxnNonce, LedgerNonce}}};
+                true ->
+
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                    TxnFee = ?MODULE:fee(Txn),
+                    OriginalAmount = ?MODULE:amount(Txn),
+                    ActualAmount = actual_amount(OriginalAmount, Ledger),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                        false ->
+                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                        true ->
+                            case blockchain:config(?sc_open_validation_bugfix, Ledger) of
+                                {ok, 1} ->
+                                    %% Check whether the actual amount (overcommit *
+                                    %% original amount) + txn_fee is payable by this
+                                    %% owner
+                                    blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
+                                _ ->
+                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                            end
+                    end
+            end;
+        {ok, _} ->
+            {error, state_channel_already_exists};
+        {error, _}=Err ->
+            Err
     end.
 
 %% ------------------------------------------------------------------

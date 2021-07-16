@@ -114,14 +114,14 @@
     get_routes/1,
     routing_cf/1,
 
-    find_state_channel/3, find_state_channel_with_mod/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
+    find_state_channel/3, find_state_channel_with_mod/3,
+    count_open_scs_for_owner/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
     close_state_channel/6,
     is_state_channel_overpaid/2,
     get_sc_mod/2,
     get_sc_max_actors/1,
     state_channel_key/2,
-
     allocate_subnet/2,
 
     delay_vars/3,
@@ -3161,6 +3161,29 @@ find_state_channel(ID, Owner, Ledger) ->
         {ok, _Mod, SC} -> {ok, SC};
         Error -> Error
     end.
+
+-spec count_open_scs_for_owner(BinIds :: [binary()],
+                               Owner :: libp2p_crypto:pubkey_bin(),
+                               Ledger :: ledger()) -> non_neg_integer().
+count_open_scs_for_owner(BinIds, Owner, Ledger) ->
+    lists:foldl(
+      fun(Id, Acc) ->
+              case find_state_channel(Id, Owner, Ledger) of
+                  {ok, SC} ->
+                      case blockchain_ledger_state_channel_v2:is_v2(SC) of
+                          true ->
+                              case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                  undefined -> Acc + 1;
+                                  _ -> Acc
+                              end;
+                          false ->
+                              %% this is a v1 state channel, ignore
+                              %% shouldn't get here ever
+                              Acc
+                      end;
+                  _ -> Acc
+              end
+      end, 0, BinIds).
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
                            Ledger :: ledger()) -> {ok, [binary()]}.
