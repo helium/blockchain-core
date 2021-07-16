@@ -282,6 +282,10 @@ region_not_found_test(Config) ->
     Ledger = ?config(ledger, Config),
     InvalidH3 = 11111111111111111111,
     {error, {h3_contains_failed, _}} = blockchain_region_v1:h3_to_region(InvalidH3, Ledger),
+
+    MongoliaH3 = 631161054839972863,
+    {error, not_found} = blockchain_region_v1:h3_to_region(MongoliaH3, Ledger),
+
     ok.
 
 us915_region_param_test(Config) ->
