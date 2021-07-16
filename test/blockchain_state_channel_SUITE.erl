@@ -18,6 +18,7 @@
     multi_active_sc_test/1,
     open_without_oui_test/1,
     max_scs_open_test/1,
+    max_scs_open_v2_test/1,
     oui_not_found_test/1,
     unknown_owner_test/1,
     crash_single_sc_test/1,
@@ -48,6 +49,7 @@ all() ->
         multi_active_sc_test,
         open_without_oui_test,
         max_scs_open_test,
+        max_scs_open_v2_test,
         oui_not_found_test,
         unknown_owner_test,
         crash_single_sc_test,
@@ -114,9 +116,10 @@ init_per_testcase(Test, Config) ->
                   max_subnet_num => 20,
                   sc_grace_blocks => 5,
                   dc_payload_size => 24,
-                  sc_max_actors => 2000},
+                  sc_max_actors => 2000,
+                  sc_version => 2},
 
-    {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
+    {InitialVars, {master_key, MasterKey}} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
@@ -149,7 +152,7 @@ init_per_testcase(Test, Config) ->
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_members, ConsensusMembers} | InitConfig].
+    [{consensus_members, ConsensusMembers}, {master_key, MasterKey} | InitConfig].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -1212,6 +1215,94 @@ max_scs_open_test(Config) ->
                                              SignedSCOpenTxn2,
                                              SignedSCOpenTxn3]),
 
+    ok.
+
+max_scs_open_v2_test(Config) ->
+    [RouterNode |_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    {ok, RouterPubkey, _RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RouterLedger = blockchain:ledger(RouterChain),
+
+    %% Create OUI txn
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% Create state channel open txn
+    ID1 = crypto:strong_rand_bytes(24),
+    Nonce1 = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, 12, 1, Nonce1),
+    ct:pal("SignedSCOpenTxn1: ~p", [SignedSCOpenTxn1]),
+
+    %% Create state channel open txn
+    ID2 = crypto:strong_rand_bytes(24),
+    Nonce2 = 2,
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, 20, 1, Nonce2),
+    ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
+
+    %% Adding block with state channels
+    {ok, B2} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn1, SignedSCOpenTxn2]),
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B2, RouterChain, Self, RouterSwarm]),
+
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 2),
+
+    OpenSCCountForOwner0 = ct_rpc:call(RouterNode, blockchain_ledger_v1, count_open_scs_for_owner, [[ID1, ID2], RouterPubkeyBin, RouterLedger]),
+    ?assertEqual(2, OpenSCCountForOwner0),
+
+    %% Wait for first sc to expire
+    FakeBlocks = 15,
+    ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
+
+    %% Adding close txn to blockchain
+    receive
+        {txn, Txn} ->
+            {ok, B18} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
+            ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B18, RouterChain, Self, RouterSwarm])
+    after 10000 ->
+        ct:fail("txn timeout")
+    end,
+
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
+
+    %% Check new function, we should only have 1 SC open now
+    OpenSCCountForOwner1 = ct_rpc:call(RouterNode, blockchain_ledger_v1, count_open_scs_for_owner, [[ID1, ID2], RouterPubkeyBin, RouterLedger]),
+    ?assertEqual(1, OpenSCCountForOwner1),
+
+    %% Try to add anohter SC (it should fail, the var is not in)
+    ID3 = crypto:strong_rand_bytes(24),
+    Nonce3 = 3,
+    SignedSCOpenTxn3 = create_sc_open_txn(RouterNode, ID3, 20, 1, Nonce3),
+    ct:pal("SignedSCOpenTxn3: ~p", [SignedSCOpenTxn3]),
+    {error, {invalid_txns, _}} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedSCOpenTxn3]]),
+
+    %% Add sc_only_count_open_active var=true
+    {Priv, _Pub} = ?config(master_key, Config),
+    Vars = #{sc_only_count_open_active => true},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    SignedVarTxn = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    {ok, B19} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedVarTxn]]),
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B19, RouterChain, Self, RouterSwarm]),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 19),
+
+    %% Pass var delay
+    ok = add_and_gossip_fake_blocks(11, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 30),
+
+    %% Make sure var is set
+    SCOnlyCountOpenActive = ct_rpc:call(RouterNode, blockchain, config, [sc_only_count_open_active, RouterLedger]),
+    ?assertEqual({ok, true}, SCOnlyCountOpenActive),
+
+    %% Make sure we can open another SC now
+    {ok, _Block31} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedSCOpenTxn3]]),
     ok.
 
 oui_not_found_test(Config) ->
