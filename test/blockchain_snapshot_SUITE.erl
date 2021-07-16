@@ -37,16 +37,16 @@ all() ->
 init_per_testcase(mem_limit_test, Config) ->
     {ok, _} = application:ensure_all_started(lager),
 
-    {ok, Dir} = file:get_cwd(),
+    Dir = ?config(priv_dir, Config),
     PrivDir = filename:join([Dir, "priv"]),
     NewDir = PrivDir ++ "/ledger/",
     ok = filelib:ensure_dir(NewDir),
 
-    os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-913684"),
+    SnapFileName = "snap-913684",
+    SnapFilePath = Dir ++ "/" ++ SnapFileName,
+    os:cmd("cd " ++ Dir ++ " && wget -c https://snapshots.helium.wtf/mainnet/" ++ SnapFileName),
 
-    Filename = Dir ++ "/snap-913684",
-
-    [{filename, Filename} | Config];
+    [{filename, SnapFilePath} | Config];
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     Balance = 5000,
@@ -91,8 +91,8 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
-basic_test(_Config) ->
-    LedgerA = ledger(),
+basic_test(Config) ->
+    LedgerA = ledger(Config),
     case blockchain_ledger_v1:get_h3dex(LedgerA) of
         #{} ->
             LedgerBoot = blockchain_ledger_v1:new_context(LedgerA),
@@ -102,7 +102,7 @@ basic_test(_Config) ->
     end,
     {ok, SnapshotA} = blockchain_ledger_snapshot_v1:snapshot(LedgerA, []),
     %% make a dir for the loaded snapshot
-    {ok, Dir} = file:get_cwd(),
+    Dir = ?config(priv_dir, Config),
     PrivDir = filename:join([Dir, "priv"]),
     NewDir = PrivDir ++ "/ledger2/",
     ok = filelib:ensure_dir(NewDir),
@@ -237,18 +237,18 @@ mem_limit_test(Config) ->
 snap_hash_without_field(Field, Snap) ->
     blockchain_ledger_snapshot_v1:hash(maps:remove(Field, Snap)).
 
-ledger() ->
-
-    {ok, Dir} = file:get_cwd(),
+ledger(Config) ->
+    Dir = ?config(priv_dir, Config),
     PrivDir = filename:join([Dir, "priv"]),
     NewDir = PrivDir ++ "/ledger/",
     ok = filelib:ensure_dir(NewDir),
 
-    os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-913684"),
+    SnapFileName = "snap-913684",
+    SnapFilePath = filename:join(Dir, SnapFileName),
+    SnapURI = "https://snapshots.helium.wtf/mainnet/" ++ SnapFileName,
+    os:cmd("cd " ++ Dir ++ "  && wget -c " ++ SnapURI),
 
-    Filename = Dir ++ "/snap-913684",
-
-    {ok, BinSnap} = file:read_file(Filename),
+    {ok, BinSnap} = file:read_file(SnapFilePath),
 
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
