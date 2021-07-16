@@ -143,7 +143,7 @@
 
 -spec snapshot(blockchain_ledger_v1:ledger(), [binary()]) ->
     {ok, snapshot()}
-    | {error, snapshot_error()}.
+    | {error, killed | snapshot_error()}.
 snapshot(Ledger0, Blocks) ->
     snapshot(Ledger0, Blocks, delayed).
 
@@ -152,7 +152,7 @@ snapshot(Ledger0, Blocks) ->
     [binary()],
     blockchain_ledger_v1:mode()
 ) ->
-    {ok, snapshot()} | {error, snapshot_error()}.
+    {ok, snapshot()} | {error, killed | snapshot_error()}.
 snapshot(Ledger0, Blocks, Mode) ->
     Parent = self(),
     Ref = make_ref(),
