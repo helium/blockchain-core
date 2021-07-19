@@ -1302,28 +1302,33 @@ valid_witnesses(Element, Channel, Ledger) ->
     DstLoc :: h3:h3_index()
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
-    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
-        {ok, SrcRegionVar} ->
-            %% This call should work as-is without case-clausing
-            {ok, SrcRegionBin} = blockchain_ledger_v1:config(SrcRegionVar, Ledger),
-            try h3:contains(DstLoc, SrcRegionBin) of
-                false ->
-                    %% NOTE: This is the only false scenario
-                    false;
-                {true, _Parent} ->
-                    true
-            catch
-                What:Why:Stack ->
-                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
-                        What,
-                        Why,
-                        Stack
-                    ]),
-                    %% XXX: We could not check h3 membership for dst, default to true
-                    true
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V > 10 ->
+            case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
+                {ok, SrcRegionVar} ->
+                    %% Check DstLoc is in the same region as SourceLoc
+                    case blockchain_region_v1:h3_in_region(DstLoc, SrcRegionVar, Ledger) of
+                        false -> false;
+                        true -> true;
+                        {error, _} ->
+                            %% If this errored out:
+                            %% - either the var is not set (improbable because we'll set it)
+                            %% - dst location is somehow not found in the regions we know about but SourceLoc was, sus
+                            false
+                    end;
+                {error, unknown_region} ->
+                    %% We don't know anything about this region
+                    %% Check if this ledger has aux
+                    case blockchain_ledger_v1:has_aux(Ledger) of
+                        true ->
+                            %% Yes, default to true
+                            true;
+                        false ->
+                            false
+                    end
             end;
         _ ->
-            %% var not set, true
+            %% We're not in poc-v11+
             true
     end.
 
@@ -1499,13 +1504,24 @@ min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, Destinatio
         {ok, POCVersion} when POCVersion >= 11 ->
             %% Estimate tx power because there is no receipt with attached tx_power
             lager:debug("SourceLoc: ~p, Freq: ~p", [SourceLoc, Freq]),
-            TxPower = estimated_tx_power(SourceLoc, Freq, Ledger),
-            FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-            case blockchain:config(?fspl_loss, Ledger) of
-                {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+
+            case estimated_tx_power(SourceLoc, Freq, Ledger) of
+                {ok, not_required} ->
+                    %% Just do the old behavior
+                    blockchain_utils:min_rcv_sig(
+                      blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
+                     );
+                {ok, TxPower} ->
+                    FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+                    case blockchain:config(?fspl_loss, Ledger) of
+                        {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
+                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+                    end;
+                {error, _}=E ->
+                    throw(E)
             end;
         _ ->
+            %% Prior to poc-v11
             blockchain_utils:min_rcv_sig(
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
@@ -1536,12 +1552,29 @@ calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) -
     blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq, GT, GR).
 
 estimated_tx_power(SourceLoc, Freq, Ledger) ->
-    {ok, Region} = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
-    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-    FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),
-                  blockchain_region_param_v1:max_eirp(I)} || I <- Params],
-    %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
-    eirp_from_closest_freq(Freq * ?MHzToHzMultiplier, FreqEirps).
+    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
+        {ok, Region} ->
+            {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+            FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),
+                          blockchain_region_param_v1:max_eirp(I)} || I <- Params],
+            %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
+            EIRP = eirp_from_closest_freq(Freq * ?MHzToHzMultiplier, FreqEirps),
+            {ok, EIRP};
+        {error, _}=E ->
+            %% We cannot estimate tx_power because we don't know anything
+            %% about this region. We need to investigate and add unsupported
+            %% regions over time
+            %%
+            %% However, let's also check if we're running in aux ledger mode
+            case blockchain_ledger_v1:has_aux(Ledger) of
+                false ->
+                    %% hmm, aux ledger is not set yet, region not found either
+                    E;
+                true ->
+                    %% aux ledger detected, tx_power is not required
+                    {ok, not_required}
+            end
+    end.
 
 eirp_from_closest_freq(Freq, [Head | Tail]) ->
     eirp_from_closest_freq(Freq, Tail, Head).
