@@ -86,7 +86,7 @@ h3_in_region(H3, RegionVar, Ledger) ->
 ) ->
     {ok, region_var()} | {error, any()}.
 region_([], _H3, _Ledger) ->
-    {error, not_found};
+    {error, unknown_region};
 region_([ToCheck | Remaining], H3, Ledger) ->
     case h3_in_region(H3, ToCheck, Ledger) of
         {error, _} = Error -> Error;
