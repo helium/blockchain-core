@@ -68,12 +68,13 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
     end,
     noreply.
 
-add_block(Block, Chain, Sender, SwarmTID) ->
+add_block(Block, Chain, Sender, _SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:has_block(Block, Chain) == false andalso blockchain:is_block_plausible(Block, Chain) of
         true ->
             %% eagerly re-gossip plausible blocks we don't have
-            regossip_block(Block, SwarmTID);
+            %% regossip_block(Block, SwarmTID);
+            ok;
         false ->
             ok
     end,
@@ -122,9 +123,9 @@ gossip_data(SwarmTID, Block) ->
     Msg = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
-regossip_block(Block, SwarmTID) ->
-    libp2p_group_gossip:send(
-      libp2p_swarm:gossip_group(SwarmTID),
-      ?GOSSIP_PROTOCOL_V1,
-      blockchain_gossip_handler:gossip_data(SwarmTID, Block)
-     ).
+%% regossip_block(Block, SwarmTID) ->
+%%     libp2p_group_gossip:send(
+%%       libp2p_swarm:gossip_group(SwarmTID),
+%%       ?GOSSIP_PROTOCOL_V1,
+%%       blockchain_gossip_handler:gossip_data(SwarmTID, Block)
+%%     ).
