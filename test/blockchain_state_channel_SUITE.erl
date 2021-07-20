@@ -69,7 +69,12 @@ all() ->
 init_per_testcase(basic_test, Config) ->
     BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
     [{base_dir, BaseDir} |Config];
+init_per_testcase(max_scs_open_v2_test, Config) ->
+    init_per_testcase(max_scs_open_v2_test, Config, 2);
 init_per_testcase(Test, Config) ->
+    init_per_testcase(Test, Config, 1).
+
+init_per_testcase(Test, Config, SCVersion) ->
     application:ensure_all_started(throttle),
     application:ensure_all_started(lager),
 
@@ -77,7 +82,7 @@ init_per_testcase(Test, Config) ->
     InitConfig = blockchain_ct_utils:init_per_testcase(Test, InitConfig0),
 
     Nodes = ?config(nodes, InitConfig),
-    Balance = 5000,
+    Balance = 50000,
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
     [RouterNode|_] = Nodes,
@@ -118,8 +123,8 @@ init_per_testcase(Test, Config) ->
                   max_subnet_num => 20,
                   sc_grace_blocks => 5,
                   dc_payload_size => 24,
-                  sc_max_actors => 2000,
-                  sc_version => 2},
+                  sc_max_actors => 100,
+                  sc_version => SCVersion},
 
     {InitialVars, {master_key, MasterKey}} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
@@ -675,7 +680,10 @@ max_actor_test(Config) ->
     end, 30, timer:seconds(1)),
 
 
-    [SCA1, SCB1] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+    ActiveSCs = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+    ct:pal("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, ActiveSCs]),
+    ?assertEqual(2, erlang:length(ActiveSCs)),
+    [SCA1, SCB1] = ActiveSCs,
 
     ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
     ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1))),
@@ -2098,7 +2106,7 @@ hotspot_in_router_oui_test(Config) ->
     {ok, GwInfo} = ct_rpc:call(GatewayNode1, blockchain_ledger_v1, find_gateway_info, [GatewayPubkeyBin,
                                                                                        GatewayNodeLedger]),
     GwOUI = ct_rpc:call(GatewayNode1, blockchain_ledger_gateway_v2, oui, [GwInfo]),
-    ?assertEqual(GwOUI, OUI),
+    ?assertEqual(OUI, GwOUI),
 
     %% Create state channel open txn
     ID = crypto:strong_rand_bytes(32),
