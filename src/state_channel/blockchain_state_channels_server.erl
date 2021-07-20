@@ -43,6 +43,7 @@
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>). % also copied in sc_db_owner
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
 -define(FP_RATE, 0.99).
+-define(ETS, blockchain_state_channels_server_ets).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -131,7 +132,10 @@ active_sc_ids() ->
 
 -spec active_scs() -> [blockchain_state_channel_v1:state_channel()].
 active_scs() ->
-    gen_server:call(?SERVER, active_scs, infinity).
+    case ets:lookup(?ETS, active_scs) of
+        [] -> [];
+        [{active_scs, ActiveSCs}] -> ActiveSCs
+    end.
 
 -spec get_active_sc_count() -> non_neg_integer().
 get_active_sc_count() ->
@@ -171,6 +175,7 @@ init(Args) ->
     SCF = blockchain_state_channels_db_owner:sc_servers_cf(),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    _ = ets:new(?ETS, [public, named_table, set]),
     erlang:send_after(500, self(), post_init),
     {ok, #state{db=DB, cf=SCF, swarm=Swarm, owner={Owner, OwnerSigFun}}}.
 
@@ -183,8 +188,6 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     {reply, Reply, State};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
-handle_call(active_scs, _From, State) ->
-    {reply, active_scs(State), State};
 handle_call(active_sc_ids, _From, #state{active_sc_ids=ActiveSCIDs}=State) ->
     {reply, ActiveSCIDs, State};
 handle_call(get_active_sc_count, _From, State) ->
@@ -208,6 +211,7 @@ handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_ids=[]}=State) ->
 handle_cast({offer, SCOffer, HandlerPid}, State0) ->
     lager:debug("got offer: ~p from ~p", [SCOffer, HandlerPid]),
     State1 = handle_offer(SCOffer, HandlerPid, State0),
+    ok = update_active_scs_cache(State1),
     {noreply, State1};
 handle_cast({packet, _ClientPubKeyBin, SCPacket, _HandlerPid}, #state{active_sc_ids=[]}=State) ->
     lager:warning("got packet: ~p from ~p/~p when no sc is active", [SCPacket, _ClientPubKeyBin, _HandlerPid]),
@@ -215,23 +219,26 @@ handle_cast({packet, _ClientPubKeyBin, SCPacket, _HandlerPid}, #state{active_sc_
 handle_cast({packet, ClientPubKeyBin, Packet, HandlerPid}, State0) ->
     lager:debug("got packet: ~p from ~p/~p", [Packet, ClientPubKeyBin, HandlerPid]),
     State1 = handle_packet(ClientPubKeyBin, Packet, HandlerPid, State0),
+    ok = update_active_scs_cache(State1),
     {noreply, State1};
-handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
+handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State0) ->
     %% let's make sure whatever IDs we are getting rid of here we also dump
     %% from pending writes... we don't want some ID that's been
     %% deleted from the DB to ressurrect like a zombie because it was
     %% a pending write.
     ok = blockchain_state_channels_db_owner:gc(SCIDs),
-    {noreply, State#state{state_channels=maps:without(SCIDs, SCs)}};
+    State1 = State0#state{state_channels=maps:without(SCIDs, SCs)},
+    ok = update_active_scs_cache(State1),
+    {noreply, State1};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(post_init, #state{chain=undefined}=State) ->
+handle_info(post_init, #state{chain=undefined}=State0) ->
     case blockchain_worker:blockchain() of
         undefined ->
             erlang:send_after(500, self(), post_init),
-            {noreply, State};
+            {noreply, State0};
         Chain ->
             Ledger = blockchain:ledger(Chain),
             DCPayloadSize =
@@ -249,11 +256,12 @@ handle_info(post_init, #state{chain=undefined}=State) ->
                         0
                 end,
             MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
-            TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed},
+            TempState = State0#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed},
             LoadState = update_state_with_ledger_channels(TempState),
             lager:info("loaded state channels: ~p", [LoadState#state.state_channels]),
-            NewState = update_state_with_blooms(LoadState),
-            {noreply, NewState}
+            State1 = update_state_with_blooms(LoadState),
+            ok = update_active_scs_cache(State1),
+            {noreply, State1}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{chain=NC}};
@@ -261,14 +269,14 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #sta
     erlang:send_after(500, self(), post_init),
     {noreply, State};
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{chain=Chain}=State0) ->
-    NewState = case blockchain:get_block(BlockHash, Chain) of
+    State1 = case blockchain:get_block(BlockHash, Chain) of
                    {error, Reason} ->
                        lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
                        State0;
                    {ok, Block} ->
                        BlockHeight = blockchain_block:height(Block),
                        Txns = get_state_channels_txns_from_block(Chain, BlockHash, State0),
-                       State1 = lists:foldl(
+                       State = lists:foldl(
                                   fun(Txn, State) ->
                                           case blockchain_txn:type(Txn) of
                                               blockchain_txn_state_channel_open_v1 ->
@@ -279,7 +287,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                                   end,
                                   State0,
                                   Txns),
-                       check_state_channel_expiration(BlockHeight, State1)
+                       check_state_channel_expiration(BlockHeight, State)
                end,
 
     DCPayloadSize = case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
@@ -295,7 +303,9 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                     0
             end,
     MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
-    {noreply, NewState#state{dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed}};
+    State2 = State1#state{dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed},
+    ok = update_active_scs_cache(State2),
+    {noreply, State2};
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
     FilteredStreams = maps:filter(fun(_Name, {Stream, _}) ->
                                           Stream /= Pid
@@ -356,7 +366,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
                     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
                     %% Put new state_channel in our map  
                     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
-                    ok = maybe_broadcast_banner(active_scs(TempState), TempState),
+                    ok = maybe_broadcast_banner([SC], TempState),
                     maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
             end
     end.
@@ -385,7 +395,8 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                             State0;
                         NewActiveID ->
                             lager:info("adding new active SC ~p", [blockchain_utils:addr2name(NewActiveID)]),
-                            handle_offer(SCOffer, HandlerPid, State0#state{active_sc_ids=ActiveSCIDs ++ [NewActiveID]})
+                            State1 = State0#state{active_sc_ids=ActiveSCIDs ++ [NewActiveID]},
+                            handle_offer(SCOffer, HandlerPid, State1)
                     end;
                 {ok, ActiveSC} ->
                     ActiveSCID = blockchain_state_channel_v1:id(ActiveSC),
@@ -407,7 +418,7 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                     NewActiveSCID ->
                                         State0#state{active_sc_ids=lists:delete(ActiveSCID, ActiveSCIDs) ++ [NewActiveSCID]}
                                 end,
-                            ok = maybe_broadcast_banner(active_scs(State1), State1),
+                            ok = maybe_broadcast_banner([ActiveSC], State1),
                             State1;
                         false ->
                             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
@@ -997,3 +1008,8 @@ update_state_with_blooms(#state{state_channels=SCs}=State) ->
                               PacketBloom
                       end, SCs),
     State#state{blooms=Blooms}.
+
+-spec update_active_scs_cache(State :: state()) -> ok.
+update_active_scs_cache(State) ->
+    true = ets:insert(?ETS, {active_scs, active_scs(State)}),
+    ok.
