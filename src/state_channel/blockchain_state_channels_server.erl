@@ -366,7 +366,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
                     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
                     %% Put new state_channel in our map  
                     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
-                    ok = maybe_broadcast_banner([SC], TempState),
+                    % ok = maybe_broadcast_banner([SC], TempState),
                     maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
             end
     end.
