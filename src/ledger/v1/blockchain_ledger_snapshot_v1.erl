@@ -412,7 +412,7 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
     case blockchain_ledger_v1:has_aux(Ledger0) of
         true ->
             load_into_ledger(Snapshot, Ledger0, aux),
-            load_blocks(blockchain_ledger_v1:mode(aux, Ledger0), Chain, Snapshot);
+            load_blocks(blockchain_ledger_v1:mode(aux_load, Ledger0), Chain, Snapshot);
         false ->
             ok
     end,
