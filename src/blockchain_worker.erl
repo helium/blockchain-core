@@ -8,6 +8,7 @@
 -behavior(gen_server).
 
 -include("blockchain_vars.hrl").
+-include_lib("kernel/include/file.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -69,6 +70,8 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
+-define(READ_SIZE, 16 * 1024). % read 16 kb chunks
+-define(WEEK_OLD_SECONDS, 7*24*60*60). %% a week's worth of seconds
 
 -ifdef(TEST).
 -define(SYNC_TIME, 1000).
@@ -928,24 +931,20 @@ start_snapshot_sync(Hash, Height, Peer,
                                       %% adjusted either +1 or -1
                                       {ok, ConfigHeight} = application:get_env(blockchain,
                                                                 blessed_snapshot_block_height),
-                                      Url = build_url(BaseUrl, ConfigHeight),
-                                      {ok, BinSnap} = attempt_fetch_s3_snapshot(Url),
-                                      lager:info("Successfully downloaded snap from ~p", [Url]),
-                                      {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize(Hash,
-                                                                                             BinSnap),
-                                      SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
-                                      ok = blockchain:add_bin_snapshot(BinSnap, SnapHeight,
-                                                                       Hash, Chain),
-                                      lager:info("Stored snap ~p - attempting install",
-                                                 [SnapHeight]),
-                                      blockchain_worker:install_snapshot(Hash, Snap);
+                                      {ok, Filename} = attempt_fetch_s3_snapshot(BaseUrl,
+                                                                                 ConfigHeight),
+                                      lager:info("Successfully saved snap to disk in ~p", [Filename]),
+                                      %% if the file doesn't deserialize correctly, it will
+                                      %% get deleted, so we can redownload it on some other
+                                      %% attempt
+                                      attempt_load_snapshot_from_disk(Filename, Hash, Chain);
                                   _ ->
                                       %% don't do anything
                                       ok
                               end
                           catch
                               _Type:Error:St ->
-                                  lager:error("S3 download failed because ~p: ~p", [Error, St]),
+                                  lager:error("snapshot download or loading failed because ~p: ~p", [Error, St]),
                                   attempt_fetch_p2p_snapshot(Hash, Height, Swarm, Chain, Peer)
                           end
                   end).
@@ -974,16 +973,41 @@ attempt_fetch_p2p_snapshot(Hash, Height, Swarm, Chain, Peer) ->
             ok
     end.
 
-build_url(BaseUrl, Height) ->
-    %% add 1 to the height here to compensate for the -1 in blockchain:init_blessed_snapshot
+build_filename(Height) ->
     HeightStr = integer_to_list(Height),
-    Filename = "snap-" ++ HeightStr,
+    "snap-" ++ HeightStr.
+
+build_url(BaseUrl, Filename) ->
     BaseUrl ++ "/" ++ Filename.
 
-attempt_fetch_s3_snapshot(Url) ->
+attempt_fetch_s3_snapshot(BaseUrl, Height) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
+    BaseDir = application:get_env(blockchain, base_dir, "data"),
+    Filename = build_filename(Height),
+    Filepath = filename:join([BaseDir, "snap", Filename]),
+    ok = filelib:ensure_dir(Filepath),
+
+    %% clean_dir will remove any snapshots older than 1 week (should help prevent
+    %% filling up the SSD card with old snapshots)
+    ok = clean_dir(filename:dirname(Filepath)),
+
+    case filelib:is_regular(Filepath) of
+        true ->
+            lager:info("Already have snapshot file for height ~p", [Height]),
+            {ok, Filepath};
+        false -> do_s3_download(build_url(BaseUrl, Filename), Filepath)
+    end.
+
+do_s3_download(Url, Filepath) ->
+    ScratchFile = Filepath ++ ".scratch",
+    ok = filelib:ensure_dir(ScratchFile),
+
+    %% make sure our scratch directory is empty if there are any
+    %% old partial failure nuggets hanging out
+    ok = delete_dir(ScratchFile),
+
     Headers = [
-               {"user-agent", "blockchain-worker-1"}
+               {"user-agent", "blockchain-worker-2"}
               ],
     HTTPOptions = [
                    {timeout, 900000}, % milliseconds, 900 sec overall request timeout
@@ -991,16 +1015,44 @@ attempt_fetch_s3_snapshot(Url) ->
                   ],
     Options = [
                {body_format, binary}, % return body as a binary
+               {stream, ScratchFile}, % write data into file
                {full_result, false} % do not return the "full result" response as defined in httpc docs
               ],
 
-    lager:info("Attempting snapshot download from ~p", [Url]),
+    lager:info("Attempting snapshot download from ~p, writing to scratch file ~p",
+               [Url, ScratchFile]),
     case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
-        {ok, {200, Response}} -> {ok, Response};
+        {ok, saved_to_file} ->
+            lager:info("snap written to scratch file ~p", [ScratchFile]),
+            %% prof assures me rename is atomic :)
+            ok = file:rename(ScratchFile, Filepath),
+            {ok, Filepath};
         {ok, {404, _Response}} -> throw({error, url_not_found});
         {ok, {Status, Response}} -> throw({error, {Status, Response}});
         Other -> throw(Other)
     end.
+
+attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
+    lager:debug("attempting to load snapshot from ~p", [Filename]),
+    %% TODO at some point we could probably load the snapshot file in chunks?
+    BinSnap = case file:read_file(Filename) of
+                  {error, _} = E -> throw(E);
+                  {ok, Bin} -> Bin
+              end,
+    lager:debug("attempting to deserialize snapshot and validate hash ~p", [Hash]),
+    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, BinSnap) of
+               {error, _} = Err ->
+                   lager:error("While deserializing ~p, got ~p. Deleting ~p",
+                               [Filename, Err, Filename]),
+                   ok = file:delete(Filename),
+                   throw(Err);
+               {ok, S} -> S
+           end,
+    SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
+    lager:debug("attempting to store snapshot in rocks"),
+    ok = blockchain:add_bin_snapshot(BinSnap, SnapHeight, Hash, Chain),
+    lager:info("Stored snap ~p - attempting install", [SnapHeight]),
+    blockchain_worker:install_snapshot(Hash, Snap).
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,
@@ -1116,3 +1168,35 @@ get_sync_mode(Blockchain) ->
             %% full sync only ever syncs blocks, so just sync blocks
             {normal, undefined}
     end.
+
+delete_dir(Filename) ->
+    Dir = case filelib:is_dir(Filename) of
+              true -> Filename;
+              false -> filename:dirname(Filename)
+          end,
+
+    Files = case file:list_dir(Dir) of
+                {error, enoent} -> [];
+                {error, _} = Err -> throw(Err);
+                {ok, F} -> F
+            end,
+
+    do_clean_dir(Files, fun(X) -> X end).
+
+clean_dir(Dir) ->
+    WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
+    FilterFun = fun(F) ->
+                        case file:read_file_info(F, [raw, {time, posix}]) of
+                            {error, _} -> false;
+                            {ok, FI} ->
+                                FI#file_info.type == regular
+                                andalso FI#file_info.mtime =< WeekOld
+                        end
+                end,
+
+    do_clean_dir(element(2, file:list_dir(Dir)), FilterFun).
+
+do_clean_dir(Files, FilterFun) ->
+    lists:foreach(fun(F) -> ok = file:delete(F) end,
+                  lists:filter(FilterFun, Files)).
+
