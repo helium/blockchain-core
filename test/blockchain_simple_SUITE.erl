@@ -29,6 +29,7 @@
     absorb_failed_test/1,
     missing_last_block_test/1,
     epoch_reward_test/1,
+    net_emissions_reward_test/1,
     election_test/1,
     election_v3_test/1,
     election_v4_test/1,
@@ -83,6 +84,7 @@ all() ->
         absorb_failed_test,
         missing_last_block_test,
         epoch_reward_test,
+        net_emissions_reward_test,
         election_test,
         election_v3_test,
         election_v4_test,
@@ -140,6 +142,12 @@ init_per_testcase(TestCase, Config) ->
                     genesis_no_var_validation_make_valid_test ->
                         %% Intentionally supply an incorrect (out-of-bound) chain variable here
                         #{election_version => 10000, vars_commit_delay => 1};
+                    net_emissions_reward_test ->
+                        #{?net_emissions_enabled => true,
+                          ?rewards_txn_version => 2,
+                          ?reward_version => 5,
+                          ?monthly_reward => 10000,
+                          ?net_emissions_max_rate => 40000};
                     _ ->
                         #{allow_zero_amount => false,
                           max_open_sc => 2,
@@ -1488,6 +1496,144 @@ epoch_reward_test(Config) ->
     meck:unload(blockchain_ledger_v1),
     ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
     meck:unload(blockchain_txn_consensus_group_v1).
+
+net_emissions_reward_test(Config) ->
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+
+    [_, {PubKeyBin, {_, PrivKey, _}}|_] = ConsensusMembers,
+
+    meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_Txn, _Chain) -> ok end),
+
+    meck:new(blockchain_txn_consensus_group_v1, [passthrough]),
+    meck:expect(blockchain_txn_consensus_group_v1, is_valid, fun(_Txn, _Chain) -> ok end),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, find_gateway_info, fun(Address, _Ledger) ->
+        {ok, blockchain_ledger_gateway_v2:new(Address, 12, full)}
+    end),
+
+    % Add few empty blocks to fake epoch
+    Start = 1,
+    End = 31,
+    _Blocks = lists:reverse(lists:foldl(
+        fun(X, Acc) ->
+            Txns = case X =:= 15 of
+                false ->
+                    [];
+                true ->
+                    POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []),
+                    [POCReceiptTxn]
+            end,
+            {ok, B} = test_utils:create_block(ConsensusMembers, Txns),
+            _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm()),
+            [B|Acc]
+        end,
+        [],
+        lists:seq(1, 30)
+    )),
+    Ledger = blockchain:ledger(Chain),
+
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:net_overage(Ledger)),
+
+    commit(fun(L) ->
+                   ok = blockchain_ledger_v1:add_hnt_burned(20000, L)
+           end, Ledger),
+
+    ?assertEqual({ok, 20000}, blockchain_ledger_v1:hnt_burned(Ledger)),
+
+    {ok, Rewards} = blockchain_txn_rewards_v2:calculate_rewards(Start, End, Chain),
+    ct:pal("rewards ~p", [Rewards]),
+    Tx = blockchain_txn_rewards_v2:new(Start, End, Rewards),
+    {ok, B} = test_utils:create_block(ConsensusMembers, [Tx]),
+    ct:pal("circ = ~p", [blockchain_ledger_v1:query_circulating_hnt(Ledger)]),
+
+    ?assertEqual(55000, blockchain_ledger_v1:query_circulating_hnt(Ledger)),
+    _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm()),
+
+    ct:pal("circ = ~p", [blockchain_ledger_v1:query_circulating_hnt(Ledger)]),
+
+    %% why is this not 75001??
+    ?assertEqual(66999, blockchain_ledger_v1:query_circulating_hnt(Ledger)),
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:net_overage(Ledger)),
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
+
+    Start2 = 33,
+    End2 = 62,
+
+    lists:foldl(
+      fun(_, Acc) ->
+              Txns = [],
+              {ok, Bl} = test_utils:create_block(ConsensusMembers, Txns),
+              _ = blockchain_gossip_handler:add_block(Bl, Chain, self(), blockchain_swarm:swarm()),
+              Acc
+        end,
+        [],
+        lists:seq(1, 30)),
+
+    commit(fun(L) ->
+                   ok = blockchain_ledger_v1:add_hnt_burned(80000, L)
+           end, Ledger),
+
+    {ok, Rewards2} = blockchain_txn_rewards_v2:calculate_rewards(Start2, End2, Chain),
+    Tx2 = blockchain_txn_rewards_v2:new(Start2, End2, Rewards2),
+    {ok, B2} = test_utils:create_block(ConsensusMembers, [Tx2]),
+    _ = blockchain_gossip_handler:add_block(B2, Chain, self(), blockchain_swarm:swarm()),
+
+
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
+    ?assertEqual({ok, 40000}, blockchain_ledger_v1:net_overage(Ledger)),
+    ?assertEqual(84999, blockchain_ledger_v1:query_circulating_hnt(Ledger)),
+
+    Start3 = 64,
+    End3 = 93,
+    lists:foldl(
+      fun(_, Acc) ->
+              Txns = [],
+              {ok, Bl} = test_utils:create_block(ConsensusMembers, Txns),
+              _ = blockchain_gossip_handler:add_block(Bl, Chain, self(), blockchain_swarm:swarm()),
+              Acc
+        end,
+        [],
+        lists:seq(1, 30)),
+
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
+
+    {ok, Rewards3} = blockchain_txn_rewards_v2:calculate_rewards(Start3, End3, blockchain:ledger(Ledger, Chain)),
+    Tx3 = blockchain_txn_rewards_v2:new(Start3, End3, Rewards3),
+    {ok, B3} = test_utils:create_block(ConsensusMembers, [Tx3]),
+    _ = blockchain_gossip_handler:add_block(B3, Chain, self(), blockchain_swarm:swarm()),
+
+
+    ?assertEqual(102999, blockchain_ledger_v1:query_circulating_hnt(Ledger)),
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:net_overage(Ledger)),
+
+    %% Burn 3000 with token burn and check it appears on the ledger
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    TBTxn = blockchain_txn_token_burn_v1:sign(
+              blockchain_txn_token_burn_v1:new(PubKeyBin, 3000, 1),
+              SigFun),
+
+    {ok, B4} = test_utils:create_block(ConsensusMembers, [TBTxn], #{}, false),
+    _ = blockchain_gossip_handler:add_block(B4, Chain, self(), blockchain_swarm:swarm()),
+
+    ?assertEqual({ok, 3000}, blockchain_ledger_v1:hnt_burned(Ledger)),
+    ?assertEqual({ok, 0}, blockchain_ledger_v1:net_overage(Ledger)),
+
+    ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    meck:unload(blockchain_txn_poc_receipts_v1),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
+    meck:unload(blockchain_txn_consensus_group_v1).
+
+commit(Fun, Ledger) ->
+    L = blockchain_ledger_v1:new_context(Ledger),
+    Fun(L),
+    blockchain_ledger_v1:commit_context(L).
 
 election_test(Config) ->
     BaseDir = ?config(base_dir, Config),

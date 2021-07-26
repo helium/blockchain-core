@@ -91,6 +91,12 @@
     check_dc_balance/3,
     check_dc_or_hnt_balance/4,
 
+    hnt_burned/1,
+    add_hnt_burned/2,
+    clear_hnt_burned/1,
+
+    net_overage/1,  net_overage/2,
+
     token_burn_exchange_rate/1,
     token_burn_exchange_rate/2,
 
@@ -319,6 +325,8 @@
 -define(MULTI_KEYS, <<"multi_keys">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
+-define(HNT_BURNED, <<"hnt_burned">>).
+-define(NET_OVERAGE, <<"net_overage">>).
 -define(CURRENT_ORACLE_PRICE, <<"current_oracle_price">>). %% stores the current calculated price
 -define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
 -define(hex_list, <<"$hex_list">>).
@@ -2774,6 +2782,7 @@ debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn, TxnHash, Chain) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} when MaybeTryImplicitBurn == true ->
             {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
+            ok = add_hnt_burned(FeeInHNT, Ledger),
             ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash, Chain);
         {error, _}=Error ->
             Error;
@@ -2791,6 +2800,7 @@ debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn, TxnHash, Chain) ->
                 {false, true} ->
                     %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
                     {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
+                    ok = add_hnt_burned(FeeInHNT, Ledger),
                     ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash, Chain);
                 {false, false} ->
                     {error, {insufficient_dc_balance, {Fee, Balance}}}
@@ -2847,6 +2857,67 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
                             Res
                     end
             end
+    end.
+
+-spec hnt_burned(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+hnt_burned(Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            case cache_get(Ledger, DefaultCF, ?HNT_BURNED, []) of
+                {ok, <<Burned:64/integer-unsigned-native>>} ->
+                    {ok, Burned};
+                not_found ->
+                    {ok, 0};
+                Error ->
+                    Error
+            end;
+        _ -> {ok, 0}
+    end.
+
+-spec add_hnt_burned(non_neg_integer(), ledger()) -> ok.
+add_hnt_burned(Burned, Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            Prev =
+                case cache_get(Ledger, DefaultCF, ?HNT_BURNED, []) of
+                    {ok, <<P:64/integer-unsigned-native>>} -> P;
+                    not_found -> 0
+                end,
+            New = Prev + Burned,
+            cache_put(Ledger, DefaultCF, ?HNT_BURNED, <<New:64/integer-unsigned-native>>);
+        _ -> ok
+    end.
+
+-spec clear_hnt_burned(ledger()) -> ok.
+clear_hnt_burned(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?HNT_BURNED, <<0:64/integer-unsigned-native>>).
+
+-spec net_overage(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+net_overage(Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            case cache_get(Ledger, DefaultCF, ?NET_OVERAGE, []) of
+                {ok, <<Overage:64/integer-unsigned-native>>} ->
+                    {ok, Overage};
+                not_found ->
+                    {ok, 0};
+                Error ->
+                    Error
+            end;
+        _ -> {ok, 0}
+    end.
+
+-spec net_overage(non_neg_integer(), ledger()) -> ok.
+net_overage(Overage, Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            cache_put(Ledger, DefaultCF, ?NET_OVERAGE, <<Overage:64/integer-unsigned-native>>);
+        _ -> ok
     end.
 
 -spec token_burn_exchange_rate(ledger()) -> {ok, integer()} | {error, any()}.

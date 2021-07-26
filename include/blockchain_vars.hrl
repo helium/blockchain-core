@@ -474,3 +474,13 @@
 -define(penalty_history_limit, penalty_history_limit). % blocks
 -define(dkg_penalty, dkg_penalty). % float
 -define(tenure_penalty, tenure_penalty). % float
+
+%%%
+%%% net emissions vars
+%%%
+
+%% use net emissions code paths
+-define(net_emissions_enabled, net_emissions_enabled). % boolean
+%% maximum amount of burnt hnt per epoch to return to the rewards pool
+%% initial proposed max 34.24 HNT
+-define(net_emissions_max_rate, net_emissions_max_rate). % bones

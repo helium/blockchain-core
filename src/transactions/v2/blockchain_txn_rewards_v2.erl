@@ -148,6 +148,39 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
 
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            %% initial proposed max 34.24
+            {ok, Max} = blockchain:config(?net_emissions_max_rate, Ledger),
+            {ok, Burned} = blockchain_ledger_v1:hnt_burned(Ledger),
+            {ok, Overage} = blockchain_ledger_v1:net_overage(Ledger),
+
+            %% clear this since we have it already
+            ok = blockchain_ledger_v1:clear_hnt_burned(Ledger),
+
+            case Burned > Max of
+                %% if burned > max, then add (burned - max) to overage
+                true ->
+                    Overage1 = Overage + (Burned - Max),
+                    ok = blockchain_ledger_v1:net_overage(Overage1, Ledger);
+                %% else we may have pulled from overage to the tune of
+                %% max - burned
+                 _ ->
+                    %% here we pulled from overage up to max
+                    case (Max - Burned) < Overage  of
+                        %% emitted max, pulled from overage
+                        true ->
+                            Overage1 = Overage - (Max - Burned),
+                            ok = blockchain_ledger_v1:net_overage(Overage1, Ledger);
+                        %% not enough overage to emit up to max, 0 overage
+                        _ ->
+                            ok = blockchain_ledger_v1:net_overage(0, Ledger)
+                    end
+            end;
+        _ ->
+            ok
+    end,
+
     case blockchain_ledger_v1:mode(Ledger) == aux of
         false ->
             %% only absorb in the main ledger
@@ -275,7 +308,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
-                                          Vars, Ledger, AccInit),
+                                           Vars, Ledger, AccInit),
 
         %% Prior to HIP 28 (reward_version <6), force EpochReward amount for the CG to always
         %% be around ElectionInterval (30 blocks) so that there is less incentive
@@ -674,11 +707,25 @@ calculate_epoch_reward(Version, Start, End, Ledger) ->
     {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
-    calculate_epoch_reward(Version, Start, End, BlockTime0, ElectionInterval, MonthlyReward).
+    calculate_epoch_reward(Version, Start, End, BlockTime0,
+                           ElectionInterval, MonthlyReward, Ledger).
+
+calculate_net_emissions_reward(Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            %% initial proposed max 34.24
+            {ok, Max} = blockchain:config(?net_emissions_max_rate, Ledger),
+            {ok, Burned} = blockchain_ledger_v1:hnt_burned(Ledger),
+            {ok, Overage} = blockchain_ledger_v1:net_overage(Ledger),
+            min(Max, Burned + Overage);
+        _ ->
+            0
+    end.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), pos_integer(),
-                             pos_integer(), pos_integer(), pos_integer()) -> float().
-calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward) when Version >= 6 ->
+                             pos_integer(), pos_integer(), pos_integer(),
+                             blockchain_ledger_v1:ledger()) -> float().
+calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward, Ledger) when Version >= 6 ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -687,8 +734,10 @@ calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, Month
     % Calculate election interval in blocks
     ElectionInterval = End - Start + 1, % epoch is inclusive of start and end
     ElectionPerHour = BlockPerHour/ElectionInterval,
-    MonthlyReward/30/24/ElectionPerHour;
-calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward) when Version >= 2 ->
+    Reward = MonthlyReward/30/24/ElectionPerHour,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra;
+calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward, Ledger) when Version >= 2 ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -697,8 +746,10 @@ calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, Month
     % Calculate election interval in blocks
     ElectionInterval = End - Start,
     ElectionPerHour = BlockPerHour/ElectionInterval,
-    MonthlyReward/30/24/ElectionPerHour;
-calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, MonthlyReward) ->
+    Reward = MonthlyReward/30/24/ElectionPerHour,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra;
+calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, MonthlyReward, Ledger) ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -706,14 +757,16 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
     BlockPerHour = BlockPerMin*60,
     % Calculate number of elections per hour
     ElectionPerHour = BlockPerHour/ElectionInterval,
-    MonthlyReward/30/24/ElectionPerHour.
+    Reward = MonthlyReward/30/24/ElectionPerHour,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra.
 
 
 
 -spec calculate_consensus_epoch_reward(pos_integer(), pos_integer(), reward_vars()) -> float().
 calculate_consensus_epoch_reward(Start, End, #{ block_time := BlockTime0,
-                                                election_interval := ElectionInterval, 
-                                                election_restart_interval := ElectionRestartInterval, 
+                                                election_interval := ElectionInterval,
+                                                election_restart_interval := ElectionRestartInterval,
                                                 monthly_reward := MonthlyReward }) ->
 
     BlockTime1 = (BlockTime0/1000),
