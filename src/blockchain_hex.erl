@@ -162,7 +162,7 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
     %% however, we specify the lower bound instead of going all the way down to 0
 
     {R, OuterMostParent} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
-                               {ok, Limit} -> {Limit, Limit};
+                               {ok, Limit} -> {Limit, h3:parent(Location, Limit)};
                                {error, not_found} ->
                                    {h3:get_resolution(Location),
                                     h3:parent(Location, TargetRes)}
