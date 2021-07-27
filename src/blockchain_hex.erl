@@ -161,15 +161,19 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
     %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
     %% however, we specify the lower bound instead of going all the way down to 0
 
-    R = h3:get_resolution(Location),
+    {R, OuterMostParent} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
+                               {ok, Limit} -> {Limit, Limit};
+                               {error, not_found} ->
+                                   {h3:get_resolution(Location),
+                                    h3:parent(Location, TargetRes)}
+                           end,
 
     %% Calculate densities at the outermost hex
-    OuterMostParent = h3:parent(Location, TargetRes),
     {UnclippedDensities, ClippedDensities} = densities(OuterMostParent, VarMap, Ledger),
 
     lists:foldl(fun(Res, Acc) ->
                         Parent = h3:parent(Location, Res),
-                        case maps:get(Parent, UnclippedDensities) of
+                        case maps:get(Parent, UnclippedDensities, 0) of
                             0 -> Acc;
                             Unclipped -> Acc * (maps:get(Parent, ClippedDensities) / Unclipped)
                         end
