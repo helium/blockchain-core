@@ -426,6 +426,7 @@
 -define(hip17_res_12, hip17_res_12).
 -define(density_tgt_res, density_tgt_res).
 -define(hip17_interactivity_blocks, hip17_interactivity_blocks).
+-define(hip17_resolution_limit, hip17_resolution_limit).
 
 %% ------------------------------------------------------------------
 %% assert_location_v2 transaction related vars

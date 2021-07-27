@@ -1207,6 +1207,8 @@ validate_var(?density_tgt_res, Value) ->
     validate_int(Value, "density_tgt_res", 1, 15, false);
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
+validate_var(?hip17_resolution_limit, Value) ->
+    validate_int(Value, "hip17_resolution_limit", 5, 15, false);
 
 validate_var(?assert_loc_txn_version, Value) ->
     case Value of

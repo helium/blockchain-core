@@ -225,10 +225,13 @@ densities(H3Root, VarMap, Locations, Ledger) ->
         0 ->
             {#{}, #{}};
         _ ->
-            UpperBoundRes = lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
-            LowerBoundRes = h3:get_resolution(H3Root),
-
-            [Head | Tail] = lists:seq(UpperBoundRes, LowerBoundRes, -1),
+            {Upper, Lower} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
+                                {ok, Limit} -> {Limit, Limit};
+                                {error, not_found} ->
+                                     {lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
+                                      h3:get_resolution(H3Root)}
+                            end,
+            [Head | Tail] = lists:seq(Upper, Lower, -1),
 
             %% find parent hexes to all hotspots at highest resolution in chain variables
             {ParentHexes, InitialDensities} =
