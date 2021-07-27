@@ -226,7 +226,7 @@ densities(H3Root, VarMap, Locations, Ledger) ->
             {#{}, #{}};
         _ ->
             {Upper, Lower} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
-                                {ok, Limit} -> {Limit, Limit};
+                                {ok, Limit} -> {Limit, Limit-1};
                                 {error, not_found} ->
                                      {lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
                                       h3:get_resolution(H3Root)}
