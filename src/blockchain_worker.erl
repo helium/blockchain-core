@@ -1181,7 +1181,7 @@ delete_dir(Filename) ->
                 {ok, F} -> F
             end,
 
-    do_clean_dir(Files, fun(X) -> X end).
+    do_clean_dir(Files, fun(_) -> true end).
 
 clean_dir(Dir) ->
     WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
