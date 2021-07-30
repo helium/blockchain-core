@@ -184,7 +184,10 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
 densities(H3Index, VarMap, Ledger) ->
     case lookup(H3Index, ?DENSITY_MEMO_TBL) of
         {ok, Densities} -> Densities;
-        not_found -> memoize(?DENSITY_MEMO_TBL, H3Index,
+        not_found -> 
+            %% Make FOR SURE the table is created
+            _ = maybe_start(?DENSITY_MEMO_TBL),
+            memoize(?DENSITY_MEMO_TBL, H3Index,
                             calculate_densities(H3Index, VarMap, Ledger))
     end.
 
