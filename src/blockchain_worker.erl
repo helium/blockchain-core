@@ -1197,6 +1197,6 @@ clean_dir(Dir) ->
     do_clean_dir(element(2, file:list_dir(Dir)), FilterFun).
 
 do_clean_dir(Files, FilterFun) ->
-    lists:foreach(fun(F) -> ok = file:delete(F) end,
+    lists:foreach(fun(F) -> file:delete(F) end,
                   lists:filter(FilterFun, Files)).
 
