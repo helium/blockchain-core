@@ -87,7 +87,7 @@
     find_dc_entry/2,
     credit_dc/3,
     debit_dc/4,
-    debit_fee/3, debit_fee/4, debit_fee/6,
+    debit_fee/3, debit_fee/6,
     check_dc_balance/3,
     check_dc_or_hnt_balance/4,
 
@@ -2732,18 +2732,9 @@ debit_fee(_Address, Fee, _Ledger) ->
     Address :: libp2p_crypto:pubkey_bin(),
     Fee :: non_neg_integer(),
     Ledger :: ledger(),
-    MaybeTryImplicitBurn :: boolean()
-) -> ok | {error, any()}.
-debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn) ->
-    debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn, undefined, undefined).
-
--spec debit_fee(
-    Address :: libp2p_crypto:pubkey_bin(),
-    Fee :: non_neg_integer(),
-    Ledger :: ledger(),
     MaybeTryImplicitBurn :: boolean(),
-    TxnHash :: blockchain_txn:hash() | undefined,
-    Chain :: blockchain:blockchain() | undefined
+    TxnHash :: blockchain_txn:hash(),
+    Chain :: blockchain:blockchain()
 ) -> ok | {error, any()}.
 debit_fee(_Address, 0, _Ledger, _MaybeTryImplicitBurn, _TxnHash, _Chain) ->
     ok;
