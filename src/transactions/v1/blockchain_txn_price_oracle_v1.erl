@@ -30,6 +30,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -218,9 +219,12 @@ print(#blockchain_txn_price_oracle_v1_pb{public_key=OraclePK,
     io_lib:format("type=price_oracle oracle_signature=~p, price=~p, block_height=~p, signature=~p",
                   [OraclePK, Price, BH, Sig]).
 
+json_type() ->
+    <<"price_oracle_v1">>.
+
 -spec to_json(txn_price_oracle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
-    #{ type => <<"price_oracle_v1">>,
+    #{ type => ?MODULE:json_type(),
        hash => ?BIN_TO_B64(hash(Txn)),
        fee => fee(Txn),
        public_key => ?BIN_TO_B58(public_key(Txn)),

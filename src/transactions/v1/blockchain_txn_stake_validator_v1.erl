@@ -27,6 +27,7 @@
          is_valid/2,
          absorb/2,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -221,11 +222,13 @@ print(#blockchain_txn_stake_validator_v1_pb{
     io_lib:format("type=stake_validator, owner=~p, validator=~p, stake=~p",
                   [?TO_B58(O), ?TO_ANIMAL_NAME(Val), S]).
 
+json_type() ->
+    <<"stake_validator_v1">>.
 
 -spec to_json(txn_stake_validator(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"stake_validator_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       address => ?BIN_TO_B58(validator(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),

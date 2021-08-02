@@ -37,6 +37,7 @@
          rescue_absorb/2,
          sign/2,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -640,10 +641,13 @@ print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
                    MasterKey, KeyProof,
                    MultiKeys, MultiKeyProofs, Cancels]).
 
+json_type() ->
+    <<"vars_v1">>.
+
 -spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"vars_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       vars => maps:map(fun(_, V) when is_binary(V) ->
                                case lists:all(fun(C) -> C >= 32 andalso  C =< 127 end, binary_to_list(V)) of

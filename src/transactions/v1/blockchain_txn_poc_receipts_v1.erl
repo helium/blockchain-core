@@ -33,6 +33,7 @@
     deltas/1, deltas/2,
     check_path_continuation/1,
     print/1,
+    json_type/0,
     to_json/2,
     poc_id/1,
     good_quality_witnesses/2,
@@ -1054,6 +1055,9 @@ print_path(Path) ->
                           end,
                           Path), "\n\t").
 
+json_type() ->
+    <<"poc_receipts_v1">>.
+
 -spec to_json(Txn :: txn_poc_receipts(),
               Opts :: blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, Opts) ->
@@ -1077,7 +1081,7 @@ to_json(Txn, Opts) ->
             [{Elem, []} || Elem <- path(Txn)]
     end,
     #{
-      type => <<"poc_receipts_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       secret => ?BIN_TO_B64(secret(Txn)),
       onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),

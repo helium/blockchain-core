@@ -25,6 +25,7 @@
     txns/1,
     is_valid/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -101,10 +102,13 @@ print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
                                            [blockchain_txn:print(T) || T <- Txns]
                                           ]).
 
+json_type() ->
+    <<"bundle_v1">>.
+
 -spec to_json(txn_bundle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, Opts) ->
     #{
-      type => <<"bundle_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       fee => fee(Txn),
       txns => [blockchain_txn:to_json(T, Opts) || T <- txns(Txn)]

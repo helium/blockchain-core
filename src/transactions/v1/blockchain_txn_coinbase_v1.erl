@@ -24,6 +24,7 @@
     absorb/2,
     sign/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -130,11 +131,13 @@ print(#blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount}) ->
     io_lib:format("txn_coinbase: payee: ~p, amount: ~p",
                   [?TO_B58(Payee), Amount]).
 
+json_type() ->
+    <<"coinbase_v1">>.
 
 -spec to_json(txn_coinbase(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"coinbase_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),
       amount=> amount(Txn)

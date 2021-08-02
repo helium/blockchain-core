@@ -28,6 +28,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -229,10 +230,13 @@ print(#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, address=Address,
     io_lib:format("type=redeem_htlc payee=~p, address=~p, preimage=~p, fee=~p, signature=~p",
                   [?TO_B58(Payee), Address, PreImage, Fee, Sig]).
 
+json_type() ->
+    <<"redeem_htlc_v1">>.
+
 -spec to_json(txn_redeem_htlc(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"redeem_htlc_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),
       address => ?BIN_TO_B58(address(Txn)),

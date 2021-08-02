@@ -40,6 +40,7 @@
     calculate_rewards/3,
     calculate_rewards_metadata/3,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -303,6 +304,9 @@ print(#blockchain_txn_rewards_v2_pb{start_epoch=Start,
     io_lib:format("type=rewards_v2 start_epoch=~p end_epoch=~p rewards=~p",
                   [Start, End, PrintableRewards]).
 
+json_type() ->
+    <<"rewards_v2">>.
+
 -spec to_json(txn_rewards_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, Opts) ->
     RewardToJson =
@@ -354,7 +358,7 @@ to_json(Txn, Opts) ->
     end,
 
     #{
-      type => <<"rewards_v2">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       start_epoch => start_epoch(Txn),
       end_epoch => end_epoch(Txn),

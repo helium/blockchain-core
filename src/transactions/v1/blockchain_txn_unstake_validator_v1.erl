@@ -28,6 +28,7 @@
          is_valid/2,
          absorb/2,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -211,11 +212,13 @@ print(#blockchain_txn_unstake_validator_v1_pb{
     io_lib:format("type=unstake_validator, owner=~p, validator=~p, stake_amount=~p, stake_release_height=~p",
                   [?TO_B58(O), ?TO_ANIMAL_NAME(Val), A, SRH]).
 
+json_type() ->
+    <<"unstake_validator_v1">>.
 
 -spec to_json(txn_unstake_validator(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"unstake_validator_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       address => ?BIN_TO_B58(address(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),

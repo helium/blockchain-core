@@ -32,6 +32,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -354,10 +355,13 @@ print(undefined) -> <<"type=state_channel_close, undefined">>;
 print(#blockchain_txn_state_channel_close_v1_pb{state_channel=SC, closer=Closer}) ->
     io_lib:format("type=state_channel_close, state_channel=~p, closer=~p", [SC, ?TO_B58(Closer)]).
 
+json_type() ->
+    <<"state_channel_close_v1">>.
+
 -spec to_json(txn_state_channel_close(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"state_channel_close_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       closer => ?BIN_TO_B58(closer(Txn)),
       state_channel => blockchain_state_channel_v1:to_json(state_channel(Txn), []),

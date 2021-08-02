@@ -39,6 +39,7 @@
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -522,10 +523,13 @@ print(#blockchain_txn_assert_location_v2_pb{
         staking_fee = StakingFee, fee = Fee}) ->
     io_lib:format("type=assert_location, gateway=~p, owner=~p, payer=~p, location=~p, owner_signature=~p, payer_signature=~p, nonce=~p, gain=~p, elevation=~p, staking_fee=~p, fee=~p", [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), ?TO_B58(Payer), Loc, OS, PS, Nonce, Gain, Elevation, StakingFee, Fee]).
 
+json_type() ->
+    <<"assert_location_v2">>.
+
 -spec to_json(txn_assert_location(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"assert_location_v2">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),

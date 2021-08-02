@@ -37,6 +37,7 @@
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -412,11 +413,13 @@ print(#blockchain_txn_add_gateway_v1_pb{
     io_lib:format("type=add_gateway, owner=~p, gateway=~p, payer=~p, staking_fee=~p, fee=~p",
                   [?TO_B58(O), ?TO_ANIMAL_NAME(GW), ?TO_B58(P), SF, F]).
 
+json_type() ->
+    <<"add_gateway_v1">>.
 
 -spec to_json(txn_add_gateway(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"add_gateway_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),

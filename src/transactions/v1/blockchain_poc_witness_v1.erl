@@ -24,6 +24,7 @@
     sign/2,
     is_valid/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -160,6 +161,8 @@ print(#blockchain_poc_witness_v1_pb{
                    TS,
                    Signal
                   ]).
+json_type() ->
+    undefined.
 
 -spec to_json(poc_witness(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Witness, Opts) ->

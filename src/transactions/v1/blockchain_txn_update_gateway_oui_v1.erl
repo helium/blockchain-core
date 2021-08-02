@@ -32,6 +32,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -240,10 +241,13 @@ print(undefined) -> <<"type=update_gateway_oui, undefined">>;
 print(#blockchain_txn_update_gateway_oui_v1_pb{gateway=GW, oui=OUI, nonce=Nonce, fee=Fee}) ->
     io_lib:format("type=update_gateway_oui, gateway=~p, oui=~p, nonce=~p, fee=~p", [?TO_ANIMAL_NAME(GW), OUI, Nonce, Fee]).
 
+json_type() ->
+    <<"update_gateway_oui_v1">>.
+
 -spec to_json(txn_update_gateway_oui(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"update_gateway_oui_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       oui => oui(Txn),

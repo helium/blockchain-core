@@ -28,6 +28,7 @@
     sign/2,
     is_valid/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -197,6 +198,9 @@ print(#blockchain_poc_receipt_v1_pb{
                    Signal,
                    Origin
                   ]).
+
+json_type() ->
+    undefined.
 
 -spec to_json(poc_receipt() | undefined, blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(undefined, _Opts) ->

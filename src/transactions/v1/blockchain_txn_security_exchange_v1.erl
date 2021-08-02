@@ -29,6 +29,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -67,11 +68,13 @@ print(#blockchain_txn_security_exchange_v1_pb{payer=Payer, payee=Recipient,
     io_lib:format("type=security_exchange payer=~p payee=~p amount=~p fee=~p nonce=~p signature=~p",
                   [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, Sig]).
 
+json_type() ->
+    <<"security_exchange_v1">>.
 
 -spec to_json(txn_security_exchange(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"security_exchange_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),
