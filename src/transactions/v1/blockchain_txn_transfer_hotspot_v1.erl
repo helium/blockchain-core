@@ -35,6 +35,7 @@
          is_valid_buyer/1,
          absorb/2,
          print/1,
+         json_type/0,
          to_json/2
 ]).
 
@@ -226,10 +227,13 @@ print(#blockchain_txn_transfer_hotspot_v1_pb{
     io_lib:format("type=transfer_hotspot, gateway=~p, seller=~p, buyer=~p, seller_signature=~p, buyer_signature=~p, buyer_nonce=~p, fee=~p (dc), amount_to_seller=~p",
                   [?TO_ANIMAL_NAME(GW), ?TO_B58(Seller), ?TO_B58(Buyer), SS, BS, Nonce, Fee, HNT]).
 
+json_type() ->
+    <<"transfer_hotspot_v1">>.
+
 -spec to_json(txn_transfer_hotspot(), blockchain_json:options()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"transfer_hotspot_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       seller => ?BIN_TO_B58(seller(Txn)),

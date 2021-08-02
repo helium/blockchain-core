@@ -15,6 +15,7 @@
     receipt/1,
     witnesses/1,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -81,6 +82,9 @@ print(#blockchain_poc_path_element_v1_pb{
                                          end,
                                          Witnesses), "\n\t\t")
                   ]).
+
+json_type() ->
+    undefiend.
 
 -spec to_json(poc_element(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Elem, Opts) ->

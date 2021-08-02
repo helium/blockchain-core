@@ -29,6 +29,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -216,11 +217,13 @@ print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,
     io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~s",
                   [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, ?TO_B58(S)]).
 
+json_type() ->
+    <<"payment_v1">>.
 
 -spec to_json(txn_payment(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"payment_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),

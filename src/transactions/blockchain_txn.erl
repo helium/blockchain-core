@@ -53,6 +53,7 @@
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -90,6 +91,7 @@
     is_valid/2,
     validate_fields/1,
     depends_on/2,
+    json_type/1,
     to_json/2
 ]).
 
@@ -158,6 +160,10 @@ serialize(Txn) ->
 -spec deserialize(binary()) -> txn().
 deserialize(Bin) ->
     unwrap_txn(blockchain_txn_pb:decode_msg(Bin, blockchain_txn_pb)).
+
+-spec json_type(txn()) -> binary() | atom().
+json_type(Txn) ->
+    (type(Txn)):json_type().
 
 -spec to_json(txn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, Opts) ->

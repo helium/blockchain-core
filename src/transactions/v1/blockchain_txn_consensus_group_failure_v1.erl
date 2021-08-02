@@ -30,6 +30,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -276,11 +277,14 @@ print(#blockchain_txn_consensus_group_failure_v1_pb{
         ]
     ).
 
+json_type() ->
+    <<"consensus_group_failure_v1">>.
+
 -spec to_json(txn_consensus_group_failure(), blockchain_json:opts()) ->
     blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-        type => <<"consensus_group_failure_v1">>,
+        type => ?MODULE:json_type(),
         hash => ?BIN_TO_B64(hash(Txn)),
         members => [?BIN_TO_B58(M) || M <- members(Txn)],
         failed_members => [?BIN_TO_B58(M) || M <- members(Txn)],

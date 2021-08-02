@@ -17,6 +17,7 @@
          memo/1, memo/2,
          is_valid_memo/1,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -78,6 +79,9 @@ print(undefined) ->
     <<"type=payment undefined">>;
 print(#payment_pb{payee=Payee, amount=Amount, memo=Memo}) ->
     io_lib:format("type=payment payee: ~p amount: ~p, memo: ~p", [?TO_B58(Payee), Amount, Memo]).
+
+json_type() ->
+    undefined.
 
 -spec to_json(payment(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Payment, _Opts) ->

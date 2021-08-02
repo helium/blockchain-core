@@ -22,6 +22,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -119,10 +120,13 @@ print(undefined) -> <<"type=genesis_price_oracle, undefined">>;
 print(#blockchain_txn_gen_price_oracle_v1_pb{price=P}) ->
     io_lib:format("type=genesis_price_oracle price=~p", [P]).
 
+json_type() ->
+    <<"gen_price_oracle_v1">>.
+
 -spec to_json(txn_genesis_price_oracle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"gen_price_oracle_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       price => price(Txn)
      }.

@@ -33,6 +33,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -334,10 +335,13 @@ action_to_json({request_subnet, SubnetSize}, _Opts) ->
     #{action => <<"request_subnet">>,
       subnet_size => SubnetSize}.
 
+json_type() ->
+    <<"routing_v1">>.
+
 -spec to_json(txn_routing(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"routing_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       oui => oui(Txn),
       owner => ?BIN_TO_B58(owner(Txn)),

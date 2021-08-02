@@ -34,6 +34,7 @@
          is_valid/2,
          absorb/2,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -182,10 +183,13 @@ print_payments(Payments) ->
                           end,
                           Payments), "\n\t").
 
+json_type() ->
+    <<"payment_v2">>.
+
 -spec to_json(txn_payment_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"payment_v2">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payments => [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)],

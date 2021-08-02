@@ -24,6 +24,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -106,11 +107,13 @@ print(#blockchain_txn_gen_validator_v1_pb{
     io_lib:format("type=genesis_validator Address=~p, owner=~p, stake=~p",
                   [?TO_ANIMAL_NAME(Address), ?TO_B58(Owner), Stake]).
 
+json_type() ->
+    <<"gen_validator_v1">>.
 
 -spec to_json(txn_genesis_validator(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"gen_validator_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       address => ?BIN_TO_B58(address(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),

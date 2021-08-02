@@ -32,6 +32,7 @@
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1,
     is_election_block/1,
+    json_type/0,
     to_json/2,
     verified_signees/1,
     remove_var_txns/1
@@ -356,6 +357,9 @@ is_election_block(Block) ->
         _ -> false
     end.
 
+json_type() ->
+    undefined.
+
 -spec to_json(block(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Block, _Opts) ->
     #{
@@ -363,7 +367,11 @@ to_json(Block, _Opts) ->
       time => time(Block),
       hash => ?BIN_TO_B64(hash_block(Block)),
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
-      transactions => [?BIN_TO_B64(blockchain_txn:hash(T)) || T <- transactions(Block)]
+      transactions => [
+        #{ 
+            hash => ?BIN_TO_B64(blockchain_txn:hash(T)), 
+            type => blockchain_txn:json_type(T)
+        } || T <- transactions(Block)]
      }.
 
 -spec verified_signees(Block :: block()) -> [libp2p_crypto:pubkey_bin()].

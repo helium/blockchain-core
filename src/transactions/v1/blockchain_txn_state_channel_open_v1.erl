@@ -31,6 +31,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -189,10 +190,13 @@ print(#blockchain_txn_state_channel_open_v1_pb{id=ID, owner=Owner, expire_within
     io_lib:format("type=state_channel_open, id=~p, owner=~p, expire_within=~p",
                   [ID, ?TO_B58(Owner), ExpireWithin]).
 
+json_type() ->
+    <<"state_channel_open_v1">>.
+
 -spec to_json(txn_state_channel_open(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"state_channel_open_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       id => ?BIN_TO_B64(id(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),
