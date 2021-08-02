@@ -206,10 +206,8 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 
 basic_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
@@ -366,11 +364,8 @@ restart_test(Config) ->
 
 
 htlc_payee_redeem_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     PubKey = ?config(pubkey, Config),
     PrivKey = ?config(privkey, Config),
     Chain = ?config(chain, Config),
@@ -443,11 +438,8 @@ htlc_payee_redeem_test(Config) ->
     ok.
 
 htlc_payer_redeem_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     PubKey = ?config(pubkey, Config),
     PrivKey = ?config(privkey, Config),
     Chain = ?config(chain, Config),
@@ -867,10 +859,7 @@ export_test(Config) ->
 
 
 delayed_ledger_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     Balance = ?config(balance, Config),
 
@@ -948,10 +937,7 @@ delayed_ledger_test(Config) ->
     ok.
 
 fees_since_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -989,11 +975,8 @@ fees_since_test(Config) ->
     meck:unload(blockchain_txn_payment_v1).
 
 security_token_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
@@ -1020,10 +1003,7 @@ security_token_test(Config) ->
     ok.
 
 routing_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
@@ -1214,10 +1194,7 @@ routing_test(Config) ->
     ok.
 
 max_subnet_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
@@ -1281,11 +1258,8 @@ max_subnet_test(Config) ->
     ok.
 
 block_save_failed_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
@@ -1321,10 +1295,8 @@ block_save_failed_test(Config) ->
     ok.
 
 absorb_failed_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
@@ -1375,10 +1347,8 @@ absorb_failed_test(Config) ->
     ok.
 
 missing_last_block_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
@@ -1431,10 +1401,7 @@ missing_last_block_test(Config) ->
     ok.
 
 epoch_reward_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     [_, {PubKeyBin, {_, _PrivKey, _}}|_] = ConsensusMembers,
@@ -1490,11 +1457,8 @@ epoch_reward_test(Config) ->
     meck:unload(blockchain_txn_consensus_group_v1).
 
 election_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     %% ConsensusMembers = ?config(consensus_members, Config),
     GenesisMembers = ?config(genesis_members, Config),
-    BaseDir = ?config(base_dir, Config),
     %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
     _Swarm = ?config(swarm, Config),
@@ -1553,11 +1517,8 @@ election_test(Config) ->
     ok.
 
 election_v3_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     GenesisMembers = ?config(genesis_members, Config),
-    BaseDir = ?config(base_dir, Config),
     %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
     N = 7,
@@ -1690,11 +1651,8 @@ election_v3_test(Config) ->
     ok.
 
 election_v4_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     GenesisMembers = ?config(genesis_members, Config),
-    BaseDir = ?config(base_dir, Config),
     %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
     N = 7,
@@ -1834,11 +1792,8 @@ light_gw_election_v4_test(Config) ->
     %% all the GWs are updated to be light mode
     %% this means they should be exlcuded from becoming part of the new group
     %% as the test updates all the GWs the new group ends up being same as the old group
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     GenesisMembers = ?config(genesis_members, Config),
-    BaseDir = ?config(base_dir, Config),
     %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
     N = 7,
@@ -1942,11 +1897,8 @@ dataonly_gw_election_v4_test(Config) ->
     %% all the GWs are updated to be dataonly mode
     %% this means they should be excluded from becoming part of the new group
     %% as the test updates all the GWs the new group ends up being same as the old group
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     GenesisMembers = ?config(genesis_members, Config),
-    BaseDir = ?config(base_dir, Config),
     %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
     N = 7,
@@ -2046,11 +1998,8 @@ dataonly_gw_election_v4_test(Config) ->
     ok.
 
 election_v5_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     %% GenesisMembers = ?config(genesis_members, Config),
-    BaseDir = ?config(base_dir, Config),
     %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
     N = 7,
@@ -2269,11 +2218,8 @@ chain_vars_set_unset_test(Config) ->
     ok.
 
 token_burn_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -2361,11 +2307,8 @@ token_burn_test(Config) ->
     ok.
 
 payer_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
-
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     Swarm = ?config(swarm, Config),
 
@@ -2607,9 +2550,7 @@ poc_sync_interval_test(Config) ->
     ok.
 
 zero_payment_v1_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
@@ -2626,9 +2567,7 @@ zero_payment_v1_test(Config) ->
     ok.
 
 negative_payment_v1_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
