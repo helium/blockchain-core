@@ -113,9 +113,7 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 
 multisig_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     Amount = 10,
@@ -155,10 +153,8 @@ multisig_test(Config) ->
     ).
 
 single_payee_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -194,10 +190,8 @@ single_payee_test(Config) ->
     ok.
 
 same_payees_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     _Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     _Swarm = ?config(swarm, Config),
 
@@ -219,10 +213,8 @@ same_payees_test(Config) ->
     ok.
 
 different_payees_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -265,9 +257,7 @@ different_payees_test(Config) ->
     ok.
 
 empty_payees_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -283,9 +273,7 @@ empty_payees_test(Config) ->
     ok.
 
 self_payment_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -307,9 +295,7 @@ self_payment_test(Config) ->
     ok.
 
 max_payments_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -334,10 +320,8 @@ max_payments_test(Config) ->
     ok.
 
 signature_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     _Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     _Swarm = ?config(swarm, Config),
 
@@ -361,9 +345,7 @@ signature_test(Config) ->
     ok.
 
 zero_amount_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -382,9 +364,7 @@ zero_amount_test(Config) ->
     ok.
 
 negative_amount_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -403,10 +383,8 @@ negative_amount_test(Config) ->
     ok.
 
 valid_memo_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -448,9 +426,7 @@ valid_memo_test(Config) ->
     ok.
 
 negative_memo_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -471,9 +447,7 @@ negative_memo_test(Config) ->
     ok.
 
 valid_memo_not_set_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
 
@@ -517,9 +491,7 @@ valid_memo_not_set_test(Config) ->
     ok.
 
 invalid_memo_not_set_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
@@ -540,9 +512,7 @@ invalid_memo_not_set_test(Config) ->
     ok.
 
 big_memo_valid_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
 
@@ -577,9 +547,7 @@ big_memo_valid_test(Config) ->
     ok.
 
 big_memo_invalid_test(Config) ->
-    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
