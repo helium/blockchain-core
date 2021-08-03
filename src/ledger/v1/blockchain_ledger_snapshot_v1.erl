@@ -434,7 +434,9 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
 load_into_ledger(Snapshot, L0, Mode) ->
     Get = fun (K) -> deserialize_field(K, maps:get(K, Snapshot)) end,
     L1 = blockchain_ledger_v1:mode(Mode, L0),
-    L = blockchain_ledger_v1:new_context(L1),
+    %% don't cache the writes to this context, do direct rocksdb writes
+    %% for performance and to save memory
+    L = blockchain_ledger_v1:new_direct_context(L1),
     ok = blockchain_ledger_v1:current_height(Get(current_height), L),
     ok = blockchain_ledger_v1:consensus_members(Get(consensus_members), L),
     ok = blockchain_ledger_v1:election_height(Get(election_height), L),
