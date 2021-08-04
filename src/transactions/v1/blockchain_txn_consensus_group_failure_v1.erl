@@ -287,7 +287,7 @@ to_json(Txn, _Opts) ->
         type => ?MODULE:json_type(),
         hash => ?BIN_TO_B64(hash(Txn)),
         members => [?BIN_TO_B58(M) || M <- members(Txn)],
-        failed_members => [?BIN_TO_B58(M) || M <- members(Txn)],
+        failed_members => [?BIN_TO_B58(M) || M <- failed_members(Txn)],
         signatures => [?BIN_TO_B64(S) || S <- signatures(Txn)],
         height => height(Txn),
         delay => delay(Txn)
