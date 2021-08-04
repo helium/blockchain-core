@@ -353,7 +353,7 @@ handle_info(_Msg, State) ->
                     ReceivedTime :: non_neg_integer(),
                     State :: state()) -> state().
 handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm=Swarm}=State0) ->
-    lager:info("handle_packet ~p to ~p", [Packet, RoutesOrAddresses]),
+    lager:info("handle_packet ~p to ~p", [lager:pr(Packet, blockchain_helium_packet_v1), print_routes(RoutesOrAddresses)]),
     lists:foldl(
         fun(RouteOrAddress, StateAcc) ->
                 StreamKey = case blockchain_ledger_routing_v1:is_routing(RouteOrAddress) of
@@ -1017,4 +1017,14 @@ debug_multiple_scs(SC, KnownSCs) ->
             ok
     end.
 
+
+print_routes(RoutesOrAddresses) ->
+    lists:map(fun(RouteOrAddress) ->
+                      case blockchain_ledger_routing_v1:is_routing(RouteOrAddress) of
+                          true ->
+                              "OUI " ++ integer_to_list(blockchain_ledger_routing_v1:oui(RouteOrAddress));
+                          false ->
+                              RouteOrAddress
+                      end
+              end, RoutesOrAddresses).
 
