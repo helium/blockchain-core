@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         submit/2,
+         submit/2, submit/3,
          set_chain/1,
          txn_list/0,
          txn_status/1,
@@ -79,7 +79,12 @@ start_link(Args) when is_map(Args) ->
 
 -spec submit(Txn :: blockchain_txn:txn(), Callback :: fun()) -> ok.
 submit(Txn, Callback) ->
-    gen_server:cast(?MODULE, {submit, Txn, Callback}).
+    gen_server:cast(?MODULE, {submit, Txn, get_txn_key(), Callback}).
+
+-spec submit(Txn :: blockchain_txn:txn(), Key :: integer(), Callback :: fun()) -> ok.
+submit(Txn, Key, Callback) ->
+    gen_server:cast(?MODULE, {submit, Txn, Key, Callback}).
+
 
 -spec set_chain(blockchain:blockchain()) -> ok.
 set_chain(Chain) ->
@@ -118,17 +123,31 @@ handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
     NewState = initialize_with_chain(State, Chain),
     {noreply, NewState};
 
-handle_cast({submit, Txn, Callback}, State=#state{chain = undefined}) ->
+handle_cast({submit, Txn, Key, Callback}, State=#state{chain = undefined}) when is_integer(Key) ->
     %% Got txn when there is no chain, keep it in the cache and process when its available
     %% as no chain we dont have any height data, so cache it with height = undefined
     %% we will update when the chain is set and we submit these cached txns
-    ok = cache_txn(get_txn_key(), Txn, #txn_data{callback = Callback}),
+    %% provided key will be utilised
+    %% in this flow we check upfront if the provided key is a dup and reject the txn if true
+    case cached_txn(Key) of
+        {ok,_} ->
+            ok = invoke_callback(Callback, {error, duplicate_key});
+        {error, txn_not_found} ->
+            ok = cache_txn(Key, Txn, #txn_data{callback = Callback})
+    end,
     {noreply, State};
 
-handle_cast({submit, Txn, Callback}, State=#state{cur_block_height = H}) ->
-    %% send the txn to consensus group
-    lager:debug("submitting txn to cg: ~s", [blockchain_txn:print(Txn)]),
-    ok = cache_txn(get_txn_key(), Txn, #txn_data{callback = Callback, recv_block_height = H}),
+handle_cast({submit, Txn, Key, Callback}, State=#state{cur_block_height = H}) when is_integer(Key) ->
+    %% add the txn to the cache
+    %% provided key will be utilised
+    lager:debug("adding txn to cache: ~s", [blockchain_txn:print(Txn)]),
+    %% in this flow we check upfront if the provided key is a dup and reject the txn if true
+    case cached_txn(Key) of
+        {ok,_} ->
+            ok = invoke_callback(Callback, {error, duplicate_key});
+        {error, txn_not_found} ->
+            ok = cache_txn(Key, Txn, #txn_data{callback = Callback, recv_block_height = H})
+    end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -301,7 +320,7 @@ maybe_update_block_height(CurBlockHeight, _BlockHeight, true = _Sync) ->
 maybe_update_block_height(_CurBlockHeight, BlockHeight, _Sync) ->
     BlockHeight.
 
--spec invoke_callback(fun(), ok | {error, {invalid, atom()}} | {error, {invalid, {any}}} | {error, rejected}) -> ok.
+-spec invoke_callback(fun(), ok | {error, {invalid, atom()}} | {error, {invalid, {any}}} | {error, rejected} | {error, duplicate_key}) -> ok.
 invoke_callback(Callback, Msg) ->
     spawn(fun() -> Callback(Msg) end),
     ok.

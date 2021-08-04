@@ -206,6 +206,7 @@ integrate_genesis_block(Block) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% submit_txn/1 is deprecated.  use blockchain_txn_mgr:submit_txn/2 instead
 %% @end
 %%--------------------------------------------------------------------
 -spec submit_txn(blockchain_txn:txn()) -> ok.
@@ -214,6 +215,7 @@ submit_txn(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% submit_txn/2 is deprecated.  use blockchain_txn_mgr:submit_txn/2 instead
 %% @end
 %%--------------------------------------------------------------------
 -spec submit_txn(blockchain_txn:txn(), fun()) -> ok.
