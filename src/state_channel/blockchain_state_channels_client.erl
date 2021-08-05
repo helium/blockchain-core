@@ -815,10 +815,15 @@ is_causally_correct_sc(SC, #state{pubkey_bin=PubkeyBin}=State) ->
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            Check = (conflict /= blockchain_state_channel_v1:quick_compare_causality(KnownSC, SC, PubkeyBin)),
-            lager:info("causality check: ~p, this sc_id: ~p, known_sc_id: ~p",
-                       [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
-            Check;
+            Check = blockchain_state_channel_v1:quick_compare_causality(KnownSC, SC, PubkeyBin),
+            case Check /= conflict of
+                true ->
+                    true;
+                false ->
+                    lager:notice("causality check: ~p, sc_id: ~p, same_sc_id: ~p, nonces: ~p ~p",
+                               [Check, SCID, SCID == blockchain_state_channel_v1:id(KnownSC), blockchain_state_channel_v1:nonce(SC), blockchain_state_channel_v1:nonce(KnownSC)]),
+                    false
+            end;
         {ok, KnownSCs} ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
             %% We have a conflict among incoming state channels
@@ -882,8 +887,14 @@ append_state_channel(SC, #state{db=DB, cf=CF}=State) ->
     SCID = blockchain_state_channel_v1:id(SC),
     case get_state_channels(SCID, State) of
         {ok, SCs} ->
-            ToInsert = erlang:term_to_binary([SC | SCs]),
-            rocksdb:put(DB, CF, SCID, ToInsert, []);
+            %% check we're not writing something we already have
+            case lists:member(SC, SCs) of
+                true ->
+                    ok;
+                false ->
+                    ToInsert = erlang:term_to_binary([SC | SCs]),
+                    rocksdb:put(DB, CF, SCID, ToInsert, [])
+            end;
         {error, not_found} ->
             ToInsert = erlang:term_to_binary([SC]),
             rocksdb:put(DB, CF, SCID, ToInsert, []);

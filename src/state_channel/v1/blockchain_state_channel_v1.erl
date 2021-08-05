@@ -453,10 +453,12 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
                     %% only the nonce changes and current is less than old nonce
                     effect_of;
                 {{ok, _}, {error, not_found}} ->
-                    %% older_sc has summary, current_sc does not, conflict
-                    conflict;
+                    %% older_sc has summary, current_sc does not but the nonce is lower
+                    %% so we didn't lose anything, the age of the SCs is just backwards
+                    effect_of;
                 {{error, not_found}, {ok, _}} ->
                     %% no summary in older_sc, summary in new_sc but new_sc has lower nonce
+                    %% this means we *lost* our payment
                     conflict;
                 {{ok, OlderSummary}, {ok, NewerSummary}} ->
                     OldNumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
