@@ -23,9 +23,11 @@ init_per_suite(Config) ->
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
     NewDir = PrivDir ++ "/ledger/",
+    AuxDir = NewDir ++ "/aux/",
     ok = filelib:ensure_dir(NewDir),
+    ok = filelib:ensure_dir(AuxDir),
 
-    application:set_env(blockchain, aux_ledger_dir, NewDir),
+    application:set_env(blockchain, aux_ledger_dir, AuxDir),
 
     os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-948961"),
 
