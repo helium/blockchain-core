@@ -39,6 +39,7 @@
     as923_1_region_param_test/1,
     as923_2_region_param_test/1,
     as923_3_region_param_test/1,
+    as923_4_region_param_test/1,
     ru864_region_param_test/1,
     cn470_region_param_test/1,
     in865_region_param_test/1,
@@ -48,7 +49,6 @@
     get_spreading_test/1,
 
     region_param_test/1
-
 ]).
 
 all() ->
@@ -83,6 +83,7 @@ without_h3_data_test_cases() ->
         as923_1_region_param_test,
         as923_2_region_param_test,
         as923_3_region_param_test,
+        as923_4_region_param_test,
         ru864_region_param_test,
         cn470_region_param_test,
         in865_region_param_test,
@@ -360,6 +361,21 @@ as923_3_region_param_test(Config) ->
             ct:fail("boom")
     end.
 
+as923_4_region_param_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    case blockchain:config(?region_params_as923_4, Ledger) of
+        {ok, Bin} ->
+            ct:pal("Bin: ~p", [Bin]),
+            KnownParams = blockchain_region_suite_helper:fetch(as923_4),
+            ct:pal("KnownParams: ~p", [KnownParams]),
+            Ser = blockchain_region_suite_helper:serialized_as923_4(),
+            ct:pal("Ser: ~p", [Ser]),
+            true = do_param_checks(Bin, Ser, KnownParams),
+            ok;
+        _ ->
+            ct:fail("boom")
+    end.
+
 ru864_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(?region_params_ru864, Ledger) of
@@ -493,6 +509,7 @@ region_param_vars() ->
         region_params_as923_1 => region_params_as923_1(),
         region_params_as923_2 => region_params_as923_2(),
         region_params_as923_3 => region_params_as923_3(),
+        region_params_as923_4 => region_params_as923_4(),
         region_params_ru864 => region_params_ru864(),
         region_params_cn470 => region_params_cn470(),
         region_params_in865 => region_params_in865(),
@@ -505,6 +522,7 @@ region_urls() ->
         {region_as923_1, ?region_as923_1_url},
         {region_as923_2, ?region_as923_2_url},
         {region_as923_3, ?region_as923_3_url},
+        {region_as923_4, ?region_as923_4_url},
         {region_au915, ?region_au915_url},
         {region_cn470, ?region_cn470_url},
         {region_eu433, ?region_eu433_url},
@@ -621,6 +639,13 @@ region_params_as923_3() ->
     <<10, 53, 8, 128, 132, 149, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38, 10, 4, 8, 6, 16, 25,
         10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5, 8, 2, 16, 139, 1, 10,
         5, 8, 1, 16, 128, 2, 10, 53, 8, 192, 233, 136, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38,
+        10, 4, 8, 6, 16, 25, 10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5,
+        8, 2, 16, 139, 1, 10, 5, 8, 1, 16, 128, 2>>.
+
+region_params_as923_4() ->
+    <<10, 53, 8, 224, 224, 191, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38, 10, 4, 8, 6, 16, 25,
+        10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5, 8, 2, 16, 139, 1, 10,
+        5, 8, 1, 16, 128, 2, 10, 53, 8, 160, 198, 179, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38,
         10, 4, 8, 6, 16, 25, 10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5,
         8, 2, 16, 139, 1, 10, 5, 8, 1, 16, 128, 2>>.
 

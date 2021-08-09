@@ -17,6 +17,10 @@
     "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/AS923-3.res7.h3idx?raw=true"
 ).
 
+-define(region_as923_4_url,
+    "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/AS923-4.res7.h3idx?raw=true"
+).
+
 -define(region_au915_url,
     "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/AU915.res7.h3idx?raw=true"
 ).
@@ -52,5 +56,5 @@
 ).
 
 -define(regulatory_region_bin_str,
-    <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 ).
