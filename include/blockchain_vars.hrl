@@ -498,7 +498,7 @@
 %% regulatory_region related variables
 
 %% This is a comma separated string like so:
-%% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+%% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 -define(regulatory_regions, regulatory_regions).
 
 %% Each of the following is a serialized form of an h3_region set determined at h3_res: 7
@@ -506,6 +506,7 @@
 -define(region_as923_1, region_as923_1).
 -define(region_as923_2, region_as923_2).
 -define(region_as923_3, region_as923_3).
+-define(region_as923_4, region_as923_4).
 -define(region_au915, region_au915).
 -define(region_cn470, region_cn470).
 -define(region_eu433, region_eu433).
@@ -531,6 +532,7 @@
 -define(region_params_as923_1, region_params_as923_1).
 -define(region_params_as923_2, region_params_as923_2).
 -define(region_params_as923_3, region_params_as923_3).
+-define(region_params_as923_4, region_params_as923_4).
 -define(region_params_au915, region_params_au915).
 -define(region_params_ru864, region_params_ru864).
 -define(region_params_cn470, region_params_cn470).

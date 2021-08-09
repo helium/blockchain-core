@@ -13,6 +13,7 @@
     'region_as923_1'
     | 'region_as923_2'
     | 'region_as923_3'
+    | 'region_as923_4'
     | 'region_au915'
     | 'region_cn470'
     | 'region_eu433'

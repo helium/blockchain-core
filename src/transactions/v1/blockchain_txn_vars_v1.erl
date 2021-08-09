@@ -1302,19 +1302,15 @@ validate_var(?net_emissions_max_rate, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
-    %% First check is a relatively conservative byte_size check on the value
-    C1 = byte_size(Value) =< 148,
-    %% Second check is that we're able to get the regions and it's not some random data
-    %% And it's atleast >= 11 (the number of regions we know about)
-    C2 = length(string:tokens(binary:bin_to_list(Value), ",")) >= 11,
+    %% We only check that the binary string is comma separated
+    CommaPlusLengthCheck = length(string:tokens(binary:bin_to_list(Value), ",")) >= 3,
 
-    case {C1, C2} of
-        {true, true} -> ok;
-        {false, _} -> throw({error, {invalid_byte_size, Value}});
-        {_, false} -> throw({error, {invalid_region_list, Value}})
+    case CommaPlusLengthCheck of
+        true -> ok;
+        false -> throw({error, {invalid_regulatory_regions, Value}})
     end;
 validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
@@ -1325,6 +1321,8 @@ validate_var(?region_as923_2, Value) ->
     validate_region_var(?region_as923_2, Value);
 validate_var(?region_as923_3, Value) ->
     validate_region_var(?region_as923_3, Value);
+validate_var(?region_as923_4, Value) ->
+    validate_region_var(?region_as923_4, Value);
 validate_var(?region_au915, Value) ->
     validate_region_var(?region_au915, Value);
 validate_var(?region_cn470, Value) ->
@@ -1355,6 +1353,8 @@ validate_var(?region_params_as923_2, Value) ->
     validate_region_params(?region_params_as923_2, Value);
 validate_var(?region_params_as923_3, Value) ->
     validate_region_params(?region_params_as923_3, Value);
+validate_var(?region_params_as923_4, Value) ->
+    validate_region_params(?region_params_as923_4, Value);
 validate_var(?region_params_ru864, Value) ->
     validate_region_params(?region_params_ru864, Value);
 validate_var(?region_params_cn470, Value) ->
@@ -1371,6 +1371,7 @@ validate_var(Var, Value) ->
     invalid_var(Var, Value).
 
 validate_region_var(Var, Value) when is_binary(Value) ->
+    %% The value is a list of u64 h3 hex ids, so it will always be a multiple of 8 bytes long
     case size(Value) rem 8 of
         %% This is always supposed to be true
         0 ->

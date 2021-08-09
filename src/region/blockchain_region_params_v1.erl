@@ -5,9 +5,6 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_region_params_v1).
 
-%% TODO
-%% -behavior(blockchain_json).
-
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_region_param_v1_pb.hrl").
 
@@ -29,6 +26,7 @@
     | 'region_params_as923_1'
     | 'region_params_as923_2'
     | 'region_params_as923_3'
+    | 'region_params_as923_4'
     | 'region_params_au915'
     | 'region_params_ru864'
     | 'region_params_cn470'
@@ -65,6 +63,7 @@ for_region(RegionVar, Ledger) ->
 region_param(?region_as923_1) -> ?region_params_as923_1;
 region_param(?region_as923_2) -> ?region_params_as923_2;
 region_param(?region_as923_3) -> ?region_params_as923_3;
+region_param(?region_as923_4) -> ?region_params_as923_4;
 region_param(?region_au915) -> ?region_params_au915;
 region_param(?region_cn470) -> ?region_params_cn470;
 region_param(?region_eu433) -> ?region_params_eu433;
@@ -74,10 +73,15 @@ region_param(?region_kr920) -> ?region_params_kr920;
 region_param(?region_ru864) -> ?region_params_ru864;
 region_param(?region_us915) -> ?region_params_us915;
 
-%% NOTE: This _may_ be required for working with existing miner_lora and miner_onion_server
+%% NOTE: Adding these for maintaining compatibility with old style
+%% regions (miner's CSV file). Further miner_lora and/or miner_onion_server
+%% may invoke this path on their bootup. It's not ideal but its probably
+%% required for the transition period. Maybe we can remove it once a majority
+%% of the fleet has transitioned after activation of region variables on chain.
 region_param('AS923_1') -> ?region_params_as923_1;
 region_param('AS923_2') -> ?region_params_as923_2;
 region_param('AS923_3') -> ?region_params_as923_3;
+region_param('AS923_4') -> ?region_params_as923_4;
 region_param('AU915') -> ?region_params_au915;
 region_param('CN470') -> ?region_params_cn470;
 region_param('EU433') -> ?region_params_eu433;

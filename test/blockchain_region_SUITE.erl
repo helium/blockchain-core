@@ -27,6 +27,11 @@
 -export([
     all_regions_test/1,
     as923_1_test/1,
+    as923_2_test/1,
+    as923_3_test/1,
+    eu433_test/1,
+    in865_test/1,
+    kr920_test/1,
     au915_test/1,
     cn470_test/1,
     us915_test/1,
@@ -39,6 +44,7 @@
     as923_1_region_param_test/1,
     as923_2_region_param_test/1,
     as923_3_region_param_test/1,
+    as923_4_region_param_test/1,
     ru864_region_param_test/1,
     cn470_region_param_test/1,
     in865_region_param_test/1,
@@ -48,7 +54,6 @@
     get_spreading_test/1,
 
     region_param_test/1
-
 ]).
 
 all() ->
@@ -66,6 +71,11 @@ with_all_data_test_cases() ->
 with_h3_data_test_cases() ->
     [
         as923_1_test,
+        as923_2_test,
+        as923_3_test,
+        eu433_test,
+        in865_test,
+        kr920_test,
         au915_test,
         cn470_test,
         us915_test,
@@ -83,6 +93,7 @@ without_h3_data_test_cases() ->
         as923_1_region_param_test,
         as923_2_region_param_test,
         as923_3_region_param_test,
+        as923_4_region_param_test,
         ru864_region_param_test,
         cn470_region_param_test,
         in865_region_param_test,
@@ -182,27 +193,21 @@ as923_1_test(Config) ->
     false = blockchain_region_v1:h3_in_region(JH3, ?region_us915, Ledger),
     ok.
 
-%% as923_2_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     USH3 = 631183727389488639,
-%%     case blockchain:config(?region_us915, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(USH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+as923_2_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Jakarta, Indonesia
+    H3 = h3:from_geo({-6.156685643264456, 106.82607441505229}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_as923_2, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
-%% as923_3_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     USH3 = 631183727389488639,
-%%     case blockchain:config(?region_us915, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(USH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+as923_3_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Algiers, Algeria
+    H3 = h3:from_geo({36.756570085761346, 3.070925580166768}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_as923_3, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
 au915_test(Config) ->
     Ledger = ?config(ledger, Config),
@@ -223,16 +228,13 @@ cn470_test(Config) ->
     false = blockchain_region_v1:h3_in_region(CNH3, ?region_us915, Ledger),
     ok.
 
-%% eu433_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn470, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+eu433_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Mauritius
+    H3 = h3:from_geo({-20.162601509728262, 57.51011889322782}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_eu433, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
 eu868_test(Config) ->
     Ledger = ?config(ledger, Config),
@@ -241,27 +243,21 @@ eu868_test(Config) ->
     false = blockchain_region_v1:h3_in_region(EUH3, ?region_us915, Ledger),
     ok.
 
-%% in865_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn470, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+in865_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Delhi, India
+    H3 = h3:from_geo({28.67064632330703, 77.2396558322749}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_in865, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
-%% kr920_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn470, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+kr920_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Seoul, South Korea
+    H3 = h3:from_geo({37.46141372651769, 126.44084794180611}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_kr920, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
 ru864_test(Config) ->
     Ledger = ?config(ledger, Config),
@@ -354,6 +350,21 @@ as923_3_region_param_test(Config) ->
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(as923_3),
             Ser = blockchain_region_suite_helper:serialized_as923_3(),
+            true = do_param_checks(Bin, Ser, KnownParams),
+            ok;
+        _ ->
+            ct:fail("boom")
+    end.
+
+as923_4_region_param_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    case blockchain:config(?region_params_as923_4, Ledger) of
+        {ok, Bin} ->
+            ct:pal("Bin: ~p", [Bin]),
+            KnownParams = blockchain_region_suite_helper:fetch(as923_4),
+            ct:pal("KnownParams: ~p", [KnownParams]),
+            Ser = blockchain_region_suite_helper:serialized_as923_4(),
+            ct:pal("Ser: ~p", [Ser]),
             true = do_param_checks(Bin, Ser, KnownParams),
             ok;
         _ ->
@@ -493,6 +504,7 @@ region_param_vars() ->
         region_params_as923_1 => region_params_as923_1(),
         region_params_as923_2 => region_params_as923_2(),
         region_params_as923_3 => region_params_as923_3(),
+        region_params_as923_4 => region_params_as923_4(),
         region_params_ru864 => region_params_ru864(),
         region_params_cn470 => region_params_cn470(),
         region_params_in865 => region_params_in865(),
@@ -505,6 +517,7 @@ region_urls() ->
         {region_as923_1, ?region_as923_1_url},
         {region_as923_2, ?region_as923_2_url},
         {region_as923_3, ?region_as923_3_url},
+        {region_as923_4, ?region_as923_4_url},
         {region_au915, ?region_au915_url},
         {region_cn470, ?region_cn470_url},
         {region_eu433, ?region_eu433_url},
@@ -621,6 +634,13 @@ region_params_as923_3() ->
     <<10, 53, 8, 128, 132, 149, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38, 10, 4, 8, 6, 16, 25,
         10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5, 8, 2, 16, 139, 1, 10,
         5, 8, 1, 16, 128, 2, 10, 53, 8, 192, 233, 136, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38,
+        10, 4, 8, 6, 16, 25, 10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5,
+        8, 2, 16, 139, 1, 10, 5, 8, 1, 16, 128, 2>>.
+
+region_params_as923_4() ->
+    <<10, 53, 8, 224, 224, 191, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38, 10, 4, 8, 6, 16, 25,
+        10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5, 8, 2, 16, 139, 1, 10,
+        5, 8, 1, 16, 128, 2, 10, 53, 8, 160, 198, 179, 181, 3, 16, 200, 208, 7, 24, 160, 1, 34, 38,
         10, 4, 8, 6, 16, 25, 10, 4, 8, 5, 16, 25, 10, 4, 8, 4, 16, 25, 10, 4, 8, 3, 16, 67, 10, 5,
         8, 2, 16, 139, 1, 10, 5, 8, 1, 16, 128, 2>>.
 
