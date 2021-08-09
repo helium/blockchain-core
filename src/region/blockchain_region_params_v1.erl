@@ -29,6 +29,7 @@
     | 'region_params_as923_1'
     | 'region_params_as923_2'
     | 'region_params_as923_3'
+    | 'region_params_as923_4'
     | 'region_params_au915'
     | 'region_params_ru864'
     | 'region_params_cn470'
@@ -65,6 +66,7 @@ for_region(RegionVar, Ledger) ->
 region_param(?region_as923_1) -> ?region_params_as923_1;
 region_param(?region_as923_2) -> ?region_params_as923_2;
 region_param(?region_as923_3) -> ?region_params_as923_3;
+region_param(?region_as923_4) -> ?region_params_as923_4;
 region_param(?region_au915) -> ?region_params_au915;
 region_param(?region_cn470) -> ?region_params_cn470;
 region_param(?region_eu433) -> ?region_params_eu433;
@@ -78,6 +80,7 @@ region_param(?region_us915) -> ?region_params_us915;
 region_param('AS923_1') -> ?region_params_as923_1;
 region_param('AS923_2') -> ?region_params_as923_2;
 region_param('AS923_3') -> ?region_params_as923_3;
+region_param('AS923_4') -> ?region_params_as923_4;
 region_param('AU915') -> ?region_params_au915;
 region_param('CN470') -> ?region_params_cn470;
 region_param('EU433') -> ?region_params_eu433;
