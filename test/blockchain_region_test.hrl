@@ -2,6 +2,7 @@
     "region_as923_1",
     "region_as923_2",
     "region_as923_3",
+    "region_as923_4",
     "region_au915",
     "region_cn470",
     "region_eu433",
@@ -331,6 +332,24 @@
     ],
     [
         {<<"channel_frequency">>, 916800000},
+        {<<"bandwidth">>, 125000},
+        {<<"max_eirp">>, 160},
+        {<<"spreading">>,
+         [{25, 'SF12'}, {25, 'SF11'}, {25, 'SF10'}, {67, 'SF9'}, {139, 'SF8'}, {256, 'SF7'}]}
+    ]
+    %% This is incomplete...
+]).
+
+-define(REGION_PARAMS_AS923_4, [
+    [
+        {<<"channel_frequency">>, 917300000},
+        {<<"bandwidth">>, 125000},
+        {<<"max_eirp">>, 160},
+        {<<"spreading">>,
+         [{25, 'SF12'}, {25, 'SF11'}, {25, 'SF10'}, {67, 'SF9'}, {139, 'SF8'}, {256, 'SF7'}]}
+    ],
+    [
+        {<<"channel_frequency">>, 917500000},
         {<<"bandwidth">>, 125000},
         {<<"max_eirp">>, 160},
         {<<"spreading">>,

@@ -1293,7 +1293,7 @@ validate_var(?penalty_history_limit, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"region_as923_1,region_as923_2,region_as923_3,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
     %% First check is a relatively conservative byte_size check on the value
@@ -1316,6 +1316,8 @@ validate_var(?region_as923_2, Value) ->
     validate_region_var(?region_as923_2, Value);
 validate_var(?region_as923_3, Value) ->
     validate_region_var(?region_as923_3, Value);
+validate_var(?region_as923_4, Value) ->
+    validate_region_var(?region_as923_4, Value);
 validate_var(?region_au915, Value) ->
     validate_region_var(?region_au915, Value);
 validate_var(?region_cn470, Value) ->
@@ -1346,6 +1348,8 @@ validate_var(?region_params_as923_2, Value) ->
     validate_region_params(?region_params_as923_2, Value);
 validate_var(?region_params_as923_3, Value) ->
     validate_region_params(?region_params_as923_3, Value);
+validate_var(?region_params_as923_4, Value) ->
+    validate_region_params(?region_params_as923_4, Value);
 validate_var(?region_params_ru864, Value) ->
     validate_region_params(?region_params_ru864, Value);
 validate_var(?region_params_cn470, Value) ->
