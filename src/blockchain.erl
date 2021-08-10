@@ -63,6 +63,9 @@
     add_implicit_burn/3,
     get_implicit_burn/2,
 
+    add_htlc_receipt/3,
+    get_htlc_receipt/2,
+
     mark_upgrades/2, unmark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
     snapshot_height/1,
 
@@ -95,6 +98,7 @@
     plausible_blocks :: rocksdb:cf_handle(),
     snapshots :: rocksdb:cf_handle(),
     implicit_burns :: rocksdb:cf_handle(),
+    htlc_receipts :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 
@@ -1360,13 +1364,14 @@ close(#blockchain{db=DB, ledger=Ledger}) ->
     catch blockchain_ledger_v1:close(Ledger),
     catch rocksdb:close(DB).
 
-compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF, implicit_burns=ImplicitBurnsCF}) ->
+compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF, implicit_burns=ImplicitBurnsCF, htlc_receipts=HTLCReceiptsCF}) ->
     rocksdb:compact_range(DB, undefined, undefined, []),
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
     rocksdb:compact_range(DB, BlocksCF, undefined, undefined, []),
     rocksdb:compact_range(DB, HeightsCF, undefined, undefined, []),
     rocksdb:compact_range(DB, TempBlocksCF, undefined, undefined, []),
     rocksdb:compact_range(DB, ImplicitBurnsCF, undefined, undefined, []),
+    rocksdb:compact_range(DB, HTLCReceiptsCF, undefined, undefined, []),
     ok.
 
 reset_ledger(Chain) ->
@@ -1909,6 +1914,27 @@ add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=Impli
             {error, Why}
     end.
 
+-spec get_htlc_receipt(blockchain_htlc_receipt:address(), blockchain()) -> {ok, blockchain_htlc_receipt:htlc_receipt()} | {error, any()}.
+get_htlc_receipt(Address, #blockchain{db=DB, htlc_receipts=HTLCReceiptsCF}) when is_binary(Address) ->
+    case rocksdb:get(DB, HTLCReceiptsCF, Address, []) of
+        {ok, Bin} ->
+            {ok, blockchain_htlc_receipt:deserialize(Bin)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec add_htlc_receipt(blockchain_htlc_receipt:address(), blockchain_htlc_receipt:htlc_receipt(), blockchain()) -> ok | {error, any()}.
+add_htlc_receipt(Address, HTLCReceipt, #blockchain{db=DB, htlc_receipts=HTLCReceiptsCF}) ->
+    try
+        BinImp = blockchain_htlc_receipt:serialize(HTLCReceipt),
+        ok = rocksdb:put(DB, HTLCReceiptsCF, Address, BinImp, [{sync, true}])
+    catch What:Why:Stack ->
+            lager:warning("error adding htlc_receipt: ~p:~p, ~p", [What, Why, Stack]),
+            {error, Why}
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -1938,8 +1964,8 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF,
-                  SnapshotCF, ImplicitBurnsCF, InfoCF]} ->
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, 
+                  SnapshotCF, ImplicitBurnsCF, InfoCF, HTLCReceiptsCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
                 case Mode of
@@ -1972,6 +1998,7 @@ load(Dir, Mode) ->
                 temp_blocks=TempBlocksCF,
                 plausible_blocks=PlausibleBlocksCF,
                 implicit_burns=ImplicitBurnsCF,
+                htlc_receipts=HTLCReceiptsCF,
                 snapshots=SnapshotCF,
                 ledger=Ledger
             },
