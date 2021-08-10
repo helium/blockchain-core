@@ -35,8 +35,8 @@
 -export_type([htlc_receipt/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer(), non_neg_integer()) -> htlc_receipt().
-new(Payee, Payer, Address, Balance, Hashlock, Timelock, RedeemedAt) ->
-    #htlc_receipt{payee=Payee, payer=Payer, address=Address, balance=Balance, hashlock=Hashlock, timelock=Timelock, redeemed_at=RedeemedAt }.
+new(Payer, Payee, Address, Balance, Hashlock, Timelock, RedeemedAt) ->
+    #htlc_receipt{payer=Payer, payee=Payee, address=Address, balance=Balance, hashlock=Hashlock, timelock=Timelock, redeemed_at=RedeemedAt }.
 
 -spec payer(htlc_receipt()) -> libp2p_crypto:pubkey_bin().
 payer(#htlc_receipt{payer=Payer}) ->
