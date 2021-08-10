@@ -33,7 +33,7 @@ start_link() ->
           Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_ledger_gateway_v2:gateway()} | {error, _}.
 get(Addr, Ledger) ->
-    get(Addr, Ledger, true).
+    get(Addr, Ledger, false).
 
 %% make sure that during absorb you're always skipping the cache, just
 %% in case.

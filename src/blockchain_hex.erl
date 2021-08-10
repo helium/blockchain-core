@@ -161,12 +161,8 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
     %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
     %% however, we specify the lower bound instead of going all the way down to 0
 
-    {R, OuterMostParent} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
-                               {ok, Limit} -> {Limit, h3:parent(Location, Limit)};
-                               {error, not_found} ->
-                                   {h3:get_resolution(Location),
-                                    h3:parent(Location, TargetRes)}
-                           end,
+    {R, OuterMostParent} = {h3:get_resolution(Location),
+                            h3:parent(Location, TargetRes)},
 
     %% Calculate densities at the outermost hex
     {UnclippedDensities, ClippedDensities} = densities(OuterMostParent, VarMap, Ledger),
@@ -189,7 +185,7 @@ densities(H3Index, VarMap, Ledger) ->
     case lookup(H3Index, ?DENSITY_MEMO_TBL) of
         {ok, Densities} -> Densities;
         not_found -> memoize(?DENSITY_MEMO_TBL, H3Index,
-                            calculate_densities(H3Index, VarMap, Ledger))
+                             calculate_densities(H3Index, VarMap, Ledger))
     end.
 
 -spec calculate_densities(
@@ -230,12 +226,16 @@ densities(H3Root, VarMap, Locations, Ledger) ->
             {#{}, #{}};
         _ ->
             {Upper, Lower} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
-                                {ok, Limit} -> {Limit, Limit-1};
-                                {error, not_found} ->
+                                 {ok, Limit} ->
+                                     {lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
+                                      Limit};
+                                 {error, not_found} ->
                                      {lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
                                       h3:get_resolution(H3Root)}
-                            end,
+                             end,
             [Head | Tail] = lists:seq(Upper, Lower, -1),
+
+            ct:pal("upper ~p lower ~p h ~p t ~p", [Upper, Lower, Head, Tail]),
 
             %% find parent hexes to all hotspots at highest resolution in chain variables
             {ParentHexes, InitialDensities} =
