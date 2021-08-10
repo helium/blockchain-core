@@ -1480,9 +1480,11 @@ check_recent_blocks(Blockchain) ->
             {error, {missing_block, DelayedLedgerHeight}}
     end.
 
+%% TODO spec
 crosscheck(Blockchain) ->
     crosscheck(Blockchain, true).
 
+%% TODO spec
 crosscheck(Blockchain, Recalc) ->
     {ok, Height} = height(Blockchain),
     Ledger = ledger(Blockchain),
@@ -1569,6 +1571,7 @@ compare(LedgerA, LedgerB) ->
             ok
     end.
 
+%% TODO spec
 analyze(Blockchain) ->
   case crosscheck(Blockchain) of
       {error, {fingerprint_mismatch, Mismatches}} ->

@@ -1410,6 +1410,7 @@ multi_keys(NewKeys, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MULTI_KEYS, blockchain_utils:keys_list_to_bin(NewKeys)).
 
+%% TODO spec
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
     maps:map(
@@ -1433,6 +1434,7 @@ set_aux_vars(AuxVars, #ledger_v1{mode=aux}=AuxLedger) ->
 set_aux_vars(_ExtraVars, _Ledger) ->
     error(cannot_set_vars_not_aux_ledger).
 
+%% TODO spec
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
