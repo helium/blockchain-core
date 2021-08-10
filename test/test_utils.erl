@@ -43,7 +43,6 @@ init(BaseDir, {PrivKey, PubKey}) ->
 init_chain(Balance, Keys) ->
     init_chain(Balance, Keys, true, #{}).
 
-
 init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
     GenesisMembers = init_genesis_members(Keys, InConsensus),
     init_chain(Balance, GenesisMembers, ExtraVars).
@@ -102,7 +101,7 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
         GenSecPaymentTxs ++
         InitialConsensusTxn ++
         [GenConsensusGroupTx],
-    lager:info("initial transactions: ~p", [Txs]),
+    ct:pal("initial transactions: ~p", [Txs]),
 
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
@@ -183,6 +182,7 @@ generate_keys(N, Type) ->
         ,lists:seq(1, N)
     ).
 
+%% TODO Do we still need this? Why? What uses it? There should be no need in core.
 wait_until(Fun) ->
     wait_until(Fun, 100, 100).
 
@@ -197,6 +197,8 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
             timer:sleep(Delay),
             wait_until(Fun, Retry-1, Delay)
     end.
+
+%% TODO Consistent nomenclature instead of "create_block" and "make_block"
 
 create_block(ConsensusMembers, Txs) ->
     %% Run validations by default
@@ -217,36 +219,40 @@ create_block(ConsensusMembers, Txs, Override, RunValidation) ->
             case blockchain_txn:validate(STxs, Blockchain) of
                 {_, []} ->
                     {ok, make_block(Blockchain, ConsensusMembers, STxs, Override)};
-                {_, Invalid} ->
+                {_, [_|_]=Invalid} ->
+                    ct:pal("Invalid transactions: ~p", [Invalid]),
                     {error, {invalid_txns, Invalid}}
             end
     end.
 
-make_block(Blockchain, ConsensusMembers, STxs, Override) ->
+make_block(Blockchain, ConsensusMembers, STxs, BlockParamsOverride) ->
     {ok, HeadBlock} = blockchain:head_block(Blockchain),
     {ok, PrevHash} = blockchain:head_hash(Blockchain),
     Height = blockchain_block:height(HeadBlock) + 1,
     Time = blockchain_block:time(HeadBlock) + 1,
     lager:info("creating block ~p", [STxs]),
-    Default = #{prev_hash => PrevHash,
-                height => Height,
-                transactions => STxs,
-                signatures => [],
-                time => Time,
-                hbbft_round => 0,
-                election_epoch => 1,
-                epoch_start => 0,
-                seen_votes => [],
-                bba_completion => <<>>
-               },
-    Block0 = blockchain_block_v1:new(maps:merge(Default, Override)),
+    BlockParamsDefault =
+        #{
+            prev_hash => PrevHash,
+            height => Height,
+            transactions => STxs,
+            signatures => [],
+            time => Time,
+            hbbft_round => 0,
+            election_epoch => 1,
+            epoch_start => 0,
+            seen_votes => [],
+            bba_completion => <<>>
+        },
+    BlockParams = maps:merge(BlockParamsDefault, BlockParamsOverride),
+    Block0 = blockchain_block_v1:new(BlockParams),
     BinBlock = blockchain_block:serialize(Block0),
-    Signatures = signatures(ConsensusMembers, BinBlock),
+    Signatures = sign(ConsensusMembers, BinBlock),
     Block1 = blockchain_block:set_signatures(Block0, Signatures),
     lager:info("block ~p", [Block1]),
     Block1.
 
-signatures(ConsensusMembers, BinBlock) ->
+sign(ConsensusMembers, BinBlock) ->
     lists:foldl(
       fun({A, {_, _, F}}, Acc) ->
               Sig = F(BinBlock),
@@ -264,9 +270,11 @@ signatures(ConsensusMembers, BinBlock) ->
 %% generate a tmp directory to be used as a scratch by eunit tests
 %% @end
 %%-------------------------------------------------------------------
+%% TODO Why do we need this on top of the test dirs already given to us by CT?
 tmp_dir() ->
     os:cmd("mkdir -p " ++ ?BASE_TMP_DIR),
     create_tmp_dir(?BASE_TMP_DIR_TEMPLATE).
+
 tmp_dir(SubDir) ->
     Path = filename:join(?BASE_TMP_DIR, SubDir),
     os:cmd("mkdir -p " ++ Path),
