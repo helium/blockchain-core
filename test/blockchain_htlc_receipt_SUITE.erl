@@ -153,7 +153,7 @@ enable_htlc_receipt_test(Config) ->
     ?assertEqual(Amount, blockchain_htlc_receipt:balance(HTLCReceipt)),
     ?assertEqual(Hashlock, blockchain_htlc_receipt:hashlock(HTLCReceipt)),
     ?assertEqual(3, blockchain_htlc_receipt:timelock(HTLCReceipt)),
-    ?assertEqual(1, blockchain_htlc_receipt:redeemed_at(HTLCReceipt)),
+    ?assertEqual(2, blockchain_htlc_receipt:redeemed_at(HTLCReceipt)),
 
     ct:pal("HTLC Receipt: ~p", [HTLCReceipt]),
 
