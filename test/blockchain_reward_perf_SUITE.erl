@@ -94,7 +94,7 @@ init_per_testcase(_TestCase, Config) ->
               blockchain_ledger_v1:update_gateway(G, Addr, CLedger)
       end, foo, CLedger),
 
-    ok = blockchain_ledger_v1:vars(#{hip17_resolution_limit => 11}, [], CLedger),
+    ok = blockchain_ledger_v1:vars(#{hip17_resolution_limit => 4}, [], CLedger),
 
     _ = blockchain_ledger_v1:commit_context(CLedger),
 
