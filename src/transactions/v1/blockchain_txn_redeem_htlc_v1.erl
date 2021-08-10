@@ -214,7 +214,7 @@ absorb(Txn, Chain) ->
                     Error;
                 {ok, HTLC} ->
                     Payee = blockchain_ledger_htlc_v1:payee(HTLC),
-                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
+                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger, Chain)
             end
     end.
 

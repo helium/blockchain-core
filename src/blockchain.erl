@@ -2168,8 +2168,8 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks",
-                  "plausible_blocks", "snapshots", "implicit_burns", "info"],
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", 
+                  "plausible_blocks", "snapshots", "implicit_burns", "info", "htlc_receipts"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->

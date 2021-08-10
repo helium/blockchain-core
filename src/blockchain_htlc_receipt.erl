@@ -21,8 +21,8 @@
 ]).
 
 -record(htlc_receipt, {
-    payee :: libp2p_crypto:pubkey_bin(),
     payer :: libp2p_crypto:pubkey_bin(),
+    payee :: libp2p_crypto:pubkey_bin(),
     address :: libp2p_crypto:pubkey_bin(),
     balance :: non_neg_integer(),
     hashlock :: binary(),
