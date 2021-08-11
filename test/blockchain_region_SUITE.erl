@@ -27,6 +27,11 @@
 -export([
     all_regions_test/1,
     as923_1_test/1,
+    as923_2_test/1,
+    as923_3_test/1,
+    eu433_test/1,
+    in865_test/1,
+    kr920_test/1,
     au915_test/1,
     cn470_test/1,
     us915_test/1,
@@ -66,6 +71,11 @@ with_all_data_test_cases() ->
 with_h3_data_test_cases() ->
     [
         as923_1_test,
+        as923_2_test,
+        as923_3_test,
+        eu433_test,
+        in865_test,
+        kr920_test,
         au915_test,
         cn470_test,
         us915_test,
@@ -183,27 +193,21 @@ as923_1_test(Config) ->
     false = blockchain_region_v1:h3_in_region(JH3, ?region_us915, Ledger),
     ok.
 
-%% as923_2_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     USH3 = 631183727389488639,
-%%     case blockchain:config(?region_us915, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(USH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+as923_2_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Jakarta, Indonesia
+    H3 = h3:from_geo({-6.156685643264456, 106.82607441505229}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_as923_2, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
-%% as923_3_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     USH3 = 631183727389488639,
-%%     case blockchain:config(?region_us915, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(USH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+as923_3_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Algiers, Algeria
+    H3 = h3:from_geo({36.756570085761346, 3.070925580166768}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_as923_3, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
 au915_test(Config) ->
     Ledger = ?config(ledger, Config),
@@ -224,16 +228,13 @@ cn470_test(Config) ->
     false = blockchain_region_v1:h3_in_region(CNH3, ?region_us915, Ledger),
     ok.
 
-%% eu433_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn470, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+eu433_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Mauritius
+    H3 = h3:from_geo({-20.162601509728262, 57.51011889322782}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_eu433, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
 eu868_test(Config) ->
     Ledger = ?config(ledger, Config),
@@ -242,27 +243,21 @@ eu868_test(Config) ->
     false = blockchain_region_v1:h3_in_region(EUH3, ?region_us915, Ledger),
     ok.
 
-%% in865_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn470, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+in865_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Delhi, India
+    H3 = h3:from_geo({28.67064632330703, 77.2396558322749}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_in865, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
-%% kr920_test(Config) ->
-%%     Ledger = ?config(ledger, Config),
-%%     CAH3 = 631222943758197247,
-%%     case blockchain:config(?region_cn470, Ledger) of
-%%         {ok, Bin} ->
-%%             {true, _Parent} = h3:contains(CAH3, Bin),
-%%             ok;
-%%         _ ->
-%%             ct:fail("broken")
-%%     end.
+kr920_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% Seoul, South Korea
+    H3 = h3:from_geo({37.46141372651769, 126.44084794180611}, 12),
+    true = blockchain_region_v1:h3_in_region(H3, ?region_kr920, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    ok.
 
 ru864_test(Config) ->
     Ledger = ?config(ledger, Config),
