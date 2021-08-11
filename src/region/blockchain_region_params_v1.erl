@@ -74,7 +74,25 @@ region_param(?region_eu868) -> ?region_params_eu868;
 region_param(?region_in865) -> ?region_params_in865;
 region_param(?region_kr920) -> ?region_params_kr920;
 region_param(?region_ru864) -> ?region_params_ru864;
-region_param(?region_us915) -> ?region_params_us915.
+region_param(?region_us915) -> ?region_params_us915;
+
+%% NOTE: Adding these for maintaining compatibility with old style
+%% regions (miner's CSV file). Further miner_lora and/or miner_onion_server
+%% may invoke this path on their bootup. It's not ideal but its probably
+%% required for the transition period. Maybe we can remove it once a majority
+%% of the fleet has transitioned after activation of region variables on chain.
+region_param('AS923_1') -> ?region_params_as923_1;
+region_param('AS923_2') -> ?region_params_as923_2;
+region_param('AS923_3') -> ?region_params_as923_3;
+region_param('AS923_4') -> ?region_params_as923_4;
+region_param('AU915') -> ?region_params_au915;
+region_param('CN470') -> ?region_params_cn470;
+region_param('EU433') -> ?region_params_eu433;
+region_param('EU868') -> ?region_params_eu868;
+region_param('IN865') -> ?region_params_in865;
+region_param('KR920') -> ?region_params_kr920;
+region_param('RU864') -> ?region_params_ru864;
+region_param('US915') -> ?region_params_us915.
 
 -spec get_spreading(
     Params :: region_params_v1() | [blockchain_region_param_v1:region_param_v1()],
