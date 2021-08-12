@@ -5,9 +5,6 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_region_params_v1).
 
-%% TODO
-%% -behavior(blockchain_json).
-
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_region_param_v1_pb.hrl").
 

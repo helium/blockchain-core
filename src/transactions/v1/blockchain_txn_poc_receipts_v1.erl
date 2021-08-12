@@ -1317,15 +1317,10 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                             false
                     end;
                 {error, unknown_region} ->
-                    %% We don't know anything about this region
-                    %% Check if this ledger has aux
-                    case blockchain_ledger_v1:has_aux(Ledger) of
-                        true ->
-                            %% Yes, default to true
-                            true;
-                        false ->
-                            false
-                    end
+                    %% We're in poc-v11+ but we could not find the region for the SourceLoc
+                    %% If there is an aux ledger, this will be true to maintain syncing
+                    %% If there is no aux ledger, this will be false since we cannot make an informed decision here
+                    blockchain_ledger_v1:has_aux(Ledger)
             end;
         _ ->
             %% We're not in poc-v11+
