@@ -5,8 +5,6 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_region_spreading_v1).
 
-%% TODO
-%% -behavior(blockchain_json).
 -include_lib("helium_proto/include/blockchain_region_param_v1_pb.hrl").
 
 -export([
@@ -28,7 +26,7 @@
 -spec new(Spreads :: [{non_neg_integer(), atom()}]) -> region_spreading_v1().
 new(Spreads) ->
     Tags = [new_tagged_spread(Size, Spread) || {Size, Spread} <- Spreads],
-    #blockchain_region_spreading_v1_pb{tagged_spreading = Tags}.
+    #blockchain_region_spreading_v1_pb{tagged_spreading = lists:keysort(#tagged_spreading_pb.max_packet_size, Tags)}.
 
 -spec tagged_spreading(Spreading :: region_spreading_v1()) -> [tagged_spreading()].
 tagged_spreading(Spreading) ->
@@ -47,12 +45,12 @@ region_spreading(TaggedSpreading) ->
     PacketSize :: non_neg_integer()
 ) -> {ok, atom()} | {error, any()}.
 select_spreading(TaggedSpreading, PacketSize) ->
-    %% FIXME: This is not quite right...
     FilterFun = fun(Tagged) ->
         max_packet_size(Tagged) >= PacketSize
     end,
     case lists:filter(FilterFun, TaggedSpreading) of
-        [] -> {error, unable_to_get_spreading};
+        [] ->
+            {error, unable_to_get_spreading};
         Thing ->
             Tag = hd(Thing),
             {ok, region_spreading(Tag)}

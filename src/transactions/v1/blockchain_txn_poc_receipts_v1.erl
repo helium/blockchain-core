@@ -340,6 +340,7 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
+                                                    %% TODO get the number of channels from poc 11 vars
                                                     Channels = lists:map(fun(Layer) ->
                                                                                  <<IntData:16/integer-unsigned-little>> = Layer,
                                                                                  IntData rem 8
@@ -1150,70 +1151,80 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-            TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
-                         {ok, L} ->
-                             D = blockchain_utils:distance(SourceLoc, DestinationLoc),
-                             D > L;
-                         _ ->
-                             false
-                     end,
 
-            SameRegion = is_same_region(Ledger, SourceLoc, DestinationLoc),
-
-            try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
-                Dist when Dist >= ExclusionCells andalso SameRegion andalso not TooFar ->
-                    RSSI = blockchain_poc_receipt_v1:signal(Receipt),
-                    SNR = blockchain_poc_receipt_v1:snr(Receipt),
-                    Freq = blockchain_poc_receipt_v1:frequency(Receipt),
-                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
-                    case RSSI < MinRcvSig of
-                        false ->
-                            %% RSSI is impossibly high discard this receipt
-                            lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
-                                          [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
-                                           ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                           element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                           RSSI, MinRcvSig, SNR]),
+            case is_same_region(Ledger, SourceLoc, DestinationLoc) of
+                false ->
+                    lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
+                                [blockchain_utils:addr2name(SrcPubkeyBin),
+                                 blockchain_utils:addr2name(DstPubkeyBin),
+                                 SourceLoc, DestinationLoc]),
+                    undefined;
+                true ->
+                    case is_too_far(Ledger, SourceLoc, DestinationLoc) of
+                        {true, Distance} ->
+                            lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
+                                        [blockchain_utils:addr2name(SrcPubkeyBin),
+                                         blockchain_utils:addr2name(DstPubkeyBin),
+                                         SourceLoc, DestinationLoc, Distance]),
                             undefined;
-                        true ->
-                            case blockchain:config(?data_aggregation_version, Ledger) of
-                                {ok, 2} ->
-                                    case check_rssi_snr(Ledger, RSSI, SNR) of
-                                        true ->
-                                            case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
-                                                true ->
-                                                    lager:debug("receipt ok"),
-                                                    Receipt;
-                                                false ->
-                                                    lager:debug("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                  [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
-                                                                   ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                   element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                   blockchain_poc_receipt_v1:channel(Receipt), Channel,
-                                                                   RSSI, SNR]),
-                                                    undefined
-                                            end;
-                                        {false, LowerBound} ->
-                                            lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                        {false, _Distance} ->
+                            try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                                Dist when Dist >= ExclusionCells ->
+                                    RSSI = blockchain_poc_receipt_v1:signal(Receipt),
+                                    SNR = blockchain_poc_receipt_v1:snr(Receipt),
+                                    Freq = blockchain_poc_receipt_v1:frequency(Receipt),
+                                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                                    case RSSI < MinRcvSig of
+                                        false ->
+                                            %% RSSI is impossibly high discard this receipt
+                                            lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                                           [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                                            ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                            element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                           RSSI, LowerBound, SNR]),
-                                            undefined
+                                                           RSSI, MinRcvSig, SNR]),
+                                            undefined;
+                                        true ->
+                                            case blockchain:config(?data_aggregation_version, Ledger) of
+                                                {ok, DataAggVsn} when DataAggVsn > 1 ->
+                                                    case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                        true ->
+                                                            case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
+                                                                true ->
+                                                                    lager:debug("receipt ok"),
+                                                                    Receipt;
+                                                                false ->
+                                                                    lager:debug("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
+                                                                                  [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
+                                                                                   ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                   element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                   blockchain_poc_receipt_v1:channel(Receipt), Channel,
+                                                                                   RSSI, SNR]),
+                                                                    undefined
+                                                            end;
+                                                        {false, LowerBound} ->
+                                                            lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                                          [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
+                                                                           ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                           element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                           RSSI, LowerBound, SNR]),
+                                                            undefined
+                                                    end;
+                                                _ ->
+                                                    %% SNR+Freq+Channels not collected, nothing else we can check
+                                                    Receipt
+                                            end
                                     end;
                                 _ ->
-                                    %% SNR+Freq+Channels not collected, nothing else we can check
-                                    Receipt
+                                    %% too close
+                                    undefined
+                            catch
+                                _:_ ->
+                                    %% pentagonal distortion
+                                    undefined
                             end
-                    end;
-                _ ->
-                    %% too close or too far
-                    undefined
-            catch
-                _:_ ->
-                    %% pentagonal distortion
-                    undefined
+                    end
             end
+
     end.
 
 -spec valid_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
@@ -1232,71 +1243,94 @@ valid_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
-                                      {ok, L} ->
-                                          D = blockchain_utils:distance(SourceLoc, DestinationLoc),
-                                          D > L;
-                                      _ ->
-                                          false
-                                  end,
 
-                         SameRegion = is_same_region(Ledger, SourceLoc, DestinationLoc),
+                        case is_same_region(Ledger, SourceLoc, DestinationLoc) of
+                            false ->
+                                lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, WitnessPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
+                                            [blockchain_utils:addr2name(SrcPubkeyBin),
+                                             blockchain_utils:addr2name(WitnessPubkeyBin),
+                                             SourceLoc, DestinationLoc]),
+                                undefined;
+                            true ->
+                                case is_too_far(Ledger, SourceLoc, DestinationLoc) of
+                                    {true, Distance} ->
+                                        lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, WitnessPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
+                                                    [blockchain_utils:addr2name(SrcPubkeyBin),
+                                                     blockchain_utils:addr2name(WitnessPubkeyBin),
+                                                     SourceLoc, DestinationLoc, Distance]),
+                                        undefined;
+                                    {false, _Distance} ->
+                                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                                             Dist when Dist >= ExclusionCells ->
+                                                 RSSI = blockchain_poc_witness_v1:signal(Witness),
+                                                 SNR = blockchain_poc_witness_v1:snr(Witness),
+                                                 Freq = blockchain_poc_witness_v1:frequency(Witness),
+                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
 
-                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
-                             Dist when Dist >= ExclusionCells andalso SameRegion andalso not TooFar ->
-                                 RSSI = blockchain_poc_witness_v1:signal(Witness),
-                                 SNR = blockchain_poc_witness_v1:snr(Witness),
-                                 Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
-
-                                 case RSSI < MinRcvSig of
-                                     false ->
-                                         %% RSSI is impossibly high discard this witness
-                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
-                                                       [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                        RSSI, MinRcvSig, SNR]),
-                                         false;
-                                     true ->
-                                         case blockchain:config(?data_aggregation_version, Ledger) of
-                                             {ok, 2} ->
-                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
-                                                     true ->
-                                                         case blockchain_poc_witness_v1:channel(Witness) == Channel of
-                                                             true ->
-                                                                 lager:debug("witness ok"),
-                                                                 true;
-                                                             false ->
-                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                               [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                blockchain_poc_witness_v1:channel(Witness), Channel,
-                                                                                RSSI, SNR]),
-                                                                 false
-                                                         end;
-                                                     {false, LowerBound} ->
-                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                 case RSSI < MinRcvSig of
+                                                     false ->
+                                                         %% RSSI is impossibly high discard this witness
+                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                        RSSI, LowerBound, SNR]),
-                                                         false
+                                                                        RSSI, MinRcvSig, SNR]),
+                                                         false;
+                                                     true ->
+                                                         case blockchain:config(?data_aggregation_version, Ledger) of
+                                                             {ok, DataAggVsn} when DataAggVsn > 1 ->
+                                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                                     true ->
+                                                                         case blockchain_poc_witness_v1:channel(Witness) == Channel of
+                                                                             true ->
+                                                                                 lager:debug("witness ok"),
+                                                                                 true;
+                                                                             false ->
+                                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
+                                                                                               [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                                ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                                element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                                blockchain_poc_witness_v1:channel(Witness), Channel,
+                                                                                                RSSI, SNR]),
+                                                                                 false
+                                                                         end;
+                                                                     {false, LowerBound} ->
+                                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                                                       [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                        RSSI, LowerBound, SNR]),
+                                                                         false
+                                                                 end;
+                                                             _ ->
+                                                                 %% SNR+Freq+Channels not collected, nothing else we can check
+                                                                 true
+                                                         end
                                                  end;
                                              _ ->
-                                                 %% SNR+Freq+Channels not collected, nothing else we can check
-                                                 true
+                                                 %% too close or too far
+                                                 false
+                                         catch _:_ ->
+                                                   %% pentagonal distortion
+                                                   false
                                          end
-                                 end;
-                             _ ->
-                                 %% too close or too far
-                                 false
-                         catch _:_ ->
-                                   %% pentagonal distortion
-                                   false
-                         end
+                                end
+                        end
                  end, Witnesses).
+
+-spec is_too_far(Ledger:: blockchain_ledger_v1:ledger(),
+                 SrcLoc :: h3:h3_index(),
+                 DstLoc :: h3:h3_index()) -> {boolean(), float()}.
+is_too_far(Ledger, SrcLoc, DstLoc) ->
+  Distance = blockchain_utils:distance(SrcLoc, DstLoc),
+    case blockchain:config(?poc_distance_limit, Ledger) of
+        {ok, L} ->
+            Check = Distance > L,
+            {Check, Distance};
+        _ ->
+            %% var not set, it's not too far (don't consider it)
+            {false, Distance}
+    end.
 
 -spec is_same_region(
     Ledger :: blockchain_ledger_v1:ledger(),
@@ -1350,70 +1384,80 @@ tagged_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
-                         TooFar = case blockchain:config(?poc_distance_limit, Ledger) of
-                                      {ok, L} ->
-                                          D = blockchain_utils:distance(SourceLoc, DestinationLoc),
-                                          D > L;
-                                      _ ->
-                                          false
-                                  end,
 
-                         SameRegion = is_same_region(Ledger, SourceLoc, DestinationLoc),
+                        case is_same_region(Ledger, SourceLoc, DestinationLoc) of
+                            false ->
+                                lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
+                                            [blockchain_utils:addr2name(SrcPubkeyBin),
+                                             blockchain_utils:addr2name(DstPubkeyBin),
+                                             SourceLoc, DestinationLoc]),
+                                [{false, <<"witness_not_same_region">>, Witness} | Acc];
+                            true ->
+                                case is_too_far(Ledger, SourceLoc, DestinationLoc) of
+                                    {true, Distance} ->
+                                        lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
+                                                    [blockchain_utils:addr2name(SrcPubkeyBin),
+                                                     blockchain_utils:addr2name(DstPubkeyBin),
+                                                     SourceLoc, DestinationLoc, Distance]),
+                                        [{false, <<"witness_too_far">>, Witness} | Acc];
+                                    {false, _Distance} ->
+                                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
+                                             Dist when Dist >= ExclusionCells ->
+                                                 RSSI = blockchain_poc_witness_v1:signal(Witness),
+                                                 SNR = blockchain_poc_witness_v1:snr(Witness),
+                                                 Freq = blockchain_poc_witness_v1:frequency(Witness),
+                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
 
-                         try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
-                             Dist when Dist >= ExclusionCells andalso SameRegion andalso not TooFar ->
-                                 RSSI = blockchain_poc_witness_v1:signal(Witness),
-                                 SNR = blockchain_poc_witness_v1:snr(Witness),
-                                 Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
-
-                                 case RSSI < MinRcvSig of
-                                     false ->
-                                         %% RSSI is impossibly high discard this witness
-                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
-                                                       [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                        RSSI, MinRcvSig, SNR]),
-                                         [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
-                                     true ->
-                                         case blockchain:config(?data_aggregation_version, Ledger) of
-                                             {ok, 2} ->
-                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
-                                                     true ->
-                                                         case blockchain_poc_witness_v1:channel(Witness) == Channel of
-                                                             true ->
-                                                                 lager:debug("witness ok"),
-                                                                 [{true, <<"ok">>, Witness} | Acc];
-                                                             false ->
-                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                               [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                blockchain_poc_witness_v1:channel(Witness), Channel,
-                                                                                RSSI, SNR]),
-                                                                 [{false, <<"witness_on_incorrect_channel">>, Witness} | Acc]
-                                                         end;
-                                                     {false, LowerBound} ->
-                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                 case RSSI < MinRcvSig of
+                                                     false ->
+                                                         %% RSSI is impossibly high discard this witness
+                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                        RSSI, LowerBound, SNR]),
-                                                         [{false, <<"witness_rssi_below_lower_bound">>, Witness} | Acc]
+                                                                        RSSI, MinRcvSig, SNR]),
+                                                         [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
+                                                     true ->
+                                                         case blockchain:config(?data_aggregation_version, Ledger) of
+                                                             {ok, DataAggVsn} when DataAggVsn > 1 ->
+                                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                                     true ->
+                                                                         case blockchain_poc_witness_v1:channel(Witness) == Channel of
+                                                                             true ->
+                                                                                 lager:debug("witness ok"),
+                                                                                 [{true, <<"ok">>, Witness} | Acc];
+                                                                             false ->
+                                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
+                                                                                               [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                                ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                                element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                                blockchain_poc_witness_v1:channel(Witness), Channel,
+                                                                                                RSSI, SNR]),
+                                                                                 [{false, <<"witness_on_incorrect_channel">>, Witness} | Acc]
+                                                                         end;
+                                                                     {false, LowerBound} ->
+                                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                                                       [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                        RSSI, LowerBound, SNR]),
+                                                                         [{false, <<"witness_rssi_below_lower_bound">>, Witness} | Acc]
+                                                                 end;
+                                                             _ ->
+                                                                 %% SNR+Freq+Channels not collected, nothing else we can check
+                                                                 [{true, <<"insufficient_data">>, Witness} | Acc]
+                                                         end
                                                  end;
                                              _ ->
-                                                 %% SNR+Freq+Channels not collected, nothing else we can check
-                                                 [{true, <<"insufficient_data">>, Witness} | Acc]
+                                                 %% too close
+                                                 [{false, <<"witness_too_close">>, Witness} | Acc]
+                                         catch _:_ ->
+                                                   %% pentagonal distortion
+                                                   [{false, <<"pentagonal_distortion">>, Witness} | Acc]
                                          end
-                                 end;
-                             _ ->
-                                 %% too close or too far
-                                 [{false, <<"witness_too_close">>, Witness} | Acc]
-                         catch _:_ ->
-                                   %% pentagonal distortion
-                                   [{false, <<"pentagonal_distortion">>, Witness} | Acc]
-                         end
+
+                                end
+                        end
                  end, [], Witnesses).
 
 scale_unknown_snr(UnknownSNR) ->
@@ -1488,6 +1532,7 @@ get_channels(Txn, Chain) ->
         BH ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
             [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
+            %% TODO we should get the channel count from the poc 11 region vars
             Channels1 = lists:map(fun(Layer) ->
                                           <<IntData:16/integer-unsigned-little>> = Layer,
                                           IntData rem 8
@@ -1512,7 +1557,7 @@ min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, Destinatio
                     FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
                     case blockchain:config(?fspl_loss, Ledger) of
                         {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
                     end;
                 {error, _}=E ->
                     throw(E)
@@ -1532,7 +1577,7 @@ min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationL
             FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
             case blockchain:config(?fspl_loss, Ledger) of
                 {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
             end;
         _ ->
             blockchain_utils:min_rcv_sig(
@@ -1541,7 +1586,6 @@ min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationL
     end.
 
 calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
-    %% XXX: Investigate why these blow up with aux ledger...
     {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
     {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
     GT = blockchain_ledger_gateway_v2:gain(SrcGW),

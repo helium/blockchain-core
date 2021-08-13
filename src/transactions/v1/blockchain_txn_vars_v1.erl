@@ -958,7 +958,7 @@ validate_var(?poc_per_hop_max_witnesses, Value) ->
 validate_var(?poc_addr_hash_byte_count, Value) ->
     validate_int(Value, "poc_addr_hash_byte_count", 4, 32, false);
 validate_var(?fspl_loss, Value) ->
-    validate_float(Value, "fspl_loss", 0.0, 1.0);
+    validate_float(Value, "fspl_loss", 0.0, 5.0);
 validate_var(?poc_distance_limit, Value) ->
     validate_int(Value, "poc_distance_limit", 0, 1000, false);
 validate_var(?check_snr, Value) ->
@@ -1315,60 +1315,20 @@ validate_var(?regulatory_regions, Value) when is_binary(Value) ->
 validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
 
-validate_var(?region_as923_1, Value) ->
-    validate_region_var(?region_as923_1, Value);
-validate_var(?region_as923_2, Value) ->
-    validate_region_var(?region_as923_2, Value);
-validate_var(?region_as923_3, Value) ->
-    validate_region_var(?region_as923_3, Value);
-validate_var(?region_as923_4, Value) ->
-    validate_region_var(?region_as923_4, Value);
-validate_var(?region_au915, Value) ->
-    validate_region_var(?region_au915, Value);
-validate_var(?region_cn470, Value) ->
-    validate_region_var(?region_cn470, Value);
-validate_var(?region_eu433, Value) ->
-    validate_region_var(?region_eu433, Value);
-validate_var(?region_eu868, Value) ->
-    validate_region_var(?region_eu868, Value);
-validate_var(?region_in865, Value) ->
-    validate_region_var(?region_in865, Value);
-validate_var(?region_kr920, Value) ->
-    validate_region_var(?region_kr920, Value);
-validate_var(?region_ru864, Value) ->
-    validate_region_var(?region_ru864, Value);
-validate_var(?region_us915, Value) ->
-    validate_region_var(?region_us915, Value);
-
-%% TODO: Revisit
-validate_var(?region_params_us915, Value) ->
-    validate_region_params(?region_params_us915, Value);
-validate_var(?region_params_eu868, Value) ->
-    validate_region_params(?region_params_eu868, Value);
-validate_var(?region_params_au915, Value) ->
-    validate_region_params(?region_params_au915, Value);
-validate_var(?region_params_as923_1, Value) ->
-    validate_region_params(?region_params_as923_1, Value);
-validate_var(?region_params_as923_2, Value) ->
-    validate_region_params(?region_params_as923_2, Value);
-validate_var(?region_params_as923_3, Value) ->
-    validate_region_params(?region_params_as923_3, Value);
-validate_var(?region_params_as923_4, Value) ->
-    validate_region_params(?region_params_as923_4, Value);
-validate_var(?region_params_ru864, Value) ->
-    validate_region_params(?region_params_ru864, Value);
-validate_var(?region_params_cn470, Value) ->
-    validate_region_params(?region_params_cn470, Value);
-validate_var(?region_params_in865, Value) ->
-    validate_region_params(?region_params_in865, Value);
-validate_var(?region_params_kr920, Value) ->
-    validate_region_params(?region_params_kr920, Value);
-validate_var(?region_params_eu433, Value) ->
-    validate_region_params(?region_params_eu433, Value);
-
 validate_var(Var, Value) ->
-    %% something we don't understand, crash
-    invalid_var(Var, Value).
+    %% check if these are dynamic region vars
+    case atom_to_list(Var) of
+        StrVar="region_"++_ ->
+            case lists:sublist(StrVar, length(StrVar) -5, 6) of
+                "params" ->
+                    validate_region_params(Var, Value);
+                _ ->
+                    validate_region_var(Var, Value)
+            end;
+        _ ->
+            %% something we don't understand, crash
+            invalid_var(Var, Value)
+    end.
 
 validate_region_var(Var, Value) when is_binary(Value) ->
     %% The value is a list of u64 h3 hex ids, so it will always be a multiple of 8 bytes long
