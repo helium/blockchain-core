@@ -1188,11 +1188,15 @@ delete_dir(Filename) ->
 clean_dir(Dir) ->
     WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
     FilterFun = fun(F) ->
-                        case file:read_file_info(F, [raw, {time, posix}]) of
-                            {error, _} -> false;
-                            {ok, FI} ->
-                                FI#file_info.type == regular
-                                andalso FI#file_info.mtime =< WeekOld
+                        case filename:extension(F) of
+                            ".scratch" -> true;
+                            _ ->
+                                case file:read_file_info(F, [raw, {time, posix}]) of
+                                    {error, _} -> false;
+                                    {ok, FI} ->
+                                        FI#file_info.type == regular
+                                        andalso FI#file_info.mtime =< WeekOld
+                                end
                         end
                 end,
 
