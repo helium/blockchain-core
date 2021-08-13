@@ -491,21 +491,11 @@
 %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 -define(regulatory_regions, regulatory_regions).
 
-%% Each of the following is a serialized form of an h3_region set determined at h3_res: 7
+%% Each of the former regions is associated with a dynamic var of the same name which is is a serialized form of an h3_region set determined at h3_res: 7
 %% For more information, check: https://github.com/JayKickliter/lorawan-h3-regions and https://github.com/helium/erlang-h3/pull/29
--define(region_as923_1, region_as923_1).
--define(region_as923_2, region_as923_2).
--define(region_as923_3, region_as923_3).
--define(region_as923_4, region_as923_4).
--define(region_au915, region_au915).
--define(region_cn470, region_cn470).
--define(region_eu433, region_eu433).
--define(region_eu868, region_eu868).
--define(region_in865, region_in865).
--define(region_kr920, region_kr920).
--define(region_ru864, region_ru864).
--define(region_us915, region_us915).
 
+%% Additionally, each of the former regions is associated with a dynamic var of the form <regionname>_params, eg region_params_us915 which
+%% contains the RF parameters for that region.
 %% TODO: Figure out region_parameters for each of the supported regions
 
 %% The values these take is binary obtained by serializing
@@ -517,15 +507,3 @@
 %% they do, we will re-evaluate accordingly.
 %%
 %% Refer to blockchain_region_SUITE for an example
--define(region_params_us915, region_params_us915).
--define(region_params_eu868, region_params_eu868).
--define(region_params_as923_1, region_params_as923_1).
--define(region_params_as923_2, region_params_as923_2).
--define(region_params_as923_3, region_params_as923_3).
--define(region_params_as923_4, region_params_as923_4).
--define(region_params_au915, region_params_au915).
--define(region_params_ru864, region_params_ru864).
--define(region_params_cn470, region_params_cn470).
--define(region_params_in865, region_params_in865).
--define(region_params_kr920, region_params_kr920).
--define(region_params_eu433, region_params_eu433).
