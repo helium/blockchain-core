@@ -189,33 +189,33 @@ all_regions_test(Config) ->
 as923_1_test(Config) ->
     Ledger = ?config(ledger, Config),
     JH3 = 631319855840474623,
-    true = blockchain_region_v1:h3_in_region(JH3, ?region_as923_1, Ledger),
-    false = blockchain_region_v1:h3_in_region(JH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(JH3, region_as923_1, Ledger),
+    false = blockchain_region_v1:h3_in_region(JH3, region_us915, Ledger),
     ok.
 
 as923_2_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Jakarta, Indonesia
     H3 = h3:from_geo({-6.156685643264456, 106.82607441505229}, 12),
-    true = blockchain_region_v1:h3_in_region(H3, ?region_as923_2, Ledger),
-    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_as923_2, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 as923_3_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Algiers, Algeria
     H3 = h3:from_geo({36.756570085761346, 3.070925580166768}, 12),
-    true = blockchain_region_v1:h3_in_region(H3, ?region_as923_3, Ledger),
-    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_as923_3, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 au915_test(Config) ->
     Ledger = ?config(ledger, Config),
     AUH3 = 633862093138897919,
-    case blockchain:config(?region_au915, Ledger) of
+    case blockchain:config(region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(AUH3, Bin),
-            {ok, ?region_au915} = blockchain_region_v1:h3_to_region(AUH3, Ledger),
+            {ok, region_au915} = blockchain_region_v1:h3_to_region(AUH3, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -224,54 +224,54 @@ au915_test(Config) ->
 cn470_test(Config) ->
     Ledger = ?config(ledger, Config),
     CNH3 = 631645363084543487,
-    true = blockchain_region_v1:h3_in_region(CNH3, ?region_cn470, Ledger),
-    false = blockchain_region_v1:h3_in_region(CNH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(CNH3, region_cn470, Ledger),
+    false = blockchain_region_v1:h3_in_region(CNH3, region_us915, Ledger),
     ok.
 
 eu433_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Mauritius
     H3 = h3:from_geo({-20.162601509728262, 57.51011889322782}, 12),
-    true = blockchain_region_v1:h3_in_region(H3, ?region_eu433, Ledger),
-    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_eu433, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 eu868_test(Config) ->
     Ledger = ?config(ledger, Config),
     EUH3 = 631051317836014591,
-    true = blockchain_region_v1:h3_in_region(EUH3, ?region_eu868, Ledger),
-    false = blockchain_region_v1:h3_in_region(EUH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(EUH3, region_eu868, Ledger),
+    false = blockchain_region_v1:h3_in_region(EUH3, region_us915, Ledger),
     ok.
 
 in865_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Delhi, India
     H3 = h3:from_geo({28.67064632330703, 77.2396558322749}, 12),
-    true = blockchain_region_v1:h3_in_region(H3, ?region_in865, Ledger),
-    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_in865, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 kr920_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Seoul, South Korea
     H3 = h3:from_geo({37.46141372651769, 126.44084794180611}, 12),
-    true = blockchain_region_v1:h3_in_region(H3, ?region_kr920, Ledger),
-    false = blockchain_region_v1:h3_in_region(H3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_kr920, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 ru864_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% massive-crimson-cat
     RUH3 = 630812791472857599,
-    true = blockchain_region_v1:h3_in_region(RUH3, ?region_ru864, Ledger),
-    false = blockchain_region_v1:h3_in_region(RUH3, ?region_us915, Ledger),
+    true = blockchain_region_v1:h3_in_region(RUH3, region_ru864, Ledger),
+    false = blockchain_region_v1:h3_in_region(RUH3, region_us915, Ledger),
     ok.
 
 us915_test(Config) ->
     Ledger = ?config(ledger, Config),
     USH3 = 631183727389488639,
-    true = blockchain_region_v1:h3_in_region(USH3, ?region_us915, Ledger),
-    false = blockchain_region_v1:h3_in_region(USH3, ?region_in865, Ledger),
+    true = blockchain_region_v1:h3_in_region(USH3, region_us915, Ledger),
+    false = blockchain_region_v1:h3_in_region(USH3, region_in865, Ledger),
     ok.
 
 region_not_found_test(Config) ->
@@ -286,7 +286,7 @@ region_not_found_test(Config) ->
 
 us915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_us915, Ledger) of
+    case blockchain:config(region_us915_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(us915),
             Ser = blockchain_region_suite_helper:serialized_us915(),
@@ -298,7 +298,7 @@ us915_region_param_test(Config) ->
 
 eu868_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_eu868, Ledger) of
+    case blockchain:config(region_eu868_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(eu868),
             Ser = blockchain_region_suite_helper:serialized_eu868(),
@@ -310,7 +310,7 @@ eu868_region_param_test(Config) ->
 
 au915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_au915, Ledger) of
+    case blockchain:config(region_au915_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(au915),
             Ser = blockchain_region_suite_helper:serialized_au915(),
@@ -322,7 +322,7 @@ au915_region_param_test(Config) ->
 
 as923_1_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_as923_1, Ledger) of
+    case blockchain:config(region_as923_1_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(as923_1),
             Ser = blockchain_region_suite_helper:serialized_as923_1(),
@@ -334,7 +334,7 @@ as923_1_region_param_test(Config) ->
 
 as923_2_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_as923_2, Ledger) of
+    case blockchain:config(region_as923_2_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(as923_2),
             Ser = blockchain_region_suite_helper:serialized_as923_2(),
@@ -346,7 +346,7 @@ as923_2_region_param_test(Config) ->
 
 as923_3_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_as923_3, Ledger) of
+    case blockchain:config(region_as923_3_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(as923_3),
             Ser = blockchain_region_suite_helper:serialized_as923_3(),
@@ -358,7 +358,7 @@ as923_3_region_param_test(Config) ->
 
 as923_4_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_as923_4, Ledger) of
+    case blockchain:config(region_as923_4_params, Ledger) of
         {ok, Bin} ->
             ct:pal("Bin: ~p", [Bin]),
             KnownParams = blockchain_region_suite_helper:fetch(as923_4),
@@ -373,7 +373,7 @@ as923_4_region_param_test(Config) ->
 
 ru864_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_ru864, Ledger) of
+    case blockchain:config(region_ru864_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(ru864),
             Ser = blockchain_region_suite_helper:serialized_ru864(),
@@ -385,7 +385,7 @@ ru864_region_param_test(Config) ->
 
 cn470_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_cn470, Ledger) of
+    case blockchain:config(region_cn470_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(cn470),
             Ser = blockchain_region_suite_helper:serialized_cn470(),
@@ -397,7 +397,7 @@ cn470_region_param_test(Config) ->
 
 in865_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_in865, Ledger) of
+    case blockchain:config(region_in865_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(in865),
             Ser = blockchain_region_suite_helper:serialized_in865(),
@@ -409,7 +409,7 @@ in865_region_param_test(Config) ->
 
 kr920_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_kr920, Ledger) of
+    case blockchain:config(region_kr920_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(kr920),
             Ser = blockchain_region_suite_helper:serialized_kr920(),
@@ -421,7 +421,7 @@ kr920_region_param_test(Config) ->
 
 eu433_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(?region_params_eu433, Ledger) of
+    case blockchain:config(region_eu433_params, Ledger) of
         {ok, Bin} ->
             KnownParams = blockchain_region_suite_helper:fetch(eu433),
             Ser = blockchain_region_suite_helper:serialized_eu433(),
@@ -433,7 +433,7 @@ eu433_region_param_test(Config) ->
 
 get_spreading_test(Config) ->
     Ledger = ?config(ledger, Config),
-    {ok, Bin} = blockchain:config(?region_params_eu433, Ledger),
+    {ok, Bin} = blockchain:config(region_eu433_params, Ledger),
     Params = blockchain_region_params_v1:deserialize(Bin),
     ct:pal("Params: ~p", [Params]),
     R1 = blockchain_region_params_v1:get_spreading(Params, 30),
@@ -498,18 +498,18 @@ region_vars() ->
 
 region_param_vars() ->
     #{
-        region_params_us915 => region_params_us915(),
-        region_params_eu868 => region_params_eu868(),
-        region_params_au915 => region_params_au915(),
-        region_params_as923_1 => region_params_as923_1(),
-        region_params_as923_2 => region_params_as923_2(),
-        region_params_as923_3 => region_params_as923_3(),
-        region_params_as923_4 => region_params_as923_4(),
-        region_params_ru864 => region_params_ru864(),
-        region_params_cn470 => region_params_cn470(),
-        region_params_in865 => region_params_in865(),
-        region_params_kr920 => region_params_kr920(),
-        region_params_eu433 => region_params_eu433()
+        region_us915_params => region_params_us915(),
+        region_eu868_params => region_params_eu868(),
+        region_au915_params => region_params_au915(),
+        region_as923_1_params => region_params_as923_1(),
+        region_as923_2_params => region_params_as923_2(),
+        region_as923_3_params => region_params_as923_3(),
+        region_as923_4_params => region_params_as923_4(),
+        region_ru864_params => region_params_ru864(),
+        region_cn470_params => region_params_cn470(),
+        region_in865_params => region_params_in865(),
+        region_kr920_params => region_params_kr920(),
+        region_eu433_params => region_params_eu433()
     }.
 
 region_urls() ->
