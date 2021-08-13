@@ -20,19 +20,7 @@
 ]).
 
 -type region_params_v1() :: #blockchain_region_params_v1_pb{}.
--type region_param_var() ::
-    'region_params_us915'
-    | 'region_params_eu868'
-    | 'region_params_as923_1'
-    | 'region_params_as923_2'
-    | 'region_params_as923_3'
-    | 'region_params_as923_4'
-    | 'region_params_au915'
-    | 'region_params_ru864'
-    | 'region_params_cn470'
-    | 'region_params_in865'
-    | 'region_params_kr920'
-    | 'region_params_eu433'.
+-type region_param_var() :: atom().
 
 -export_type([region_params_v1/0]).
 
@@ -60,36 +48,28 @@ for_region(RegionVar, Ledger) ->
 %% @end
 %%-------------------------------------------------------------------
 -spec region_param(blockchain_region_v1:region_var()) -> region_param_var().
-region_param(?region_as923_1) -> ?region_params_as923_1;
-region_param(?region_as923_2) -> ?region_params_as923_2;
-region_param(?region_as923_3) -> ?region_params_as923_3;
-region_param(?region_as923_4) -> ?region_params_as923_4;
-region_param(?region_au915) -> ?region_params_au915;
-region_param(?region_cn470) -> ?region_params_cn470;
-region_param(?region_eu433) -> ?region_params_eu433;
-region_param(?region_eu868) -> ?region_params_eu868;
-region_param(?region_in865) -> ?region_params_in865;
-region_param(?region_kr920) -> ?region_params_kr920;
-region_param(?region_ru864) -> ?region_params_ru864;
-region_param(?region_us915) -> ?region_params_us915;
-
 %% NOTE: Adding these for maintaining compatibility with old style
 %% regions (miner's CSV file). Further miner_lora and/or miner_onion_server
 %% may invoke this path on their bootup. It's not ideal but its probably
 %% required for the transition period. Maybe we can remove it once a majority
 %% of the fleet has transitioned after activation of region variables on chain.
-region_param('AS923_1') -> ?region_params_as923_1;
-region_param('AS923_2') -> ?region_params_as923_2;
-region_param('AS923_3') -> ?region_params_as923_3;
-region_param('AS923_4') -> ?region_params_as923_4;
-region_param('AU915') -> ?region_params_au915;
-region_param('CN470') -> ?region_params_cn470;
-region_param('EU433') -> ?region_params_eu433;
-region_param('EU868') -> ?region_params_eu868;
-region_param('IN865') -> ?region_params_in865;
-region_param('KR920') -> ?region_params_kr920;
-region_param('RU864') -> ?region_params_ru864;
-region_param('US915') -> ?region_params_us915.
+region_param('AS923_1') -> region_as923_1_params;
+region_param('AS923_2') -> region_as923_2_params;
+region_param('AS923_3') -> region_as923_3_params;
+region_param('AS923_4') -> region_as923_4_params;
+region_param('AU915') -> region_au915_params;
+region_param('CN470') -> region_cn470_params;
+region_param('EU433') -> region_eu433_params;
+region_param('EU868') -> region_eu868_params;
+region_param('IN865') -> region_in865_params;
+region_param('KR920') -> region_kr920_params;
+region_param('RU864') -> region_ru864_params;
+region_param('US915') -> region_us915_params;
+
+%% in all other cases we simply append 'params' to the provided region
+%% and we assume the region name came from the chain var that lists the region
+%% names
+region_param(Region) -> list_to_atom(io_lib:format("~s_params", [Region])).
 
 -spec get_spreading(
     Params :: region_params_v1() | [blockchain_region_param_v1:region_param_v1()],
