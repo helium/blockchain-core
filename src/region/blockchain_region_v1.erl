@@ -9,23 +9,9 @@
 
 -export([get_all_regions/1, h3_to_region/2, h3_in_region/3]).
 
--type region_var() ::
-    'region_as923_1'
-    | 'region_as923_2'
-    | 'region_as923_3'
-    | 'region_as923_4'
-    | 'region_au915'
-    | 'region_cn470'
-    | 'region_eu433'
-    | 'region_eu868'
-    | 'region_in865'
-    | 'region_kr920'
-    | 'region_ru864'
-    | 'region_us915'.
+-type regions() :: [atom()].
 
--type regions() :: [region_var()].
-
--export_type([region_var/0, regions/0]).
+-export_type([atom/0, regions/0]).
 
 %%--------------------------------------------------------------------
 %% api
@@ -42,7 +28,7 @@ get_all_regions(Ledger) ->
     end.
 
 -spec h3_to_region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
-    {ok, region_var()} | {error, any()}.
+    {ok, atom()} | {error, any()}.
 h3_to_region(H3, Ledger) ->
     case get_all_regions(Ledger) of
         {ok, Regions} ->
@@ -53,7 +39,7 @@ h3_to_region(H3, Ledger) ->
 
 -spec h3_in_region(
     H3 :: h3:h3_index(),
-    RegionVar :: region_var(),
+    RegionVar :: atom(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> boolean() | {error, any()}.
 h3_in_region(H3, RegionVar, Ledger) ->
@@ -85,7 +71,7 @@ h3_in_region(H3, RegionVar, Ledger) ->
     H3 :: h3:h3_index(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) ->
-    {ok, region_var()} | {error, any()}.
+    {ok, atom()} | {error, any()}.
 region_([], _H3, _Ledger) ->
     {error, unknown_region};
 region_([ToCheck | Remaining], H3, Ledger) ->
