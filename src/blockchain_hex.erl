@@ -199,7 +199,6 @@ calculate_densities(H3Index, VarMap, Ledger) ->
                             {error, not_found} -> 0 % XXX what should this value be?
                         end,
     Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
-
     Interactive = case application:get_env(blockchain, hip17_test_mode, false) of
                       true ->
                           %% HIP17 test mode, no interactive filtering
@@ -293,7 +292,8 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
     [libp2p_crypto:pubkey_bin(), ...].
 %% @doc This function filters a list of gateway addresses which are considered
 %% "interactive" for the purposes of HIP17 based on the last block when it
-%% responded to a POC challenge compared to the current chain height.
+%% responded to a POC challenge compared to the current chain height and if it
+%% has valid witnesses or not.
 filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
     lists:filter(fun(GWAddr) ->
@@ -306,7 +306,7 @@ filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
                         HasWitnesses = case blockchain_ledger_v1:find_gateway_has_witnesses(GWAddr) of
                             {ok, undefined} -> false;
                             {ok, HasWitnesses} -> 
-                                HasWitnesses; %% Just trying to keep the same format as above ... not sure of importance
+                                HasWitnesses;
                             {error, not_found} -> false
                         end,
                         IsInteractive and HasWitnesses
