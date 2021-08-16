@@ -494,7 +494,7 @@
 %% Each of the former regions is associated with a dynamic var of the same name which is is a serialized form of an h3_region set determined at h3_res: 7
 %% For more information, check: https://github.com/JayKickliter/lorawan-h3-regions and https://github.com/helium/erlang-h3/pull/29
 
-%% Additionally, each of the former regions is associated with a dynamic var of the form <regionname>_params, eg region_params_us915 which
+%% Additionally, each of the former regions is associated with a dynamic var of the form <regionname>_params, eg region_us915_params which
 %% contains the RF parameters for that region.
 %% TODO: Figure out region_parameters for each of the supported regions
 
