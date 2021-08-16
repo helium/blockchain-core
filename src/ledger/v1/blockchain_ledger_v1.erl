@@ -575,6 +575,7 @@ new_context(Ledger) ->
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(Cache, GwCache, Ledger).
 
+-spec new_direct_context(ledger()) -> ledger().
 new_direct_context(Ledger) ->
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(direct, GwCache, Ledger).
