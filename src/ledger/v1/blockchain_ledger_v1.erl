@@ -1549,7 +1549,7 @@ find_gateway_has_witnesses(Address, Ledger) ->
                 {ok, BinGw} ->
                     Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                     Witnesses = blockchain_ledger_gateway_v2:witnesses(Gw),
-                    HasWitnesses = map_size(Witnesses) > 0, %% Not sure if this "waterfall" is the right way todo this
+                    HasWitnesses = map_size(Witnesses) > 1, %% Not sure if this "waterfall" is the right way todo this
                     {ok, HasWitnesses};
                 not_found ->
                     {error, not_found};
