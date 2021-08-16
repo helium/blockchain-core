@@ -297,12 +297,19 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
 filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
     lists:filter(fun(GWAddr) ->
-                         case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
-                             {ok, undefined} -> false;
-                             {ok, LastChallenge} ->
-                                 (CurrentHeight - LastChallenge) =< InteractiveBlocks;
-                             {error, not_found} -> false
-                         end
+                        IsInteractive = case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
+                            {ok, undefined} -> false;
+                            {ok, LastChallenge} ->
+                                (CurrentHeight - LastChallenge) =< InteractiveBlocks;
+                            {error, not_found} -> false
+                        end,
+                        HasWitnesses = case blockchain_ledger_v1:find_gateway_has_witnesses(GWAddr) of
+                            {ok, undefined} -> false;
+                            {ok, HasWitnesses} -> 
+                                HasWitnesses; %% Just trying to keep the same format as above ... not sure of importance
+                            {error, not_found} -> false
+                        end,
+                        IsInteractive and HasWitnesses
                     end, GWs).
 
 -spec limit(

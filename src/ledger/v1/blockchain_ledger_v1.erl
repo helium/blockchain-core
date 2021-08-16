@@ -55,6 +55,7 @@
     find_gateway_location/2,
     find_gateway_owner/2,
     find_gateway_last_challenge/2,
+    find_gateway_has_witnesses/2, %% I'm assuming this is needed since blockchain_ledger_gateway_v2:witnesses/1 takes GW not GWAddr
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -1326,10 +1327,14 @@ load_gateways(Gws, Ledger) ->
               Location = blockchain_ledger_gateway_v2:location(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+              Witnesses = blockchain_ledger_gateway_v2:witnesses(Gw),
+              HasWitnesses = map_size(Witnesses) > 0, %% Not sure if this is the best way
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-has-witnesses">>,
+                        term_to_binary(HasWitnesses)),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
@@ -1526,6 +1531,26 @@ find_gateway_last_challenge(Address, Ledger) ->
                     Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
                     {ok, LastChallenge};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
+find_gateway_has_witnesses(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-has-witnesses">>, []) of
+        {ok, BinWitnesses} ->
+            {ok, binary_to_term(BinWitnesses)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Witnesses = blockchain_ledger_gateway_v2:witnesses(Gw),
+                    HasWitnesses = map_size(Witnesses) > 0, %% Not sure if this "waterfall" is the right way todo this
+                    {ok, HasWitnesses};
                 not_found ->
                     {error, not_found};
                 Error ->
