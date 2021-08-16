@@ -1539,7 +1539,6 @@ min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationL
     end.
 
 calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
-    %% XXX: Investigate why these blow up with aux ledger...
     {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
     {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
     GT = blockchain_ledger_gateway_v2:gain(SrcGW),

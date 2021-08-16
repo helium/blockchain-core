@@ -47,12 +47,12 @@ region_spreading(TaggedSpreading) ->
     PacketSize :: non_neg_integer()
 ) -> {ok, atom()} | {error, any()}.
 select_spreading(TaggedSpreading, PacketSize) ->
-    %% FIXME: This is not quite right...
     FilterFun = fun(Tagged) ->
         max_packet_size(Tagged) >= PacketSize
     end,
     case lists:filter(FilterFun, TaggedSpreading) of
-        [] -> {error, unable_to_get_spreading};
+        [] ->
+            {error, unable_to_get_spreading};
         Thing ->
             Tag = hd(Thing),
             {ok, region_spreading(Tag)}
