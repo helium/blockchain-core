@@ -21,7 +21,7 @@
 
     check_key/2, mark_key/2, unmark_key/2,
 
-    new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
+    new_context/1, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
     get_block/2,
@@ -284,7 +284,7 @@
     state_channels :: rocksdb:cf_handle(),
     h3dex :: rocksdb:cf_handle(),
     validators :: rocksdb:cf_handle(),
-    cache :: undefined | ets:tid(),
+    cache :: undefined | direct | ets:tid(),
     gateway_cache :: undefined | ets:tid()
 }).
 
@@ -575,6 +575,12 @@ new_context(Ledger) ->
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(Cache, GwCache, Ledger).
 
+-spec new_direct_context(ledger()) -> ledger().
+new_direct_context(Ledger) ->
+    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
+    context_cache(direct, GwCache, Ledger).
+   
+
 get_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
         {undefined, undefined} ->
@@ -591,6 +597,9 @@ delete_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
         {undefined, undefined} ->
             Ledger;
+        {direct, GwCache} ->
+            ets:delete(GwCache),
+            context_cache(undefined, undefined, Ledger);
         {Cache, GwCache} ->
             ets:delete(Cache),
             ets:delete(GwCache),
@@ -613,6 +622,9 @@ reset_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
         {undefined, undefined} ->
             ok;
+        {direct, GwCache} ->
+            true = ets:delete_all_objects(GwCache),
+            ok;
         {Cache, GwCache} ->
             true = ets:delete_all_objects(Cache),
             true = ets:delete_all_objects(GwCache),
@@ -622,17 +634,21 @@ reset_context(Ledger) ->
 -spec commit_context(ledger()) -> ok.
 commit_context(Ledger) ->
     DB = db(Ledger),
-    {Cache, GwCache} = ?MODULE:context_cache(Ledger),
-    {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
     {ok, Height} = current_height(Ledger),
-    prewarm_gateways(mode(Ledger), Height, Ledger, GwCache),
-    delete_context(Ledger),
-    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
-    rocksdb:release_batch(Batch),
-    case mode(Ledger) of
-        active ->
-            Callbacks();
-        _ -> ok
+    case ?MODULE:context_cache(Ledger) of
+        {direct, GwCache} ->
+            prewarm_gateways(mode(Ledger), Height, Ledger, GwCache);
+        {Cache, GwCache} ->
+            {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
+            prewarm_gateways(mode(Ledger), Height, Ledger, GwCache),
+            delete_context(Ledger),
+            ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
+            rocksdb:release_batch(Batch),
+            case mode(Ledger) of
+                active ->
+                    Callbacks();
+                _ -> ok
+            end
     end,
     ok.
 
@@ -640,7 +656,7 @@ commit_context(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(ledger()) -> {undefined | ets:tid(), undefined | ets:tid()}.
+-spec context_cache(ledger()) -> {undefined | direct | ets:tid(), undefined | ets:tid()}.
 context_cache(Ledger) ->
     SL = subledger(Ledger),
     #sub_ledger_v1{cache=Cache, gateway_cache=GwCache} = SL,
@@ -3524,7 +3540,7 @@ var_name(Name) when is_binary(Name) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(undefined | ets:tid(), undefined | ets:tid(), ledger()) -> ledger().
+-spec context_cache(undefined | direct | ets:tid(), undefined | ets:tid(), ledger()) -> ledger().
 context_cache(Cache, GwCache, Ledger) ->
     SL = subledger(Ledger),
     subledger(Ledger, SL#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}).
@@ -3796,14 +3812,18 @@ validators_cf(Ledger) ->
 
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
-    {Cache, _GwCache} = context_cache(Ledger),
-    true = ets:insert(Cache, {{Name, Key}, Value}),
+    case context_cache(Ledger) of
+        {direct, _GwCache} ->
+            rocksdb:put(Ledger#ledger_v1.db, _CF, Key, Value, []);
+        {Cache, _GwCache} ->
+            true = ets:insert(Cache, {{Name, Key}, Value})
+    end,
     ok.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
     case context_cache(Ledger) of
-        {undefined, undefined} ->
+        {C, _GwCache} when C == undefined; C == direct ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
         {Cache, _GwCache} ->
             %% don't do anything smart here with the cache yet,
@@ -3823,8 +3843,12 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
 cache_delete(Ledger, {Name, _DB, _CF}, Key) ->
     %% TODO: check if we're a gateway and delete that cache too, but
     %% we never delete gateways now
-    {Cache, _GwCache} = context_cache(Ledger),
-    true = ets:insert(Cache, {{Name, Key}, ?CACHE_TOMBSTONE}),
+    case context_cache(Ledger) of
+        {direct, _GWCache} ->
+            rocksdb:delete(Ledger#ledger_v1.db, _CF, Key, []);
+        {Cache, _GwCache} ->
+            true = ets:insert(Cache, {{Name, Key}, ?CACHE_TOMBSTONE})
+    end,
     ok.
 
 -spec cache_fold(Ledger :: ledger(),
@@ -3845,7 +3869,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        {undefined, undefined} ->
+        {C, undefined} when C == undefined; C == direct ->
             %% fold rocks directly
             rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
         {Cache, _GwCache} ->

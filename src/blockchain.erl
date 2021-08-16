@@ -2153,7 +2153,7 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
     %% loaded.  before this fix, if we crashed after loading, even if
     %% we succeeded loading, we'd redo that work.
     Height = Height0 - 1,
-    case blockchain:height(Blockchain) of
+    case blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)) of
         %% already loaded the snapshot
         {ok, CurrHeight} when CurrHeight >= Height ->
             lager:debug("ch ~p h ~p: std sync", [CurrHeight, Height]),
