@@ -1553,7 +1553,7 @@ min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, Destinatio
                     FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
                     case blockchain:config(?fspl_loss, Ledger) of
                         {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
                     end;
                 {error, _}=E ->
                     throw(E)
@@ -1573,7 +1573,7 @@ min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationL
             FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
             case blockchain:config(?fspl_loss, Ledger) of
                 {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * 1.0
+                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
             end;
         _ ->
             blockchain_utils:min_rcv_sig(
