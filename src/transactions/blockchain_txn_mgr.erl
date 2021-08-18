@@ -51,7 +51,7 @@
             dialers=[] :: dialers()
         }).
 
--type txn_key() :: integer().
+-type txn_key() :: term().
 -type cached_txn_type() :: {TxnKey :: txn_key(), Txn :: blockchain_txn:txn(), TxnData :: #txn_data{}}.
 -type dialers() :: [dialer()].
 -type dialer() :: {pid(), libp2p_crypto:pubkey_bin()}.
@@ -81,7 +81,7 @@ start_link(Args) when is_map(Args) ->
 submit(Txn, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, get_txn_key(), Callback}).
 
--spec submit(Txn :: blockchain_txn:txn(), Key :: integer(), Callback :: fun()) -> ok.
+-spec submit(Txn :: blockchain_txn:txn(), Key :: txn_key(), Callback :: fun()) -> ok.
 submit(Txn, Key, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, Key, Callback}).
 
@@ -123,7 +123,7 @@ handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
     NewState = initialize_with_chain(State, Chain),
     {noreply, NewState};
 
-handle_cast({submit, Txn, Key, Callback}, State=#state{chain = undefined}) when is_integer(Key) ->
+handle_cast({submit, Txn, Key, Callback}, State=#state{chain = undefined}) ->
     %% Got txn when there is no chain, keep it in the cache and process when its available
     %% as no chain we dont have any height data, so cache it with height = undefined
     %% we will update when the chain is set and we submit these cached txns
@@ -137,7 +137,7 @@ handle_cast({submit, Txn, Key, Callback}, State=#state{chain = undefined}) when 
     end,
     {noreply, State};
 
-handle_cast({submit, Txn, Key, Callback}, State=#state{cur_block_height = H}) when is_integer(Key) ->
+handle_cast({submit, Txn, Key, Callback}, State=#state{cur_block_height = H}) ->
     %% add the txn to the cache
     %% provided key will be utilised
     lager:debug("adding txn to cache: ~s", [blockchain_txn:print(Txn)]),
@@ -666,7 +666,7 @@ reject_f(NumMembers)->
     %% 2F+1
     (trunc((NumMembers) div 3) * 2) + 1.
 
--spec get_txn_key()-> integer().
+-spec get_txn_key()-> txn_key().
 get_txn_key()->
     %% define a unique value to use as they cache key for the received txn, for now its just a mono increasing timestamp.
     %% Timestamp is a poormans key but as txns are serialised via a single txn mgr per node, it satisfies the need here
