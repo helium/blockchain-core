@@ -1333,6 +1333,9 @@ is_too_far(Ledger, SrcLoc, DstLoc) ->
             {false, Distance}
     end.
 
+-spec check_valid_frequency(Location :: h3:h3_index(),
+                            Frequency :: float(),
+                            Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
 check_valid_frequency(Location, Frequency, Ledger) ->
     %% only check this if poc 11
     case blockchain:config(?poc_version, Ledger) of
