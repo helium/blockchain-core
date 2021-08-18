@@ -187,7 +187,9 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     case check_is_valid_poc(Txn, Chain) of
                                         ok -> ok;
-                                        {ok, _} ->
+                                        {ok, Channels} ->
+                                            lager:debug("POCID: ~p, validated ok with reported channels: ~p",
+                                                        [poc_id(Txn), Channels]),
                                             ok;
                                         Error -> Error
                                     end
@@ -338,11 +340,7 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
-                                                    %% TODO get the number of channels from poc 11 vars
-                                                    Channels = lists:map(fun(Layer) ->
-                                                                                 <<IntData:16/integer-unsigned-little>> = Layer,
-                                                                                 IntData rem 8
-                                                                         end, LayerData),
+                                                    Channels = get_channels_(OldLedger, Path, LayerData),
                                                     %% We are on poc v9
                                                     %% %% run validations
                                                     Ret = case POCVer >= 10 of
@@ -1546,8 +1544,9 @@ get_channels(Txn, Chain) ->
     PathLength = length(Path),
 
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    Ledger = blockchain:ledger(Chain),
 
-    BlockHash = case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
+    BlockHash = case blockchain:config(?poc_version, Ledger) of
         {ok, POCVer} when POCVer >= 10 ->
             ?MODULE:request_block_hash(Txn);
         _ ->
@@ -1577,13 +1576,41 @@ get_channels(Txn, Chain) ->
             {error, request_block_hash_not_found};
         BH ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
-            [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
-            %% TODO we should get the channel count from the poc 11 region vars
-            Channels1 = lists:map(fun(Layer) ->
-                                          <<IntData:16/integer-unsigned-little>> = Layer,
-                                          IntData rem 8
-                                  end, LayerData1),
-            {ok, Channels1}
+            [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
+            Channels = get_channels_(Ledger, Path, LayerData),
+            {ok, Channels}
+    end.
+
+-spec get_channels_(Ledger :: blockchain_ledger_v1:ledger(),
+                    Path :: blockchain_poc_path_element_v1:poc_path(),
+                    LayerData :: [binary()]) -> [non_neg_integer()].
+get_channels_(Ledger, Path, LayerData) ->
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V > 10 ->
+            %% Get from region vars
+            %% Just get the channels using the challengee's region from head of the path
+            %% We assert that all path members (which is only 1 member, beacon right now)
+            %% will be in the same region
+            Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+            case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
+                {error, _}=E ->
+                    E;
+                {ok, ChallengeeLoc} ->
+                    case blockchain_region_v1:h3_to_region(ChallengeeLoc, Ledger) of
+                        {error, _}=E ->
+                            E;
+                        {ok, Region} ->
+                            {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+                            lists:map(fun(Param) ->
+                                              blockchain_region_param_v1:channel_frequency(Param)
+                                      end, Params)
+                    end
+            end;
+        _ ->
+            lists:map(fun(Layer) ->
+                              <<IntData:16/integer-unsigned-little>> = Layer,
+                              IntData rem 8
+                      end, LayerData)
     end.
 
 min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
