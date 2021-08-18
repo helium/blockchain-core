@@ -32,6 +32,7 @@
     eu433_test/1,
     in865_test/1,
     kr920_test/1,
+    australia_test/1,
     au915_test/1,
     cn470_test/1,
     us915_test/1,
@@ -76,6 +77,7 @@ with_h3_data_test_cases() ->
         eu433_test,
         in865_test,
         kr920_test,
+        australia_test,
         au915_test,
         cn470_test,
         us915_test,
@@ -209,13 +211,28 @@ as923_3_test(Config) ->
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
+australia_test(Config) ->
+    %% Australia operates on AS923_1
+    Ledger = ?config(ledger, Config),
+    %% Melbourne, Australia
+    H3 = h3:from_geo({-37.821009972614775, 144.9686332019166}, 12),
+    case blockchain:config(region_as923_1, Ledger) of
+        {ok, Bin} ->
+            {true, _Parent} = h3:contains(H3, Bin),
+            {ok, region_as923_1} = blockchain_region_v1:h3_to_region(H3, Ledger),
+            ok;
+        _ ->
+            ct:fail("broken")
+    end.
+
 au915_test(Config) ->
     Ledger = ?config(ledger, Config),
-    AUH3 = 633862093138897919,
+    %% Brasilia, Brazil
+    H3 = h3:from_geo({-15.79816586730825, -47.86162940214371}, 12),
     case blockchain:config(region_au915, Ledger) of
         {ok, Bin} ->
-            {true, _Parent} = h3:contains(AUH3, Bin),
-            {ok, region_au915} = blockchain_region_v1:h3_to_region(AUH3, Ledger),
+            {true, _Parent} = h3:contains(H3, Bin),
+            {ok, region_au915} = blockchain_region_v1:h3_to_region(H3, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -280,7 +297,7 @@ region_not_found_test(Config) ->
     {error, {h3_contains_failed, _}} = blockchain_region_v1:h3_to_region(InvalidH3, Ledger),
 
     MongoliaH3 = 631161054839972863,
-    {error, unknown_region} = blockchain_region_v1:h3_to_region(MongoliaH3, Ledger),
+    {error, {unknown_region, MongoliaH3}} = blockchain_region_v1:h3_to_region(MongoliaH3, Ledger),
 
     ok.
 
