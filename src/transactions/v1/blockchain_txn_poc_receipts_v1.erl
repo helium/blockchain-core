@@ -1341,7 +1341,7 @@ check_valid_frequency(Location, Frequency, Ledger) ->
                 {ok, Region} ->
                     {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
                     ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
-                    lists:any(fun(E) -> abs(E - Frequency) =< 0.001 end, ChannelFreqs);
+                    lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
                 _ ->
                     false
             end;
