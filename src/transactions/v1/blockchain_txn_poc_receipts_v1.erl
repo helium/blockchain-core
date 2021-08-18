@@ -338,6 +338,7 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
+                                                    %% TODO get the number of channels from poc 11 vars
                                                     Channels = lists:map(fun(Layer) ->
                                                                                  <<IntData:16/integer-unsigned-little>> = Layer,
                                                                                  IntData rem 8
@@ -1182,7 +1183,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                             undefined;
                                         true ->
                                             case blockchain:config(?data_aggregation_version, Ledger) of
-                                                {ok, 2} ->
+                                                {ok, DataAggVsn} when DataAggVsn > 1 ->
                                                     case check_rssi_snr(Ledger, RSSI, SNR) of
                                                         true ->
                                                             case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
@@ -1212,7 +1213,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                             end
                                     end;
                                 _ ->
-                                    %% too close or too far
+                                    %% too close
                                     undefined
                             catch
                                 _:_ ->
@@ -1275,7 +1276,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                          false;
                                                      true ->
                                                          case blockchain:config(?data_aggregation_version, Ledger) of
-                                                             {ok, 2} ->
+                                                             {ok, DataAggVsn} when DataAggVsn > 1 ->
                                                                  case check_rssi_snr(Ledger, RSSI, SNR) of
                                                                      true ->
                                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
@@ -1388,7 +1389,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                             [blockchain_utils:addr2name(SrcPubkeyBin),
                                              blockchain_utils:addr2name(DstPubkeyBin),
                                              SourceLoc, DestinationLoc]),
-                                undefined;
+                                [{false, <<"witness_not_same_region">>, Witness} | Acc];
                             true ->
                                 case is_too_far(Ledger, SourceLoc, DestinationLoc) of
                                     {true, Distance} ->
@@ -1396,7 +1397,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                     [blockchain_utils:addr2name(SrcPubkeyBin),
                                                      blockchain_utils:addr2name(DstPubkeyBin),
                                                      SourceLoc, DestinationLoc, Distance]),
-                                        undefined;
+                                        [{false, <<"witness_too_far">>, Witness} | Acc];
                                     {false, _Distance} ->
                                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                              Dist when Dist >= ExclusionCells ->
@@ -1416,7 +1417,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                          [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
                                                      true ->
                                                          case blockchain:config(?data_aggregation_version, Ledger) of
-                                                             {ok, 2} ->
+                                                             {ok, DataAggVsn} when DataAggVsn > 1 ->
                                                                  case check_rssi_snr(Ledger, RSSI, SNR) of
                                                                      true ->
                                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
@@ -1446,7 +1447,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                          end
                                                  end;
                                              _ ->
-                                                 %% too close or too far
+                                                 %% too close
                                                  [{false, <<"witness_too_close">>, Witness} | Acc]
                                          catch _:_ ->
                                                    %% pentagonal distortion
@@ -1529,6 +1530,7 @@ get_channels(Txn, Chain) ->
         BH ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
             [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
+            %% TODO we should get the channel count from the poc 11 region vars
             Channels1 = lists:map(fun(Layer) ->
                                           <<IntData:16/integer-unsigned-little>> = Layer,
                                           IntData rem 8
