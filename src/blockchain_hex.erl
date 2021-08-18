@@ -5,7 +5,7 @@
          destroy_memoization/0]).
 
 -ifdef(TEST).
--export([densities/3]).
+%% -export([densities/3]).
 -endif.
 
 -include("blockchain_vars.hrl").
@@ -13,13 +13,14 @@
 
 -define(SCALE_MEMO_TBL, '__blockchain_hex_scale_memoization_tbl').
 -define(DENSITY_MEMO_TBL, '__blockchain_hex_density_memoization_tbl').
+-define(PRE_MEMO_TBL, '__blockchain_hex_prememoization_tbl').
+-define(PRE_CLIP_MEMO_TBL, '__blockchain_hex_denasdsdsity_prememoization_tbl').
 -define(ETS_OPTS, [named_table, public]).
 
--type density_map() :: #{h3:h3_index() => non_neg_integer()}.
--type densities() :: {UnclippedDensities :: density_map(), ClippedDensities :: density_map()}.
+%% -type density_map() :: #{h3:h3_index() => non_neg_integer()}.
+%% -type densities() :: ClippedDensities :: density_map().
 -type var_map() :: #{0..12 => map()}.
--type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(), ...]}.
--type h3_indices() :: [h3:h3_index()].
+%% -type h3_indices() :: [h3:h3_index()].
 -type tblnames() :: ?SCALE_MEMO_TBL|?DENSITY_MEMO_TBL.
 
 -export_type([var_map/0]).
@@ -31,6 +32,8 @@
 %% @doc This call will destroy the memoization context used during a rewards
 %% calculation.
 destroy_memoization() ->
+    try ets:delete(?PRE_MEMO_TBL) catch _:_ -> true end,
+    try ets:delete(?PRE_CLIP_MEMO_TBL) catch _:_ -> true end,
     try ets:delete(?SCALE_MEMO_TBL) catch _:_ -> true end,
     try ets:delete(?DENSITY_MEMO_TBL) catch _:_ -> true end.
 
@@ -64,11 +67,15 @@ scale(Location, Ledger) ->
 %% @doc Given a hex location, return the rewards scaling factor. This call is
 %% memoized.
 scale(Location, VarMap, TargetRes, Ledger) ->
+    maybe_precalc(Ledger),
     case lookup(Location, ?SCALE_MEMO_TBL) of
         {ok, Scale} -> Scale;
         not_found ->
+            Ret =
             memoize(?SCALE_MEMO_TBL, Location,
-                    calculate_scale(Location, VarMap, TargetRes, Ledger))
+                    calculate_scale(Location, VarMap, TargetRes, Ledger)),
+            lager:info("scale ~p ~p ~p", [Location, TargetRes, Ret]),
+            Ret
     end.
 
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, var_map()}.
@@ -137,6 +144,18 @@ lookup(Key, TblName) ->
             not_found
     end.
 
+dlookup(Key) ->
+    case ets:lookup(?PRE_MEMO_TBL, Key) of
+        [{_Key, Res}] -> Res;
+        [] -> 0
+    end.
+
+clookup(Key) ->
+    case ets:lookup(?PRE_CLIP_MEMO_TBL, Key) of
+        [{_Key, Res}] -> Res;
+        [] -> 0
+    end.
+
 -spec maybe_start(TblName :: tblnames()) -> tblnames().
 maybe_start(TblName) ->
     try
@@ -157,160 +176,179 @@ memoize(TblName, Key, Result) ->
     VarMap :: var_map(),
     TargetRes :: 0..12,
     Ledger :: blockchain_ledger_v1:ledger() ) -> float().
-calculate_scale(Location, VarMap, TargetRes, Ledger) ->
+calculate_scale(Location, _VarMap, TargetRes, _Ledger) ->
     %% hip0017 states to go from R -> 0 and take a product of the clipped(parent)/unclipped(parent)
     %% however, we specify the lower bound instead of going all the way down to 0
 
-    {R, OuterMostParent} = {h3:get_resolution(Location),
-                            h3:parent(Location, TargetRes)},
+    R = h3:get_resolution(Location),
+    %% {R, OuterMostParent} = {h3:get_resolution(Location),
+    %%                         h3:parent(Location, TargetRes)},
 
-    %% Calculate densities at the outermost hex
-    {UnclippedDensities, ClippedDensities} = densities(OuterMostParent, VarMap, Ledger),
+    %% %% Calculate densities at the outermost hex
+    %% ClippedDensities = densities(OuterMostParent, VarMap, Ledger),
+
+    %% lager:info("outermost ~p", [OuterMostParent]),
 
     lists:foldl(fun(Res, Acc) ->
                         Parent = h3:parent(Location, Res),
-                        case maps:get(Parent, UnclippedDensities, 0) of
+                        case dlookup(Parent) of
                             0 -> Acc;
-                            Unclipped -> Acc * (maps:get(Parent, ClippedDensities) / Unclipped)
+                            Unclipped -> Acc * (clookup(Parent) / Unclipped)
                         end
                 end, 1.0, lists:seq(R, TargetRes, -1)).
 
 
--spec densities(
-    H3Index :: h3:h3_index(),
-    VarMap :: var_map(),
-    Ledger :: blockchain_ledger_v1:ledger()
-) -> densities().
-densities(H3Index, VarMap, Ledger) ->
-    case lookup(H3Index, ?DENSITY_MEMO_TBL) of
-        {ok, Densities} -> Densities;
-        not_found -> memoize(?DENSITY_MEMO_TBL, H3Index,
-                             calculate_densities(H3Index, VarMap, Ledger))
-    end.
+%% -spec densities(
+%%     H3Index :: h3:h3_index(),
+%%     VarMap :: var_map(),
+%%     Ledger :: blockchain_ledger_v1:ledger()
+%% ) -> densities().
+%% densities(H3Index, VarMap, Ledger) ->
+%%     case lookup(H3Index, ?DENSITY_MEMO_TBL) of
+%%         {ok, Densities} -> Densities;
+%%         not_found -> memoize(?DENSITY_MEMO_TBL, H3Index,
+%%                              calculate_densities(H3Index, VarMap, Ledger))
+%%     end.
 
--spec calculate_densities(
-    H3Index :: h3:h3_index(),
-    VarMap :: var_map(),
-    Ledger :: blockchain_ledger_v1:ledger()
-) -> densities().
-calculate_densities(H3Index, VarMap, Ledger) ->
-    InteractiveBlocks = case blockchain_ledger_v1:config(?hip17_interactivity_blocks, Ledger) of
-                            {ok, V} -> V;
-                            {error, not_found} -> 0 % XXX what should this value be?
-                        end,
-    Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
-
-    Interactive = case application:get_env(blockchain, hip17_test_mode, false) of
-                      true ->
-                          %% HIP17 test mode, no interactive filtering
-                          Locations;
-                      false ->
-                          maps:map(
-                            fun(_K, V) ->
-                                    filter_interactive_gws(V, InteractiveBlocks, Ledger)
-                            end, Locations)
-                  end,
-
-    %% Calculate clipped and unclipped densities
-    densities(H3Index, VarMap, Interactive, Ledger).
-
--spec densities(
-    H3Root :: h3:h3_index(),
-    VarMap :: var_map(),
-    Locations :: locations(),
-    Ledger :: blockchain_ledger_v1:ledger()
-) -> densities().
-densities(H3Root, VarMap, Locations, Ledger) ->
-    case maps:size(Locations) of
-        0 ->
-            {#{}, #{}};
+maybe_precalc(Ledger) ->
+    case ets:info(?PRE_MEMO_TBL) of
+        undefined ->
+            precalc(Ledger);
         _ ->
-            {Upper, Lower} = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
-                                 {ok, Limit} ->
-                                     {lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
-                                      Limit};
-                                 {error, not_found} ->
-                                     {lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
-                                      h3:get_resolution(H3Root)}
-                             end,
-            [Head | Tail] = lists:seq(Upper, Lower, -1),
-
-            ct:pal("upper ~p lower ~p h ~p t ~p", [Upper, Lower, Head, Tail]),
-
-            %% find parent hexes to all hotspots at highest resolution in chain variables
-            {ParentHexes, InitialDensities} =
-                maps:fold(
-                    fun(Hex, GWs, {HAcc, MAcc}) ->
-                        ParentHex = h3:parent(Hex, Head),
-                        case maps:find(ParentHex, MAcc) of
-                            error ->
-                                {[ParentHex | HAcc], maps:put(ParentHex, length(GWs), MAcc)};
-                            {ok, OldCount} ->
-                                {HAcc, maps:put(ParentHex, OldCount + length(GWs), MAcc)}
-                        end
-                    end,
-                    {[], #{}},
-                    Locations
-                ),
-
-            build_densities(
-                H3Root,
-                Ledger,
-                VarMap,
-                ParentHexes,
-                {InitialDensities, InitialDensities},
-                Tail
-            )
+            ok
     end.
 
--spec build_densities(
-    h3:h3_index(),
-    blockchain_ledger_v1:ledger(),
-    var_map(),
-    h3_indices(),
-    densities(),
-    [0..15]
-) -> densities().
-build_densities(_H3Root, _Ledger, _VarMap, _ParentHexes, {UAcc, Acc}, []) ->
-    {UAcc, Acc};
-build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) ->
-    UD = unclipped_densities(ChildHexes, Res, Acc),
-    UM0 = maps:merge(UAcc, UD),
-    M0 = maps:merge(Acc, UD),
-
-    OccupiedHexesThisRes = maps:keys(UD),
-
-    DensityTarget = maps:get(tgt, maps:get(Res, VarMap)),
-
-    M1 = lists:foldl(
-        fun(ThisResHex, Acc3) ->
-            OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
-            Limit = limit(Res, VarMap, OccupiedCount),
-            maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
+precalc(Ledger) ->
+    {ok, VarMap} = var_map(Ledger),
+    Start = erlang:monotonic_time(millisecond),
+    InteractiveBlocks =
+        case blockchain_ledger_v1:config(?hip17_interactivity_blocks, Ledger) of
+            {ok, V} -> V;
+            {error, not_found} -> 0 % XXX what should this value be?
         end,
-        M0,
-        OccupiedHexesThisRes
-    ),
-
-    build_densities(H3Root, Ledger, VarMap, OccupiedHexesThisRes, {UM0, M1}, Tail).
-
--spec filter_interactive_gws( GWs :: [libp2p_crypto:pubkey_bin(), ...],
-                              InteractiveBlocks :: pos_integer(),
-                              Ledger :: blockchain_ledger_v1:ledger()) ->
-    [libp2p_crypto:pubkey_bin(), ...].
-%% @doc This function filters a list of gateway addresses which are considered
-%% "interactive" for the purposes of HIP17 based on the last block when it
-%% responded to a POC challenge compared to the current chain height.
-filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
-    lists:filter(fun(GWAddr) ->
-                         case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
-                             {ok, undefined} -> false;
-                             {ok, LastChallenge} ->
-                                 (CurrentHeight - LastChallenge) =< InteractiveBlocks;
-                             {error, not_found} -> false
-                         end
-                    end, GWs).
+    ets:new(?PRE_MEMO_TBL, [named_table, public]),
+    ets:new(?PRE_CLIP_MEMO_TBL, [named_table, public]),
+    TCt =
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({_Addr, BinGw}, Acc) ->
+              G = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              L = blockchain_ledger_gateway_v2:location(G),
+              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(G),
+              case LastChallenge /= undefined andalso
+                  (CurrentHeight - LastChallenge) =< InteractiveBlocks of
+                  true ->
+                      case L of
+                          undefined -> Acc;
+                          _ ->
+                              lists:foreach(
+                                fun(H) ->
+                                ets:update_counter(?PRE_MEMO_TBL, H, 1, {H, 0})
+                                end,
+                                [h3:parent(L, N) || N <- lists:seq(4, 12)]),
+                              Acc + 1
+                      end;
+                  _ -> Acc
+              end
+      end, 0, Ledger),
+    ets:foldl(fun({Hex, Ct}, _) ->
+                      Res = h3:get_resolution(Hex),
+                      DensityTarget = maps:get(tgt, maps:get(Res, VarMap)),
+                      OccupiedCount = occupied_count(DensityTarget, Hex),
+                      Limit = limit(Res, VarMap, OccupiedCount),
+                      Actual = min(Limit, Ct),
+                      ets:update_counter(?PRE_CLIP_MEMO_TBL, Hex, Actual, {Hex, 0})
+              end, foo, ?PRE_MEMO_TBL),
+
+    End = erlang:monotonic_time(millisecond),
+    lager:info("ets ~p ~p ~p ~p", [ets:info(?PRE_MEMO_TBL, size), TCt, InteractiveBlocks, End-Start]).
+
+%% -spec calculate_densities(
+%%     H3Index :: h3:h3_index(),
+%%     VarMap :: var_map(),
+%%     Ledger :: blockchain_ledger_v1:ledger()
+%% ) -> densities().
+%% calculate_densities(H3Index, VarMap, Ledger) ->
+%%     %% Calculate clipped and densities
+%%     densities_(H3Index, VarMap, Ledger).
+
+%% -spec densities_(
+%%     H3Root :: h3:h3_index(),
+%%     VarMap :: var_map(),
+%%     Ledger :: blockchain_ledger_v1:ledger()
+%% ) -> densities().
+%% densities_(H3Root, VarMap, Ledger) ->
+%%     Lower = case blockchain_ledger_v1:config(?hip17_resolution_limit, Ledger) of
+%%                 {ok, Limit} ->
+%%                     Limit;
+%%                 {error, not_found} ->
+%%                     h3:get_resolution(H3Root)
+%%             end,
+%%     Tail = lists:seq(9, Lower, -1),
+
+%%     InitialHexes0 = h3:k_ring(H3Root, 2),
+%%     InitialHexes = lists:flatmap(fun(H) ->
+%%                                          h3:children(H, 10)
+%%                                  end, InitialHexes0),
+
+%%     %% lager:info("init ~p lower ~p", [InitialHexes, Lower]),
+
+%%     %% find parent hexes to all hotspots at highest resolution in chain variables
+%%     InitialDensities =
+%%         lists:foldl(
+%%           fun(Hex, Acc) ->
+%%                   case dlookup(Hex) of
+%%                       0 -> Acc;
+%%                       Ct ->
+%%                           maps:put(Hex, Ct, Acc)
+%%                   end
+%%           end,
+%%           #{},
+%%           InitialHexes
+%%          ),
+
+%%     build_densities(
+%%       H3Root,
+%%       Ledger,
+%%       VarMap,
+%%       InitialHexes,
+%%       InitialDensities,
+%%       Tail
+%%      ).
+
+%% -spec build_densities(
+%%     h3:h3_index(),
+%%     blockchain_ledger_v1:ledger(),
+%%     var_map(),
+%%     h3_indices(),
+%%     densities(),
+%%     [0..15]
+%% ) -> densities().
+%% build_densities(_H3Root, _Ledger, _VarMap, _ParentHexes, Acc, []) ->
+%%     Acc;
+%% build_densities(H3Root, Ledger, VarMap, ChildHexes, Acc, [Res | Tail]) ->
+%%     UD = unclipped_densities(ChildHexes, Res),
+%%     M0 = maps:merge(Acc, UD),
+
+%%     lager:info("root ~p size ~p res ~p", [H3Root, maps:size(M0), Res]),
+
+%%     OccupiedHexesThisRes = maps:keys(UD),
+
+%%     DensityTarget = maps:get(tgt, maps:get(Res, VarMap)),
+
+%%     M1 = lists:foldl(
+%%         fun(ThisResHex, Acc3) ->
+%%             OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
+%%             Limit = limit(Res, VarMap, OccupiedCount),
+%%             maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
+%%         end,
+%%         M0,
+%%         OccupiedHexesThisRes
+%%     ),
+
+%%     build_densities(H3Root, Ledger, VarMap, OccupiedHexesThisRes, M1, Tail).
+
 
 -spec limit(
     Res :: 0..12,
@@ -327,15 +365,14 @@ limit(Res, VarMap, OccupiedCount) ->
 
 -spec occupied_count(
     DensityTarget :: 0..12,
-    ThisResHex :: h3:h3_index(),
-    DensityMap :: density_map()
+    ThisResHex :: h3:h3_index()
 ) -> non_neg_integer().
-occupied_count(DensityTarget, ThisResHex, DensityMap) ->
+occupied_count(DensityTarget, ThisResHex) ->
     H3Neighbors = h3:k_ring(ThisResHex, 1),
 
     lists:foldl(
         fun(Neighbor, Acc) ->
-            case maps:get(Neighbor, DensityMap, 0) >= DensityTarget of
+            case dlookup(Neighbor) >= DensityTarget of
                 false -> Acc;
                 true -> Acc + 1
             end
@@ -344,21 +381,35 @@ occupied_count(DensityTarget, ThisResHex, DensityMap) ->
         H3Neighbors
     ).
 
--spec unclipped_densities(h3_indices(), 0..12, density_map()) -> density_map().
-unclipped_densities(ChildToParents, Res, Acc) ->
-    lists:foldl(
-        fun(ChildHex, Acc2) ->
-            ThisParentHex = h3:parent(ChildHex, Res),
-            maps:update_with(
-                ThisParentHex,
-                fun(V) -> V + maps:get(ChildHex, Acc, 0) end,
-                maps:get(ChildHex, Acc, 0),
-                Acc2
-            )
-        end,
-        #{},
-        ChildToParents
-    ).
+%% -spec unclipped_densities(h3_indices(), 0..12) -> density_map().
+%% unclipped_densities(ChildToParents, Res) ->
+%%     lists:foldl(
+%%       fun(ChildHex, Acc2) ->
+%%               case parent(ChildHex, Res) of
+%%                   too_low -> Acc2;
+%%                   Parent ->
+%%                       case dlookup(ChildHex) of
+%%                           0 -> Acc2;
+%%                           Ct ->
+%%                               maps:update_with(
+%%                                 Parent,
+%%                                 fun(V) -> V + Ct end,
+%%                                 Ct,
+%%                                 Acc2
+%%                                )
+%%                       end
+%%               end
+%%       end,
+%%       #{},
+%%       ChildToParents
+%%      ).
+
+%% parent(Hex, Res) ->
+%%     try
+%%         h3:parent(Hex, Res)
+%%     catch _:_ ->
+%%             too_low
+%%     end.
 
 -spec get_density_var(
     Var :: atom(),

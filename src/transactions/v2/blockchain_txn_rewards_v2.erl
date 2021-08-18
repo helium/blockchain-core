@@ -1070,7 +1070,8 @@ poc_witness_reward(Txn, AccIn,
                 Path)
     catch
         What:Why:ST ->
-            lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p:~p", [What, Why, ST]),
+            lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p:~p", [What, Why]),
+            lager:error("st :~p", [ST]),
             AccIn
     end;
 poc_witness_reward(Txn, AccIn, _Chain, Ledger,
