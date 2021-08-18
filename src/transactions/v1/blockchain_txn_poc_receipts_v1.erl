@@ -1350,32 +1350,6 @@ check_valid_frequency(Location, Frequency, Ledger) ->
             true
     end.
 
-%% done on receipts to check their tx power
-check_eirp_limits(Location, Frequency, TxPower, TxGain, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V > 10 ->
-            case blockchain_region_v1:h3_to_region(Location, Ledger) of
-                {ok, Region} ->
-                    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-                    ChannelFreqs = [{blockchain_region_param_v1:channel_frequency(I),
-                                    blockchain_region_param_v1:max_eirp(I)} || I <- Params],
-                    case lists:search(fun({E, _}) -> abs(E - Frequency) =< 0.001 end, ChannelFreqs) of
-                        {value, {_, EIRP}} ->
-                            TxPower + TxGain =< EIRP;
-                        _ ->
-                            %% should not happen
-                            throw({error, {no_eirp_in_region, Region}})
-                    end;
-                _ ->
-                    %% should not happen
-                    throw({error, no_region})
-            end;
-        _ ->
-            %% We're not in poc-v11+
-            true
-    end.
-
-
 -spec is_same_region(
     Ledger :: blockchain_ledger_v1:ledger(),
     SourceLoc :: h3:h3_index(),
