@@ -1251,7 +1251,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                             [blockchain_utils:addr2name(SrcPubkeyBin),
                                              blockchain_utils:addr2name(WitnessPubkeyBin),
                                              SourceLoc, DestinationLoc]),
-                                undefined;
+                                false;
                             true ->
                                 case is_too_far(Ledger, SourceLoc, DestinationLoc) of
                                     {true, Distance} ->
@@ -1259,7 +1259,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                     [blockchain_utils:addr2name(SrcPubkeyBin),
                                                      blockchain_utils:addr2name(WitnessPubkeyBin),
                                                      SourceLoc, DestinationLoc, Distance]),
-                                        undefined;
+                                        false;
                                     {false, _Distance} ->
                                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                              Dist when Dist >= ExclusionCells ->
