@@ -410,7 +410,20 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
                 blockchain:blocks_cf(Chain),
                 blockchain:heights_cf(Chain),
                 %% these options taken from rocksdb's PrepareForBulkLoad()
-                [{disable_auto_compactions, true}, {num_levels, 2}, {max_write_buffer_number, 10}, {min_write_buffer_number_to_merge, 1}, {max_background_flushes, 4}, {level0_file_num_compaction_trigger, 1 bsl 30}, {level0_slowdown_writes_trigger, 1 bsl 30}, {level0_stop_writes_trigger, 1 bsl 30}, {max_compaction_bytes, 1 bsl 60}, {target_file_size_base, 8388608}, {atomic_flush, false}, {write_buffer_size, 8388608}]
+                [
+                    {disable_auto_compactions, true},
+                    {num_levels, 2},
+                    {max_write_buffer_number, 10},
+                    {min_write_buffer_number_to_merge, 1},
+                    {max_background_flushes, 4},
+                    {level0_file_num_compaction_trigger, 1 bsl 30},
+                    {level0_slowdown_writes_trigger, 1 bsl 30},
+                    {level0_stop_writes_trigger, 1 bsl 30},
+                    {max_compaction_bytes, 1 bsl 60},
+                    {target_file_size_base, 8388608},
+                    {atomic_flush, false},
+                    {write_buffer_size, 8388608}
+                ]
                ),
 
     %% we load up both with the same snapshot here, then sync the next N
