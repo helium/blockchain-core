@@ -496,7 +496,6 @@
 
 %% Additionally, each of the former regions is associated with a dynamic var of the form <regionname>_params, eg region_us915_params which
 %% contains the RF parameters for that region.
-%% TODO: Figure out region_parameters for each of the supported regions
 
 %% The values these take is binary obtained by serializing
 %% a valid channel param specification.

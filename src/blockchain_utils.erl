@@ -217,6 +217,7 @@ rand_state(Hash) ->
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
     rand:seed_s(exs1024s, {A, B, C}).
 
+-spec distance(L1 :: h3:h3_index(), L2 :: h3:h3_index()) -> float().
 distance(L1, L1) ->
     %% Same location, defaulting the distance to 1m
     0.001;
