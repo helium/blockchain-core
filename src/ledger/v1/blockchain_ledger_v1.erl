@@ -5,7 +5,7 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/1, new/4, new/5,
+    new/1, new/4, new/5, new/6,
     new_aux/1,
     bootstrap_aux/2,
     mode/1, mode/2,
@@ -356,11 +356,15 @@ new(Dir) ->
 
 -spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
 new(Dir, BlocksDB, BlocksCF, HeightsCF) ->
-    new(Dir, false, BlocksDB, BlocksCF, HeightsCF).
+    new(Dir, false, BlocksDB, BlocksCF, HeightsCF, []).
 
 -spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
 new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF) ->
-    L = new(Dir, ReadOnly),
+    new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, []).
+
+-spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_options()) -> ledger().
+new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, Options) ->
+    L = new(Dir, ReadOnly, Options),
 
     %% allow config-set commit hooks in case we're worried about something being racy
     Hooks =
@@ -376,8 +380,8 @@ new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF) ->
     sweep_old_checkpoints(Ledger),
     Ledger.
 
-new(Dir, ReadOnly) ->
-    {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly),
+new(Dir, ReadOnly, Options) ->
+    {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly, Options),
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
@@ -476,7 +480,7 @@ new_aux(Ledger) ->
     end.
 
 new_aux(Path, Ledger) ->
-    {ok, DB, CFs} = open_db(aux, Path, false, false),
+    {ok, DB, CFs} = open_db(aux, Path, false, false, []),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, AuxHeightsCF] = CFs,
     Ledger#ledger_v1{aux=#aux_ledger_v1{
@@ -785,7 +789,7 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                                             ok
                                     end,
                                     %% open the checkpoint read-write and commit the changes in the ETS table into it
-                                    Ledger2 = new(filename:dirname(TmpDir), false),
+                                    Ledger2 = new(filename:dirname(TmpDir), false, []),
                                     Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
                                     #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                                     lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
@@ -865,7 +869,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                             try
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
                                 %% new/2 wants to add on the ledger.db part itself
-                                NewLedger = new(filename:dirname(CheckpointDir), true),
+                                NewLedger = new(filename:dirname(CheckpointDir), true, []),
                                 %% share the snapshot cache with the new ledger
                                 NewLedger2 = blockchain_ledger_v1:mode(Mode,
                                                                        NewLedger#ledger_v1{
@@ -3814,7 +3818,7 @@ validators_cf(Ledger) ->
 cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
     case context_cache(Ledger) of
         {direct, _GwCache} ->
-            rocksdb:put(Ledger#ledger_v1.db, _CF, Key, Value, []);
+            rocksdb:put(Ledger#ledger_v1.db, _CF, Key, Value, [{disable_wal, true}, {sync, false}]);
         {Cache, _GwCache} ->
             true = ets:insert(Cache, {{Name, Key}, Value})
     end,
@@ -3952,26 +3956,26 @@ process_fun(ToProcess, Cache, CF,
 
 -spec open_db(Mode :: mode(),
               Dir :: file:filename_all(),
-              HasDelayed :: boolean(), ReadOnly :: boolean()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
-open_db(active, Dir, true, ReadOnly) ->
+              HasDelayed :: boolean(), ReadOnly :: boolean(), Options :: rocksdb:cf_options()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(active, Dir, true, ReadOnly, Options) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
+    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts)),
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ delayed_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, false);
-open_db(aux, Dir, false, ReadOnly) ->
+    open_db_(DBDir, DBOptions, DefaultCFs, lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, CFOpts)), ReadOnly, false);
+open_db(aux, Dir, false, ReadOnly, Options) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
+    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts)),
     CFOpts = GlobalOpts,
     DefaultCFs = default_cfs() ++ aux_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, false);
-open_db(active, _Dir, false, _) ->
+    open_db_(DBDir, DBOptions, DefaultCFs, lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, CFOpts)), ReadOnly, false);
+open_db(active, _Dir, false, _, _) ->
     {error, not_opening_active_without_delayed};
-open_db(aux, _Dir, true, _) ->
+open_db(aux, _Dir, true, _, _) ->
     {error, not_opening_aux_with_delayed}.
 
 open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
@@ -4811,8 +4815,23 @@ snapshot_raw(CF, L) ->
     lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
 
 -spec load_raw([{binary(), binary()}], rocksdb:cf_handle(), ledger()) -> ok.
-load_raw(KVL, CF, Ledger) ->
-    lists:foreach(fun({K, V}) -> cache_put(Ledger, CF, K, V) end, KVL).
+load_raw(KVL, {_Name, DB, CF}, _Ledger) ->
+    %% you can probably make this much larger on larger machines
+    BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
+    {ok, Batch0} = rocksdb:batch(),
+    FinalBatch = lists:foldl(fun({K, V}, Batch) ->
+                        rocksdb:batch_put(Batch, CF, K, V),
+                        case rocksdb:batch_count(Batch) > 100 of
+                            true ->
+                                rocksdb:write_batch(DB, Batch, []),
+                                {ok, NewBatch} = rocksdb:batch(),
+                                NewBatch;
+                            false ->
+                                Batch
+                        end
+                end, Batch0, KVL),
+    rocksdb:write_batch(DB, FinalBatch, []),
+    ok.
 
 -spec snapshot_raw_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_raw_pocs(Ledger) ->
