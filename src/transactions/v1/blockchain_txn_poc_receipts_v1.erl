@@ -1350,7 +1350,8 @@ check_valid_frequency(Location, Frequency, Ledger) ->
                     {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
                     ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
                     lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
-                _ ->
+                {error, Reason} ->
+                    lager:error("Unable to find region for H3: ~p, Reason: ~p", [Location, Reason]),
                     false
             end;
         _ ->
@@ -1378,10 +1379,11 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                             %% - dst location is somehow not found in the regions we know about but SourceLoc was, sus
                             false
                     end;
-                {error, unknown_region} ->
+                {error, _}=E ->
                     %% We're in poc-v11+ but we could not find the region for the SourceLoc
                     %% If there is an aux ledger, this will be true to maintain syncing
                     %% If there is no aux ledger, this will be false since we cannot make an informed decision here
+                    lager:error("h3_to_region failed with error: ~p", [E]),
                     blockchain_ledger_v1:has_aux(Ledger)
             end;
         _ ->
