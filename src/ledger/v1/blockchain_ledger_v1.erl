@@ -3818,7 +3818,7 @@ validators_cf(Ledger) ->
 cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
     case context_cache(Ledger) of
         {direct, _GwCache} ->
-            rocksdb:put(Ledger#ledger_v1.db, _CF, Key, Value, [{disable_wal, true}, {sync, false}]);
+            rocksdb:put(db(Ledger), _CF, Key, Value, [{disable_wal, true}, {sync, false}]);
         {Cache, _GwCache} ->
             true = ets:insert(Cache, {{Name, Key}, Value})
     end,
@@ -3849,7 +3849,7 @@ cache_delete(Ledger, {Name, _DB, _CF}, Key) ->
     %% we never delete gateways now
     case context_cache(Ledger) of
         {direct, _GWCache} ->
-            rocksdb:delete(Ledger#ledger_v1.db, _CF, Key, []);
+            rocksdb:delete(db(Ledger), _CF, Key, []);
         {Cache, _GwCache} ->
             true = ets:insert(Cache, {{Name, Key}, ?CACHE_TOMBSTONE})
     end,
