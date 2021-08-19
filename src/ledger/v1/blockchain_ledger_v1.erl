@@ -4821,7 +4821,7 @@ load_raw(KVL, {_Name, DB, CF}, _Ledger) ->
     {ok, Batch0} = rocksdb:batch(),
     FinalBatch = lists:foldl(fun({K, V}, Batch) ->
                         rocksdb:batch_put(Batch, CF, K, V),
-                        case rocksdb:batch_count(Batch) > 100 of
+                        case rocksdb:batch_count(Batch) > BatchSize of
                             true ->
                                 rocksdb:write_batch(DB, Batch, []),
                                 {ok, NewBatch} = rocksdb:batch(),
