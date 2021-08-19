@@ -1562,7 +1562,7 @@ get_channels(Txn, Chain) ->
                     Path :: blockchain_poc_path_element_v1:poc_path(),
                     LayerData :: [binary()]) -> [non_neg_integer()].
 get_channels_(Ledger, Path, LayerData) ->
-    case blockchain:config(?poc_version, Ledger) of
+    ChannelCount = case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V > 10 ->
             %% Get from region vars
             %% Just get the channels using the challengee's region from head of the path
@@ -1575,20 +1575,20 @@ get_channels_(Ledger, Path, LayerData) ->
                 {ok, ChallengeeLoc} ->
                     case blockchain_region_v1:h3_to_region(ChallengeeLoc, Ledger) of
                         {error, _}=E ->
-                            E;
+                            throw(E);
                         {ok, Region} ->
                             {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-                            lists:map(fun(Param) ->
-                                              blockchain_region_param_v1:channel_frequency(Param)
-                                      end, Params)
+                            length(Params)
                     end
             end;
         _ ->
-            lists:map(fun(Layer) ->
-                              <<IntData:16/integer-unsigned-little>> = Layer,
-                              IntData rem 8
-                      end, LayerData)
-    end.
+            %% we used to assume 8 channels
+            8
+    end,
+    lists:map(fun(Layer) ->
+                      <<IntData:16/integer-unsigned-little>> = Layer,
+                      IntData rem ChannelCount
+              end, LayerData).
 
 min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     %% Receipt can be undefined
