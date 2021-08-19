@@ -1,4 +1,4 @@
--module(blockchain_hex).
+-module(blockchain_hex_v2).
 
 -export([var_map/1,
          scale/2, scale/4,
@@ -169,9 +169,9 @@ calculate_scale(Location, VarMap, TargetRes, Ledger) ->
 
     lists:foldl(fun(Res, Acc) ->
                         Parent = h3:parent(Location, Res),
-                        case maps:get(Parent, UnclippedDensities) of
+                        case elookup(Parent, UnclippedDensities) of
                             0 -> Acc;
-                            Unclipped -> Acc * (maps:get(Parent, ClippedDensities) / Unclipped)
+                            Unclipped -> Acc * (elookup(Parent, ClippedDensities) / Unclipped)
                         end
                 end, 1.0, lists:seq(R, TargetRes, -1)).
 
@@ -214,6 +214,12 @@ calculate_densities(H3Index, VarMap, Ledger) ->
     %% Calculate clipped and unclipped densities
     densities(H3Index, VarMap, Interactive, Ledger).
 
+inc(Key, Inc, Tab) ->
+    ets:update_counter(Tab, Key, Inc, {Key, 0}).
+
+set(Key, Inc, Tab) ->
+    ets:insert(Tab, {Key, Inc}).
+
 -spec densities(
     H3Root :: h3:h3_index(),
     VarMap :: var_map(),
@@ -223,7 +229,7 @@ calculate_densities(H3Index, VarMap, Ledger) ->
 densities(H3Root, VarMap, Locations, Ledger) ->
     case maps:size(Locations) of
         0 ->
-            {#{}, #{}};
+            {ets:new(foo, []), ets:new(bar, [])};
         _ ->
             UpperBoundRes = lists:max([h3:get_resolution(H3) || H3 <- maps:keys(Locations)]),
             LowerBoundRes = h3:get_resolution(H3Root),
@@ -234,24 +240,22 @@ densities(H3Root, VarMap, Locations, Ledger) ->
             {ParentHexes, InitialDensities} =
                 maps:fold(
                     fun(Hex, GWs, {HAcc, MAcc}) ->
-                        ParentHex = h3:parent(Hex, Head),
-                        case maps:find(ParentHex, MAcc) of
-                            error ->
-                                {[ParentHex | HAcc], maps:put(ParentHex, length(GWs), MAcc)};
-                            {ok, OldCount} ->
-                                {HAcc, maps:put(ParentHex, OldCount + length(GWs), MAcc)}
-                        end
+                            ParentHex = h3:parent(Hex, Head),
+                            inc(ParentHex, length(GWs), MAcc),
+                            {[ParentHex | HAcc], MAcc}
                     end,
-                    {[], #{}},
+                    {[], ets:new(densities, [])},
                     Locations
                 ),
 
+            Clipped = ets:new(clipped, []),
+            ets:insert(Clipped, ets:tab2list(InitialDensities)),
             build_densities(
                 H3Root,
                 Ledger,
                 VarMap,
                 ParentHexes,
-                {InitialDensities, InitialDensities},
+                {InitialDensities, Clipped},
                 Tail
             )
     end.
@@ -267,25 +271,20 @@ densities(H3Root, VarMap, Locations, Ledger) ->
 build_densities(_H3Root, _Ledger, _VarMap, _ParentHexes, {UAcc, Acc}, []) ->
     {UAcc, Acc};
 build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) ->
-    UD = unclipped_densities(ChildHexes, Res, Acc),
-    UM0 = maps:merge(UAcc, UD),
-    M0 = maps:merge(Acc, UD),
-
-    OccupiedHexesThisRes = maps:keys(UD),
+    OccupiedHexesThisRes = unclipped_densities(ChildHexes, Res, UAcc, Acc),
 
     DensityTarget = maps:get(tgt, maps:get(Res, VarMap)),
 
-    M1 = lists:foldl(
-        fun(ThisResHex, Acc3) ->
-            OccupiedCount = occupied_count(DensityTarget, ThisResHex, UD),
+    lists:foreach(
+        fun(ThisResHex) ->
+            OccupiedCount = occupied_count(DensityTarget, ThisResHex, UAcc),
             Limit = limit(Res, VarMap, OccupiedCount),
-            maps:put(ThisResHex, min(Limit, maps:get(ThisResHex, M0)), Acc3)
+            set(ThisResHex, min(Limit, elookup(ThisResHex, UAcc)), Acc)
         end,
-        M0,
         OccupiedHexesThisRes
     ),
 
-    build_densities(H3Root, Ledger, VarMap, OccupiedHexesThisRes, {UM0, M1}, Tail).
+    build_densities(H3Root, Ledger, VarMap, OccupiedHexesThisRes, {UAcc, Acc}, Tail).
 
 -spec filter_interactive_gws( GWs :: [libp2p_crypto:pubkey_bin(), ...],
                               InteractiveBlocks :: pos_integer(),
@@ -328,7 +327,7 @@ occupied_count(DensityTarget, ThisResHex, DensityMap) ->
 
     lists:foldl(
         fun(Neighbor, Acc) ->
-            case maps:get(Neighbor, DensityMap, 0) >= DensityTarget of
+            case elookup(Neighbor, DensityMap) >= DensityTarget of
                 false -> Acc;
                 true -> Acc + 1
             end
@@ -337,21 +336,27 @@ occupied_count(DensityTarget, ThisResHex, DensityMap) ->
         H3Neighbors
     ).
 
--spec unclipped_densities(h3_indices(), 0..12, density_map()) -> density_map().
-unclipped_densities(ChildToParents, Res, Acc) ->
-    lists:foldl(
-        fun(ChildHex, Acc2) ->
-            ThisParentHex = h3:parent(ChildHex, Res),
-            maps:update_with(
-                ThisParentHex,
-                fun(V) -> V + maps:get(ChildHex, Acc, 0) end,
-                maps:get(ChildHex, Acc, 0),
-                Acc2
-            )
+elookup(Key, Tab) ->
+    case ets:lookup(Tab, Key) of
+        [{_K, Ct}] ->
+            Ct;
+        [] -> 0
+    end.
+
+-spec unclipped_densities(h3_indices(), 0..12, any(), density_map()) -> density_map().
+unclipped_densities(ChildToParents, Res, UAcc, Acc) ->
+    lists:usort(
+      lists:foldl(
+        fun(ChildHex, A) ->
+                ThisParentHex = h3:parent(ChildHex, Res),
+                Ct = elookup(ChildHex, Acc),
+                inc(ChildHex, Ct, Acc),
+                inc(ChildHex, Ct, UAcc),
+                [ThisParentHex | A]
         end,
-        #{},
+        [],
         ChildToParents
-    ).
+    )).
 
 -spec get_density_var(
     Var :: atom(),

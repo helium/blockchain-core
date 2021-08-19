@@ -1281,6 +1281,14 @@ validate_var(?penalty_history_limit, Value) ->
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
+validate_var(?blockchain_hex_version, Value) ->
+    case Value of
+        1 -> ok;
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_validator_version, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

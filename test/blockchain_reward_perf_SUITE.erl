@@ -119,12 +119,36 @@ reward_perf_test(Config) ->
     {Time, R} =
         timer:tc(
           fun() ->
-                  {ok, Rewards} = blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain),
+                  {ok, Rewards} = blockchain_txn_rewards_v2:calculate_rewards(Height - 15, Height, Chain),
                   Rewards
           end),
-    ct:pal("basic calc took: ~p ms hash ~p", [Time div 1000, erlang:phash2(R)]),
 
-    error(print),
+    %% simplify once on v2
+    CLedger = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:vars(#{blockchain_hex_version => 2}, [], CLedger),
+    _ = blockchain_ledger_v1:commit_context(CLedger),
+
+    {Time2, R2} =
+        timer:tc(
+          fun() ->
+                  {ok, Rewards} = blockchain_txn_rewards_v2:calculate_rewards(Height - 15, Height, Chain),
+                  Rewards
+          end),
+
+    %% don't think that this has issues, but keep it around just in case
+    %% {Time3, _} =
+    %%     timer:tc(
+    %%       fun() ->
+    %%               Txn = blockchain_txn_rewards_v2:new(Height - 15, Height, R2),
+    %%               _ = blockchain_txn_rewards_v2:to_json(Txn, [{chain, Chain}])
+    %%       end),
+
+    %% hash will no longer match after we un-fix v1
+    ct:pal("basic calc took: ~p ms hash ~p ct ~p", [Time div 1000, erlang:phash2(lists:sort(R)), length(R)]),
+    ct:pal("v2 calc took: ~p ms hash ~p ct ~p", [Time2 div 1000, erlang:phash2(lists:sort(R2)), length(R2)]),
+    %% ct:pal("json calc took: ~p ms", [Time3 div 1000]),
+
+    %% error(print),
     ok.
 
 

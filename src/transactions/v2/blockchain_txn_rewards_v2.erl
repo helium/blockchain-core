@@ -245,7 +245,7 @@ calculate_rewards_(Start, End, Ledger, Chain) ->
 calculate_rewards_metadata(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     Vars0 = get_reward_vars(Start, End, Ledger),
-    VarMap = case blockchain_hex:var_map(Ledger) of
+    VarMap = case blockchain_hex_v1:var_map(Ledger) of
                  {error, _Reason} -> #{};
                  {ok, VM} -> VM
              end,
@@ -287,7 +287,8 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% we are only keeping hex density calculations memoized for a single
         %% rewards transaction calculation, then we discard that work and avoid
         %% cache invalidation issues.
-        true = blockchain_hex:destroy_memoization(),
+        true = blockchain_hex_v1:destroy_memoization(),
+        true = blockchain_hex_v2:destroy_memoization(),
         {ok, Results}
     catch
         C:Error:Stack ->
@@ -350,9 +351,9 @@ to_json(Txn, Opts) ->
                            type => overages} | Acc];
                    (_RewardCategory, Rewards, Acc0) ->
                         maps:fold(
-                        fun(Entry, Amount, Acc) ->
-                            RewardToJson(Entry, Amount, Ledger, Acc)
-                        end, Acc0, Rewards)
+                          fun(Entry, Amount, Acc) ->
+                                  RewardToJson(Entry, Amount, Ledger, Acc)
+                          end, Acc0, Rewards)
                 end, [], Metadata);
         _ -> [ reward_to_json(R, []) || R <- rewards(Txn)]
     end,
@@ -804,7 +805,7 @@ normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
                                 Chain :: blockchain:blockchain(),
                                 Ledger :: blockchain_ledger_v1:ledger(),
                                 IsFirst :: boolean(),
-                                VarMap :: blockchain_hex:var_map(),
+                                VarMap :: blockchain_hex_v1:var_map(),
                                 Acc0 :: rewards_share_map() ) -> rewards_share_map().
 poc_challengees_rewards_(_Vars, [], _StaticPath, _Txn, _Chain, _Ledger, _, _, Acc) ->
     Acc;
@@ -1057,10 +1058,10 @@ poc_witness_reward(Txn, AccIn,
                                                       blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                    %% The witnesses get scaled by the value of their transmitters
                                                    RxScale = blockchain_utils:normalize_float(
-                                                                 blockchain_hex:scale(ChallengeeLoc,
-                                                                                      VarMap,
-                                                                                      D,
-                                                                                      Ledger)),
+                                                               versioned_scale(ChallengeeLoc,
+                                                                               VarMap,
+                                                                               D,
+                                                                               Ledger)),
                                                    Value = blockchain_utils:normalize_float(ToAdd * RxScale),
                                                    I = maps:get(Witness, Acc2, 0),
                                                    maps:put(Witness, I+Value, Acc2)
@@ -1343,7 +1344,7 @@ maybe_calc_tx_scale(_Challengee,
         {undefined, _} -> 1.0;
         {_, undefined} -> 1.0;
         {D, Loc} ->
-            TxScale = blockchain_hex:scale(Loc, VarMap, D, Ledger),
+            TxScale = versioned_scale(Loc, VarMap, D, Ledger),
             %% lager:info("Challengee: ~p, TxScale: ~p",
                        %% [blockchain_utils:addr2name(Challengee), TxScale]),
             blockchain_utils:normalize_float(TxScale)
@@ -1359,6 +1360,14 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
                       + maps:get(poc_witnesses_percent, Vars))))
                 ).
 
+
+versioned_scale(Loc, VarMap, D, Ledger) ->
+    case blockchain_ledger_v1:config(?blockchain_hex_version, Ledger) of
+        {ok, N} when N >= 2 ->
+            blockchain_hex_v2:scale(Loc, VarMap, D, Ledger);
+        _ ->
+            blockchain_hex_v1:scale(Loc, VarMap, D, Ledger)
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

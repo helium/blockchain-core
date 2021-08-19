@@ -474,3 +474,6 @@
 -define(penalty_history_limit, penalty_history_limit). % blocks
 -define(dkg_penalty, dkg_penalty). % float
 -define(tenure_penalty, tenure_penalty). % float
+
+%% hex version for performance changes and bug fixes for scaling
+-define(blockchain_hex_version, blockchain_hex_version). % version
