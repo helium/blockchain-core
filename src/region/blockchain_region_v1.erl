@@ -72,8 +72,8 @@ h3_in_region(H3, RegionVar, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) ->
     {ok, atom()} | {error, any()}.
-region_([], _H3, _Ledger) ->
-    {error, unknown_region};
+region_([], H3, _Ledger) ->
+    {error, {unknown_region, H3}};
 region_([ToCheck | Remaining], H3, Ledger) ->
     case h3_in_region(H3, ToCheck, Ledger) of
         {error, _} = Error -> Error;
