@@ -343,7 +343,10 @@ to_json(Txn, Opts) ->
             Start = blockchain_txn_rewards_v2:start_epoch(Txn),
             End = ?MODULE:end_epoch(Txn),
             {ok, Ledger} = blockchain:ledger_at(End, Chain),
-            {ok, Metadata} = ?MODULE:calculate_rewards_metadata(Start, End, Chain),
+            {ok, Metadata} = case lists:keyfind(rewards_metadata, 1, Opts) of
+                                {rewards_metadata, M} -> {ok, M};
+                                _ -> ?MODULE:calculate_rewards_metadata(Start, End, Chain)
+                            end,
             maps:fold(
                 fun(overages, Amount, Acc) ->
                         [#{amount => Amount,
