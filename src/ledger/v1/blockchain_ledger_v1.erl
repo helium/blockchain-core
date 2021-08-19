@@ -1328,7 +1328,7 @@ load_gateways(Gws, Ledger) ->
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               Witnesses = blockchain_ledger_gateway_v2:witnesses(Gw),
-              HasWitnesses = map_size(Witnesses) > 0, %% Not sure if this is the best way
+              HasWitnesses = map_size(Witnesses) >= 1, %% Not sure if this is the best way
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
@@ -1549,7 +1549,7 @@ find_gateway_has_witnesses(Address, Ledger) ->
                 {ok, BinGw} ->
                     Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                     Witnesses = blockchain_ledger_gateway_v2:witnesses(Gw),
-                    HasWitnesses = map_size(Witnesses) > 1, %% Not sure if this "waterfall" is the right way todo this
+                    HasWitnesses = map_size(Witnesses) >= 1, %% Not sure if this "waterfall" is the right way todo this
                     {ok, HasWitnesses};
                 not_found ->
                     {error, not_found};
