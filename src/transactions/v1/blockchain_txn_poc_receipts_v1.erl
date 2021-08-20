@@ -462,28 +462,33 @@ calculate_delta(Txn, Chain, true) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
 
-    {ok, Channels} = get_channels(Txn, Chain),
+    try get_channels(Txn, Chain) of
+        {ok, Channels} ->
 
-    lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
-                                                 Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                 NextElements = lists:sublist(Path, ElementPos+1, Length),
-                                                 HasContinued = check_path_continuation(NextElements),
+            lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
+                                                         Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                         NextElements = lists:sublist(Path, ElementPos+1, Length),
+                                                         HasContinued = check_path_continuation(NextElements),
 
-                                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
-                                                 case ElementPos of
-                                                     1 ->
-                                                         {undefined, 0, hd(Channels)};
-                                                     _ ->
-                                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                                         {PreviousElement, ReceiptChannel, WitnessChannel} =
+                                                         case ElementPos of
+                                                             1 ->
+                                                                 {undefined, 0, hd(Channels)};
+                                                             _ ->
+                                                                 {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                                         end,
+
+                                                         {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger),
+                                                         {set_deltas(Challengee, Val, Acc), Continue};
+                                                    (_, Acc) ->
+                                                         Acc
                                                  end,
-
-                                                 {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger),
-                                                 {set_deltas(Challengee, Val, Acc), Continue};
-                              (_, Acc) ->
-                                   Acc
-                           end,
-                           {[], true},
-                           lists:zip(lists:seq(1, Length), Path))));
+                                                 {[], true},
+                                                 lists:zip(lists:seq(1, Length), Path))))
+    catch
+        _:_ ->
+            []
+    end;
 calculate_delta(Txn, Chain, false) ->
     Ledger = blockchain:ledger(Chain),
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
