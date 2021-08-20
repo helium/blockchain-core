@@ -199,7 +199,6 @@ calculate_densities(H3Index, VarMap, Ledger) ->
                             {error, not_found} -> 0 % XXX what should this value be?
                         end,
     Locations = blockchain_ledger_v1:lookup_gateways_from_hex(h3:k_ring(H3Index, 2), Ledger),
-
     Interactive = case application:get_env(blockchain, hip17_test_mode, false) of
                       true ->
                           %% HIP17 test mode, no interactive filtering
@@ -293,17 +292,37 @@ build_densities(H3Root, Ledger, VarMap, ChildHexes, {UAcc, Acc}, [Res | Tail]) -
     [libp2p_crypto:pubkey_bin(), ...].
 %% @doc This function filters a list of gateway addresses which are considered
 %% "interactive" for the purposes of HIP17 based on the last block when it
-%% responded to a POC challenge compared to the current chain height.
+%% responded to a POC challenge compared to the current chain height and if it
+%% has valid witnesses or not.
 filter_interactive_gws(GWs, InteractiveBlocks, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
-    lists:filter(fun(GWAddr) ->
-                         case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
-                             {ok, undefined} -> false;
-                             {ok, LastChallenge} ->
-                                 (CurrentHeight - LastChallenge) =< InteractiveBlocks;
-                             {error, not_found} -> false
-                         end
-                    end, GWs).
+    case blockchain_ledger_v1:config(?blockchain_hex_version, Ledger) of %% Link this to the feature flag for HIP17 improvements
+        {ok, N} when N >= 2 ->
+            lists:filter(fun(GWAddr) ->
+                IsInteractive = case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
+                    {ok, undefined} -> false;
+                    {ok, LastChallenge} ->
+                        (CurrentHeight - LastChallenge) =< InteractiveBlocks;
+                    {error, not_found} -> false
+                end,
+                HasWitnesses = case blockchain_ledger_v1:find_gateway_has_witnesses(GWAddr) of
+                    {ok, undefined} -> false;
+                    {ok, HasWitnesses} -> 
+                        HasWitnesses;
+                    {error, not_found} -> false
+                end,
+                IsInteractive and HasWitnesses
+            end, GWs).
+        _ ->
+            lists:filter(fun(GWAddr) ->
+                case blockchain_ledger_v1:find_gateway_last_challenge(GWAddr, Ledger) of
+                    {ok, undefined} -> false;
+                    {ok, LastChallenge} ->
+                        (CurrentHeight - LastChallenge) =< InteractiveBlocks;
+                    {error, not_found} -> false
+                end
+            end, GWs).
+    end.
 
 -spec limit(
     Res :: 0..12,
