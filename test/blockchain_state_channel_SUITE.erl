@@ -88,24 +88,7 @@ init_per_testcase(Test, Config, SCVersion) ->
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
     [RouterNode|_] = Nodes,
-    {ok, _} = ct_rpc:call(
-        RouterNode,
-        lager,
-        trace_file,
-        ["sc.log", [{module, blockchain_state_channels_server}], debug]
-    ),
-    {ok, _} = ct_rpc:call(
-        RouterNode,
-        lager,
-        trace_file,
-        ["sc.log", [{module, blockchain_state_channel_handler}], debug]
-    ),
-    {ok, _} = ct_rpc:call(
-        RouterNode,
-        lager,
-        trace_file,
-        ["sc.log", [{module, blockchain_state_channel_v1}], debug]
-    ),
+    ok = setup_sc_logging_for_node(server, RouterNode),
 
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
@@ -2689,3 +2672,30 @@ debug(Node) ->
     ct:pal("active: ~p", [A]),
     {P, S, A}.
 
+setup_sc_logging_for_node(Prefix, Node) ->
+    Filename = io_lib:format("~s_sc.log", [Prefix]),
+    {ok, _} = ct_rpc:call(
+        Node,
+        lager,
+        trace_file,
+        [Filename, [{module, blockchain_state_channels_server}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        Node,
+        lager,
+        trace_file,
+        [Filename, [{module, blockchain_state_channel_handler}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        Node,
+        lager,
+        trace_file,
+        [Filename, [{module, blockchain_state_channels_client}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        Node,
+        lager,
+        trace_file,
+        [Filename, [{module, blockchain_state_channel_v1}], debug]
+    ),
+    ok.
