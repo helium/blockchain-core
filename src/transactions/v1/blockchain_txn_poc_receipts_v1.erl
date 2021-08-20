@@ -700,21 +700,26 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
 %% callback function with the valid witnesses and valid receipt.
 valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
     Path = ?MODULE:path(Txn),
-    {ok, Channels} = get_channels(Txn, Chain),
-    lists:foldl(fun({ElementPos, Element}, Acc) ->
-                        {PreviousElement, ReceiptChannel, WitnessChannel} =
-                            case ElementPos of
-                                1 ->
-                                    {undefined, 0, hd(Channels)};
-                                _ ->
-                                    {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-                            end,
+    try get_channels(Txn, Chain) of
+        {ok, Channels} ->
+            lists:foldl(fun({ElementPos, Element}, Acc) ->
+                                {PreviousElement, ReceiptChannel, WitnessChannel} =
+                                case ElementPos of
+                                    1 ->
+                                        {undefined, 0, hd(Channels)};
+                                    _ ->
+                                        {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                end,
 
-                        FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-                        FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+                                FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                                FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
 
-                        Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
-                end, Acc0, lists:zip(lists:seq(1, length(Path)), Path)).
+                                Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
+                        end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
+    catch _:_ ->
+              Acc0
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
