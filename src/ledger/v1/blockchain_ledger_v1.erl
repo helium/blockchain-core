@@ -356,11 +356,13 @@ new(Dir) ->
 
 -spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
 new(Dir, BlocksDB, BlocksCF, HeightsCF) ->
-    new(Dir, false, BlocksDB, BlocksCF, HeightsCF, []).
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    new(Dir, false, BlocksDB, BlocksCF, HeightsCF, GlobalOpts).
 
 -spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
 new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF) ->
-    new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, []).
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, GlobalOpts).
 
 -spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_options()) -> ledger().
 new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, Options) ->
@@ -480,7 +482,8 @@ new_aux(Ledger) ->
     end.
 
 new_aux(Path, Ledger) ->
-    {ok, DB, CFs} = open_db(aux, Path, false, false, []),
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    {ok, DB, CFs} = open_db(aux, Path, false, false, GlobalOpts),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, AuxHeightsCF] = CFs,
     Ledger#ledger_v1{aux=#aux_ledger_v1{
@@ -3960,19 +3963,15 @@ process_fun(ToProcess, Cache, CF,
 open_db(active, Dir, true, ReadOnly, Options) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts)),
-    CFOpts = GlobalOpts,
+    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}])),
     DefaultCFs = default_cfs() ++ delayed_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, CFOpts)), ReadOnly, false);
+    open_db_(DBDir, DBOptions, DefaultCFs, Options, ReadOnly, false);
 open_db(aux, Dir, false, ReadOnly, Options) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts)),
-    CFOpts = GlobalOpts,
+    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}])),
     DefaultCFs = default_cfs() ++ aux_cfs(),
-    open_db_(DBDir, DBOptions, DefaultCFs, lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, CFOpts)), ReadOnly, false);
+    open_db_(DBDir, DBOptions, DefaultCFs, Options, ReadOnly, false);
 open_db(active, _Dir, false, _, _) ->
     {error, not_opening_active_without_delayed};
 open_db(aux, _Dir, true, _, _) ->
