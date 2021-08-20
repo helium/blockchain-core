@@ -1253,6 +1253,8 @@ gateway_bannered_sc_skip_test(Config) ->
     %% -------------------------------------------------------------------
     [RouterNode, GatewayNode1, GatewayNode2|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
+    ok = setup_sc_logging_for_node(client_one, GatewayNode1),
+    ok = setup_sc_logging_for_node(client_two, GatewayNode2),
 
     %% Get router chain, swarm and pubkey_bin
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
@@ -1268,10 +1270,23 @@ gateway_bannered_sc_skip_test(Config) ->
     SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
+    %% Helpers
     FakeUntilBlock =
         fun(fake_blocks, FakeBlocks, ending_at_block, EndingBlock) ->
                 ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
                 ok = blockchain_ct_utils:wait_until_height(RouterNode, EndingBlock)
+        end,
+
+    SendPacketFrom =
+        fun(Node) ->
+                DevNonce = crypto:strong_rand_bytes(2),
+                Packet = blockchain_ct_utils:join_packet(?APPKEY, DevNonce, 0.0),
+                ct_rpc:call(Node, blockchain_state_channels_client, packet, [Packet, [], 'US915']),
+                %% need to give each client more than a computers chance of
+                %% having their packet processed before adding fake blocks to
+                %% move the test forward.
+                timer:sleep(50),
+                {ok, Packet}
         end,
 
     %% -------------------------------------------------------------------
@@ -1307,24 +1322,12 @@ gateway_bannered_sc_skip_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% -------------------------------------------------------------------
-    %% Send packet from 2 gateways (block 10)
+    %% Send packet from 2 gateways (block 2)
     %% -------------------------------------------------------------------
 
-    %% %% Add some fake blocks to get to block 10
-    %% _ = FakeUntilBlock(fake_blocks, 8, ending_at_block, 10),
-
     %% Sending 1 packet from both gateways
-    ct:pal("sending packet 1"),
-    DevNonce0_1 = crypto:strong_rand_bytes(2),
-    Packet0_1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0_1, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0_1, [], 'US915']),
-    ct:pal("sending packet 2"),
-    DevNonce0_2 = crypto:strong_rand_bytes(2),
-    %% We want different packets from different gateways
-    APPKEY2 = <<16#3B, 16#8E, 16#15, 16#16, 16#28, 16#AE, 16#D2, 16#A6, 16#AB, 16#F7, 16#15, 16#88, 16#09, 16#CF, 16#4F, 16#3C>>,
-    %% FIXME: Where is this packet going??!! Not the state channel
-    Packet0_2 = blockchain_ct_utils:join_packet(APPKEY2, DevNonce0_2, 0.0),
-    ok = ct_rpc:call(GatewayNode2, blockchain_state_channels_client, packet, [Packet0_2, [], 'US915']),
+    {ok, Gateway1_Packet1} = SendPacketFrom(GatewayNode1),
+    {ok, Gateway2_Packet1} = SendPacketFrom(GatewayNode2),
 
     %% -------------------------------------------------------------------
     %% Open second State Channel (block 15)
@@ -1368,10 +1371,8 @@ gateway_bannered_sc_skip_test(Config) ->
         {txn, CloseTxn1} ->
             ct:pal("CloseTxn1: ~p", [CloseTxn1]),
             %% FIXME: This is the expected close payloads
-            %% true = check_sc_close(CloseTxn1, ID1, SCOpenBlockHash1, [blockchain_helium_packet_v1:payload(Packet0_1),
-                                                                     %% blockchain_helium_packet_v1:payload(Packet0_2)]),
-            %% FIXME: this let's the test continue
-            true = check_sc_close(CloseTxn1, ID1, SCOpenBlockHash1, [blockchain_helium_packet_v1:payload(Packet0_1)]),
+            true = check_sc_close(CloseTxn1, ID1, SCOpenBlockHash1, [blockchain_helium_packet_v1:payload(Gateway1_Packet1),
+                                                                     blockchain_helium_packet_v1:payload(Gateway2_Packet1)]),
             {ok, CloseBlock1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [CloseTxn1]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [CloseBlock1, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -1388,10 +1389,10 @@ gateway_bannered_sc_skip_test(Config) ->
     _ = FakeUntilBlock(fake_blocks, 2, ending_at_block, 28),
 
     %% Sending 1 packet, this should use the previously opened state channel
-    DevNonce1_1 = crypto:strong_rand_bytes(2),
-    Packet1_1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1_1, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1_1, [], 'US915']),
-    %% NOTE: Gateway 2 note sending a packet in this state channel
+    {ok, Gateway1_Packet2} = SendPacketFrom(GatewayNode1),
+
+    %% NOTE: Gateway 2 _not_ sending a packet in this state channel
+    %% {ok, Gateway2_PacketNotSent} = SendPacketFrom(GatewayNode2),
 
     %% -------------------------------------------------------------------
     %% Open third SC (block 30)
@@ -1433,7 +1434,7 @@ gateway_bannered_sc_skip_test(Config) ->
     receive
         {txn, CloseTxn2} ->
             ct:pal("CloseTxn2: ~p", [CloseTxn2]),
-            true = check_sc_close(CloseTxn2, ID2, SCOpenBlockHash2, [blockchain_helium_packet_v1:payload(Packet1_1)]),
+            true = check_sc_close(CloseTxn2, ID2, SCOpenBlockHash2, [blockchain_helium_packet_v1:payload(Gateway1_Packet2)]),
             {ok, CloseBlock2} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [CloseTxn2]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [CloseBlock2, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -1451,12 +1452,8 @@ gateway_bannered_sc_skip_test(Config) ->
     _ = FakeUntilBlock(fake_blocks, 3, ending_at_block, 40),
 
     %% Sending 1 packet from both gateways
-    DevNonce2_1 = crypto:strong_rand_bytes(2),
-    Packet2_1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2_1, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2_1, [], 'US915']),
-    DevNonce2_2 = crypto:strong_rand_bytes(2),
-    Packet2_2 = blockchain_ct_utils:join_packet(APPKEY2, DevNonce2_2, 0.0),
-    ok = ct_rpc:call(GatewayNode2, blockchain_state_channels_client, packet, [Packet2_2, [], 'US915']),
+    {ok, Gateway1_Packet3} = SendPacketFrom(GatewayNode1),
+    {ok, Gateway2_Packet2} = SendPacketFrom(GatewayNode2),
 
     %% -------------------------------------------------------------------
     %% close third state channel (block 51)
@@ -1471,21 +1468,20 @@ gateway_bannered_sc_skip_test(Config) ->
             ct:pal("CloseTxn3: ~p", [CloseTxn3]),
             %% NOTE: important that Packet2_1 is in the state channel.
             %% This gateway was never bannered the replacmenet sc 3 when it didn't participate in sc 2.
-            %% FIXME: These are the expected payloads for the state channel
-            %% true = check_sc_close(CloseTxn3, ID3, SCOpenBlockHash3, [blockchain_helium_packet_v1:payload(Packet2_1),
-                                                                     %% blockchain_helium_packet_v1:payload(Packet2_1)]),
-            true = check_sc_close(CloseTxn3, ID3, SCOpenBlockHash3, [blockchain_helium_packet_v1:payload(Packet2_1)]),
+            true = check_sc_close(CloseTxn3, ID3, SCOpenBlockHash3, [blockchain_helium_packet_v1:payload(Gateway1_Packet3),
+                                                                     blockchain_helium_packet_v1:payload(Gateway2_Packet2)]),
+
             {ok, CloseBlock3} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [CloseTxn3]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [CloseBlock3, RouterChain, Self, RouterSwarm])
     after 10000 ->
         ct:fail("txn timeout")
     end,
 
-    %% Should be only 1 state channel active now
-    ?assertEqual(1, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
+    %% Should be only no state channels active, they're all closed
+    ?assertEqual(0, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
 
     %% -------------------------------------------------------------------
-    %% cleanup after last close, not more state channels
+    %% cleanup after last close, no more state channels
     %% -------------------------------------------------------------------
 
     RouterLedger = blockchain:ledger(RouterChain),
