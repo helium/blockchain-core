@@ -5044,7 +5044,7 @@ snapshot_h3dex(Ledger) ->
 
 -spec load_h3dex([{binary(), binary()}], ledger()) -> ok.
 load_h3dex(H3DexList, Ledger) ->
-    H3CF = h3dex_cf(Ledger),
+    {_Name, DB, H3CF} = h3dex_cf(Ledger),
     {ok, Batch0} = rocksdb:batch(),
     BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
     FinalBatch = lists:foldl(fun({Loc, Gateways}, Batch) ->
@@ -5053,7 +5053,7 @@ load_h3dex(H3DexList, Ledger) ->
                          rocksdb:batch_put(Batch, H3CF, BinLoc, BinGWs),
                          case rocksdb:batch_count(Batch) > BatchSize of
                              true ->
-                                 rocksdb:write_batch(db(Ledger), Batch, []),
+                                 rocksdb:write_batch(DB, Batch, []),
                                  {ok, NewBatch} = rocksdb:batch(),
                                  NewBatch;
                              false ->
@@ -5061,7 +5061,7 @@ load_h3dex(H3DexList, Ledger) ->
                          end
                  end, Batch0, H3DexList),
 
-    rocksdb:write_batch(db(Ledger), FinalBatch, []),
+    rocksdb:write_batch(DB, FinalBatch, []),
     ok.
 
 -spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
