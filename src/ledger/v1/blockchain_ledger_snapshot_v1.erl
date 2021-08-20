@@ -401,6 +401,8 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
 
     %% open ledger with compaction disabled so
     %% we can bulk load
+    {ok, Cache} = rocksdb:new_cache(lru, 10 * 8 * 1024 * 1024),
+    {ok, BufferMgr} = rocksdb:new_write_buffer_manager(10 * 8 * 1024 * 1024, Cache),
     Ledger0 = blockchain_ledger_v1:new(
                 Dir,
                 false,
@@ -420,7 +422,8 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
                     {max_compaction_bytes, 1 bsl 60},
                     {target_file_size_base, 8388608},
                     {atomic_flush, false},
-                    {write_buffer_size, 8388608}
+                    {write_buffer_size, 8388608},
+                    {write_buffer_manager, BufferMgr}
                 ]
                ),
 
@@ -448,6 +451,8 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
     end,
     %% re-open the ledger with the normal options
     blockchain_ledger_v1:close(Ledger0),
+    rocksdb:release_write_buffer_manager(BufferMgr),
+    rocksdb:release_cache(Cache),
     Ledger1 = blockchain_ledger_v1:new(
       Dir,
       blockchain:db_handle(Chain),
