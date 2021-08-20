@@ -61,11 +61,17 @@ init_per_testcase(_TestCase, Config) ->
     NewDir = PrivDir ++ "/ledger/",
     ok = filelib:ensure_dir(NewDir),
 
-    os:cmd("wget https://blockchain-core.s3-us-west-1.amazonaws.com/snap-591841"),
+    Filename = Dir ++ "/snap-933121",
 
-    Filename = Dir ++ "/snap-591841",
-
-    {ok, BinSnap} = file:read_file(Filename),
+    {ok, BinSnap} =
+        try
+            {ok, BinSnap1} = file:read_file(Filename),
+            {ok, BinSnap1}
+        catch _:_ ->
+                os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-933121"),
+                {ok, BinSnap2} = file:read_file(Filename),
+                {ok, BinSnap2}
+        end,
 
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
@@ -80,9 +86,21 @@ init_per_testcase(_TestCase, Config) ->
     Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
 
+    CLedger = blockchain_ledger_v1:new_context(Ledger1),
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BG}, _) ->
+              G = blockchain_ledger_gateway_v2:deserialize(BG),
+              blockchain_ledger_v1:update_gateway(G, Addr, CLedger)
+      end, foo, CLedger),
+
+    _ = blockchain_ledger_v1:commit_context(CLedger),
+
     ct:pal("loaded ledger at height ~p", [Height]),
 
-    [{chain, Chain} | Config].
+    Chain1 = blockchain:ledger(CLedger, Chain),
+
+    [{chain, Chain1} | Config].
 
 end_per_testcase(_TestCase, Config) ->
     blockchain_score_cache:stop(),
@@ -96,47 +114,31 @@ reward_perf_test(Config) ->
     Chain = ?config(chain, Config),
     Ledger = blockchain:ledger(Chain),
 
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-
-    {Time, _} =
-        timer:tc(
-          fun() ->
-                  {ok, _} = blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
-          end),
-    ct:pal("basic calc took: ~p ms", [Time div 1000]),
-
-    Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:vars(Vars, [], Ledger2),
-    blockchain:bootstrap_h3dex(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2),
-     
-    [erlang:garbage_collect(P) || P <- processes()],
-    timer:sleep(3000),
-    
-    {Time2, _} =
-        timer:tc(
-          fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
-          end),
-    ct:pal("basic calc 2 took: ~p ms", [Time2 div 1000]),
-
-    [erlang:garbage_collect(P) || P <- processes()],
-    timer:sleep(3000),
-
-    {Time3, _} =
-        timer:tc(
-          fun() ->
-                  blockchain_txn_rewards_v1:calculate_rewards(Height - 15, Height, Chain)
-          end),
-    ct:pal("hip 17 calc took: ~p ms", [Time3 div 1000]),
-
-    Vars = maps:merge(blockchain_reward_perf_SUITE:hip15_vars(), blockchain_reward_perf_SUITE:hip17_vars()),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    blockchain_ledger_v1:bootstrap_gw_denorm(Ledger1),
-    blockchain_ledger_v1:commit_context(Ledger1),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
 
-    %% error(print),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+
+    {Time, R} =
+        timer:tc(
+          fun() ->
+                  {ok, Rewards} = blockchain_txn_rewards_v2:calculate_rewards(Height - 15, Height, Chain1),
+                  Rewards
+          end),
+
+    %% don't think that this has issues, but keep it around just in case
+    %% {Time3, _} =
+    %%     timer:tc(
+    %%       fun() ->
+    %%               Txn = blockchain_txn_rewards_v2:new(Height - 15, Height, R2),
+    %%               _ = blockchain_txn_rewards_v2:to_json(Txn, [{chain, Chain}])
+    %%       end),
+
+    %% hash will no longer match after we un-fix v1
+    ct:pal("basic calc took: ~p ms hash ~p ct ~p", [Time div 1000, erlang:phash2(lists:sort(R)), length(R)]),
+    %% ct:pal("json calc took: ~p ms", [Time3 div 1000]),
+
+    error(print),
     ok.
 
 
