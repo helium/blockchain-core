@@ -76,7 +76,7 @@
 -ifdef(TEST).
 -define(SYNC_TIME, 1000).
 -else.
--define(SYNC_TIME, 75000).
+-define(SYNC_TIME, 15000).
 -endif.
 
 -type snap_hash() :: binary().
