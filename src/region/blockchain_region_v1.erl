@@ -13,8 +13,8 @@
 
 -export_type([atom/0, regions/0]).
 
--define(H3_IN_REGION_CACHE, h3_in_region).
--define(H3_TO_REGION_CACHE, h3_to_region).
+-define(H3_IN_REGION_CACHE, h3_in_region).      % key: {has_aux, vars_nonce, h3, region_var}
+-define(H3_TO_REGION_CACHE, h3_to_region).      % key: {has_aux, vars_nonce, h3}
 
 %%--------------------------------------------------------------------
 %% api
@@ -34,9 +34,10 @@ get_all_regions(Ledger) ->
     {ok, atom()} | {error, any()}.
 h3_to_region(H3, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
     e2qc:cache(
         ?H3_TO_REGION_CACHE,
-        {VarsNonce, H3},
+        {HasAux, VarsNonce, H3},
         fun() ->
             h3_to_region_(H3, Ledger)
         end
@@ -49,9 +50,10 @@ h3_to_region(H3, Ledger) ->
 ) -> boolean() | {error, any()}.
 h3_in_region(H3, RegionVar, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
     e2qc:cache(
         ?H3_IN_REGION_CACHE,
-        {VarsNonce, H3, RegionVar},
+        {HasAux, VarsNonce, H3, RegionVar},
         fun() ->
             h3_in_region_(H3, RegionVar, Ledger)
         end
