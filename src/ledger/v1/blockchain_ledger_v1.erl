@@ -3478,7 +3478,10 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     catch ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []),
     clean_checkpoints(L),
-    clean_aux(L).
+    clean_aux(L);
+clean(Dir) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    rocksdb:destroy(DBDir, []).
 
 clean_aux(L) ->
     case has_aux(L) of
