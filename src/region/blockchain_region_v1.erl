@@ -16,11 +16,6 @@
 -define(H3_IN_REGION_CACHE, h3_in_region).
 -define(H3_TO_REGION_CACHE, h3_to_region).
 
-%% 24 hours in seconds
--define(H3_TO_REGION_CACHE_TIMEOUT, 60 * 60 * 24).
-%% 24 hours in seconds
--define(H3_IN_REGION_CACHE_TIMEOUT, 60 * 60 * 24).
-
 %%--------------------------------------------------------------------
 %% api
 %%--------------------------------------------------------------------
@@ -42,7 +37,6 @@ h3_to_region(H3, Ledger) ->
     e2qc:cache(
         ?H3_TO_REGION_CACHE,
         {VarsNonce, H3},
-        ?H3_TO_REGION_CACHE_TIMEOUT,
         fun() ->
             h3_to_region_(H3, Ledger)
         end
@@ -58,7 +52,6 @@ h3_in_region(H3, RegionVar, Ledger) ->
     e2qc:cache(
         ?H3_IN_REGION_CACHE,
         {VarsNonce, H3, RegionVar},
-        ?H3_IN_REGION_CACHE_TIMEOUT,
         fun() ->
             h3_in_region_(H3, RegionVar, Ledger)
         end
