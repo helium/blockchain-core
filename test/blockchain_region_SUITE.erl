@@ -12,7 +12,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include("blockchain_region_test.hrl").
--include("blockchain_vars.hrl").
 -include("blockchain_ct_utils.hrl").
 
 -export([
@@ -176,8 +175,8 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    USH3 = 631183727389488639,
-    {ok, Region} = blockchain_region_v1:h3_to_region(USH3, Ledger),
+    H3 = 631183727389488639,
+    {ok, Region} = blockchain_region_v1:h3_to_region(H3, Ledger),
     {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
     ?assert(length(Params) /= 0),
     ok.
@@ -190,15 +189,17 @@ all_regions_test(Config) ->
 
 as923_1_test(Config) ->
     Ledger = ?config(ledger, Config),
-    JH3 = 631319855840474623,
-    true = blockchain_region_v1:h3_in_region(JH3, region_as923_1, Ledger),
-    false = blockchain_region_v1:h3_in_region(JH3, region_us915, Ledger),
+    H3 = 631319855840474623,
+    {ok, region_as923_1} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_as923_1, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 as923_2_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Jakarta, Indonesia
     H3 = h3:from_geo({-6.156685643264456, 106.82607441505229}, 12),
+    {ok, region_as923_2} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_as923_2, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
@@ -207,19 +208,21 @@ as923_3_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Algiers, Algeria
     H3 = h3:from_geo({36.756570085761346, 3.070925580166768}, 12),
+    {ok, region_as923_3} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_as923_3, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 australia_test(Config) ->
-    %% Australia operates on AS923_1
+    %% Australia will operate on AU915
     Ledger = ?config(ledger, Config),
     %% Melbourne, Australia
     H3 = h3:from_geo({-37.821009972614775, 144.9686332019166}, 12),
-    case blockchain:config(region_as923_1, Ledger) of
+    case blockchain:config(region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(H3, Bin),
-            {ok, region_as923_1} = blockchain_region_v1:h3_to_region(H3, Ledger),
+            {ok, region_au915} = blockchain_region_v1:h3_to_region(H3, Ledger),
+            true = blockchain_region_v1:h3_in_region(H3, region_au915, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -233,6 +236,7 @@ au915_test(Config) ->
         {ok, Bin} ->
             {true, _Parent} = h3:contains(H3, Bin),
             {ok, region_au915} = blockchain_region_v1:h3_to_region(H3, Ledger),
+            true = blockchain_region_v1:h3_in_region(H3, region_au915, Ledger),
             ok;
         _ ->
             ct:fail("broken")
@@ -240,30 +244,34 @@ au915_test(Config) ->
 
 cn470_test(Config) ->
     Ledger = ?config(ledger, Config),
-    CNH3 = 631645363084543487,
-    true = blockchain_region_v1:h3_in_region(CNH3, region_cn470, Ledger),
-    false = blockchain_region_v1:h3_in_region(CNH3, region_us915, Ledger),
+    H3 = 631645363084543487,
+    {ok, region_cn470} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_cn470, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 eu433_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Mauritius
     H3 = h3:from_geo({-20.162601509728262, 57.51011889322782}, 12),
+    {ok, region_eu433} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_eu433, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 eu868_test(Config) ->
     Ledger = ?config(ledger, Config),
-    EUH3 = 631051317836014591,
-    true = blockchain_region_v1:h3_in_region(EUH3, region_eu868, Ledger),
-    false = blockchain_region_v1:h3_in_region(EUH3, region_us915, Ledger),
+    H3 = 631051317836014591,
+    {ok, region_eu868} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_eu868, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 in865_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Delhi, India
     H3 = h3:from_geo({28.67064632330703, 77.2396558322749}, 12),
+    {ok, region_in865} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_in865, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
@@ -272,6 +280,7 @@ kr920_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Seoul, South Korea
     H3 = h3:from_geo({37.46141372651769, 126.44084794180611}, 12),
+    {ok, region_kr920} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_kr920, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
@@ -279,16 +288,19 @@ kr920_test(Config) ->
 ru864_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% massive-crimson-cat
-    RUH3 = 630812791472857599,
-    true = blockchain_region_v1:h3_in_region(RUH3, region_ru864, Ledger),
-    false = blockchain_region_v1:h3_in_region(RUH3, region_us915, Ledger),
+    H3 = 630812791472857599,
+    {ok, region_ru864} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_ru864, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
 us915_test(Config) ->
     Ledger = ?config(ledger, Config),
-    USH3 = 631183727389488639,
-    true = blockchain_region_v1:h3_in_region(USH3, region_us915, Ledger),
-    false = blockchain_region_v1:h3_in_region(USH3, region_in865, Ledger),
+    %% H3 = 631183727389488639,
+    H3 = 631178391051601407,
+    {ok, region_us915} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_in865, Ledger),
     ok.
 
 region_not_found_test(Config) ->
