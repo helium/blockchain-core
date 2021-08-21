@@ -1540,9 +1540,9 @@ calculate_rssi_bounds_from_snr(SNR) ->
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
 get_channels(Txn, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
-    Path = ?MODULE:path(Txn),
+    Path0 = ?MODULE:path(Txn),
     Secret = ?MODULE:secret(Txn),
-    PathLength = length(Path),
+    PathLength = length(Path0),
 
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Ledger = blockchain:ledger(Chain),
@@ -1578,12 +1578,13 @@ get_channels(Txn, Chain) ->
         BH ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
             [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
+            Path = [blockchain_poc_path_element_v1:challengee(Element) || Element <- Path0],
             Channels = get_channels_(Ledger, Path, LayerData),
             {ok, Channels}
     end.
 
 -spec get_channels_(Ledger :: blockchain_ledger_v1:ledger(),
-                    Path :: blockchain_poc_path_element_v1:poc_path(),
+                    Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()]) -> [non_neg_integer()].
 get_channels_(Ledger, Path, LayerData) ->
     ChannelCount = case blockchain:config(?poc_version, Ledger) of
@@ -1592,7 +1593,7 @@ get_channels_(Ledger, Path, LayerData) ->
             %% Just get the channels using the challengee's region from head of the path
             %% We assert that all path members (which is only 1 member, beacon right now)
             %% will be in the same region
-            Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+            Challengee = hd(Path),
             case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
                 {error, _}=E ->
                     E;
