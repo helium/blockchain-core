@@ -392,20 +392,40 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 import(Chain, SHA, #{version := v6}=Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
-    Ledger0 =
-        case catch blockchain_ledger_v1:current_height(CLedger) of
-            %% nothing in there, proceed
-            {ok, 1} ->
-                CLedger;
-            _ ->
-                blockchain_ledger_v1:clean(CLedger),
-                blockchain_ledger_v1:new(
-                    Dir,
-                    blockchain:db_handle(Chain),
-                    blockchain:blocks_cf(Chain),
-                    blockchain:heights_cf(Chain)
-                )
-        end,
+    %% check if we need to wipe the ledger
+    case catch blockchain_ledger_v1:current_height(CLedger) of
+        %% nothing in there, proceed
+        {ok, 1} ->
+            blockchain_ledger_v1:close(CLedger);
+        _ ->
+            blockchain_ledger_v1:clean(CLedger)
+    end,
+
+    %% open ledger with compaction disabled so
+    %% we can bulk load
+    Ledger0 = blockchain_ledger_v1:new(
+                Dir,
+                false,
+                blockchain:db_handle(Chain),
+                blockchain:blocks_cf(Chain),
+                blockchain:heights_cf(Chain),
+                %% these options taken from rocksdb's PrepareForBulkLoad()
+                [
+                    {disable_auto_compactions, true},
+                    {num_levels, 2},
+                    {max_write_buffer_number, 10},
+                    {min_write_buffer_number_to_merge, 1},
+                    {max_background_flushes, 4},
+                    {level0_file_num_compaction_trigger, 1 bsl 30},
+                    {level0_slowdown_writes_trigger, 1 bsl 30},
+                    {level0_stop_writes_trigger, 1 bsl 30},
+                    {max_compaction_bytes, 1 bsl 60},
+                    {target_file_size_base, 8388608},
+                    {atomic_flush, false},
+                    {write_buffer_size, 8388608}
+                ]
+               ),
+
     %% we load up both with the same snapshot here, then sync the next N
     %% blocks and check that we're valid.
     [load_into_ledger(Snapshot, Ledger0, Mode)
@@ -428,7 +448,18 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
         {error, _} ->
             blockchain:add_snapshot(Snapshot, Chain)
     end,
-    Ledger0.
+    %% re-open the ledger with the normal options
+    blockchain_ledger_v1:close(Ledger0),
+    Ledger1 = blockchain_ledger_v1:new(
+      Dir,
+      blockchain:db_handle(Chain),
+      blockchain:blocks_cf(Chain),
+      blockchain:heights_cf(Chain)
+     ),
+    %% and then compact the ledger
+    blockchain_ledger_v1:compact(Ledger1),
+    Ledger1.
+
 
 -spec load_into_ledger(snapshot(), L, M) -> ok when
     L :: blockchain_ledger_v1:ledger(),
