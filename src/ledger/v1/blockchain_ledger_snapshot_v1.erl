@@ -123,9 +123,7 @@ snapshot(Ledger0, Blocks, Mode) ->
                 Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
                 try register(Regname, self()) of
                     true ->
-                        ok = blockchain_lock:acquire(),
                         Res = generate_snapshot(Ledger0, Blocks, Mode),
-                        blockchain_lock:release(),
                         %% deliver to the caller
                         Parent ! {Ref, Res},
                         %% deliver to anyone else blocking
