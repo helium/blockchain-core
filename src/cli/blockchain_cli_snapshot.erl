@@ -89,8 +89,10 @@ snapshot_take(_, _, _) ->
 snapshot_take(Filename) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
+    ok = blockchain_lock:acquire(),
     Blocks = blockchain_ledger_snapshot_v1:get_blocks(Chain),
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks),
+    blockchain_lock:release(),
     BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
     file:write_file(Filename, BinSnap).
 
