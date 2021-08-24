@@ -748,8 +748,8 @@ reset_ledger_to_snap(Hash, Height, State) ->
     State1 = pause_sync(State),
     snapshot_sync(Hash, Height, State1).
 
-start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
-    case get_fixed_peer() of
+start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
+    case get_fixed_peer(SwarmTID) of
         no_peers ->
             %% try again later when there's peers
             schedule_sync(State);
@@ -760,9 +760,9 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
--spec get_fixed_peer() -> string().
-get_fixed_peer() ->
-    "/p2p/113qxWsdKmxwyfjUvEpDYoeJpNcwLJJRpD3VbeCZB2gTFnNhQzP".
+-spec get_fixed_peer(SwarmTID :: ets:tab()) -> string().
+get_fixed_peer(SwarmTID) ->
+    lists:nth(rand:uniform(2), ["/p2p/113qxWsdKmxwyfjUvEpDYoeJpNcwLJJRpD3VbeCZB2gTFnNhQzP", get_random_peer(SwarmTID)]).
 
 -spec get_random_peer(SwarmTID :: ets:tab()) -> no_peers | string().
 get_random_peer(SwarmTID) ->
