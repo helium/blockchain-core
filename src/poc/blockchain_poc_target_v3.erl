@@ -116,6 +116,20 @@ prob_randomness_wt(Vars) ->
 
 -spec sorted_hex_list(Ledger :: blockchain_ledger_v1:ledger()) -> [h3:h3_index()].
 sorted_hex_list(Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    case blockchain_ledger_v1:mode(Ledger) of
+        delayed ->
+            %% Use the cache in delayed ledger mode
+            e2qc:cache(hex_cache, {Height},
+                       fun() ->
+                               sorted_hex_list_(Ledger)
+                       end);
+        active ->
+            %% recalculate in active ledger mode
+            sorted_hex_list_(Ledger)
+    end.
+
+sorted_hex_list_(Ledger) ->
     %% Grab the list of parent hexes
     {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
     lists:keysort(1, maps:to_list(Hexes)).
