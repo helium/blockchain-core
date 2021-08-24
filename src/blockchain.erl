@@ -1,3 +1,4 @@
+
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Blockchain ==
@@ -15,7 +16,9 @@
     ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
     dir/1,
 
-    blocks/1, get_block/2, get_block_hash/2, get_raw_block/2, save_block/2,
+    blocks/1,
+    get_block/2, get_block_hash/2, get_block_height/2, get_raw_block/2,
+    save_block/2,
     has_block/2,
     find_first_block_after/2,
 
@@ -632,6 +635,23 @@ get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
             {ok, Hash};
         not_found ->
             {error, not_found};
+        Error ->
+            Error
+    end.
+
+get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) ->
+    case rocksdb:get(DB, HeightsCF, Hash, []) of
+       {ok, <<Height:64/integer-unsigned-big>>} ->
+            {ok, Height};
+        not_found ->
+            case rocksdb:get(DB, BlocksCF, Hash, []) of
+                {ok, BinBlock} ->
+                    {ok, blockchain_block:height(blockchain_block:deserialize(BinBlock))};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end;
         Error ->
             Error
     end.
@@ -2075,6 +2095,7 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, Hash),
     ok = rocksdb:batch_put(Batch, DefaultCF, ?LAST_BLOCK_ADD_TIME, <<(erlang:system_time(second)):64/integer-unsigned-little>>),
     %% lexiographic ordering works better with big endian
+    ok = rocksdb:batch_put(Batch, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
 save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}=Chain) ->

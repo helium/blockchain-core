@@ -262,7 +262,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             %%
                                             %% Keeping these distinct and using them for their intended purpose is important.
                                             PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
-                                            PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                                            {ok, PoCAbsorbedAtBlockHash} = blockchain:get_block_hash(LastChallenge, Chain),
                                             Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                             maybe_log_duration(prelude, StartPre),
                                             StartLA = erlang:monotonic_time(millisecond),
