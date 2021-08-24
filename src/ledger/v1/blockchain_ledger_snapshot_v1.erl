@@ -395,14 +395,8 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 import(Chain, SHA, #{version := v6}=Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
-    %% check if we need to wipe the ledger
-    case catch blockchain_ledger_v1:current_height(CLedger) of
-        %% nothing in there, proceed
-        {ok, 1} ->
-            blockchain_ledger_v1:close(CLedger);
-        _ ->
-            blockchain_ledger_v1:clean(CLedger)
-    end,
+    %% clean the ledger in case we had a partial snapshot load
+    blockchain_ledger_v1:clean(CLedger),
 
     %% open ledger with compaction disabled so
     %% we can bulk load
@@ -473,7 +467,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
     %% don't cache the writes to this context, do direct rocksdb writes
     %% for performance and to save memory
     L = blockchain_ledger_v1:new_direct_context(L1),
-    ok = blockchain_ledger_v1:current_height(Get(current_height), L),
+
     ok = blockchain_ledger_v1:consensus_members(Get(consensus_members), L),
     ok = blockchain_ledger_v1:election_height(Get(election_height), L),
     ok = blockchain_ledger_v1:election_epoch(Get(election_epoch), L),
@@ -539,6 +533,9 @@ load_into_ledger(Snapshot, L0, Mode) ->
             ok = blockchain_ledger_v1:add_hnt_burned(HB, L)
     end,
 
+
+    %% keep this at the end so incomplete ledger loads are very obvious
+    ok = blockchain_ledger_v1:current_height(Get(current_height), L),
     blockchain_ledger_v1:commit_context(L).
 
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
