@@ -13,7 +13,6 @@
 
 -export_type([atom/0, regions/0]).
 
--define(H3_IN_REGION_CACHE, h3_in_region).      % key: {has_aux, vars_nonce, h3, region_var}
 -define(H3_TO_REGION_CACHE, h3_to_region).      % key: {has_aux, vars_nonce, h3}
 
 %%--------------------------------------------------------------------
@@ -49,15 +48,11 @@ h3_to_region(H3, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> boolean() | {error, any()}.
 h3_in_region(H3, RegionVar, Ledger) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    HasAux = blockchain_ledger_v1:has_aux(Ledger),
-    e2qc:cache(
-        ?H3_IN_REGION_CACHE,
-        {HasAux, VarsNonce, H3, RegionVar},
-        fun() ->
-            h3_in_region_(H3, RegionVar, Ledger)
-        end
-    ).
+    case h3_to_region(H3, Ledger) of
+        {ok, Region} ->
+            Region == RegionVar;
+        Other -> Other
+    end.
 
 %%--------------------------------------------------------------------
 %% helpers
@@ -85,30 +80,4 @@ h3_to_region_(H3, Ledger) ->
             region_(Regions, H3, Ledger);
         E ->
             E
-    end.
-
--spec h3_in_region_(
-    H3 :: h3:h3_index(),
-    RegionVar :: atom(),
-    Ledger :: blockchain_ledger_v1:ledger()
-) -> boolean() | {error, any()}.
-h3_in_region_(H3, RegionVar, Ledger) ->
-    case blockchain:config(RegionVar, Ledger) of
-        {ok, Bin} ->
-            try h3:contains(H3, Bin) of
-                false ->
-                    false;
-                {true, _Parent} ->
-                    true
-            catch
-                What:Why:Stack ->
-                    lager:error("Unable to get region, What: ~p, Why: ~p, Stack: ~p", [
-                        What,
-                        Why,
-                        Stack
-                    ]),
-                    {error, {h3_contains_failed, Why}}
-            end;
-        _ ->
-            {error, {region_var_not_set, RegionVar}}
     end.
