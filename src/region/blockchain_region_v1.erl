@@ -13,8 +13,8 @@
 
 -export_type([atom/0, regions/0]).
 
--define(H3_IN_REGION_CACHE, h3_in_region).      % key: {has_aux, vars_nonce, h3, region_var}
--define(H3_TO_REGION_CACHE, h3_to_region).      % key: {has_aux, vars_nonce, h3}
+% key: {has_aux, vars_nonce, h3}
+-define(H3_TO_REGION_CACHE, h3_to_region).
 
 %%--------------------------------------------------------------------
 %% api
@@ -49,15 +49,10 @@ h3_to_region(H3, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> boolean() | {error, any()}.
 h3_in_region(H3, RegionVar, Ledger) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    HasAux = blockchain_ledger_v1:has_aux(Ledger),
-    e2qc:cache(
-        ?H3_IN_REGION_CACHE,
-        {HasAux, VarsNonce, H3, RegionVar},
-        fun() ->
-            h3_in_region_(H3, RegionVar, Ledger)
-        end
-    ).
+    case h3_to_region(H3, Ledger) of
+        {ok, Region} -> Region == RegionVar;
+        Other -> Other
+    end.
 
 %%--------------------------------------------------------------------
 %% helpers
@@ -71,7 +66,7 @@ h3_in_region(H3, RegionVar, Ledger) ->
 region_([], H3, _Ledger) ->
     {error, {unknown_region, H3}};
 region_([ToCheck | Remaining], H3, Ledger) ->
-    case h3_in_region(H3, ToCheck, Ledger) of
+    case h3_in_region_(H3, ToCheck, Ledger) of
         {error, _} = Error -> Error;
         false -> region_(Remaining, H3, Ledger);
         true -> {ok, ToCheck}
