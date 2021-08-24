@@ -148,6 +148,39 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
 
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            %% initial proposed max 34.24
+            {ok, Max} = blockchain:config(?net_emissions_max_rate, Ledger),
+            {ok, Burned} = blockchain_ledger_v1:hnt_burned(Ledger),
+            {ok, Overage} = blockchain_ledger_v1:net_overage(Ledger),
+
+            %% clear this since we have it already
+            ok = blockchain_ledger_v1:clear_hnt_burned(Ledger),
+
+            case Burned > Max of
+                %% if burned > max, then add (burned - max) to overage
+                true ->
+                    Overage1 = Overage + (Burned - Max),
+                    ok = blockchain_ledger_v1:net_overage(Overage1, Ledger);
+                %% else we may have pulled from overage to the tune of
+                %% max - burned
+                 _ ->
+                    %% here we pulled from overage up to max
+                    case (Max - Burned) < Overage  of
+                        %% emitted max, pulled from overage
+                        true ->
+                            Overage1 = Overage - (Max - Burned),
+                            ok = blockchain_ledger_v1:net_overage(Overage1, Ledger);
+                        %% not enough overage to emit up to max, 0 overage
+                        _ ->
+                            ok = blockchain_ledger_v1:net_overage(0, Ledger)
+                    end
+            end;
+        _ ->
+            ok
+    end,
+
     case blockchain_ledger_v1:mode(Ledger) == aux of
         false ->
             %% only absorb in the main ledger
@@ -275,12 +308,20 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
-                                          Vars, Ledger, AccInit),
+                                           Vars, Ledger, AccInit),
 
-        %% Forcing calculation of the EpochReward amount for the CG to always
+        %% Prior to HIP 28 (reward_version <6), force EpochReward amount for the CG to always
         %% be around ElectionInterval (30 blocks) so that there is less incentive
-        %% to stay in the consensus group
-        ConsensusEpochReward = calculate_epoch_reward(1, Start, End, Ledger),
+        %% to stay in the consensus group. With HIP 28, relax that to be up to election_interval +
+        %% election_retry_interval to allow for time for election to complete.
+        ConsensusEpochReward = 
+            case maps:get(reward_version,Vars) of
+               RewardVersion when RewardVersion >= 6 ->
+                    calculate_consensus_epoch_reward(Start, End, Vars);
+                _ ->
+                    calculate_epoch_reward(1, Start, End, Ledger)
+            end,
+
         Vars1 = Vars#{ consensus_epoch_reward => ConsensusEpochReward },
 
         Results = finalize_reward_calculations(Results0, Ledger, Vars1),
@@ -666,11 +707,37 @@ calculate_epoch_reward(Version, Start, End, Ledger) ->
     {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
-    calculate_epoch_reward(Version, Start, End, BlockTime0, ElectionInterval, MonthlyReward).
+    calculate_epoch_reward(Version, Start, End, BlockTime0,
+                           ElectionInterval, MonthlyReward, Ledger).
+
+calculate_net_emissions_reward(Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            %% initial proposed max 34.24
+            {ok, Max} = blockchain:config(?net_emissions_max_rate, Ledger),
+            {ok, Burned} = blockchain_ledger_v1:hnt_burned(Ledger),
+            {ok, Overage} = blockchain_ledger_v1:net_overage(Ledger),
+            min(Max, Burned + Overage);
+        _ ->
+            0
+    end.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), pos_integer(),
-                             pos_integer(), pos_integer(), pos_integer()) -> float().
-calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward) when Version >= 2 ->
+                             pos_integer(), pos_integer(), pos_integer(),
+                             blockchain_ledger_v1:ledger()) -> float().
+calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward, Ledger) when Version >= 6 ->
+    BlockTime1 = (BlockTime0/1000),
+    % Convert to blocks per min
+    BlockPerMin = 60/BlockTime1,
+    % Convert to blocks per hour
+    BlockPerHour = BlockPerMin*60,
+    % Calculate election interval in blocks
+    ElectionInterval = End - Start + 1, % epoch is inclusive of start and end
+    ElectionPerHour = BlockPerHour/ElectionInterval,
+    Reward = MonthlyReward/30/24/ElectionPerHour,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra;
+calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward, Ledger) when Version >= 2 ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -679,8 +746,10 @@ calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, Month
     % Calculate election interval in blocks
     ElectionInterval = End - Start,
     ElectionPerHour = BlockPerHour/ElectionInterval,
-    MonthlyReward/30/24/ElectionPerHour;
-calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, MonthlyReward) ->
+    Reward = MonthlyReward/30/24/ElectionPerHour,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra;
+calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, MonthlyReward, Ledger) ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -688,7 +757,27 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
     BlockPerHour = BlockPerMin*60,
     % Calculate number of elections per hour
     ElectionPerHour = BlockPerHour/ElectionInterval,
-    MonthlyReward/30/24/ElectionPerHour.
+    Reward = MonthlyReward/30/24/ElectionPerHour,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra.
+
+
+
+-spec calculate_consensus_epoch_reward(pos_integer(), pos_integer(), reward_vars()) -> float().
+calculate_consensus_epoch_reward(Start, End, #{ block_time := BlockTime0,
+                                                election_interval := ElectionInterval,
+                                                election_restart_interval := ElectionRestartInterval,
+                                                monthly_reward := MonthlyReward }) ->
+
+    BlockTime1 = (BlockTime0/1000),
+    % Convert to blocks per min
+    BlockPerMin = 60/BlockTime1,
+    % Convert to blocks per month
+    BlockPerMonth = BlockPerMin*60*24*30,
+    % Calculate epoch length in blocks, cap at election interval + grace period
+    EpochLength = erlang:min(End - Start + 1, ElectionInterval + ElectionRestartInterval),
+    MonthlyReward/BlockPerMonth*EpochLength.
+
 
 -spec consensus_members_rewards(blockchain_ledger_v1:ledger(),
                                 reward_vars(),
@@ -1821,5 +1910,24 @@ common_poc_vars() ->
         ?poc_v4_target_score_curve => 5,
         ?poc_v5_target_prob_randomness_wt => 0.0
     }.
+
+
+hip28_calc_test() ->
+    % set test vars such that rewards are 1 per block
+    Vars = #{ block_time => 60000, 
+              election_interval => 30, 
+              election_restart_interval => 5, 
+              monthly_reward => 43200,
+              reward_version => 6 },
+    ?assertEqual(30.0, calculate_consensus_epoch_reward(1,30,Vars)),
+    ?assertEqual(35.0, calculate_consensus_epoch_reward(1,50,Vars)).
+
+consensus_epoch_reward_test() ->
+    % using test values such that reward is 1 per block
+    % should always return the election interval as the answer
+    ?assertEqual(30.0,calculate_epoch_reward(1,1,25,60000,30,43200)),
+
+    % more than 30 blocks should return 30
+    ?assertEqual(30.0,calculate_epoch_reward(1,1,50,60000,30,43200)).
 
 -endif.

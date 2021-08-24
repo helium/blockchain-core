@@ -987,7 +987,7 @@ validate_var(?poc_reward_decay_rate, Value) ->
     validate_float(Value, "poc_reward_decay_rate", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 5 ->
+        N when is_integer(N), N >= 1,  N =< 6 ->
             ok;
         _ ->
             throw({error, {invalid_reward_version, Value}})
@@ -1280,6 +1280,15 @@ validate_var(?penalty_history_limit, Value) ->
     %% low end is low for testing and an out if these become corrupted
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
+
+validate_var(?net_emissions_enabled, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_net_emissions_boolean, Value}})
+    end;
+validate_var(?net_emissions_max_rate, Value) ->
+    validate_int(Value, "net_emissions_max_rate", 0, ?bones(200), false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

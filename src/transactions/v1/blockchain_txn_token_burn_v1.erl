@@ -209,6 +209,7 @@ absorb(Txn, Chain) ->
                     Error;
                 ok ->
                     Payee = ?MODULE:payee(Txn),
+                    ok = blockchain_ledger_v1:add_hnt_burned(HNTAmount, Ledger),
                     blockchain_ledger_v1:credit_dc(Payee, DCAmount, Ledger)
             end
     end.

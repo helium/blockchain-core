@@ -123,9 +123,7 @@ snapshot(Ledger0, Blocks, Mode) ->
                 Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
                 try register(Regname, self()) of
                     true ->
-                        ok = blockchain_lock:acquire(),
                         Res = generate_snapshot(Ledger0, Blocks, Mode),
-                        blockchain_lock:release(),
                         %% deliver to the caller
                         Parent ! {Ref, Res},
                         %% deliver to anyone else blocking
@@ -220,6 +218,9 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
         {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
         {ok, OraclePriceList} = blockchain_ledger_v1:current_oracle_price_list(Ledger),
 
+        {ok, NetOverage} = blockchain_ledger_v1:net_overage(Ledger),
+        {ok, HntBurned} = blockchain_ledger_v1:hnt_burned(Ledger),
+
         %% use the active ledger here because that's where upgrades are marked
         Upgrades = blockchain:get_upgrades(blockchain_ledger_v1:mode(active, Ledger0)),
         Pairs =
@@ -253,7 +254,9 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {blocks           , Blocks},
                 {oracle_price     , OraclePrice},
                 {oracle_price_list, OraclePriceList},
-                {upgrades         , Upgrades}
+                {upgrades         , Upgrades},
+                {net_overage      , NetOverage},
+                {hnt_burned       , HntBurned}
              ],
         M = maps:from_list(Pairs),
         M1 = maps:map(fun(version, V) ->
@@ -522,6 +525,20 @@ load_into_ledger(Snapshot, L0, Mode) ->
 
     ok = blockchain_ledger_v1:load_oracle_price(Get(oracle_price), L),
     ok = blockchain_ledger_v1:load_oracle_price_list(Get(oracle_price_list), L),
+
+    case maps:find(net_overage, Snapshot) of
+        error -> ok;
+        {ok, NO} ->
+            ok = blockchain_ledger_v1:net_overage(NO, L)
+    end,
+
+    case maps:find(hnt_burned, Snapshot) of
+        error -> ok;
+        {ok, HB} ->
+            ok = blockchain_ledger_v1:clear_hnt_burned(L),
+            ok = blockchain_ledger_v1:add_hnt_burned(HB, L)
+    end,
+
     blockchain_ledger_v1:commit_context(L).
 
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
