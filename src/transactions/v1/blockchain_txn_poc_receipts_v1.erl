@@ -262,7 +262,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             %%
                                             %% Keeping these distinct and using them for their intended purpose is important.
                                             PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
-                                            PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                                            {ok, PoCAbsorbedAtBlockHash} = blockchain:get_block_hash(LastChallenge, Chain),
                                             Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                             maybe_log_duration(prelude, StartPre),
                                             StartLA = erlang:monotonic_time(millisecond),
@@ -323,6 +323,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                            {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
                                                            P
                                                    end,
+                                            StartP = erlang:monotonic_time(millisecond),
                                             N = erlang:length(Path),
                                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                             OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
@@ -334,6 +335,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                                end,
                                             %% no witness will exist with the first layer hash
                                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                                            maybe_log_duration(packet_construction, StartP),
                                             StartV = erlang:monotonic_time(millisecond),
 
                                             case blockchain:config(?poc_version, OldLedger) of
