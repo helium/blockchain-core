@@ -647,7 +647,9 @@ get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) -
         not_found ->
             case rocksdb:get(DB, BlocksCF, Hash, []) of
                 {ok, BinBlock} ->
-                    {ok, blockchain_block:height(blockchain_block:deserialize(BinBlock))};
+                    Height = blockchain_block:height(blockchain_block:deserialize(BinBlock)),
+                    ok = rocksdb:put(DB, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>, []),
+                    Height;
                 not_found ->
                     {error, not_found};
                 Error ->
@@ -1805,7 +1807,7 @@ get_implicit_burn(TxnHash, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) w
 add_implicit_burn(TxnHash, ImplicitBurn, #blockchain{db=DB, implicit_burns=ImplicitBurnsCF}) ->
     try
         BinImp = blockchain_implicit_burn:serialize(ImplicitBurn),
-        ok = rocksdb:put(DB, ImplicitBurnsCF, TxnHash, BinImp, [{sync, true}])
+        ok = rocksdb:put(DB, ImplicitBurnsCF, TxnHash, BinImp, [])
     catch What:Why:Stack ->
             lager:warning("error adding implicit burn: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
