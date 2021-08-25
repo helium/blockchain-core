@@ -323,13 +323,26 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     SwarmTID = blockchain_swarm:tid(),
-    Ports = case application:get_env(blockchain, ports, undefined) of
-                undefined ->
-                    %% fallback to the single 'port' app env var
-                    [proplists:get_value(port, Args, 0)];
-                PortList when is_list(PortList) ->
-                    PortList
-            end,
+    %% Get list of listening addresses. If deprecated 'ports' or 'port' variable used,
+    %% assume listening IP of 0.0.0.0. otherwise use listen_addresses parameter.
+    ListenAddrs = case application:get_env(blockchain, ports, undefined) of
+                      undefined -> 
+                          case application:get_env(blockchain, port, undefined) of
+                              undefined ->
+                                  case application:get_env(blockchain, listen_addresses, undefined) of
+                                      undefined -> ["/ip4/0.0.0.0/tcp/0"];
+                                      AddrList when is_list(erlang:hd(AddrList)) -> AddrList;
+                                      AddrList when is_list(AddrList) -> [ AddrList ]
+                                  end;
+                              Port ->
+                                  lager:warning("Using deprecated port configuration parameter. Switch to {listen_addresses, ~p}", [["/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)]]),
+                                  ["/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)]
+                          end;
+                      PortList when is_list(PortList) ->
+                          lager:warning("Using deprecated ports configuration parameter. Swtich to {listen_addresses, ~p}",
+                                        ["/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port) || Port <- PortList]),
+                          ["/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port) || Port <- PortList]
+                  end,
     {Blockchain, Ref} =
         case application:get_env(blockchain, autoload, true) of
             false ->
@@ -341,7 +354,7 @@ init(Args) ->
                 load_chain(SwarmTID, BaseDir, GenDir)
         end,
     true = lists:all(fun(E) -> E == ok end,
-                     [ libp2p_swarm:listen(SwarmTID, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
+                     [ libp2p_swarm:listen(SwarmTID, Addr) || Addr <- ListenAddrs ]),
     {Mode, Info} = get_sync_mode(Blockchain),
 
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
