@@ -317,7 +317,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
         ConsensusEpochReward = 
             case maps:get(reward_version,Vars) of
                RewardVersion when RewardVersion >= 6 ->
-                    calculate_consensus_epoch_reward(Start, End, Vars);
+                    calculate_consensus_epoch_reward(Start, End, Vars, Ledger);
                 _ ->
                     calculate_epoch_reward(1, Start, End, Ledger)
             end,
@@ -763,11 +763,12 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
 
 
 
--spec calculate_consensus_epoch_reward(pos_integer(), pos_integer(), reward_vars()) -> float().
+-spec calculate_consensus_epoch_reward(pos_integer(), pos_integer(),
+                                       reward_vars(), blockchain_ledger_v1:ledger()) -> float().
 calculate_consensus_epoch_reward(Start, End, #{ block_time := BlockTime0,
                                                 election_interval := ElectionInterval,
                                                 election_restart_interval := ElectionRestartInterval,
-                                                monthly_reward := MonthlyReward }) ->
+                                                monthly_reward := MonthlyReward }, Ledger) ->
 
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
@@ -776,8 +777,9 @@ calculate_consensus_epoch_reward(Start, End, #{ block_time := BlockTime0,
     BlockPerMonth = BlockPerMin*60*24*30,
     % Calculate epoch length in blocks, cap at election interval + grace period
     EpochLength = erlang:min(End - Start + 1, ElectionInterval + ElectionRestartInterval),
-    MonthlyReward/BlockPerMonth*EpochLength.
-
+    Reward = (MonthlyReward/BlockPerMonth) * EpochLength,
+    Extra = calculate_net_emissions_reward(Ledger),
+    Reward + Extra.
 
 -spec consensus_members_rewards(blockchain_ledger_v1:ledger(),
                                 reward_vars(),
