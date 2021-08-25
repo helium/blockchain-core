@@ -639,6 +639,7 @@ get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
             Error
     end.
 
+-spec get_block_height(Hash :: blockchain_block:hash(), Blockchain :: blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
 get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) ->
     case rocksdb:get(DB, HeightsCF, Hash, []) of
        {ok, <<Height:64/integer-unsigned-big>>} ->
