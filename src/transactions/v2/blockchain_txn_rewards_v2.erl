@@ -777,7 +777,7 @@ calculate_consensus_epoch_reward(Start, End, #{ block_time := BlockTime0,
     BlockPerMonth = BlockPerMin*60*24*30,
     % Calculate epoch length in blocks, cap at election interval + grace period
     EpochLength = erlang:min(End - Start + 1, ElectionInterval + ElectionRestartInterval),
-    Reward = MonthlyReward/BlockPerMonth*EpochLength,
+    Reward = (MonthlyReward/BlockPerMonth) * EpochLength,
     Extra = calculate_net_emissions_reward(Ledger),
     Reward + Extra.
 
