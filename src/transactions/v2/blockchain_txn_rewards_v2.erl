@@ -314,7 +314,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% be around ElectionInterval (30 blocks) so that there is less incentive
         %% to stay in the consensus group. With HIP 28, relax that to be up to election_interval +
         %% election_retry_interval to allow for time for election to complete.
-        ConsensusEpochReward = 
+        ConsensusEpochReward =
             case maps:get(reward_version,Vars) of
                RewardVersion when RewardVersion >= 6 ->
                     calculate_consensus_epoch_reward(Start, End, Vars, Ledger);
@@ -1915,21 +1915,32 @@ common_poc_vars() ->
 
 
 hip28_calc_test() ->
+    BaseDir = test_utils:tmp_dir("hip28_calc_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
     % set test vars such that rewards are 1 per block
-    Vars = #{ block_time => 60000, 
-              election_interval => 30, 
-              election_restart_interval => 5, 
+    Vars = #{ block_time => 60000,
+              election_interval => 30,
+              election_restart_interval => 5,
               monthly_reward => 43200,
               reward_version => 6 },
-    ?assertEqual(30.0, calculate_consensus_epoch_reward(1,30,Vars)),
-    ?assertEqual(35.0, calculate_consensus_epoch_reward(1,50,Vars)).
+    ?assertEqual(30.0, calculate_consensus_epoch_reward(1,30,Vars, Ledger1)),
+    ?assertEqual(35.0, calculate_consensus_epoch_reward(1,50,Vars, Ledger1)).
 
 consensus_epoch_reward_test() ->
+    BaseDir = test_utils:tmp_dir("consensus_epoch_reward_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
     % using test values such that reward is 1 per block
     % should always return the election interval as the answer
-    ?assertEqual(30.0,calculate_epoch_reward(1,1,25,60000,30,43200)),
+    ?assertEqual(30.0,calculate_epoch_reward(1,1,25,60000,30,43200, Ledger1)),
 
     % more than 30 blocks should return 30
-    ?assertEqual(30.0,calculate_epoch_reward(1,1,50,60000,30,43200)).
-
+    ?assertEqual(30.0,calculate_epoch_reward(1,1,50,60000,30,43200, Ledger1)).
 -endif.
