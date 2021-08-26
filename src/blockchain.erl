@@ -649,7 +649,7 @@ get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) -
                 {ok, BinBlock} ->
                     Height = blockchain_block:height(blockchain_block:deserialize(BinBlock)),
                     ok = rocksdb:put(DB, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>, []),
-                    Height;
+                    {ok, Height};
                 not_found ->
                     {error, not_found};
                 Error ->
