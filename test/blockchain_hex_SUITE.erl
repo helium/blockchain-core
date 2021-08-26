@@ -107,6 +107,8 @@ init_per_suite(Config) ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(_TestCase, Config) ->
+    blockchain_hex:precalc(?config(ledger, Config)),
+
     Config.
 
 %%--------------------------------------------------------------------
@@ -120,6 +122,7 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 end_per_suite(_Config) ->
     %% destroy the downloaded ledger
+    blockchain_hex:destroy_memoization(),
     blockchain_ct_utils:destroy_ledger(),
     ok.
 
@@ -158,9 +161,7 @@ known_scale_test(Config) ->
 
     ok.
 
-known_values_test(Config) ->
-    Ledger = ?config(ledger, Config),
-
+known_values_test(_Config) ->
     %% assert some known values calculated from the python model (thanks @para1!)
     true = lists:all(
         fun({Hex, Density}) ->
@@ -168,15 +169,16 @@ known_values_test(Config) ->
                 0 ->
                     true;
                 _ ->
-                    {ok, VarMap} = blockchain_hex:var_map(Ledger),
-                    {_, ClippedDensities} = blockchain_hex:densities(Hex, VarMap, Ledger),
+                    GotDensity = blockchain_hex:clookup(Hex),
 
-                    ct:pal("~p ~p", [
-                        Density,
-                        maps:get(Hex, ClippedDensities)
-                    ]),
+                    ct:pal("hex ~p ~p ~p",
+                           [
+                            Hex,
+                            Density,
+                            GotDensity
+                           ]),
 
-                    Density == maps:get(Hex, ClippedDensities)
+                    Density == GotDensity
             end
         end,
         ?KNOWN
