@@ -83,63 +83,63 @@
     [
         {<<"channel_frequency">>, 868100000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 868300000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 868500000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 868500000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 867100000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 867300000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 867500000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 867700000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ],
     [
         {<<"channel_frequency">>, 867900000},
         {<<"bandwidth">>, 125000},
-        {<<"max_eirp">>, 140},
+        {<<"max_eirp">>, 161},
         {<<"spreading">>,
          [{65, 'SF12'}, {129, 'SF9'}, {238, 'SF8'}]}
     ]

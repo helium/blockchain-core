@@ -1181,7 +1181,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
-                                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                                    MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
                                     case RSSI < MinRcvSig of
                                         false ->
                                             %% RSSI is impossibly high discard this receipt
@@ -1278,7 +1278,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
+                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
 
                                                  case RSSI < MinRcvSig of
                                                      false ->
@@ -1446,7 +1446,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
+                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq),
 
                                                  case RSSI < MinRcvSig of
                                                      false ->
@@ -1615,7 +1615,13 @@ get_channels_(Ledger, Path, LayerData) ->
                       IntData rem ChannelCount
               end, LayerData).
 
-min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+-spec min_rcv_sig(Receipt :: undefined | blockchain_poc_receipt_v1:receipt(),
+                  Ledger :: blockchain_ledger_v1:ledger(),
+                  SourceLoc :: h3:h3_index(),
+                  DstPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  DestinationLoc :: h3:h3_index(),
+                  Freq :: float()) -> float().
+min_rcv_sig(undefined, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     %% Receipt can be undefined
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
@@ -1624,7 +1630,7 @@ min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, Destinatio
 
             case estimated_tx_power(SourceLoc, Freq, Ledger) of
                 {ok, TxPower} ->
-                    FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+                    FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
                     case blockchain:config(?fspl_loss, Ledger) of
                         {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
                         _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
@@ -1640,13 +1646,13 @@ min_rcv_sig(undefined, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, Destinatio
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
     end;
-min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     %% We do have a receipt
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
             %% Get tx_power from attached receipt and use it to calculate min_rcv_sig
             TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
-            FSPL = calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+            FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
             case blockchain:config(?fspl_loss, Ledger) of
                 {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
                 _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
@@ -1657,10 +1663,12 @@ min_rcv_sig(Receipt, Ledger, SrcPubkeyBin, SourceLoc, DstPubkeyBin, DestinationL
             )
     end.
 
-calc_fspl(SrcPubkeyBin, DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
+calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
     {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
-    {ok, SrcGW} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
-    GT = blockchain_ledger_gateway_v2:gain(SrcGW),
+    %% NOTE: Transmit gain is set to 0 when calculating free_space_path_loss
+    %% This is because the packet forwarder will be configured to subtract the antenna
+    %% gain and miner will always transmit at region EIRP.
+    GT = 0,
     GR = blockchain_ledger_gateway_v2:gain(DstGW),
     blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq, GT, GR).
 
