@@ -233,7 +233,7 @@ precalc(Ledger) ->
 
 -spec limit(
     Res :: 0..12,
-    VarMap :: var_map(),
+    VarTuple :: tuple(),
     OccupiedCount :: non_neg_integer()
 ) -> non_neg_integer().
 limit(Res, Vars, OccupiedCount) ->

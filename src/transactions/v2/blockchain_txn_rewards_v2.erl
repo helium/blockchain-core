@@ -314,8 +314,8 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% be around ElectionInterval (30 blocks) so that there is less incentive
         %% to stay in the consensus group. With HIP 28, relax that to be up to election_interval +
         %% election_retry_interval to allow for time for election to complete.
-        ConsensusEpochReward = 
-            case maps:get(reward_version,Vars) of
+        ConsensusEpochReward =
+            case maps:get(reward_version, Vars) of
                RewardVersion when RewardVersion >= 6 ->
                     calculate_consensus_epoch_reward(Start, End, Vars, Ledger);
                 _ ->
@@ -673,6 +673,10 @@ get_reward_vars(Start, End, Ledger) ->
                           _ -> undefined
                       end,
 
+    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+    {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, Ledger),
+    {ok, BlockTime} = blockchain:config(?block_time, Ledger),
+
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -691,7 +695,10 @@ get_reward_vars(Start, End, Ledger) ->
         witness_redundancy => WitnessRedundancy,
         poc_reward_decay_rate => DecayRate,
         density_tgt_res => DensityTgtRes,
-        hip15_tx_reward_unit_cap => HIP15TxRewardUnitCap
+        hip15_tx_reward_unit_cap => HIP15TxRewardUnitCap,
+        election_interval => ElectionInterval,
+        election_restart_interval => ElectionRestartInterval,
+        block_time => BlockTime
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -764,12 +771,13 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
 
 
 -spec calculate_consensus_epoch_reward(pos_integer(), pos_integer(),
-                                       reward_vars(), blockchain_ledger_v1:ledger()) -> float().
-calculate_consensus_epoch_reward(Start, End, #{ block_time := BlockTime0,
-                                                election_interval := ElectionInterval,
-                                                election_restart_interval := ElectionRestartInterval,
-                                                monthly_reward := MonthlyReward }, Ledger) ->
+                                       map(), blockchain_ledger_v1:ledger()) -> float().
+calculate_consensus_epoch_reward(Start, End, Vars, Ledger) ->
 
+    #{ block_time := BlockTime0,
+       election_interval := ElectionInterval,
+       election_restart_interval := ElectionRestartInterval,
+       monthly_reward := MonthlyReward } = Vars,
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -1915,21 +1923,58 @@ common_poc_vars() ->
 
 
 hip28_calc_test() ->
-    % set test vars such that rewards are 1 per block
-    Vars = #{ block_time => 60000, 
-              election_interval => 30, 
-              election_restart_interval => 5, 
-              monthly_reward => 43200,
-              reward_version => 6 },
-    ?assertEqual(30.0, calculate_consensus_epoch_reward(1,30,Vars)),
-    ?assertEqual(35.0, calculate_consensus_epoch_reward(1,50,Vars)).
+    {timeout, 30000,
+     fun() ->
+             meck:new(blockchain_ledger_v1, [passthrough]),
+             meck:expect(blockchain_ledger_v1, hnt_burned,
+                         fun(_Ledger) ->
+                                 0
+                         end),
+             meck:expect(blockchain_ledger_v1, net_overage,
+                         fun(_Ledger) ->
+                                 0
+                         end),
+             meck:expect(blockchain_ledger_v1, config,
+                         fun(_, _Ledger) ->
+                                 0
+                         end),
+
+                                                % set test vars such that rewards are 1 per block
+             Vars = #{ block_time => 60000,
+                       election_interval => 30,
+                       election_restart_interval => 5,
+                       monthly_reward => 43200,
+                       reward_version => 6 },
+             ?assertEqual(30.0, calculate_consensus_epoch_reward(1, 30, Vars, ledger)),
+             ?assertEqual(35.0, calculate_consensus_epoch_reward(1, 50, Vars, ledger)),
+             meck:unload(blockchain_ledger_v1),
+             ok
+     end}.
 
 consensus_epoch_reward_test() ->
-    % using test values such that reward is 1 per block
-    % should always return the election interval as the answer
-    ?assertEqual(30.0,calculate_epoch_reward(1,1,25,60000,30,43200)),
+    {timeout, 30000,
+     fun() ->
+             meck:new(blockchain_ledger_v1, [passthrough]),
+             meck:expect(blockchain_ledger_v1, hnt_burned,
+                         fun(_Ledger) ->
+                                 0
+                         end),
+             meck:expect(blockchain_ledger_v1, net_overage,
+                         fun(_Ledger) ->
+                                 0
+                         end),
+             meck:expect(blockchain_ledger_v1, config,
+                         fun(_, _Ledger) ->
+                                 0
+                         end),
 
-    % more than 30 blocks should return 30
-    ?assertEqual(30.0,calculate_epoch_reward(1,1,50,60000,30,43200)).
+             %% using test values such that reward is 1 per block
+             %% should always return the election interval as the answer
+             ?assertEqual(30.0,calculate_epoch_reward(1, 1, 25, 60000, 30, 43200, ledger)),
+
+             %% more than 30 blocks should return 30
+             ?assertEqual(30.0,calculate_epoch_reward(1, 1, 50, 60000, 30, 43200, ledger)),
+             meck:unload(blockchain_ledger_v1)
+     end}.
 
 -endif.
