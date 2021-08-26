@@ -218,7 +218,8 @@ precalc(Ledger) ->
                 fun(ResHex) ->
                         DensityTarget = element(2, element(Level, Vars)),
                         OccupiedCount = occupied_count(DensityTarget, ResHex),
-                        Limit = limit(Level, Vars, OccupiedCount),
+                        VarAtRes = element(Level, Vars),
+                        Limit = limit(VarAtRes, OccupiedCount),
                         Ct = ulookup(ResHex),
                         Actual = min(Limit, Ct),
                         ets:insert(?PRE_CLIP_TBL, {ResHex, Actual})
@@ -232,12 +233,10 @@ precalc(Ledger) ->
     lager:info("ets ~p ~p", [ets:info(?PRE_UNCLIP_TBL, size), End-Start]).
 
 -spec limit(
-    Res :: 0..12,
-    VarMap :: var_map(),
+    VarAtRes :: {0..12, {non_neg_integer(), non_neg_integer(), non_neg_integer()}},
     OccupiedCount :: non_neg_integer()
 ) -> non_neg_integer().
-limit(Res, Vars, OccupiedCount) ->
-    VarAtRes = element(Res, Vars),
+limit(VarAtRes, OccupiedCount) ->
     N = element(1, VarAtRes),
     DensityTgt = element(2, VarAtRes),
     DensityMax = element(3, VarAtRes),

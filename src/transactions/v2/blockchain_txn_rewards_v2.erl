@@ -626,6 +626,10 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
     {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
+    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+    {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, Ledger),
+    {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
+
     DCPercent = case blockchain:config(?dc_percent, Ledger) of
                     {ok, R1} ->
                         R1;
@@ -691,7 +695,10 @@ get_reward_vars(Start, End, Ledger) ->
         witness_redundancy => WitnessRedundancy,
         poc_reward_decay_rate => DecayRate,
         density_tgt_res => DensityTgtRes,
-        hip15_tx_reward_unit_cap => HIP15TxRewardUnitCap
+        hip15_tx_reward_unit_cap => HIP15TxRewardUnitCap,
+        election_interval => ElectionInterval,
+        election_restart_interval => ElectionRestartInterval,
+        block_time => BlockTime0
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
