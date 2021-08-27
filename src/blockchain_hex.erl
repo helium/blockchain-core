@@ -3,7 +3,10 @@
 -export([
          var_map/1,
          scale/2, scale/4,
-         destroy_memoization/0
+         destroy_memoization/0,
+
+         %% exported for dialyzer reasons
+         precalc/2
         ]).
 
 -include("blockchain_vars.hrl").
@@ -19,7 +22,6 @@
 -ifdef(TEST).
 
 -export([
-         precalc/2,
          ulookup/1,
          clookup/1
         ]).
