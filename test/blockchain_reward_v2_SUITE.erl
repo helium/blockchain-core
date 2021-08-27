@@ -49,7 +49,7 @@ init_per_suite(Config) ->
 
     ct:pal("loaded ledger at height ~p", [Height]),
 
-    [{chain, Chain} | Config].
+    [{chain, blockchain:ledger(Ledger1, Chain)} | Config].
 
 end_per_suite(Config) ->
     blockchain:clean(proplists:get_value(chain, Config)),
