@@ -34,12 +34,12 @@
 
 -export_type([
     snapshot/0,
-    snapshot_v5/0
+    snapshot_error/0
 ]).
 
-%% -type state_channel() ::
-%%       {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
-%%     | {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2()}.
+-type state_channel() ::
+      {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
+    | {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2()}.
 
 %% this assumes that everything will have loaded the genesis block
 %% already.  I'm not sure that's totally safe in all cases, but it's
@@ -50,44 +50,78 @@
 %% format and functionality down.  once it's final we can move on to a
 %% more permanent and less flexible format, like protobufs, or
 %% cauterize.
--type snapshot_v5_or_v6(Version) :: #{version => Version, atom() => binary()}.
-    %% #{
-    %%     version           => Version,
-    %%     current_height    => non_neg_integer(),
-    %%     transaction_fee   =>  non_neg_integer(),
-    %%     consensus_members => [libp2p_crypto:pubkey_bin()],
-    %%     election_height   => non_neg_integer(),
-    %%     election_epoch    => non_neg_integer(),
-    %%     delayed_vars      => [{integer(), [{Hash :: term(), TODO :: term()}]}], % TODO More specific
-    %%     threshold_txns    => [{binary(), binary()}], % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
-    %%     master_key        => binary(),
-    %%     multi_keys        => [binary()],
-    %%     vars_nonce        => pos_integer(),
-    %%     vars              => [{binary(), term()}], % TODO What is the term()?
-    %%     htlcs             => [{Address :: binary(), blockchain_ledger_htlc_v1:htlc()}],
-    %%     ouis              => [term()], % TODO Be more specific
-    %%     subnets           => [term()], % TODO Be more specific
-    %%     oui_counter       => pos_integer(),
-    %%     hexes             => [term()], % TODO Be more specific
-    %%     h3dex             => [{integer(), [binary()]}],
-    %%     state_channels    => [{binary(), state_channel()}],
-    %%     blocks            => [blockchain_block:block()],
-    %%     oracle_price      => non_neg_integer(),
-    %%     oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
+-type snapshot_v5() ::
+    #{
+        version           => v5,
+        current_height    => non_neg_integer(),
+        transaction_fee   =>  non_neg_integer(),
+        consensus_members => [libp2p_crypto:pubkey_bin()],
+        election_height   => non_neg_integer(),
+        election_epoch    => non_neg_integer(),
+        delayed_vars      => [{integer(), [{Hash :: term(), TODO :: term()}]}], % TODO More specific
+        threshold_txns    => [{binary(), binary()}], % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
+        master_key        => binary(),
+        multi_keys        => [binary()],
+        vars_nonce        => pos_integer(),
+        vars              => [{binary(), term()}], % TODO What is the term()?
+        htlcs             => [{Address :: binary(), blockchain_ledger_htlc_v1:htlc()}],
+        ouis              => [term()], % TODO Be more specific
+        subnets           => [term()], % TODO Be more specific
+        oui_counter       => pos_integer(),
+        hexes             => [term()], % TODO Be more specific
+        h3dex             => [{integer(), [binary()]}],
+        state_channels    => [{binary(), state_channel()}],
+        blocks            => [blockchain_block:block()],
+        oracle_price      => non_neg_integer(),
+        oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
 
-    %%     %% Raw
-    %%     gateways          => [{binary(), binary()}],
-    %%     pocs              => [{binary(), binary()}],
-    %%     accounts          => [{binary(), binary()}],
-    %%     dc_accounts       => [{binary(), binary()}],
-    %%     security_accounts => [{binary(), binary()}]
-    %% }.
+        %% Raw
+        gateways          => [{binary(), binary()}],
+        pocs              => [{binary(), binary()}],
+        accounts          => [{binary(), binary()}],
+        dc_accounts       => [{binary(), binary()}],
+        security_accounts => [{binary(), binary()}]
+    }.
 
-%% v5 and v6 differ only in serialization format.
--type snapshot_v5() :: snapshot_v5_or_v6(v5).
--type snapshot_v6() :: snapshot_v5_or_v6(v6).
+-type snapshot_v6() ::
+    #{
+        version              => v6,
+        key_except_version() => binary()
+    }.
 
--type key() :: atom().
+-type key() ::
+    version | key_except_version().
+
+-type key_except_version() ::
+      current_height
+    | transaction_fee
+    | consensus_members
+    | election_height
+    | election_epoch
+    | delayed_vars
+    | threshold_txns
+    | master_key
+    | multi_keys
+    | vars_nonce
+    | vars
+    | htlcs
+    | ouis
+    | subnets
+    | oui_counter
+    | hexes
+    | h3dex
+    | state_channels
+    | blocks
+    | oracle_price
+    | oracle_price_list
+
+    %% Raw
+    | gateways
+    | pocs
+    | accounts
+    | dc_accounts
+    | security_accounts
+    .
 
 -type snapshot_of_any_version() ::
     #blockchain_snapshot_v1{}
@@ -99,9 +133,17 @@
 
 -type snapshot() :: snapshot_v6().
 
+-type snapshot_error() ::
+    {
+        error_taking_snapshot,
+        Class :: error | exit | throw,
+        Reason :: term(),
+        Stack :: term()
+    }.
+
 -spec snapshot(blockchain_ledger_v1:ledger(), [binary()]) ->
     {ok, snapshot()}
-    | {error, term()}.  % TODO More-specific than just term()
+    | {error, killed | snapshot_error()}.
 snapshot(Ledger0, Blocks) ->
     snapshot(Ledger0, Blocks, delayed).
 
@@ -110,7 +152,7 @@ snapshot(Ledger0, Blocks) ->
     [binary()],
     blockchain_ledger_v1:mode()
 ) ->
-    {ok, snapshot()} | {error, term()}.  % TODO More-specific than just term()
+    {ok, snapshot()} | {error, killed | snapshot_error()}.
 snapshot(Ledger0, Blocks, Mode) ->
     Parent = self(),
     Ref = make_ref(),
@@ -179,8 +221,22 @@ deliver(Res) ->
     [binary()],
     blockchain_ledger_v1:mode()
 ) ->
-    {ok, snapshot()} | {error, term()}.  % TODO More-specific than just term()
-generate_snapshot(Ledger0, Blocks, Mode) ->
+    {ok, snapshot()} | {error, snapshot_error()}.
+generate_snapshot(Ledger, Blocks, Mode) ->
+    case generate_snapshot_v5(Ledger, Blocks, Mode) of
+        {ok, #{version := v5}=Snap} ->
+            {ok, v5_to_v6(Snap)};
+        {error, _}=Err ->
+            Err
+    end.
+
+-spec generate_snapshot_v5(
+    blockchain_ledger_v1:ledger(),
+    [binary()],
+    blockchain_ledger_v1:mode()
+) ->
+    {ok, snapshot_v5()} | {error, snapshot_error()}.
+generate_snapshot_v5(Ledger0, Blocks, Mode) ->
     try
         Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
@@ -225,7 +281,7 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
         Upgrades = blockchain:get_upgrades(blockchain_ledger_v1:mode(active, Ledger0)),
         Pairs =
             [
-                {version          , v6},
+                {version          , v5},
                 {current_height   , CurrHeight},
                 {transaction_fee  ,  0},
                 {consensus_members, ConsensusMembers},
@@ -258,13 +314,8 @@ generate_snapshot(Ledger0, Blocks, Mode) ->
                 {net_overage      , NetOverage},
                 {hnt_burned       , HntBurned}
              ],
-        M = maps:from_list(Pairs),
-        M1 = maps:map(fun(version, V) ->
-                              V;
-                         (K, V) ->
-                              iolist_to_binary(serialize_field(K, V))
-                      end, M),
-        {ok, M1}
+        Snap = maps:from_list(Pairs),
+        {ok, Snap}
     catch C:E:S ->
         {error, {error_taking_snapshot, C, E, S}}
     end.
@@ -395,14 +446,8 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 import(Chain, SHA, #{version := v6}=Snapshot) ->
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
-    %% check if we need to wipe the ledger
-    case catch blockchain_ledger_v1:current_height(CLedger) of
-        %% nothing in there, proceed
-        {ok, 1} ->
-            blockchain_ledger_v1:close(CLedger);
-        _ ->
-            blockchain_ledger_v1:clean(CLedger)
-    end,
+    %% clean the ledger in case we had a partial snapshot load
+    blockchain_ledger_v1:clean(CLedger),
 
     %% open ledger with compaction disabled so
     %% we can bulk load
@@ -473,7 +518,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
     %% don't cache the writes to this context, do direct rocksdb writes
     %% for performance and to save memory
     L = blockchain_ledger_v1:new_direct_context(L1),
-    ok = blockchain_ledger_v1:current_height(Get(current_height), L),
+
     ok = blockchain_ledger_v1:consensus_members(Get(consensus_members), L),
     ok = blockchain_ledger_v1:election_height(Get(election_height), L),
     ok = blockchain_ledger_v1:election_epoch(Get(election_epoch), L),
@@ -539,6 +584,9 @@ load_into_ledger(Snapshot, L0, Mode) ->
             ok = blockchain_ledger_v1:add_hnt_burned(HB, L)
     end,
 
+
+    %% keep this at the end so incomplete ledger loads are very obvious
+    ok = blockchain_ledger_v1:current_height(Get(current_height), L),
     blockchain_ledger_v1:commit_context(L).
 
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
@@ -904,10 +952,6 @@ v3_to_v4(#blockchain_snapshot_v3{
        oracle_price_list = OraclePriceList
       }.
 
--dialyzer([
-    {nowarn_function, upgrade/1}
-]).
-
 v4_to_v5(#blockchain_snapshot_v4{
             current_height = CurrHeight,
             transaction_fee = _TxnFee,
@@ -949,7 +993,6 @@ v4_to_v5(#blockchain_snapshot_v4{
            }) ->
     #{
       version => v5,
-      %% TODO these need to be reserialized to please dialyzer (and probably to work?)
       current_height => CurrHeight,
       transaction_fee => 0,
       consensus_members => ConsensusMembers,
@@ -992,7 +1035,14 @@ v4_to_v5(#blockchain_snapshot_v4{
 
 -spec v5_to_v6(snapshot_v5()) -> snapshot_v6().
 v5_to_v6(#{version := v5}=V5) ->
-    maps:put(version, v6, V5).
+    maps:map(
+        fun (version, v5) ->
+                v6;
+            (K, V) ->
+                iolist_to_binary(serialize_field(K, V))
+        end,
+        V5
+    ).
 
 -spec upgrade(snapshot_of_any_version()) -> snapshot().
 upgrade(S) ->

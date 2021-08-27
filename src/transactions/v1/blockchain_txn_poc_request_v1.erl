@@ -183,11 +183,11 @@ is_valid(Txn, Chain) ->
                                                     {error, too_many_challenges};
                                                 true ->
                                                     BlockHash = ?MODULE:block_hash(Txn),
-                                                    case blockchain:get_block(BlockHash, Chain) of
+                                                    case blockchain:get_block_height(BlockHash, Chain) of
                                                         {error, _}=Error ->
                                                             Error;
-                                                        {ok, Block1} ->
-                                                            case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
+                                                        {ok, BlockHeight} ->
+                                                            case (BlockHeight + PoCInterval) > (Height+1) of
                                                                 false ->
                                                                     {error, replaying_request};
                                                                 true ->

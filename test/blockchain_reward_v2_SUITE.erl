@@ -21,16 +21,18 @@ suite() ->
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(lager),
 
-    {ok, Dir} = file:get_cwd(),
-    PrivDir = filename:join([Dir, "priv"]),
-    NewDir = PrivDir ++ "/ledger/",
+    Dir = ?config(priv_dir, Config),
+    PrivDir = filename:join(Dir, "priv"),
+    NewDir = filename:join(PrivDir, "ledger"),
     ok = filelib:ensure_dir(NewDir),
 
-    os:cmd("wget https://blockchain-core.s3-us-west-1.amazonaws.com/snap-723601"),
+    SnapFileName = "snap-723601",
+    SnapFilePath = filename:join(Dir, SnapFileName),
+    SnapURI =
+        "https://blockchain-core.s3-us-west-1.amazonaws.com/" ++ SnapFileName,
+    os:cmd("cd " ++ Dir ++ "  && wget " ++ SnapURI),
 
-    Filename = Dir ++ "/snap-723601",
-
-    {ok, BinSnap} = file:read_file(Filename),
+    {ok, BinSnap} = file:read_file(SnapFilePath),
 
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
