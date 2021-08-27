@@ -171,7 +171,7 @@ poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     ?BIN_TO_B64(Hash).
 
 pmap(F, L) ->
-    Width = application:get_env(blockchain, validation_width, 3),
+    Width = validation_width(),
     pmap(F, L, Width).
 
 pmap(F, L, Width) ->
@@ -204,6 +204,26 @@ partition_list(L, [0 | T], Acc) ->
 partition_list(L, [H | T], Acc) ->
     {Take, Rest} = lists:split(H, L),
     partition_list(Rest, T, [Take | Acc]).
+
+validation_width() ->
+    case application:get_env(blockchain, validation_width, undefined) of
+        undefined ->
+            cpus();
+        "" ->
+            cpus();
+        Str when is_list(Str) ->
+            try
+                list_to_integer(Str)
+            catch _:_ ->
+                    cpus()
+            end;
+        N when is_integer(N) ->
+            N
+    end.
+
+cpus() ->
+    Ct = erlang:system_info(schedulers_online),
+    max(2, ceil(Ct/2) + 1).
 
 addr2name(undefined) -> undefined;
 addr2name(Addr) ->
