@@ -283,7 +283,7 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
     MinedTxns = blockchain_block:transactions(Block),
-    ok = lists:foldl(
+    _ = lists:foldl(
         fun({TxnKey, Txn, #txn_data{callback=Callback, dialers=Dialers}}, Acc) ->
             %% keep a list of each cached txn we find in the block
             %% as we iterate over each cached txn, check each against this list
@@ -311,7 +311,8 @@ purge_block_txns_from_cache(Block)->
                 {false, _} ->
                     noop
             end
-        end, [], sorted_cached_txns()).
+        end, [], sorted_cached_txns()),
+    ok.
 
 -spec check_block_for_new_election(blockchain_block:block()) -> {boolean(), [libp2p_crypto:pubkey_bin()]}.
 check_block_for_new_election(Block)->
