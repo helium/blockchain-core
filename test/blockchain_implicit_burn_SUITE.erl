@@ -67,8 +67,12 @@ init_per_testcase(TestCase, Config) ->
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 
-end_per_testcase(_, Config) ->
-    meck:unload(blockchain_ledger_v1),
+end_per_testcase(Case, Config) ->
+    case Case of
+        enable_implicit_burn_test ->
+            meck:unload(blockchain_ledger_v1);
+        _ -> ok
+    end,
     Sup = ?config(sup, Config),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
