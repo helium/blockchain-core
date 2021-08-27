@@ -283,25 +283,36 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
     MinedTxns = blockchain_block:transactions(Block),
-    ok = lists:foreach(
-        fun({TxnKey, Txn, #txn_data{callback=Callback, dialers=Dialers, acceptions=Acceptors}}) ->
-            %% if a txn appears in a block yet has zero acceptors
-            %% then its got to be a dup which has entered the cache after the
-            %% original txn was submitted to the CG
-            %% and has not yet had any validations run on it
-            %% we dont want it to be removed here as it will result
-            %% in a spurious success callback, so instead leave it in cache
-            %% and allow it to fail validations on the next run
-            case lists:member(Txn, MinedTxns) andalso length(Acceptors) > 0 of
-                true ->
-                    %% txn has been mined in last block
-                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+    _ = lists:foldl(
+        fun({TxnKey, Txn, #txn_data{callback=Callback, dialers=Dialers}}, Acc) ->
+            %% keep a list of each cached txn we find in the block
+            %% as we iterate over each cached txn, check each against this list
+            %% if the cached txn does not appear in the list but it does appear in the block
+            %% then we know its our first encounter with this txn
+            %% We can involve the callback with success and append it to the accumulator list
+            %% if we subsequently see another copy of the same txn in the accumulator list
+            %% then we know its a dup and so we can involve the callback with an error
+            %% this ensures that any original txn AND its dups are purged from the cache
+            case {lists:member(Txn, MinedTxns), lists:member(Txn, Acc)} of
+                {true, false} ->
+                    %% the cached txn is in the block and not in our accumulator
+                    %% invoke callback with success
                     ok = invoke_callback(Callback, ok),
-                    delete_cached_txn(TxnKey);
-                false ->
-                    noop
+                    ok = delete_cached_txn(TxnKey),
+                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+                    [Txn | Acc];
+                {true, true} ->
+                    %% the cached txn is in the block and IS in our accumulator
+                    %% invoke callback with dup error
+                    ok = invoke_callback(Callback, {error, {invalid, duplicate_txn}}),
+                    ok = delete_cached_txn(TxnKey),
+                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+                    Acc;
+                {false, _} ->
+                    Acc
             end
-        end, sorted_cached_txns()).
+        end, [], sorted_cached_txns()),
+    ok.
 
 -spec check_block_for_new_election(blockchain_block:block()) -> {boolean(), [libp2p_crypto:pubkey_bin()]}.
 check_block_for_new_election(Block)->
