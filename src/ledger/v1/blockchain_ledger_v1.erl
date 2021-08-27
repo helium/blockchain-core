@@ -594,7 +594,7 @@ new_context(Ledger) ->
 new_direct_context(Ledger) ->
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(direct, GwCache, Ledger).
-   
+
 
 get_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
@@ -613,11 +613,11 @@ delete_context(Ledger) ->
         {undefined, undefined} ->
             Ledger;
         {direct, GwCache} ->
-            ets:delete(GwCache),
+            catch ets:delete(GwCache),
             context_cache(undefined, undefined, Ledger);
         {Cache, GwCache} ->
-            ets:delete(Cache),
-            ets:delete(GwCache),
+            catch ets:delete(Cache),
+            catch ets:delete(GwCache),
             context_cache(undefined, undefined, Ledger)
     end.
 
