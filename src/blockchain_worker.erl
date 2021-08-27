@@ -599,24 +599,29 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
-    {ok, Block} = blockchain:head_block(Chain),
-    Now = erlang:system_time(seconds),
-    Time = blockchain_block:time(Block),
-    case Now - Time of
-        N when N < 0 ->
-            %% if blocktimes are in the future, we're confused about
-            %% the time, proceed as if we're synced.
-            {noreply, schedule_sync(State)};
-        N when N < 30 * 60 andalso Reason == normal ->
-            %% relatively recent
-            {noreply, schedule_sync(State)};
-        _ when Mode == snapshot ->
-            lager:info("snapshot sync down reason ~p", [Reason]),
-            {Hash, Height} = State#state.snapshot_info,
-            {noreply, snapshot_sync(Hash, Height, State)};
-        _ ->
-            case Reason of dial -> ok; _ -> lager:info("block sync down: ~p", [Reason]) end,
-            %% we're deep in the past here, or the last one errored out, so just start the next sync
+    case blockchain:head_block(Chain) of
+        {ok, Block} ->
+            Now = erlang:system_time(seconds),
+            Time = blockchain_block:time(Block),
+            case Now - Time of
+                N when N < 0 ->
+                    %% if blocktimes are in the future, we're confused about
+                    %% the time, proceed as if we're synced.
+                    {noreply, schedule_sync(State)};
+                N when N < 30 * 60 andalso Reason == normal ->
+                    %% relatively recent
+                    {noreply, schedule_sync(State)};
+                _ when Mode == snapshot ->
+                    lager:info("snapshot sync down reason ~p", [Reason]),
+                    {Hash, Height} = State#state.snapshot_info,
+                    {noreply, snapshot_sync(Hash, Height, State)};
+                _ ->
+                    case Reason of dial -> ok; _ -> lager:info("block sync down: ~p", [Reason]) end,
+                    %% we're deep in the past here, or the last one errored out, so just start the next sync
+                    {noreply, start_sync(State)}
+            end;
+        {error, not_found} ->
+            lager:warning("cannot get head block"),
             {noreply, start_sync(State)}
     end;
 handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
