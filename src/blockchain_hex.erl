@@ -19,7 +19,8 @@
 -ifdef(TEST).
 
 -export([
-         precalc/1,
+         precalc/2,
+         ulookup/1,
          clookup/1
         ]).
 
@@ -156,6 +157,10 @@ maybe_precalc(Ledger) ->
 
 -spec precalc(Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 precalc(Ledger) ->
+    precalc(false, Ledger).
+
+-spec precalc(boolean(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+precalc(Testing, Ledger) ->
     {ok, VarMap} = var_map(Ledger),
     Start = erlang:monotonic_time(millisecond),
     InteractiveBlocks =
@@ -179,11 +184,17 @@ precalc(Ledger) ->
          || Res <- lists:seq(1, 12)],  %% use the whole thing here for numbering
     Vars = list_to_tuple(Vars0),
 
-    UsedResolutions = [N || N <- lists:seq(0, 12), maps:get(tgt, maps:get(N, VarMap)) /= 100000],
+    UsedResolutions =
+        case Testing of
+            false ->
+                [N || N <- lists:seq(0, 12), maps:get(tgt, maps:get(N, VarMap)) /= 100000];
+            true -> lists:seq(1, 11)
+        end,
 
     %% This won't do the same thing as the old code if we make it so that we care about the
     %% densities at 11 and 12.  it's not clear how they would differ, we'd need to experiment.
-    MaxRes = max(12, lists:max(UsedResolutions) + 1),
+    MaxRes = min(12, lists:max(UsedResolutions) + 1),
+    TestMode = application:get_env(blockchain, hip17_test_mode, false),
     InitHexes0 =
         blockchain_ledger_v1:cf_fold(
           active_gateways,
@@ -191,8 +202,9 @@ precalc(Ledger) ->
                   G = blockchain_ledger_gateway_v2:deserialize(BinGw),
                   L = blockchain_ledger_gateway_v2:location(G),
                   LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(G),
-                  case LastChallenge /= undefined andalso
-                      (CurrentHeight - LastChallenge) =< InteractiveBlocks of
+                  case (LastChallenge /= undefined
+                        andalso (CurrentHeight - LastChallenge) =< InteractiveBlocks)
+                      orelse TestMode of
                       true ->
                           case L of
                               undefined -> Acc;
@@ -200,7 +212,6 @@ precalc(Ledger) ->
                                   Hex = h3:parent(L, MaxRes),
                                   ets:update_counter(?PRE_UNCLIP_TBL, Hex, 1, {Hex, 0}),
                                   ets:update_counter(?PRE_CLIP_TBL, Hex, 1, {Hex, 0}),
-                                  %% ets:update_counter(BaseDensities, Hex, 1, {Hex, 0}),
                                   [Hex | Acc]
                           end;
                       _ -> Acc
