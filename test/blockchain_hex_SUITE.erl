@@ -89,6 +89,8 @@ init_per_suite(Config) ->
     blockchain_ledger_v1:commit_context(Ledger1),
     blockchain_ledger_v1:compact(Ledger),
 
+    application:ensure_all_started(lager),
+
     %% Check that the pinned ledger is at the height we expect it to be
     {ok, 632627} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -113,6 +115,7 @@ init_per_testcase(_TestCase, Config) ->
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 end_per_testcase(_, _Config) ->
+    blockchain_hex:destroy_memoization(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -131,6 +134,7 @@ end_per_suite(_Config) ->
 %% XXX: Remove this test when done cross-checking with python
 known_scale_test(Config) ->
     Ledger = ?config(ledger, Config),
+    blockchain_hex:precalc(true, ?config(ledger, Config)),
     PythonScaledURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/hip17-python-scaled-632627.erl",
     Fname = "hip17-python-scaled-632627.erl",
     FPath = filename:join(["/tmp/", Fname]),
@@ -159,24 +163,26 @@ known_scale_test(Config) ->
     ok.
 
 known_values_test(Config) ->
-    Ledger = ?config(ledger, Config),
 
     %% assert some known values calculated from the python model (thanks @para1!)
+    blockchain_hex:precalc(true, ?config(ledger, Config)),
     true = lists:all(
         fun({Hex, Density}) ->
             case h3:get_resolution(Hex) of
                 0 ->
                     true;
-                _ ->
-                    {ok, VarMap} = blockchain_hex:var_map(Ledger),
-                    {_, ClippedDensities} = blockchain_hex:densities(Hex, VarMap, Ledger),
+                Res ->
+                    GotDensity = blockchain_hex:clookup(h3:parent(Hex, Res)),
 
-                    ct:pal("~p ~p", [
-                        Density,
-                        maps:get(Hex, ClippedDensities)
-                    ]),
+                    ct:pal("hex ~p ~p ~p ~p",
+                           [
+                            Hex,
+                            Res,
+                            Density,
+                            GotDensity
+                           ]),
 
-                    Density == maps:get(Hex, ClippedDensities)
+                    Density == GotDensity
             end
         end,
         ?KNOWN

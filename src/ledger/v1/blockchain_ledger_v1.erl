@@ -594,7 +594,7 @@ new_context(Ledger) ->
 new_direct_context(Ledger) ->
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(direct, GwCache, Ledger).
-   
+
 
 get_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
@@ -613,11 +613,11 @@ delete_context(Ledger) ->
         {undefined, undefined} ->
             Ledger;
         {direct, GwCache} ->
-            ets:delete(GwCache),
+            catch ets:delete(GwCache),
             context_cache(undefined, undefined, Ledger);
         {Cache, GwCache} ->
-            ets:delete(Cache),
-            ets:delete(GwCache),
+            catch ets:delete(Cache),
+            catch ets:delete(GwCache),
             context_cache(undefined, undefined, Ledger)
     end.
 
@@ -5610,37 +5610,40 @@ state_channels_test() ->
     ok.
 
 state_channels_v2_test() ->
-    BaseDir = test_utils:tmp_dir("state_channels_v2_test"),
-    Ledger = ?MODULE:new(BaseDir),
-    Ledger1 = ?MODULE:new_context(Ledger),
-    ID = crypto:strong_rand_bytes(32),
-    Owner = <<"owner">>,
-    Nonce = 1,
+    {timeout, 30000,
+     fun() ->
+             BaseDir = test_utils:tmp_dir("state_channels_v2_test"),
+             Ledger = ?MODULE:new(BaseDir),
+             Ledger1 = ?MODULE:new_context(Ledger),
+             ID = crypto:strong_rand_bytes(32),
+             Owner = <<"owner">>,
+             Nonce = 1,
 
-    ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger1)),
-    ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger1)),
+             ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger1)),
+             ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger1)),
 
-    meck:new(blockchain, [passthrough]),
-    meck:expect(blockchain, config, fun(?sc_version, _) -> {ok, 2} end),
+             meck:new(blockchain, [passthrough]),
+             meck:expect(blockchain, config, fun(?sc_version, _) -> {ok, 2} end),
 
-    Ledger2 = ?MODULE:new_context(Ledger),
-    ok = ?MODULE:add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
-    ok = ?MODULE:commit_context(Ledger2),
-    {ok, SC} = ?MODULE:find_state_channel(ID, Owner, Ledger),
-    ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
-    ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
-    ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
-    ?assertEqual({ok, [ID]}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
+             Ledger2 = ?MODULE:new_context(Ledger),
+             ok = ?MODULE:add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
+             ok = ?MODULE:commit_context(Ledger2),
+             {ok, SC} = ?MODULE:find_state_channel(ID, Owner, Ledger),
+             ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
+             ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
+             ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
+             ?assertEqual({ok, [ID]}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
 
-    Ledger3 = ?MODULE:new_context(Ledger),
-    ok = ?MODULE:close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
-    ok = ?MODULE:commit_context(Ledger3),
-    ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger)),
-    ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ?assert(meck:validate(blockchain)),
-    meck:unload(blockchain),
-    ok.
+             Ledger3 = ?MODULE:new_context(Ledger),
+             ok = ?MODULE:close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
+             ok = ?MODULE:commit_context(Ledger3),
+             ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger)),
+             ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
+             test_utils:cleanup_tmp_dir(BaseDir),
+             ?assert(meck:validate(blockchain)),
+             meck:unload(blockchain),
+             ok
+     end}.
 
 increment_bin_test() ->
     ?assertEqual(<<2>>, increment_bin(<<1>>)),

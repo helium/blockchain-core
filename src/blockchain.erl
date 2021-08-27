@@ -649,7 +649,7 @@ get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) -
                 {ok, BinBlock} ->
                     Height = blockchain_block:height(blockchain_block:deserialize(BinBlock)),
                     ok = rocksdb:put(DB, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>, []),
-                    Height;
+                    {ok, Height};
                 not_found ->
                     {error, not_found};
                 Error ->
@@ -1153,14 +1153,16 @@ delete_block(Block, #blockchain{db=DB, default=DefaultCF,
                                 blocks=BlocksCF, heights=HeightsCF}=Chain) ->
     {ok, Batch} = rocksdb:batch(),
     Hash = blockchain_block:hash_block(Block),
-    PrevHash = blockchain_block:prev_hash(Block),
     Height = blockchain_block:height(Block),
-    lager:warning("deleting block ~p height: ~p, Prev Hash ~p", [Hash, Height, PrevHash]),
     ok = rocksdb:batch_delete(Batch, BlocksCF, Hash),
     {ok, HeadHash} = ?MODULE:head_hash(Chain),
     case HeadHash =:= Hash of
-        false -> ok;
+        false ->
+            lager:warning("deleting non-head block ~p height: ~p", [Hash, Height]),
+            ok;
         true ->
+            PrevHash = blockchain_block:prev_hash(Block),
+            lager:warning("deleting head block ~p height: ~p, new head is ~p", [Hash, Height, PrevHash]),
             ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash)
     end,
     ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),

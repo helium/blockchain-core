@@ -138,7 +138,7 @@ reward_perf_test(Config) ->
     ct:pal("basic calc took: ~p ms hash ~p ct ~p", [Time div 1000, erlang:phash2(lists:sort(R)), length(R)]),
     %% ct:pal("json calc took: ~p ms", [Time3 div 1000]),
 
-    error(print),
+    %% error(print),
     ok.
 
 
