@@ -309,7 +309,7 @@ purge_block_txns_from_cache(Block)->
                     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                     Acc;
                 {false, _} ->
-                    noop
+                    Acc
             end
         end, [], sorted_cached_txns()),
     ok.
