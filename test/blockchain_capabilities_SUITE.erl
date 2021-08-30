@@ -890,7 +890,7 @@ setup(Config)->
     ?assertEqual(blockchain_block:hash_block(POCReqBlock), HeadHash3),
     ?assertEqual({ok, POCReqBlock}, blockchain:get_block(HeadHash3, Chain)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    {ok, GwInfo2} = blockchain_gateway_cache:get(FullGateway, Ledger),
+    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(FullGateway, Ledger),
     ?assertEqual(CurHeight + 12, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo2)),
     ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo2)),
 

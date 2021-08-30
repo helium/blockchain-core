@@ -163,13 +163,14 @@ is_valid(Txn, Chain) ->
                     {error, bad_signature};
                 true ->
                     StartFind = maybe_start_duration(),
-                    case blockchain_gateway_cache:get(Challenger, Ledger) of
+                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
                         {error, _Reason}=Error ->
                             Error;
                         {ok, Info} ->
                             StartCap = maybe_log_duration(fetch_gw, StartFind),
                             %% check the gateway mode to determine if its allowed to issue POC requests
-                            case blockchain_ledger_gateway_v2:is_valid_capability(Info, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
+                            Mode = blockchain_ledger_gateway_v2:mode(Info),
+                            case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
                                 false -> {error, {gateway_not_allowed, blockchain_ledger_gateway_v2:mode(Info)}};
                                 true ->
                                     StartRest = maybe_log_duration(check_cap, StartCap),

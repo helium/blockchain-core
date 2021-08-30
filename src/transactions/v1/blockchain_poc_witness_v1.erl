@@ -138,12 +138,12 @@ is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signat
     case libp2p_crypto:verify(EncodedWitness, Signature, PubKey) of
         false -> false;
         true ->
-            case blockchain_gateway_cache:get(Gateway, Ledger) of
+            case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
                 {error, _Reason} ->
                     false;
-                {ok, GWInfo} ->
+                {ok, GWMode} ->
                     %% check this gateway is allowed to witness
-                    blockchain_ledger_gateway_v2:is_valid_capability(GWInfo, ?GW_CAPABILITY_POC_WITNESS, Ledger)
+                    blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_WITNESS, Ledger)
             end
     end.
 

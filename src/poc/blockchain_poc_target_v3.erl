@@ -76,22 +76,23 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
              Vars :: map()) -> [libp2p_crypto:pubkey_bin()].
 filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
     lists:filter(fun(A) ->
-                        {ok, Gateway} = blockchain_gateway_cache:get(A, Ledger),
+                         {ok, Mode} = blockchain_ledger_v1:find_gateway_mode(A, Ledger),
                          A /= ChallengerPubkeyBin andalso
-                         is_active(Gateway, Height, Vars) andalso
-                         blockchain_ledger_gateway_v2:is_valid_capability(Gateway, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
+                         is_active(A, Height, Vars, Ledger) andalso
+                         blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
                  end,
                  AddrList).
 
 -spec is_active(Gateway :: blockchain_ledger_gateway_v2:gateway(),
                 Height :: non_neg_integer(),
-                Vars :: map()) -> boolean().
-is_active(Gateway, Height, Vars) ->
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-        undefined ->
+                Vars :: map(),
+                Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_active(Gateway, Height, Vars, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_last_challenge(Gateway, Ledger) of
+        {ok, undefined} ->
             %% No POC challenge, don't include
             false;
-        C ->
+        {ok, C} ->
             case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
                 true ->
                     %% Likely disabled for testing

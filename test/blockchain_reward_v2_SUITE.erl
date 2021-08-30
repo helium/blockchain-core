@@ -37,7 +37,6 @@ init_per_suite(Config) ->
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
-    {ok, _GWCache} = blockchain_gateway_cache:start_link(),
     {ok, _Pid} = blockchain_score_cache:start_link(),
 
     {ok, BinGen} = file:read_file("../../../../test/genesis"),

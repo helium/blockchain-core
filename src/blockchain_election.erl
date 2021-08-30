@@ -606,7 +606,8 @@ gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
                   true ->
                       Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
                       Last = Height - Last0,
@@ -661,7 +662,8 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
                   true ->
                       Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
                       Last = Height - Last0,

@@ -173,13 +173,13 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            case blockchain_gateway_cache:get(Challenger, Ledger) of
+            case blockchain_ledger_v1:find_gateway_mode(Challenger, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
-                {ok, ChallengerGWInfo} ->
+                {ok, ChallengerGWMode} ->
                     %% check the challenger is allowed to issue POCs
-                    case blockchain_ledger_gateway_v2:is_valid_capability(ChallengerGWInfo, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
-                        false -> {error, {challenger_not_allowed, blockchain_ledger_gateway_v2:mode(ChallengerGWInfo)}};
+                    case blockchain_ledger_gateway_v2:is_valid_capability(ChallengerGWMode, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
+                        false -> {error, {challenger_not_allowed, ChallengerGWMode}};
                         true ->
                             case ?MODULE:path(Txn) =:= [] of
                                 true ->
@@ -1412,14 +1412,14 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
-    {ok, Source} = blockchain_gateway_cache:get(SrcPubkeyBin, Ledger),
+    {ok, Source} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
     lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
-                         {ok, Destination} = blockchain_gateway_cache:get(DstPubkeyBin, Ledger),
+                         {ok, Destination} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
                          SourceLoc = blockchain_ledger_gateway_v2:location(Source),
                          DestinationLoc = blockchain_ledger_gateway_v2:location(Destination),
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),

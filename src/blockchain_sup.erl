@@ -110,13 +110,6 @@ init(Args) ->
         {base_dir, BaseDir},
         {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
-    GWCache =
-        case application:get_env(blockchain, disable_gateway_cache, false) of
-            false ->
-                [?WORKER(blockchain_gateway_cache, [])];
-            _ ->
-                []
-        end,
 
     BEventOpts = [],
     %% create the txn manager ets table under this supervisor and set ourselves as the heir
@@ -129,7 +122,7 @@ init(Args) ->
          ?WORKER(blockchain_lock, []),
          ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
          ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts])]
-        ++ GWCache ++
+        ++
         [?WORKER(blockchain_score_cache, []),
          ?WORKER(blockchain_worker, [BWorkerOpts]),
          ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
