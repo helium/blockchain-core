@@ -162,14 +162,17 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_signature};
                 true ->
+                    StartFind = maybe_start_duration(),
                     case blockchain_gateway_cache:get(Challenger, Ledger) of
                         {error, _Reason}=Error ->
                             Error;
                         {ok, Info} ->
+                            StartCap = maybe_log_duration(fetch_gw, StartFind),
                             %% check the gateway mode to determine if its allowed to issue POC requests
                             case blockchain_ledger_gateway_v2:is_valid_capability(Info, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
                                 false -> {error, {gateway_not_allowed, blockchain_ledger_gateway_v2:mode(Info)}};
                                 true ->
+                                    StartRest = maybe_log_duration(check_cap, StartCap),
                                     case blockchain_ledger_gateway_v2:location(Info) of
                                         undefined ->
                                             lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
@@ -193,7 +196,9 @@ is_valid(Txn, Chain) ->
                                                                 true ->
                                                                     Fee = ?MODULE:fee(Txn),
                                                                     Owner = blockchain_ledger_gateway_v2:owner_address(Info),
-                                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+                                                                    R = blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger),
+                                                                    maybe_log_duration(rest, StartRest),
+                                                                    R
                                                             end
                                                     end
                                             end
@@ -254,6 +259,25 @@ to_json(Txn, _Opts) ->
       version => version(Txn),
       fee => fee(Txn)
      }.
+
+%% TODO: I'm not sure that this is actually faster than checking the time, but I suspect that it'll
+%% be more lock-friendly?
+maybe_start_duration() ->
+    case application:get_env(blockchain, log_validation_times, false) of
+        true ->
+            erlang:monotonic_time(microsecond);
+        _ -> 0
+    end.
+
+maybe_log_duration(Type, Start) ->
+    case application:get_env(blockchain, log_validation_times, false) of
+        true ->
+            End = erlang:monotonic_time(microsecond),
+            lager:info("~p took ~p ms", [Type, End - Start]),
+            End;
+        _ -> ok
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
