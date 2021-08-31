@@ -7,6 +7,7 @@
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
@@ -221,13 +222,15 @@ check_is_valid_poc(Txn, Chain) ->
                     {error, poc_not_found};
                 {ok, PoC} ->
                     {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
-                    case blockchain:get_block(LastChallenge, Chain) of
+                    case blockchain:get_block_info(LastChallenge, Chain) of
                         {error, Reason}=Error ->
                             lager:warning([{poc_id, POCID}],
                                           "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
                                           [LastChallenge, Reason]),
                             Error;
-                        {ok, Block1} ->
+                        {ok, #block_info{height = BlockHeight,
+                                         time = BlockTime,
+                                         pocs = BlockPoCs}} ->
                             PoCInterval = blockchain_utils:challenge_interval(Ledger),
                             case LastChallenge + PoCInterval >= Height of
                                 false ->
@@ -236,18 +239,19 @@ check_is_valid_poc(Txn, Chain) ->
                                 true ->
                                     Condition = case blockchain:config(?poc_version, Ledger) of
                                                     {ok, POCVersion} when POCVersion > 1 ->
-                                                        fun(T) ->
-                                                                blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
-                                                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
-                                                                    blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
+                                                        fun() ->
+                                                                case maps:get(POCOnionKeyHash, BlockPoCs, undef) of
+                                                                    undef -> false;
+                                                                    Hash ->
+                                                                        Hash == blockchain_ledger_poc_v2:block_hash(PoC)
+                                                                end
                                                         end;
                                                     _ ->
-                                                        fun(T) ->
-                                                                blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
-                                                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash
+                                                        fun() ->
+                                                                maps:is_key(POCOnionKeyHash, BlockPoCs)
                                                         end
                                                 end,
-                                    case lists:any(Condition, blockchain_block:transactions(Block1)) of
+                                    case Condition() of
                                         false ->
                                             {error, onion_key_hash_mismatch};
                                         true ->
@@ -267,7 +271,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             {ok, PoCAbsorbedAtBlockHash} = blockchain:get_block_hash(LastChallenge, Chain),
                                             Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                             StartLA = maybe_log_duration(prelude, StartPre),
-                                            {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
+                                            {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
                                             StartFT = maybe_log_duration(ledger_at, StartLA),
                                             Vars = vars(OldLedger),
                                             Path = case blockchain:config(?poc_version, OldLedger) of
@@ -277,8 +281,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                            {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
                                                            StartB = maybe_log_duration(target, StartFT),
                                                            %% Path building phase
-                                                           Time = blockchain_block:time(Block1),
-                                                           RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, Time, Vars),
+                                                           RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
                                                            StartP = maybe_log_duration(build, StartB),
                                                            RetB;
 
@@ -287,8 +290,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                            {ok, Target} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
                                                            maybe_log_duration(target, StartFT),
                                                            StartB = maybe_start_duration(),
-                                                           Time = blockchain_block:time(Block1),
-                                                           RetB = blockchain_poc_path_v3:build(Target, OldLedger, Time, Entropy, Vars),
+                                                           RetB = blockchain_poc_path_v3:build(Target, OldLedger, BlockTime, Entropy, Vars),
                                                            StartP = maybe_log_duration(build, StartB),
                                                            RetB;
 
@@ -296,7 +298,6 @@ check_is_valid_poc(Txn, Chain) ->
                                                            GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
                                                            StartFT2 = maybe_log_duration(scored, StartFT),
 
-                                                           Time = blockchain_block:time(Block1),
                                                            {ChallengerGw, _} = maps:get(Challenger, GatewayScoreMap),
                                                            ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
                                                            {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
@@ -307,9 +308,9 @@ check_is_valid_poc(Txn, Chain) ->
 
                                                            RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
                                                                       {ok, true} ->
-                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars, Ledger);
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScores, BlockTime, Entropy, Vars, Ledger);
                                                                       _ ->
-                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars, Ledger)
+                                                                          blockchain_poc_path_v2:build(Target, GatewayScoreMap, BlockTime, Entropy, Vars, Ledger)
                                                                   end,
                                                            StartP = maybe_log_duration(build, StartB),
                                                            RetB;
@@ -842,20 +843,20 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                         [Challenger, Reason]),
                             Error2;
                         {ok, LastChallenge} ->
-                            case blockchain:get_block(LastChallenge, Chain) of
+                            case blockchain:get_block_info(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
                                     lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p",
                                                 [LastChallenge, Reason]),
                                     Error3;
-                                {ok, Block1} ->
+                                {ok, #block_info{time = TimeLower}} ->
                                     {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
-                                    case blockchain:get_block(HH, Chain) of
+                                    case blockchain:get_block_info(HH, Chain) of
                                         {error, _}=Error4 ->
                                             Error4;
-                                        {ok, B} ->
+                                        {ok, #block_info{time = TimeUpper}} ->
                                             %% Convert lower and upper bounds to be in nanoseconds
-                                            LowerBound = blockchain_block:time(Block1) * 1000000000,
-                                            UpperBound = blockchain_block:time(B) * 1000000000,
+                                            LowerBound = TimeLower * 1000000000,
+                                            UpperBound = TimeUpper * 1000000000,
                                             {ok, {LowerBound, UpperBound}}
                                     end
                             end
