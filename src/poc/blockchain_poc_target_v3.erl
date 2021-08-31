@@ -46,16 +46,16 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
     case filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
             %% Assign probabilities to each of these gateways
-            ProbTargetMap = lists:foldl(fun(A, Acc) ->
-                                                Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
-                                                maps:put(A, Prob, Acc)
-                                        end,
-                                        #{},
-                                        FilteredList),
+            ProbTargets = lists:map(
+                            fun(A) ->
+                                    Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
+                                    {A, Prob}
+                            end,
+                            FilteredList),
             %% Sort the scaled probabilities in default order by gateway pubkey_bin
             %% make sure that we carry the rand_state through for determinism
             {RandVal, TargetRandState} = rand:uniform_s(HexRandState),
-            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
+            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, ProbTargets), RandVal),
             {ok, {TargetPubkeybin, TargetRandState}};
         _ ->
             %% no eligible target in this zone
@@ -117,23 +117,16 @@ prob_randomness_wt(Vars) ->
 
 -spec sorted_hex_list(Ledger :: blockchain_ledger_v1:ledger()) -> [h3:h3_index()].
 sorted_hex_list(Ledger) ->
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case blockchain_ledger_v1:mode(Ledger) of
-        delayed ->
-            %% Use the cache in delayed ledger mode
-            e2qc:cache(hex_cache, {Height},
-                       fun() ->
-                               sorted_hex_list_(Ledger)
-                       end);
-        active ->
-            %% recalculate in active ledger mode
-            sorted_hex_list_(Ledger)
-    end.
-
-sorted_hex_list_(Ledger) ->
     %% Grab the list of parent hexes
-    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-    lists:keysort(1, maps:to_list(Hexes)).
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    case get({'$cache_hex_list', Height}) of
+        undefined ->
+            {ok, Hexes} = blockchain_ledger_v1:get_hexes_list(Ledger),
+            put({'$cache_hex_list', Height}, Hexes),
+            Hexes;
+        Hexes ->
+            Hexes
+    end.
 
 -spec choose_zone(RandState :: rand:state(),
                   HexList :: [h3:h3_index()]) -> {ok, {h3:h3_index(), rand:state()}}.

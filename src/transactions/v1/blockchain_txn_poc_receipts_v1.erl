@@ -976,6 +976,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                     blockchain_ledger_v1:delete_context(OldLedger),
                     {error, zip_layer_length_mismatch};
                 true ->
+                    PerHopMaxWitnesses = blockchain_utils:poc_per_hop_max_witnesses(OldLedger),
                     Result = lists:foldl(
                                fun(_, {error, _} = Error) ->
                                        Error;
@@ -999,7 +1000,6 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                    true ->
                                                        %% ok the receipt looks good, check the witnesses
                                                        Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                                                       PerHopMaxWitnesses = blockchain_utils:poc_per_hop_max_witnesses(OldLedger),
                                                        case erlang:length(Witnesses) > PerHopMaxWitnesses of
                                                            true ->
                                                                {error, too_many_witnesses};

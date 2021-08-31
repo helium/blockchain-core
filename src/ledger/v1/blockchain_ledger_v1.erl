@@ -145,7 +145,7 @@
 
     apply_raw_changes/2,
 
-    set_hexes/2, get_hexes/1,
+    set_hexes/2, get_hexes/1, get_hexes_list/1,
     set_hex/3, get_hex/2, delete_hex/2,
 
     add_to_hex/3,
@@ -4152,6 +4152,18 @@ get_hexes(Ledger) ->
     case cache_get(Ledger, CF, ?hex_list, []) of
         {ok, BinList} ->
             {ok, maps:from_list(binary_to_term(BinList))};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec get_hexes_list(Ledger :: ledger()) -> {ok, []} | {error, any()}.
+get_hexes_list(Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, ?hex_list, []) of
+        {ok, BinList} ->
+            {ok, binary_to_term(BinList)};
         not_found ->
             {error, not_found};
         Error ->

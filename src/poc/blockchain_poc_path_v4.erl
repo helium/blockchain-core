@@ -406,15 +406,15 @@ check_witness_bad_rssi_centrality(Witness, Vars) ->
     end.
 
 -spec is_witness_stale(Gateway :: blockchain_ledger_gateway_v2:gateway(),
-                       Height :: pos_integer(),
+                       Height :: non_neg_integer(),
                        Vars :: map(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
 is_witness_stale(GatewayAddr, Height, Vars, Ledger) ->
     case blockchain_ledger_v1:find_gateway_last_challenge(GatewayAddr, Ledger) of
-        undefined ->
+        {ok, undefined} ->
             %% No POC challenge, don't include
             true;
-        C ->
+        {ok, C} ->
             %% Check challenge age is recent depending on the set chain var
             (Height - C) >= challenge_age(Vars)
     end.

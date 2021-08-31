@@ -611,18 +611,21 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %%--------------------------------------------------------------------
 -spec get_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
 get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
-    case rocksdb:get(DB, BlocksCF, Hash, []) of
-        {ok, BinBlock} ->
-            {ok, blockchain_block:deserialize(BinBlock)};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
-    end;
+    e2qc:cache(block_hash_cache, {Hash},
+               fun() ->
+                       case rocksdb:get(DB, BlocksCF, Hash, []) of
+                           {ok, BinBlock} ->
+                               {ok, blockchain_block:deserialize(BinBlock)};
+                           not_found ->
+                               {error, not_found};
+                           Error ->
+                               Error
+                       end
+               end);
 get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
-       {ok, Hash} ->
-           ?MODULE:get_block(Hash, Blockchain);
+        {ok, Hash} ->
+            ?MODULE:get_block(Hash, Blockchain);
         not_found ->
             {error, not_found};
         Error ->
