@@ -3757,10 +3757,11 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
 ) -> map().
 diff_aux_rewards_for(Key, Ledger) ->
     Diff = diff_aux_rewards(Ledger),
-    maps:map(
-        fun(_Height, Res) ->
-            maps:get(Key, Res, undefined)
+    maps:fold(
+        fun(Height, Res, Acc) ->
+            maps:put(Height, maps:get(Key, Res, undefined), Acc)
         end,
+        #{},
         Diff
     ).
 

@@ -8,12 +8,12 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_vars.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
--include("blockchain_vars.hrl").
--include("blockchain.hrl").
 
 -export([
          new/2, new/3,
@@ -894,7 +894,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 10 ->
+        N when is_integer(N), N >= 1,  N =< 11 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -957,6 +957,16 @@ validate_var(?poc_per_hop_max_witnesses, Value) ->
     validate_int(Value, "poc_per_hop_max_witnesses", 5, 50, false);
 validate_var(?poc_addr_hash_byte_count, Value) ->
     validate_int(Value, "poc_addr_hash_byte_count", 4, 32, false);
+validate_var(?fspl_loss, Value) ->
+    validate_float(Value, "fspl_loss", 0.0, 5.0);
+validate_var(?poc_distance_limit, Value) ->
+    validate_int(Value, "poc_distance_limit", 0, 1000, false);
+validate_var(?check_snr, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_check_snr, Value}})
+    end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
@@ -1290,9 +1300,51 @@ validate_var(?net_emissions_enabled, Value) ->
 validate_var(?net_emissions_max_rate, Value) ->
     validate_int(Value, "net_emissions_max_rate", 0, ?bones(200), false);
 
+validate_var(?regulatory_regions, Value) when is_binary(Value) ->
+    %% The regulatory_regions value we support must look like this:
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% The order does not matter in validation
+
+    %% We only check that the binary string is comma separated
+    CommaPlusLengthCheck = length(string:tokens(binary:bin_to_list(Value), ",")) >= 3,
+
+    case CommaPlusLengthCheck of
+        true -> ok;
+        false -> throw({error, {invalid_regulatory_regions, Value}})
+    end;
+validate_var(?regulatory_regions, Value) ->
+    throw({error, {invalid_regulatory_regions_not_binary, Value}});
+
 validate_var(Var, Value) ->
-    %% something we don't understand, crash
-    invalid_var(Var, Value).
+    %% check if these are dynamic region vars
+    case atom_to_list(Var) of
+        StrVar="region_"++_ ->
+            case lists:sublist(StrVar, length(StrVar) -5, 6) of
+                "params" ->
+                    validate_region_params(Var, Value);
+                _ ->
+                    validate_region_var(Var, Value)
+            end;
+        _ ->
+            %% something we don't understand, crash
+            invalid_var(Var, Value)
+    end.
+
+validate_region_var(Var, Value) when is_binary(Value) ->
+    %% The value is a list of u64 h3 hex ids, so it will always be a multiple of 8 bytes long
+    case size(Value) rem 8 of
+        %% This is always supposed to be true
+        0 ->
+            case byte_size(Value) of
+                %% All serialized regions we know so far are below 1MB
+                B when B =< 1 * 1024 * 1024 ->
+                    ok;
+                _ -> throw({error, {invalid_region_var_byte_size, Var, Value}})
+            end;
+        _ -> throw({error, {invalid_region_var_size, Var, Value}})
+    end;
+validate_region_var(Var, Value) ->
+    throw({error, {invalid_region_var, Var, Value}}).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
@@ -1366,6 +1418,19 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+validate_region_params(Var, Value) when is_binary(Value) ->
+    Deser = blockchain_region_params_v1:deserialize(Value),
+    Ser = blockchain_region_params_v1:serialize(Deser),
+    case Ser == Value of
+        true ->
+            %% TODO: Maybe add some checks around deserialized key-values
+            ok;
+        _ -> throw({error, {invalid_region_param_roundtrip, Var, Value}})
+    end;
+validate_region_params(Var, Value) ->
+    throw({error, {invalid_region_param_not_binary, Var, Value}}).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

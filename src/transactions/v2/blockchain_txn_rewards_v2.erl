@@ -677,6 +677,11 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, Ledger),
     {ok, BlockTime} = blockchain:config(?block_time, Ledger),
 
+    WitnessRewardDecayRate = case blockchain:config(?witness_reward_decay_rate, Ledger) of
+                                 {ok, Dec} -> Dec;
+                                 _ -> undefined
+                             end,
+
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -698,7 +703,8 @@ get_reward_vars(Start, End, Ledger) ->
         hip15_tx_reward_unit_cap => HIP15TxRewardUnitCap,
         election_interval => ElectionInterval,
         election_restart_interval => ElectionRestartInterval,
-        block_time => BlockTime
+        block_time => BlockTime,
+        witness_reward_decay_rate => WitnessRewardDecayRate
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -1141,8 +1147,8 @@ poc_witness_reward(Txn, AccIn,
                                          lists:foldl(
                                            fun(WitnessRecord, Acc2) ->
                                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                                   I = maps:get(Witness, Acc2, 0),
-                                                   maps:put(Witness, I+ToAdd, Acc2)
+                                                   {C, I} = maps:get(Witness, Acc2, {0, 0}),
+                                                   maps:put(Witness, {C+1, I+(ToAdd * witness_decay(C, Vars))}, Acc2)
                                            end,
                                            Acc1,
                                            ValidWitnesses);
@@ -1164,8 +1170,8 @@ poc_witness_reward(Txn, AccIn,
                                                                                       D,
                                                                                       Ledger)),
                                                    Value = blockchain_utils:normalize_float(ToAdd * RxScale),
-                                                   I = maps:get(Witness, Acc2, 0),
-                                                   maps:put(Witness, I+Value, Acc2)
+                                                   {C, I} = maps:get(Witness, Acc2, {0, 0}),
+                                                   maps:put(Witness, {C+1, I+(Value * witness_decay(C, Vars))}, Acc2)
                                            end,
                                            Acc1,
                                            ValidWitnesses)
@@ -1180,7 +1186,7 @@ poc_witness_reward(Txn, AccIn,
             AccIn
     end;
 poc_witness_reward(Txn, AccIn, _Chain, Ledger,
-                   #{ poc_version := POCVersion }) when is_integer(POCVersion)
+                   #{ poc_version := POCVersion } = Vars) when is_integer(POCVersion)
                                                         andalso POCVersion > 4 ->
     lists:foldl(
       fun(Elem, A) ->
@@ -1191,8 +1197,8 @@ poc_witness_reward(Txn, AccIn, _Chain, Ledger,
                       lists:foldl(
                         fun(WitnessRecord, Map) ->
                                 Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                I = maps:get(Witness, Map, 0),
-                                maps:put(Witness, I+1, Map)
+                                {C, I} = maps:get(Witness, Map, {0, 0}),
+                                maps:put(Witness, {C+1, I+(1 * witness_decay(C, Vars))}, Map)
                         end,
                         A,
                         GoodQualityWitnesses)
@@ -1201,14 +1207,14 @@ poc_witness_reward(Txn, AccIn, _Chain, Ledger,
       AccIn,
       blockchain_txn_poc_receipts_v1:path(Txn)
      );
-poc_witness_reward(Txn, AccIn, _Chain, _Ledger, _Vars) ->
+poc_witness_reward(Txn, AccIn, _Chain, _Ledger, Vars) ->
     lists:foldl(
       fun(Elem, A) ->
               lists:foldl(
                 fun(WitnessRecord, Map) ->
                         Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                        I = maps:get(Witness, Map, 0),
-                        maps:put(Witness, I+1, Map)
+                        {C, I} = maps:get(Witness, Map, {0, 0}),
+                        maps:put(Witness, {C+1, I+(1 * witness_decay(C, Vars))}, Map)
                 end,
                 A,
                 blockchain_poc_path_element_v1:witnesses(Elem))
@@ -1220,11 +1226,11 @@ poc_witness_reward(Txn, AccIn, _Chain, _Ledger, _Vars) ->
                                  Vars :: reward_vars() ) -> rewards_map().
 normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
                                             poc_witnesses_percent := PocWitnessesPercent}=Vars) ->
-    TotalWitnesses = lists:sum(maps:values(WitnessRewards)),
+    TotalWitnesses = lists:sum(element(2, lists:unzip(maps:values(WitnessRewards)))),
     ShareOfDCRemainder = share_of_dc_rewards(poc_witnesses_percent, Vars),
     WitnessesReward = (EpochReward * PocWitnessesPercent) + ShareOfDCRemainder,
     maps:fold(
-        fun(Witness, Witnessed, Acc) ->
+        fun(Witness, {_Count, Witnessed}, Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
             Amount = erlang:round(PercentofReward*WitnessesReward),
             maps:put({gateway, poc_witnesses, Witness}, Amount, Acc)
@@ -1461,6 +1467,17 @@ share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
                       + maps:get(poc_witnesses_percent, Vars))))
                 ).
 
+witness_decay(Count, Vars) ->
+    case maps:find(witness_reward_decay_rate, Vars) of
+        {ok, undefined} ->
+            1;
+        {ok, DecayRate} ->
+            Scale = math:exp(Count * -1 * DecayRate),
+            lager:info("scaling witness reward by ~p", [Scale]),
+            Scale;
+        _ ->
+            1
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -6,6 +6,7 @@
 -module(blockchain_utils).
 
 -include("blockchain_json.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     shuffle_from_hash/2,
@@ -237,6 +238,7 @@ rand_state(Hash) ->
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
     rand:seed_s(exs1024s, {A, B, C}).
 
+-spec distance(L1 :: h3:h3_index(), L2 :: h3:h3_index()) -> float().
 distance(L1, L1) ->
     %% Same location, defaulting the distance to 1m
     0.001;
@@ -295,10 +297,10 @@ free_space_path_loss(Loc1, Loc2) ->
 free_space_path_loss(Loc1, Loc2, undefined) ->
     %% No frequency specified, defaulting to US915. Definitely incorrect.
     Distance = blockchain_utils:distance(Loc1, Loc2),
-    10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2));
+    10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*?MHzToHzMultiplier)*(Distance*1000))/(299792458), 2));
 free_space_path_loss(Loc1, Loc2, Frequency) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
-    10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2))-1.8-1.8.
+    10*math:log10(math:pow((4*math:pi()*(Frequency*?MHzToHzMultiplier)*(Distance*1000))/(299792458), 2))-1.8-1.8.
 
 free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
@@ -306,19 +308,19 @@ free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
     %% TODO support variable Dt,Dr values for better FSPL values
     %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
     %%
-    (10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
+    (10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*?MHzToHzMultiplier)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
 free_space_path_loss(Loc1, Loc2, Frequency, Gt, Gl) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
     %% TODO support regional parameters for non-US based hotspots
     %% TODO support variable Dt,Dr values for better FSPL values
     %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
     %%
-    (10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
+    (10*math:log10(math:pow((4*math:pi()*(Frequency*?MHzToHzMultiplier)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
 
 %% Subtract FSPL from our transmit power to get the expected minimum received signal.
--spec min_rcv_sig(float(), float()) -> float().
-min_rcv_sig(Fspl, TxGain) ->
-   TxGain - Fspl.
+-spec min_rcv_sig(float(), number()) -> float().
+min_rcv_sig(Fspl, TxPower) ->
+   TxPower - Fspl.
 min_rcv_sig(Fspl) ->
    ?TRANSMIT_POWER - Fspl.
 

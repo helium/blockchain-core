@@ -12,7 +12,6 @@
 
 -define(SNAPSHOT_PROTOCOL, "blockchain_snapshot/1.0.0").
 
-
 -define(TX_PROTOCOL, "blockchain_txn/1.0.0").
 -define(LOC_ASSERTION_PROTOCOL, "loc_assertion/1.0.0").
 -define(STATE_CHANNEL_PROTOCOL_V1, "state_channel/1.0.0").
@@ -25,12 +24,14 @@
 % Misc
 -define(EVT_MGR, blockchain_event_mgr).
 
--define(BC_UPGRADE_NAMES, [<<"gateway_v2">>,
-                           <<"hex_targets">>,
-                           <<"gateway_oui">>,
-                           <<"h3dex">>,
-                           <<"h3dex2">>,
-                           <<"gateway_lg3">>,
-                           <<"clear_witnesses">>]).
+-define(BC_UPGRADE_NAMES, [
+    <<"gateway_v2">>,
+    <<"hex_targets">>,
+    <<"gateway_oui">>,
+    <<"h3dex">>,
+    <<"h3dex2">>,
+    <<"gateway_lg3">>,
+    <<"clear_witnesses">>
+]).
 
 -define(bones(HNT), HNT * 100000000).
