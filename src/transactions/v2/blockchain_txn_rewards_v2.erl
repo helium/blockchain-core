@@ -204,26 +204,53 @@ absorb_rewards(Rewards, Ledger) ->
         Rewards
     ).
 
--spec aux_absorb(Txn :: txn_rewards_v2(),
-                 AuxLedger :: blockchain_ledger_v1:ledger(),
-                 Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+-spec aux_absorb(
+    Txn :: txn_rewards_v2(),
+    AuxLedger :: blockchain_ledger_v1:ledger(),
+    Chain :: blockchain:blockchain()
+) -> ok | {error, any()}.
 aux_absorb(Txn, AuxLedger, Chain) ->
     Start = ?MODULE:start_epoch(Txn),
     End = ?MODULE:end_epoch(Txn),
     %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
     %% and do 0 verification for absorption
     case calculate_rewards_(Start, End, AuxLedger, Chain) of
-        {error, _}=E -> E;
-        {ok, AuxRewards} ->
+        {error, _} = E ->
+            E;
+        {ok, AuxMD, AuxRewards} ->
             TxnRewards = rewards(Txn),
             %% absorb the rewards attached to the txn (real)
             absorb_rewards(TxnRewards, AuxLedger),
             %% set auxiliary rewards in the aux ledger also
-            lager:info("are aux rewards equal?: ~p", [lists:sort(TxnRewards) == lists:sort(AuxRewards)]),
+            lager:info("are aux rewards equal?: ~p", [
+                lists:sort(TxnRewards) == lists:sort(AuxRewards)
+            ]),
             %% rewards appear in (End + 1) block
-            blockchain_ledger_v1:set_aux_rewards(End + 1, TxnRewards, AuxRewards, AuxLedger)
+            case application:get_env(blockchain, aux_cmp_md, false) of
+                false ->
+                    %% only set aux rewards by default
+                    blockchain_ledger_v1:set_aux_rewards(
+                        End + 1,
+                        TxnRewards,
+                        AuxRewards,
+                        AuxLedger
+                    );
+                true ->
+                    %% calculate original rewards metadata using chain
+                    case calculate_rewards_metadata(Start, End, Chain) of
+                        {error, _} = E -> E;
+                        {ok, MD} ->
+                            blockchain_ledger_v1:set_aux_rewards(
+                                End + 1,
+                                TxnRewards,
+                                AuxRewards,
+                                AuxLedger
+                            ),
+                            %% also set original and aux metadata for comparisons
+                            blockchain_ledger_v1:set_aux_rewards_md(End + 1, MD, AuxMD, AuxLedger)
+                    end
+            end
     end.
-
 
 -spec calculate_rewards(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) ->
     {ok, rewards()} | {error, any()}.
@@ -232,17 +259,21 @@ aux_absorb(Txn, AuxLedger, Chain) ->
 %% ordering will depend on (binary) account information.
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
-    calculate_rewards_(Start, End, Ledger, Chain).
+    case calculate_rewards_(Start, End, Ledger, Chain) of
+        {ok, _MD, Rewards} -> {ok, Rewards};
+        E -> E
+    end.
 
 -spec calculate_rewards_(
         Start :: non_neg_integer(),
         End :: non_neg_integer(),
         Ledger :: blockchain_ledger_v1:ledger(),
-        Chain :: blockchain:blockchain()) -> {error, any()} | {ok, rewards()}.
+        Chain :: blockchain:blockchain()) -> {error, any()} | {ok, rewards_metadata(), rewards()}.
 calculate_rewards_(Start, End, Ledger, Chain) ->
     {ok, Results} = calculate_rewards_metadata(Start, End, blockchain:ledger(Ledger, Chain)),
     try
-        {ok, prepare_rewards_v2_txns(Results, Ledger)}
+        Prepared = prepare_rewards_v2_txns(Results, Ledger),
+        {ok, Results, Prepared}
     catch
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't prepare rewards txn because: ~p~n~p", [C, Error, Stack]),
