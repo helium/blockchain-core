@@ -833,6 +833,7 @@ absorb_delayed(Block0, Chain0) ->
 -spec absorb_aux(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_aux(Block0, Chain0) ->
     Ledger0 = blockchain:ledger(Chain0),
+    FollowAux = application:get_env(blockchain, follow_aux, false),
     case blockchain_ledger_v1:has_aux(Ledger0) of
         true ->
             AuxLedger0 = blockchain_ledger_v1:mode(aux, Ledger0),
@@ -840,16 +841,36 @@ absorb_aux(Block0, Chain0) ->
             Chain1 = blockchain:ledger(AuxLedger1, Chain0),
             case blockchain_ledger_v1:current_height(Ledger0) of
                 % This is so it absorbs genesis
-                {ok, H} when H < 2 ->
+                {ok, H} when H < 2 andalso not FollowAux ->
                     plain_absorb_(Block0, Chain1),
                     ok = blockchain_ledger_v1:commit_context(AuxLedger1);
                 {ok, CurrentHeight} ->
                     {ok, AuxHeight} = blockchain_ledger_v1:current_height(AuxLedger1),
-                    %% don't do too many blocks at once do we don't get timeout killed
+                    %% don't do too many blocks at once so we don't get timeout killed
                     End = min(AuxHeight + 100, CurrentHeight - 1),
                     Res = lists:foldl(fun(H, ok) ->
                                               {ok, Block1} = blockchain:get_block(H, Chain0),
-                                              plain_absorb_(Block1, Chain1);
+                                              case plain_absorb_(Block1, Chain1) of
+                                                  ok ->
+                                                      case FollowAux of
+                                                          true ->
+                                                              case blockchain_ledger_v1:commit_context(AuxLedger1) of
+                                                                  ok ->
+                                                                      case blockchain_ledger_v1:new_snapshot(AuxLedger1) of
+                                                                          {ok, AuxLedger2} ->
+                                                                              Hash = blockchain_block:hash_block(Block1),
+                                                                              blockchain_worker:notify({add_block, Hash, false, AuxLedger2});
+                                                                          E -> E
+                                                                      end;
+                                                                  E2 ->
+                                                                      E2
+                                                              end;
+                                                          false ->
+                                                              ok
+                                                      end;
+                                                  E3 ->
+                                                      E3
+                                              end;
                                          (_, Acc) ->
                                               Acc
                                       end,
@@ -857,7 +878,12 @@ absorb_aux(Block0, Chain0) ->
                                       lists:seq(AuxHeight+1, End)),
                     case Res of
                         ok ->
-                            ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                            case FollowAux of
+                                false ->
+                                    blockchain_ledger_v1:commit_context(AuxLedger1);
+                                true ->
+                                    ok
+                            end;
                         Error ->
                             lager:info("AUX absorb failed ~p", [Error]),
                             Error
