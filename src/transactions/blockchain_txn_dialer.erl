@@ -97,9 +97,9 @@ handle_info({blockchain_txn_response, {no_group, _TxnHash}}, State=#state{parent
     erlang:cancel_timer(Ref),
     Parent ! {no_group, {self(), TxnKey, Txn, Member}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {error, _TxnHash}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {error, {_TxnHash, Height}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {rejected, {self(), TxnKey, Txn, Member}},
+    Parent ! {rejected, {self(), TxnKey, Txn, Member, Height}},
     {stop, normal, State};
 handle_info(_Msg, State) ->
     lager:info("txn dialer got unexpected info ~p", [_Msg]),

@@ -42,7 +42,7 @@
           has_been_synced= false :: boolean(),
 
           %% TODO Complete types
-          rejects_from_future :: [{Dialer :: term(), TxnKey :: term(), Txn :: term(), Member :: term(), HeightOpt :: term()}]
+          rejects_from_future :: [{Dialer :: term(), TxnKey :: term(), Txn :: term(), Member :: term(), Height :: non_neg_integer()}]
          }).
 
 -record(txn_data,
@@ -211,7 +211,7 @@ handle_info({accepted, {Dialer, TxnKey, Txn, Member}}, State) ->
     {noreply, State};
 
 handle_info(
-    {rejected, {Dialer, TxnKey, Txn, Member, HeightOpt}=Rejected},
+    {rejected, {Dialer, TxnKey, Txn, Member, RejectorHeight}=Rejected},
     #state{
         cur_block_height = CurBlockHeight,
         reject_f = RejectF,
@@ -220,29 +220,26 @@ handle_info(
 ) ->
     lager:debug(
         "txn: ~s, rejected_by: ~p, Dialer: ~p,"
-        "my height: ~p, rejector height option: ~p",
+        "my height: ~p, rejector height: ~p",
         [
             blockchain_txn:print(Txn), Member, Dialer,
-            CurBlockHeight, HeightOpt
+            CurBlockHeight, RejectorHeight
         ]
     ),
     S1 =
-        case HeightOpt of
+        if
             %% future:
-            {some, Height} when Height > CurBlockHeight ->
+            RejectorHeight > CurBlockHeight ->
                 lager:warning("Received txn rejection from the future: ~p", [Rejected]),
                 %% TODO Process these rejects somewhere:
                 S0#state{rejects_from_future=[Rejected | Rejects]};
 
             %% past:
-            {some, Height} when Height < CurBlockHeight ->
+            RejectorHeight < CurBlockHeight ->
                 S0;
 
             %% present:
-            none ->
-                ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
-                S0;
-            {some, _Height} ->
+            true ->
                 ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
                 S0
         end,
