@@ -39,7 +39,10 @@
           cur_block_height :: undefined | integer(),
           txn_cache :: undefined | ets:tid(),
           chain :: undefined | blockchain:blockchain(),
-          has_been_synced= false :: boolean()
+          has_been_synced= false :: boolean(),
+
+          %% TODO Complete types
+          rejects_from_future :: [{Dialer :: term(), TxnKey :: term(), Txn :: term(), Member :: term(), HeightOpt :: term()}]
          }).
 
 -record(txn_data,
@@ -207,11 +210,43 @@ handle_info({accepted, {Dialer, TxnKey, Txn, Member}}, State) ->
     ok = accepted(TxnKey, Txn, Member, Dialer),
     {noreply, State};
 
-handle_info({rejected, {Dialer, TxnKey, Txn, Member}}, #state{  cur_block_height = CurBlockHeight,
-                                                        reject_f = RejectF} = State) ->
-    lager:debug("txn: ~s, rejected_by: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
-    ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
-    {noreply, State};
+handle_info(
+    {rejected, {Dialer, TxnKey, Txn, Member, HeightOpt}=Rejected},
+    #state{
+        cur_block_height = CurBlockHeight,
+        reject_f = RejectF,
+        rejects_from_future = Rejects
+    } = S0
+) ->
+    lager:debug(
+        "txn: ~s, rejected_by: ~p, Dialer: ~p,"
+        "my height: ~p, rejector height option: ~p",
+        [
+            blockchain_txn:print(Txn), Member, Dialer,
+            CurBlockHeight, HeightOpt
+        ]
+    ),
+    S1 =
+        case HeightOpt of
+            %% future:
+            {some, Height} when Height > CurBlockHeight ->
+                lager:warning("Received txn rejection from the future: ~p", [Rejected]),
+                %% TODO Process these rejects somewhere:
+                S0#state{rejects_from_future=[Rejected | Rejects]};
+
+            %% past:
+            {some, Height} when Height < CurBlockHeight ->
+                S0;
+
+            %% present:
+            none ->
+                ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
+                S0;
+            {some, _Height} ->
+                ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
+                S0
+        end,
+    {noreply, S1};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     NewState = initialize_with_chain(State, NC),
