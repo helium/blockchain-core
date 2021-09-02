@@ -2457,7 +2457,12 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                     lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                     Error;
                 {ok, NewLedger} ->
-                    ok = blockchain_worker:notify({add_block, GenesisHash, true, NewLedger})
+                    case application:get_env(blockchain, follow_aux, false) of
+                        false ->
+                            ok = blockchain_worker:notify({add_block, GenesisHash, true, NewLedger});
+                        true ->
+                            ok
+                    end
             end,
             resync_fun(ChainHeight, LedgerHeight + 1, Blockchain);
         {error, _} ->
@@ -2639,7 +2644,12 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
         {ok, NewLedger} ->
             case application:get_env(blockchain, test_mode, false) of
                 false ->
-                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
+                    case application:get_env(blockchain, follow_aux, false) of
+                        false ->
+                            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
+                        true ->
+                            ok
+                    end;
                 true -> ok
             end
     end.
