@@ -547,7 +547,7 @@ new_snapshot(#ledger_v1{db=DB,
                         mode=Mode,
                         active=#sub_ledger_v1{cache=undefined},
                         delayed=#sub_ledger_v1{cache=undefined}}=Ledger)
-  when Mode == active; Mode == aux_load ->
+  when Mode == active ->
     {ok, Height} = current_height(Ledger),
     Me = self(),
     Old = {Height, {pending, Me}},
@@ -603,6 +603,16 @@ new_snapshot(#ledger_v1{db=DB,
                     Error
             end
     end;
+new_snapshot(#ledger_v1{mode=Mode}=Ledger) when Mode == aux ->
+    case rocksdb:snapshot(db(Ledger)) of
+        {ok, SnapshotHandle} ->
+            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
+        E ->
+            E
+    end;
+new_snapshot(#ledger_v1{mode=Mode}=Ledger) when Mode == aux_load ->
+    %% noop
+    {ok, Ledger};
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
