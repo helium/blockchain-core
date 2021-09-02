@@ -708,6 +708,10 @@ new_snapshot(#ledger_v1{db=DB,
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
             case rocksdb:snapshot(DB) of
                 {ok, SnapshotHandle} ->
+                    %% set the snapshot handle in the ledger handle
+                    %% so that the ledger we return from this function remains
+                    %% fixed in time
+                    Ledger1 = Ledger#ledger_v1{snapshot=SnapshotHandle},
                     {ok, Height} = current_height(Ledger),
                     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                     {ok, DelayedHeight} = current_height(DelayedLedger),
@@ -728,7 +732,7 @@ new_snapshot(#ledger_v1{db=DB,
                     %% each block.
                     case application:get_env(blockchain, follow_mode, false) of
                         true ->
-                            {ok, Ledger};
+                            {ok, Ledger1};
                         false ->
                             CheckpointDir = checkpoint_dir(Ledger, Height),
                             ok = filelib:ensure_dir(CheckpointDir),
@@ -738,7 +742,7 @@ new_snapshot(#ledger_v1{db=DB,
                                     {ok, DelayedHeight} = current_height(DelayedLedger),
                                     OldDir = checkpoint_dir(Ledger, DeleteHeight),
                                     remove_checkpoint(OldDir),
-                                    {ok, Ledger};
+                                    {ok, Ledger1};
                                 {error, Reason1}=Error1 ->
                                     lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
                                     Error1
