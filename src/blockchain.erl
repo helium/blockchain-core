@@ -18,7 +18,7 @@
 
     blocks/1,
     get_block/2, get_block_hash/2, get_block_height/2, get_raw_block/2,
-    get_block_info/2,
+    put_block_info/3, get_block_info/2,
     save_block/2,
     has_block/2,
     find_first_block_after/2,
@@ -661,7 +661,15 @@ get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) -
             Error
     end.
 
--spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
+-spec put_block_info(Height :: pos_integer(),
+                     Info :: #block_info{},
+                     Blockchain :: blockchain()) ->
+          ok | {error, any()}.
+put_block_info(Height, Info, #blockchain{db=DB, info=InfoCF}) ->
+    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []).
+
+-spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
+          {ok, #block_info{}} | {error, any()}.
 get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
     case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
        {ok, BinInfo} ->

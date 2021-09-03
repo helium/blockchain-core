@@ -1,6 +1,7 @@
 -module(blockchain_ledger_snapshot_v1).
 
 -include("blockchain_ledger_snapshot_v1.hrl").
+-include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -18,6 +19,7 @@
          load_blocks/3,
 
          get_blocks/1,
+         get_infos/1,
          get_h3dex/1,
 
          height/1,
@@ -112,6 +114,7 @@
     | h3dex
     | state_channels
     | blocks
+    | infos
     | oracle_price
     | oracle_price_list
 
@@ -592,6 +595,13 @@ load_into_ledger(Snapshot, L0, Mode) ->
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
+    Infos =
+        case maps:find(infos, Snapshot) of
+            {ok, Is} ->
+                binary_to_term(Is);
+            error ->
+                []
+        end,
     Blocks =
         case maps:find(blocks, Snapshot) of
             {ok, Bs} ->
@@ -603,6 +613,16 @@ load_blocks(Ledger0, Chain, Snapshot) ->
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
     lager:info("snapshot contains ~p blocks", [length(Blocks)]),
+
+    case Infos of
+        [] -> ok;
+        [_|_] ->
+            lists:foreach(
+              fun({Ht, Info}) ->
+                      ok = blockchain:put_block_info(Ht, Info, Chain)
+              end,
+              Infos)
+    end,
 
     case Blocks of
         [] ->
@@ -655,6 +675,21 @@ load_blocks(Ledger0, Chain, Snapshot) ->
               Blocks)
     end.
 
+-spec get_infos(blockchain:blockchain()) ->
+    [binary()].
+get_infos(Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
+
+    LoadInfoStart = (POCChallengeInterval * 2) + 1,
+
+    [begin
+         {ok, B} = blockchain:get_block_info(N, Chain),
+         term_to_binary({N, B})
+     end
+     || N <- lists:seq(max(?min_height, LoadInfoStart), Height)].
+
 -spec get_blocks(blockchain:blockchain()) ->
     [binary()].
 get_blocks(Chain) ->
@@ -673,15 +708,13 @@ get_blocks(Chain) ->
             {error, not_found} ->
                 0
         end,
-    {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
 
     DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
 
-    %% We need _at least_ the grace blocks before current election
-    %% or the delayed ledger height less than last poc_challenge_interval blocks, whichever is
-    %% lower.
-    LoadBlockStart = min(DHeight - (POCChallengeInterval + 1), ElectionHeight - GraceBlocks),
+    %% We need _at least_ the grace blocks before current election or the delayed ledger height,
+    %% whichever is lower.
+    LoadBlockStart = min(DHeight, ElectionHeight - GraceBlocks),
 
     [begin
          {ok, B} = blockchain:get_raw_block(N, Chain),
