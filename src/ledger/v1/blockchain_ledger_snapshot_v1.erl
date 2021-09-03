@@ -710,7 +710,10 @@ get_blocks(Chain) ->
         end,
 
     DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-    {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
+    {ok, DHeight0} = blockchain_ledger_v1:current_height(DLedger),
+
+    {ok, DBlock} = blockchain:get_block(DHeight0, Chain),
+    {_, DHeight} = blockchain_block_v1:election_info(DBlock),
 
     %% We need _at least_ the grace blocks before current election or the delayed ledger height,
     %% whichever is lower.
