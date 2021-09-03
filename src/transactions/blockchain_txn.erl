@@ -880,7 +880,7 @@ absorb_aux(Block0, Chain0) ->
                                       {ok,Chain1},
                                       lists:seq(AuxHeight+1, End)),
                     case Res of
-                        ok ->
+                        {ok, _} ->
                             case FollowAux of
                                 false ->
                                     blockchain_ledger_v1:commit_context(AuxLedger1);
