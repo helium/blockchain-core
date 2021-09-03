@@ -5,6 +5,7 @@
 -callback follower_height(State::any()) -> pos_integer().
 -callback init(Args::any()) -> {ok, State::any()} | {error, term()}.
 -callback load_chain(blockchain:blockchain(), State::any()) -> {ok, NewState::any()}.
+-callback snap_loaded(blockchain:blockchain(), State::any()) -> {ok, NewState::any()}.
 -callback load_block(Hash::binary(),
                      blockchain:block(),
                      Sync::boolean(),
@@ -29,7 +30,8 @@
         {
          chain=undefined :: undefined | blockchain:blockchain(),
          follower_mod :: atom(),
-         follower_state :: any()
+         follower_state :: any(),
+         follow_aux :: boolean()
         }).
 
 %%%===================================================================
@@ -58,7 +60,8 @@ init(Args) ->
     %% Now load the chain
     BaseDir = application:get_env(blockchain, base_dir, "data"),
     blockchain_worker:load(BaseDir, "update"),
-    {ok, #state{follower_mod=FollowerMod, follower_state=FollowerState}}.
+    FollowAux = application:get_env(blockchain, follow_aux, false),
+    {ok, #state{follower_mod=FollowerMod, follower_state=FollowerState, follow_aux=FollowAux}}.
 
 handle_call(_Request, _From, State) ->
     lager:warning("unexpected call ~p from ~p", [_Request, _From]),
@@ -79,10 +82,16 @@ handle_info({blockchain_event, {new_chain, Chain}}, State=#state{follower_mod=Fo
     {ok, FollowerState} = FollowerMod:load_chain(Chain, State#state.follower_state),
     {noreply, State#state{chain=Chain, follower_state=FollowerState}};
 
+handle_info({blockchain_event, {snap_loaded, Chain}}, State=#state{follower_mod=FollowerMod}) ->
+    {ok, FollowerState} = FollowerMod:snap_loaded(Chain, State#state.follower_state),
+    {noreply, State#state{chain=Chain, follower_state=FollowerState}};
+
 handle_info({blockchain_event, _ChainEvent}=Msg, State=#state{ chain=undefined}) ->
     handle_info(Msg, State#state{chain=blockchain_worker:blockchain()});
-handle_info({blockchain_event, {add_block, Hash, Sync, Ledger}},
-            State=#state{chain=Chain, follower_mod=FollowerMod}) ->
+handle_info({blockchain_event, {Event, Hash, Sync, Ledger}},
+            State=#state{chain=Chain, follower_mod=FollowerMod,
+                         follow_aux=FollowAux}) when (Event == add_block andalso FollowAux == false);
+                                                     (Event == add_aux_block andalso FollowAux == true) ->
     {ok, Block} = blockchain:get_block(Hash, Chain),
     MaybePlaybackBlocks =
         fun() ->
