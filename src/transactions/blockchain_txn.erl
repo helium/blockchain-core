@@ -848,25 +848,28 @@ absorb_aux(Block0, Chain0) ->
                     {ok, AuxHeight} = blockchain_ledger_v1:current_height(AuxLedger1),
                     %% don't do too many blocks at once so we don't get timeout killed
                     End = min(AuxHeight + 100, CurrentHeight - 1),
-                    Res = lists:foldl(fun(H, ok) ->
-                                              {ok, Block1} = blockchain:get_block(H, Chain0),
-                                              case plain_absorb_(Block1, Chain1) of
+                    Res = lists:foldl(fun(H, {ok, Chain}) ->
+                                              {ok, Block1} = blockchain:get_block(H, Chain),
+                                              case plain_absorb_(Block1, Chain) of
                                                   ok ->
                                                       case FollowAux of
                                                           true ->
                                                               case blockchain_ledger_v1:commit_context(AuxLedger1) of
                                                                   ok ->
-                                                                      case blockchain_ledger_v1:new_snapshot(AuxLedger1) of
+                                                                      case blockchain_ledger_v1:new_snapshot(AuxLedger0) of
                                                                           {ok, AuxLedger2} ->
                                                                               Hash = blockchain_block:hash_block(Block1),
-                                                                              blockchain_worker:notify({add_block, Hash, false, AuxLedger2});
+                                                                              blockchain_worker:notify({add_block, Hash, false, AuxLedger2}),
+                                                                              AuxLedger3 = blockchain_ledger_v1:new_context(AuxLedger0),
+                                                                              Chain3 = blockchain:ledger(AuxLedger3, Chain),
+                                                                              {ok, Chain3};
                                                                           E -> E
                                                                       end;
                                                                   E2 ->
                                                                       E2
                                                               end;
                                                           false ->
-                                                              ok
+                                                              {ok, Chain}
                                                       end;
                                                   E3 ->
                                                       E3
@@ -874,7 +877,7 @@ absorb_aux(Block0, Chain0) ->
                                          (_, Acc) ->
                                               Acc
                                       end,
-                                      ok,
+                                      {ok,Chain1},
                                       lists:seq(AuxHeight+1, End)),
                     case Res of
                         ok ->
