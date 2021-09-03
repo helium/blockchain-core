@@ -1196,6 +1196,7 @@ get_quick_sync_height_and_hash(Mode) ->
     end.
 
 load_chain(SwarmTID, BaseDir, GenDir) ->
+    remove_handlers(SwarmTID),
     QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
     QuickSyncData = get_quick_sync_height_and_hash(QuickSyncMode),
     case blockchain:new(BaseDir, GenDir, QuickSyncMode, QuickSyncData) of
