@@ -240,30 +240,37 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State0};
         Chain ->
-            Ledger = blockchain:ledger(Chain),
-            DCPayloadSize =
+            lager:info("state channel got chain from worker"),
+            try
+                Ledger = blockchain:ledger(Chain),
+                DCPayloadSize =
                 case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
                     {ok, DCP} ->
                         DCP;
                     _ ->
                         0
                 end,
-            SCVer =
+                SCVer =
                 case blockchain_ledger_v1:config(?sc_version, Ledger) of
                     {ok, SCV} ->
                         SCV;
                     _ ->
                         0
                 end,
-            MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
-            TempState = State0#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed},
-            LoadState = update_state_with_ledger_channels(TempState),
-            lager:info("loaded state channels: ~p", [LoadState#state.state_channels]),
-            State1 = update_state_with_blooms(LoadState),
-            ok = update_active_scs_cache(State1),
-            {noreply, State1}
+                MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
+                TempState = State0#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer, max_actors_allowed=MaxActorsAllowed},
+                LoadState = update_state_with_ledger_channels(TempState),
+                lager:info("loaded state channels: ~p", [LoadState#state.state_channels]),
+                State1 = update_state_with_blooms(LoadState),
+                ok = update_active_scs_cache(State1),
+                {noreply, State1}
+            catch _:_ ->
+                      erlang:send_after(500, self(), post_init),
+                      {noreply, State0}
+            end
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    lager:info("state channel got new chain"),
     {noreply, State#state{chain=NC}};
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
