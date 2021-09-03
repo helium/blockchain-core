@@ -78,7 +78,7 @@ handle_info({blockchain_event, From, Event}, State=#state{}) ->
     blockchain_event:acknowledge(From),
     Result;
 
-handle_info({blockchain_event, {new_chain, Chain}}, State=#state{follower_mod=FollowerMod}) ->
+handle_info({blockchain_event, {new_chain, Chain0}}, State=#state{follower_mod=FollowerMod, follow_aux=FollowAux}) ->
     Chain = case FollowAux of
         true ->
             Ledger = blockchain:ledger(Chain0),
