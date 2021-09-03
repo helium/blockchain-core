@@ -79,10 +79,26 @@ handle_info({blockchain_event, From, Event}, State=#state{}) ->
     Result;
 
 handle_info({blockchain_event, {new_chain, Chain}}, State=#state{follower_mod=FollowerMod}) ->
+    Chain = case FollowAux of
+        true ->
+            Ledger = blockchain:ledger(Chain0),
+            AuxLedger = blockchain_ledger_v1:mode(aux, Ledger),
+            blockchain:ledger(AuxLedger, Chain0);
+        false ->
+            Chain0
+    end,
     {ok, FollowerState} = FollowerMod:load_chain(Chain, State#state.follower_state),
     {noreply, State#state{chain=Chain, follower_state=FollowerState}};
 
-handle_info({blockchain_event, {snap_loaded, Chain}}, State=#state{follower_mod=FollowerMod}) ->
+handle_info({blockchain_event, {snap_loaded, Chain0}}, State=#state{follower_mod=FollowerMod, follow_aux=FollowAux}) ->
+    Chain = case FollowAux of
+        true ->
+            Ledger = blockchain:ledger(Chain0),
+            AuxLedger = blockchain_ledger_v1:mode(aux, Ledger),
+            blockchain:ledger(AuxLedger, Chain0);
+        false ->
+            Chain0
+    end,
     {ok, FollowerState} = FollowerMod:snap_loaded(Chain, State#state.follower_state),
     {noreply, State#state{chain=Chain, follower_state=FollowerState}};
 
