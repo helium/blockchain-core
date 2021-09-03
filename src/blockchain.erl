@@ -2382,16 +2382,18 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
                           end;
                         Other ->
                           lager:warning("failed to deserialize stored snapshot: ~p", [Other]),
-                          blockchain_worker:snapshot_sync(Hash, Height)
+                          blockchain_worker:snapshot_sync(Hash, Height),
+                          Blockchain
                   end;
                 {error, not_found} ->
-                  blockchain_worker:snapshot_sync(Hash, Height);
+                  blockchain_worker:snapshot_sync(Hash, Height),
+                  Blockchain;
                Other ->
                   lager:error("Got ~p trying to get snapshot at height: ~p hash ~p - attempt to sync",
                               [Other, Height0, Hash]),
-                  blockchain_worker:snapshot_sync(Hash, Height)
-            end,
-            Blockchain;
+                  blockchain_worker:snapshot_sync(Hash, Height),
+                  Blockchain
+            end;
         %% no chain at all, we need the genesis block first
         _ ->
             Blockchain
