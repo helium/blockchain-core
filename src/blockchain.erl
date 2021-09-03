@@ -2378,7 +2378,9 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
                                   blockchain_ledger_v1:clean(OldLedger),
                                   %% TODO proper error checking and recovery/retry
                                   NewLedger = blockchain_ledger_snapshot_v1:import(Blockchain, Hash, Snap),
-                                  blockchain:ledger(NewLedger, Blockchain)
+                                  NewChain = blockchain:ledger(NewLedger, Blockchain),
+                                  blockchain_worker:notify({snap_loaded, NewChain}),
+                                  NewChain
                           end;
                         Other ->
                           lager:warning("failed to deserialize stored snapshot: ~p", [Other]),
@@ -2459,12 +2461,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                     lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                     Error;
                 {ok, NewLedger} ->
-                    case application:get_env(blockchain, follow_aux, false) of
-                        false ->
-                            ok = blockchain_worker:notify({add_block, GenesisHash, true, NewLedger});
-                        true ->
-                            ok
-                    end
+                    ok = blockchain_worker:notify({add_block, GenesisHash, true, NewLedger})
             end,
             resync_fun(ChainHeight, LedgerHeight + 1, Blockchain);
         {error, _} ->
@@ -2646,12 +2643,7 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
         {ok, NewLedger} ->
             case application:get_env(blockchain, test_mode, false) of
                 false ->
-                    case application:get_env(blockchain, follow_aux, false) of
-                        false ->
-                            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
-                        true ->
-                            ok
-                    end;
+                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
                 true -> ok
             end
     end.

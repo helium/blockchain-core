@@ -859,7 +859,7 @@ absorb_aux(Block0, Chain0) ->
                                                                       case blockchain_ledger_v1:new_snapshot(AuxLedger0) of
                                                                           {ok, AuxLedger2} ->
                                                                               Hash = blockchain_block:hash_block(Block1),
-                                                                              blockchain_worker:notify({add_block, Hash, false, AuxLedger2}),
+                                                                              blockchain_worker:notify({add_aux_block, Hash, false, AuxLedger2}),
                                                                               AuxLedger3 = blockchain_ledger_v1:new_context(AuxLedger0),
                                                                               Chain3 = blockchain:ledger(AuxLedger3, Chain),
                                                                               {ok, Chain3};
