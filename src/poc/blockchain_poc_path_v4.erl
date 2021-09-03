@@ -405,7 +405,7 @@ check_witness_bad_rssi_centrality(Witness, Vars) ->
             false
     end.
 
--spec is_witness_stale(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+-spec is_witness_stale(Gateway :: libp2p_crypto:pubkey_bin(),
                        Height :: non_neg_integer(),
                        Vars :: map(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> boolean().

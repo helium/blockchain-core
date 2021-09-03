@@ -644,7 +644,7 @@ get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
 -spec get_block_height(Hash :: blockchain_block:hash(), Blockchain :: blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
 get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) ->
     case rocksdb:get(DB, HeightsCF, Hash, []) of
-       {ok, <<Height:64/integer-unsigned-big>>} ->
+        {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
             case rocksdb:get(DB, BlocksCF, Hash, []) of
@@ -672,7 +672,7 @@ put_block_info(Height, Info, #blockchain{db=DB, info=InfoCF}) ->
           {ok, #block_info{}} | {error, any()}.
 get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
     case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
-       {ok, BinInfo} ->
+        {ok, BinInfo} ->
             {ok, binary_to_term(BinInfo)};
         not_found ->
             case get_block(Height, Chain) of
@@ -681,8 +681,6 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
                     Info = mk_info(Hash, Block),
                     ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []),
                     {ok, Info};
-                not_found ->
-                    {error, not_found};
                 Error ->
                     Error
             end;

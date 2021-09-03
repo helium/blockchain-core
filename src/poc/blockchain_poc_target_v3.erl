@@ -83,7 +83,7 @@ filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
                  end,
                  AddrList).
 
--spec is_active(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+-spec is_active(Gateway :: libp2p_crypto:pubkey_bin(),
                 Height :: non_neg_integer(),
                 Vars :: map(),
                 Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
