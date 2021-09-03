@@ -64,7 +64,7 @@ target_v2(Hash, Ledger, Vars) ->
         lists:foldl(
           fun(Addr, Acc) ->
               %% exclude GWs which do not have the required capability
-              {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
+              {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
               case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
                   false -> Acc;
                   true ->

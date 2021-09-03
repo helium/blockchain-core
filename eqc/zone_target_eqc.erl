@@ -14,7 +14,6 @@ prop_target_check() ->
                 Ledger = ledger(),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
-                {ok, GWCache} = blockchain_gateway_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 Hash = crypto:strong_rand_bytes(32),
@@ -50,7 +49,6 @@ prop_target_check() ->
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
-                gen_server:stop(GWCache),
 
                 ?WHENFAIL(begin
                               blockchain_ledger_v1:close(Ledger)
