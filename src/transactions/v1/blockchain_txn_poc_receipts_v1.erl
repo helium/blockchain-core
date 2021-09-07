@@ -1360,7 +1360,7 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                     %% If there is an aux ledger, this will be true to maintain syncing
                     %% If there is no aux ledger, this will be false since we cannot make an informed decision here
                     lager:error("h3_to_region failed with error: ~p", [E]),
-                    blockchain_ledger_v1:has_aux(Ledger)
+                    false
             end;
         _ ->
             %% We're not in poc-v11+
