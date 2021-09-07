@@ -14,7 +14,7 @@
 -define(PRE_UNCLIP_TBL, '__blockchain_hex_unclipped_tbl').
 -define(PRE_CLIP_TBL, '__blockchain_hex_clipped_tbl').
 
--define(ETS_OPTS, [named_table, public]).
+-define(ETS_OPTS, []).
 
 -type var_map() :: #{0..12 => map()}.
 -export_type([var_map/0]).
@@ -22,8 +22,7 @@
 -ifdef(TEST).
 
 -export([
-         ulookup/1,
-         clookup/1
+         lookup/2
         ]).
 
 -endif.
@@ -35,8 +34,8 @@
 %% @doc This call will destroy the memoization context used during a rewards
 %% calculation.
 destroy_memoization() ->
-    try ets:delete(?PRE_CLIP_TBL) catch _:_ -> true end,
-    try ets:delete(?PRE_UNCLIP_TBL) catch _:_ -> true end.
+    try ets:delete(get(?PRE_CLIP_TBL)) catch _:_ -> true end,
+    try ets:delete(get(?PRE_UNCLIP_TBL)) catch _:_ -> true end.
 
 %% @doc This call is for blockchain_etl to use directly
 -spec scale(Location :: h3:h3_index(),
@@ -73,12 +72,14 @@ scale(Location, _VarMap, TargetRes, Ledger) ->
     %% however, we specify the lower bound instead of going all the way down to 0
 
     R = h3:get_resolution(Location),
+    UnclipETS = get(?PRE_UNCLIP_TBL),
+    ClipETS = get(?PRE_CLIP_TBL),
 
     lists:foldl(fun(Res, Acc) ->
                         Parent = h3:parent(Location, Res),
-                        case ulookup(Parent) of
+                        case lookup(UnclipETS, Parent) of
                             0 -> Acc;
-                            Unclipped -> Acc * (clookup(Parent) / Unclipped)
+                            Unclipped -> Acc * (lookup(ClipETS, Parent) / Unclipped)
                         end
                 end, 1.0, lists:seq(R, TargetRes, -1)).
 
@@ -134,23 +135,16 @@ var_map(Ledger) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec ulookup(Key :: h3:h3_index()) -> non_neg_integer().
-ulookup(Key) ->
-    case ets:lookup(?PRE_UNCLIP_TBL, Key) of
-        [{_Key, Res}] -> Res;
-        [] -> 0
-    end.
-
--spec clookup(Key :: h3:h3_index()) -> non_neg_integer().
-clookup(Key) ->
-    case ets:lookup(?PRE_CLIP_TBL, Key) of
+-spec lookup(Tbl :: ets:table(), Key :: h3:h3_index()) -> non_neg_integer().
+lookup(Tbl, Key) ->
+    case ets:lookup(Tbl, Key) of
         [{_Key, Res}] -> Res;
         [] -> 0
     end.
 
 -spec maybe_precalc(Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_precalc(Ledger) ->
-    case ets:info(?PRE_UNCLIP_TBL) of
+    case get(?PRE_UNCLIP_TBL) of
         undefined ->
             precalc(Ledger);
         _ ->
@@ -171,8 +165,10 @@ precalc(Testing, Ledger) ->
             {error, not_found} -> 0 % XXX what should this value be?
         end,
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
-    ets:new(?PRE_UNCLIP_TBL, ?ETS_OPTS),
-    ets:new(?PRE_CLIP_TBL, ?ETS_OPTS),
+    UnclipETS = ets:new(?PRE_UNCLIP_TBL, ?ETS_OPTS),
+    ClipETS = ets:new(?PRE_CLIP_TBL, ?ETS_OPTS),
+    put(?PRE_UNCLIP_TBL, UnclipETS),
+    put(?PRE_CLIP_TBL, ClipETS),
 
     %% pre-unfold these because we access them a lot.
     Vars0 =
@@ -212,8 +208,8 @@ precalc(Testing, Ledger) ->
                               undefined -> Acc;
                               _ ->
                                   Hex = h3:parent(L, MaxRes),
-                                  ets:update_counter(?PRE_UNCLIP_TBL, Hex, 1, {Hex, 0}),
-                                  ets:update_counter(?PRE_CLIP_TBL, Hex, 1, {Hex, 0}),
+                                  ets:update_counter(UnclipETS, Hex, 1, {Hex, 0}),
+                                  ets:update_counter(ClipETS, Hex, 1, {Hex, 0}),
                                   [Hex | Acc]
                           end;
                       _ -> Acc
@@ -230,20 +226,20 @@ precalc(Testing, Ledger) ->
                   lists:foldl(
                     fun(Hex, A) ->
                             ResHex = h3:parent(Hex, Level),
-                            Ct = clookup(Hex),
-                            ets:update_counter(?PRE_UNCLIP_TBL, ResHex, Ct, {ResHex, 0}),
-                            ets:update_counter(?PRE_CLIP_TBL, ResHex, Ct, {ResHex, 0}), % not sure if required
+                            Ct = lookup(ClipETS, Hex),
+                            ets:update_counter(UnclipETS, ResHex, Ct, {ResHex, 0}),
+                            ets:update_counter(ClipETS, ResHex, Ct, {ResHex, 0}), % not sure if required
                             [ResHex | A]
                     end, [], Acc),
               Acc2 = lists:usort(Acc1),
               lists:foreach(
                 fun(ResHex) ->
                         DensityTarget = element(2, element(Level, Vars)),
-                        OccupiedCount = occupied_count(DensityTarget, ResHex),
+                        OccupiedCount = occupied_count(DensityTarget, ResHex, ClipETS),
                         Limit = limit(Level, Vars, OccupiedCount),
-                        Ct = ulookup(ResHex),
+                        Ct = lookup(UnclipETS, ResHex),
                         Actual = min(Limit, Ct),
-                        ets:insert(?PRE_CLIP_TBL, {ResHex, Actual})
+                        ets:insert(ClipETS, {ResHex, Actual})
                 end, Acc2),
               Acc2
       end,
@@ -251,7 +247,7 @@ precalc(Testing, Ledger) ->
       lists:reverse(UsedResolutions)),  %% go from the bottom here
 
     End = erlang:monotonic_time(millisecond),
-    lager:info("ets ~p ~p", [ets:info(?PRE_UNCLIP_TBL, size), End-Start]).
+    lager:info("ets ~p ~p", [ets:info(UnclipETS, size), End-Start]).
 
 -spec limit(
     Res :: 0..12,
@@ -268,14 +264,15 @@ limit(Res, Vars, OccupiedCount) ->
 
 -spec occupied_count(
     DensityTarget :: 0..12,
-    ThisResHex :: h3:h3_index()
+    ThisResHex :: h3:h3_index(),
+    ClipETS :: ets:table()
 ) -> non_neg_integer().
-occupied_count(DensityTarget, ThisResHex) ->
+occupied_count(DensityTarget, ThisResHex, ClipETS) ->
     H3Neighbors = h3:k_ring(ThisResHex, 1),
 
     lists:foldl(
         fun(Neighbor, Acc) ->
-            case clookup(Neighbor) >= DensityTarget of
+            case lookup(ClipETS, Neighbor) >= DensityTarget of
                 false -> Acc;
                 true -> Acc + 1
             end
