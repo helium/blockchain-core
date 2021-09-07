@@ -731,7 +731,13 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
         {error, request_block_hash_not_found} -> []
     catch
         _What:_Why ->
-            []
+            Path = ?MODULE:path(Txn),
+            lists:foldl(fun(Element, Acc) ->
+
+                                Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
+
+                                Fun(Element, {lists:map(fun(Witness) ->{false, <<"challengee_no_region">>, Witness} end, Witnesses) , undefined}, Acc)
+                        end, Acc0, Path)
     end.
 
 %% again this is broken because of the current witness situation
