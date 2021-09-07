@@ -358,7 +358,7 @@ process_deferred_rejections(
             ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF)
         end,
     lists:foreach(Reject, Current),
-    S#state{rejections_deferred=[]}.
+    S#state{rejections_deferred=Deferred1}.
 
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
