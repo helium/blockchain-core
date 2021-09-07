@@ -711,7 +711,7 @@ good_quality_witnesses(Element, Ledger) ->
 %% Iterate over all poc_path elements and for each path element calls a given
 %% callback function with reason tagged witnesses and valid receipt.
 tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
-    case get_channels(Txn, Chain) of
+    try get_channels(Txn, Chain) of
         {ok, Channels} ->
             Path = ?MODULE:path(Txn),
             lists:foldl(fun({ElementPos, Element}, Acc) ->
@@ -729,6 +729,9 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                 Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
         {error, request_block_hash_not_found} -> []
+    catch
+        _What:_Why ->
+            []
     end.
 
 %% again this is broken because of the current witness situation
