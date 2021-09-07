@@ -33,6 +33,16 @@
          code_change/3
         ]).
 
+-type rejection() ::
+    {
+        %% TODO Complete types
+        Dialer :: dialer(), %% TODO dialer() or pid()?
+        TxnKey :: txn_key(),
+        Txn    :: blockchain_txn:txn(),
+        Member :: libp2p_crypto:pubkey_bin(),
+        Height :: non_neg_integer()
+    }.
+
 -record(state, {
           submit_f :: undefined | integer(),
           reject_f :: undefined | integer(),
@@ -40,9 +50,7 @@
           txn_cache :: undefined | ets:tid(),
           chain :: undefined | blockchain:blockchain(),
           has_been_synced= false :: boolean(),
-
-          %% TODO Complete types
-          rejects_from_future :: [{Dialer :: term(), TxnKey :: term(), Txn :: term(), Member :: term(), Height :: non_neg_integer()}]
+          rejections_deferred :: [rejection()]
          }).
 
 -record(txn_data,
@@ -120,7 +128,7 @@ init(Args) ->
                        Tab
                end,
     ok = blockchain_event:add_handler(self()),
-    {ok, #state{txn_cache = TxnCache}}.
+    {ok, #state{txn_cache = TxnCache, rejections_deferred = []}}.
 
 handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
     NewState = initialize_with_chain(State, Chain),
@@ -211,13 +219,22 @@ handle_info({accepted, {Dialer, TxnKey, Txn, Member}}, State) ->
     {noreply, State};
 
 handle_info(
-    {rejected, {Dialer, TxnKey, Txn, Member, RejectorHeight}=Rejected},
+    {rejected, Rejection},
     #state{
         cur_block_height = CurBlockHeight,
         reject_f = RejectF,
-        rejects_from_future = Rejects
+        rejections_deferred = Deferred0
     } = S0
 ) ->
+    {Dialer, TxnKey, Txn, Member, RejectorHeight} =
+        case Rejection of
+            %% v1 - no height
+            {D, K, T, M} ->
+                {D, K, T, M, CurBlockHeight};
+            %% v2 - has height
+            {_, _, _, _, _} ->
+                Rejection
+        end,
     lager:debug(
         "txn: ~s, rejected_by: ~p, Dialer: ~p,"
         "my height: ~p, rejector height: ~p",
@@ -227,19 +244,24 @@ handle_info(
         ]
     ),
     S1 =
-        if
+        case {} of
             %% future:
-            RejectorHeight > CurBlockHeight ->
-                lager:warning("Received txn rejection from the future: ~p", [Rejected]),
-                %% TODO Process these rejects somewhere:
-                S0#state{rejects_from_future=[Rejected | Rejects]};
+            _ when RejectorHeight > CurBlockHeight ->
+                %% TODO Maybe limit how far in the future?
+                lager:warning(
+                    "Received txn rejection from the future. Deferring: ~p",
+                    [Rejection]
+                ),
+                Deferred1 = ordsets:add_element(Rejection, Deferred0),
+                S0#state{rejections_deferred = Deferred1};
 
             %% past:
-            RejectorHeight < CurBlockHeight ->
+            _ when RejectorHeight < CurBlockHeight ->
+                lager:warning("Received txn rejection from the past. Ignoring: ~p", [Rejection]),
                 S0;
 
             %% present:
-            true ->
+            _ ->
                 ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
                 S0
         end,
@@ -306,11 +328,37 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             %% only update the current block height if its not a sync block
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
-            {noreply, State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced}};
+            %% TODO process deferred rejections
+            State1 = State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced},
+            State2 = process_deferred_rejections(State1),
+            {noreply, State2};
         _ ->
             lager:error("failed to find block with hash: ~p", [BlockHash]),
             {noreply, State}
     end.
+
+process_deferred_rejections(
+    #state{
+        rejections_deferred = Deferred0,
+        reject_f            = RejectF,
+        cur_block_height    = CurBlockHeight
+    }=S
+) ->
+    IsPast    = fun({_, _, _, _, H}) -> H   < CurBlockHeight end,
+    IsCurrent = fun({_, _, _, _, H}) -> H =:= CurBlockHeight end,
+    {Current, Deferred1} = lists:partition(IsCurrent, Deferred0),
+    {[]     , Deferred1} = lists:partition(IsPast   , Deferred1), % Sanity check
+    lager:debug(
+        "Processing deferred rejections. "
+        "Count now current: ~b, count still deferred: ~b",
+        [length(Current), length(Deferred1)]
+    ),
+    Reject =
+        fun ({Dialer, TxnKey, Txn, Member, _}) ->
+            ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF)
+        end,
+    lists:foreach(Reject, Current),
+    S#state{rejections_deferred=[]}.
 
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
