@@ -40,6 +40,7 @@ server(Connection, Path, _TID, Args) ->
     %% NOTE: server/4 in the handler is never called.
     %% When spawning a server its handled only in libp2p_framed_stream
     %% TODO If never called, as per above, why do we need server/4?
+    lager:warning("server with ~p", [Path]),
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
 %% ------------------------------------------------------------------
@@ -47,15 +48,8 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, [Path, Parent, TxnHash]) ->
     {ok, #state{parent=Parent, txn_hash=TxnHash, path=Path}};
-init(server, _Conn, [Path0, _Parent, Callback] = _Args) ->
-    lager:warning("init as server. Path0: ~p", [Path0]),
-    Path =
-        case Path0 of
-            ?TX_PROTOCOL_V1 -> ?TX_PROTOCOL_V1;
-            ?TX_PROTOCOL_V2 -> ?TX_PROTOCOL_V2;
-            "" -> % TODO Why do we get an empty protocol path/version?
-                ?TX_PROTOCOL_V2
-        end,
+init(server, _Conn, [_Path0, Path, _Parent, Callback] = _Args) ->
+    lager:warning("init as server. Path0: ~p", [Path]),
     {ok, #state{callback = Callback, path=Path}}.
 
 handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
