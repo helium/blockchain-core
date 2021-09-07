@@ -742,8 +742,15 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
             lists:foldl(fun({_ElementPos, Element}, Acc) ->
                                 Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
                                 Fun(Element, {[{false, list_to_binary(io_lib:format("missing_region_parameters_for_~p", [Region])), Witness} || Witness <- Witnesses], undefined}, Acc)
-                        end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
+                        end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
+        _What:_Why ->
+            Path = ?MODULE:path(Txn),
+            lists:foldl(fun(Element, Acc) ->
 
+                                Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
+
+                                Fun(Element, {lists:map(fun(Witness) ->{false, <<"challengee_no_region">>, Witness} end, Witnesses) , undefined}, Acc)
+                        end, Acc0, Path)
     end.
 
 %% again this is broken because of the current witness situation
