@@ -136,16 +136,7 @@ update_summary_for(ClientPubkeyBin,
             %% Cannot fit this into summaries
             {SC, false};
         true ->
-            case get_summary(ClientPubkeyBin, SC) of
-                {error, not_found} ->
-                    {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
-                {ok, _Summary} ->
-                    NewSummaries = lists:keyreplace(ClientPubkeyBin,
-                                                    #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
-                                                    Summaries,
-                                                    NewSummary),
-                    {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
-            end;
+            {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
         found ->
             NewSummaries = lists:keyreplace(ClientPubkeyBin,
                                             #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
