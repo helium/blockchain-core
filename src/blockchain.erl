@@ -17,7 +17,8 @@
     dir/1,
 
     blocks/1,
-    get_block/2, get_block_hash/2, get_block_height/2, get_raw_block/2,
+    get_block/2, get_block_hash/2, get_block_hash/3, get_block_height/2, get_raw_block/2,
+    put_block_height/3,
     put_block_info/3, get_block_info/2,
     save_block/2,
     has_block/2,
@@ -631,12 +632,22 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
             Error
     end.
 
-get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
+get_block_hash(Height, Chain) ->
+    get_block_hash(Height, Chain, true).
+
+get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF} = Chain, Fallback) ->
     case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
        {ok, Hash} ->
             {ok, Hash};
-        not_found ->
+        not_found when Fallback == false ->
             {error, not_found};
+        not_found when Fallback == true ->
+            case get_block_info(Height, Chain) of
+                {ok, #block_info{hash = Hash}} ->
+                    {ok, Hash};
+                {error, not_found} ->
+                    {error, not_found}
+            end;
         Error ->
             Error
     end.
@@ -660,6 +671,9 @@ get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) -
         Error ->
             Error
     end.
+
+put_block_height(Hash, Height, #blockchain{db=DB, heights=HeightsCF}) ->
+    rocksdb:put(DB, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>, []).
 
 -spec put_block_info(Height :: pos_integer(),
                      Info :: #block_info{},
@@ -1043,7 +1057,8 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                         lager:info("skipping previously failed snapshot at height ~p", [Height]);
                     _ ->
                         Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
-                        case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
+                        Infos = blockchain_ledger_snapshot_v1:get_infos(Blockchain),
+                        case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos) of
                             {ok, Snap} ->
                                 case blockchain_ledger_snapshot_v1:hash(Snap) of
                                     ConsensusHash ->

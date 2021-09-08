@@ -12,8 +12,8 @@
          is_v6/1,
          version/1,
 
-         snapshot/2,
          snapshot/3,
+         snapshot/4,
          import/3,
          load_into_ledger/3,
          load_blocks/3,
@@ -144,19 +144,20 @@
         Stack :: term()
     }.
 
--spec snapshot(blockchain_ledger_v1:ledger(), [binary()]) ->
+-spec snapshot(blockchain_ledger_v1:ledger(), [binary()], [binary()]) ->
     {ok, snapshot()}
     | {error, killed | snapshot_error()}.
-snapshot(Ledger0, Blocks) ->
-    snapshot(Ledger0, Blocks, delayed).
+snapshot(Ledger0, Blocks, Infos) ->
+    snapshot(Ledger0, Blocks, Infos, delayed).
 
 -spec snapshot(
     blockchain_ledger_v1:ledger(),
     [binary()],
+    [binary()],
     blockchain_ledger_v1:mode()
 ) ->
     {ok, snapshot()} | {error, killed | snapshot_error()}.
-snapshot(Ledger0, Blocks, Mode) ->
+snapshot(Ledger0, Blocks, Infos, Mode) ->
     Parent = self(),
     Ref = make_ref(),
     {_Pid, MonitorRef} =
@@ -168,7 +169,7 @@ snapshot(Ledger0, Blocks, Mode) ->
                 Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
                 try register(Regname, self()) of
                     true ->
-                        Res = generate_snapshot(Ledger0, Blocks, Mode),
+                        Res = generate_snapshot(Ledger0, Blocks, Infos, Mode),
                         %% deliver to the caller
                         Parent ! {Ref, Res},
                         %% deliver to anyone else blocking
@@ -222,11 +223,12 @@ deliver(Res) ->
 -spec generate_snapshot(
     blockchain_ledger_v1:ledger(),
     [binary()],
+    [binary()],
     blockchain_ledger_v1:mode()
 ) ->
     {ok, snapshot()} | {error, snapshot_error()}.
-generate_snapshot(Ledger, Blocks, Mode) ->
-    case generate_snapshot_v5(Ledger, Blocks, Mode) of
+generate_snapshot(Ledger, Blocks, Infos, Mode) ->
+    case generate_snapshot_v5(Ledger, Blocks, Infos, Mode) of
         {ok, #{version := v5}=Snap} ->
             {ok, v5_to_v6(Snap)};
         {error, _}=Err ->
@@ -236,10 +238,11 @@ generate_snapshot(Ledger, Blocks, Mode) ->
 -spec generate_snapshot_v5(
     blockchain_ledger_v1:ledger(),
     [binary()],
+    [binary()],
     blockchain_ledger_v1:mode()
 ) ->
     {ok, snapshot_v5()} | {error, snapshot_error()}.
-generate_snapshot_v5(Ledger0, Blocks, Mode) ->
+generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
     try
         Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
@@ -311,6 +314,7 @@ generate_snapshot_v5(Ledger0, Blocks, Mode) ->
                 {h3dex            , H3dex},
                 {state_channels   , StateChannels},
                 {blocks           , Blocks},
+                {infos            , Infos},
                 {oracle_price     , OraclePrice},
                 {oracle_price_list, OraclePriceList},
                 {upgrades         , Upgrades},
@@ -354,7 +358,6 @@ serialize(Snapshot, BlocksOrNoBlocks) ->
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
 serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
-    Key = blocks,
     Blocks =
         case BlocksOrNoBlocks of
             blocks ->
@@ -364,13 +367,21 @@ serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
                             blockchain_block:serialize(B);
                         (B) -> B
                     end,
-                    deserialize_field(Key, maps:get(Key, Snapshot0, []))
+                    deserialize_field(blocks, maps:get(blocks, Snapshot0, []))
                    ));
             noblocks ->
                 term_to_binary([])
         end,
-    Snapshot1 = maps:put(Key, Blocks, Snapshot0),
-    Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
+    Snapshot1 = maps:put(blocks, Blocks, Snapshot0),
+    Snapshot2 =
+        case BlocksOrNoBlocks of
+            blocks ->
+                Snapshot1;
+            noblocks ->
+                maps:put(infos, term_to_binary([]), Snapshot1)
+        end,
+
+    Pairs = lists:keysort(1, maps:to_list(Snapshot2)),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
@@ -598,7 +609,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     Infos =
         case maps:find(infos, Snapshot) of
             {ok, Is} ->
-                binary_to_term(Is);
+                lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
             error ->
                 []
         end,
@@ -618,7 +629,8 @@ load_blocks(Ledger0, Chain, Snapshot) ->
         [] -> ok;
         [_|_] ->
             lists:foreach(
-              fun({Ht, Info}) ->
+              fun({Ht, #block_info{hash = Hash} = Info}) ->
+                      ok = blockchain:put_block_height(Hash, Ht, Chain),
                       ok = blockchain:put_block_info(Ht, Info, Chain)
               end,
               Infos)
@@ -642,7 +654,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       Ht = blockchain_block:height(Block),
                       %% since hash and block are written at the same time, just getting the
                       %% hash from the height is an acceptable presence check, and much cheaper
-                      case blockchain:get_block_hash(Ht, Chain) of
+                      case blockchain:get_block_hash(Ht, Chain, false) of
                           {ok, _Hash} ->
                               lager:info("skipping block ~p", [Ht]),
                               %% already have it, don't need to store it again.
@@ -682,7 +694,7 @@ get_infos(Chain) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
 
-    LoadInfoStart = (POCChallengeInterval * 2) + 1,
+    LoadInfoStart = Height - (POCChallengeInterval * 2) + 1,
 
     [begin
          {ok, B} = blockchain:get_block_info(N, Chain),

@@ -164,6 +164,8 @@ is_valid(Txn, Chain) ->
                 true ->
                     StartFind = maybe_start_duration(),
                     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                        {error, not_found} ->
+                            {error, missing_gateway};
                         {error, _Reason}=Error ->
                             Error;
                         {ok, Info} ->
@@ -188,6 +190,8 @@ is_valid(Txn, Chain) ->
                                                 true ->
                                                     BlockHash = ?MODULE:block_hash(Txn),
                                                     case blockchain:get_block_height(BlockHash, Chain) of
+                                                        {error, not_found} ->
+                                                            {error, missing_challenge_block_hash};
                                                         {error, _}=Error ->
                                                             Error;
                                                         {ok, BlockHeight} ->

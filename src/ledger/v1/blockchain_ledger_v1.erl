@@ -538,7 +538,7 @@ bootstrap_aux(Path, Ledger) ->
                 {ok, Height} when Height > 0 ->
                     %% bootstrap from active ledger
                     lager:info("bootstrapping aux_ledger from active ledger in path: ~p", [Path]),
-                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
+                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], [], active),
                     blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
                     NewLedger;
                 _ ->
@@ -2526,8 +2526,7 @@ do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     case CurrentHeight rem Interval == 0 of
         false -> ok;
         true ->
-            {ok, Block} = blockchain:get_block(CurrentHeight, Blockchain),
-            BlockT = blockchain_block:time(Block),
+            {ok, #block_info{time = BlockT}} = blockchain:get_block_info(CurrentHeight, Blockchain),
             {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
             cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(NewPriceList)),
             cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(NewPrice))
@@ -3516,9 +3515,8 @@ next_oracle_prices(Blockchain, Ledger) ->
 
     LastUpdate = CurrentHeight - (CurrentHeight rem Interval),
 
-    {ok, Block} = blockchain:get_block(LastUpdate, Blockchain),
+    {ok, #block_info{time = BlockT}} = blockchain:get_block_info(LastUpdate, Blockchain),
     {ok, LastPrice} = current_oracle_price(Ledger),
-    BlockT = blockchain_block:time(Block),
 
     StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
     EndScan = (BlockT - MaxSecs) + DelaySecs, % typically 1 day (in seconds)
