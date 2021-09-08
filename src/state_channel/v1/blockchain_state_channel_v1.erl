@@ -145,7 +145,13 @@ update_summary_for(ClientPubkeyBin,
                                                     Summaries,
                                                     NewSummary),
                     {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
-            end
+            end;
+        found ->
+            NewSummaries = lists:keyreplace(ClientPubkeyBin,
+                                            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                                            Summaries,
+                                            NewSummary),
+            {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
     end.
 
 -spec get_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -505,21 +511,18 @@ merge(SCA, SCB, MaxActorsAllowed) ->
 
 -spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
               SC :: state_channel(),
-              Max :: pos_integer()) -> boolean().
-can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}, Max) ->
-    Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
-    CanFit = length(Clients) < Max,
-    IsKnownClient = lists:member(ClientPubkeyBin, Clients),
-    case {CanFit, IsKnownClient} of
-        {false, false} ->
-            %% Cannot fit, do not have this client either
-            false;
-        {false, true} ->
-            %% Cannot fit any new ones, but know about this client
+              Max :: pos_integer()) -> boolean() | found.
+can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC, Max) ->
+    case erlang:length(Summaries) < Max of
+        true ->
             true;
-        {true, _} ->
-            %% Can fit, doesn't matter if we don't know this client
-            true
+        false ->
+            case get_summary(ClientPubkeyBin, SC) of
+                {error, not_found} ->
+                    false;
+                {ok, _Summary} ->
+                    found
+            end
     end.
 
 -spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().

@@ -19,8 +19,7 @@
     state_channels/0,
     active_sc_ids/0,
     active_scs/0,
-    get_active_sc_count/0,
-    select_best_active_sc/3
+    get_active_sc_count/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -140,30 +139,6 @@ active_scs() ->
 -spec get_active_sc_count() -> non_neg_integer().
 get_active_sc_count() ->
     gen_server:call(?SERVER, get_active_sc_count, infinity).
-
--spec select_best_active_sc(libp2p_crypto:pubkey_bin(),
-                            [blockchain_state_channel_v1:state_channel()],
-                            pos_integer()) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, not_found}.
-select_best_active_sc(PubKeyBin, ActiveSCs, Max) ->
-    CanFitFilterFun = fun(ActiveSC) ->
-        blockchain_state_channel_v1:can_fit(PubKeyBin, ActiveSC, Max)
-    end,
-    case lists:filter(CanFitFilterFun, ActiveSCs) of
-        [] ->
-            {error, not_found};
-        FilteredActiveSCs ->
-           InSumFilterFun = fun(ActiveSC) ->
-                blockchain_state_channel_v1:get_summary(PubKeyBin, ActiveSC) =/= {error, not_found}
-            end,
-            case lists:filter(InSumFilterFun, ActiveSCs) of
-                [] ->
-                    [ActiveSC|_] = FilteredActiveSCs,
-                    {ok, ActiveSC};
-                [ActiveSC|_] ->
-                    {ok, ActiveSC}
-            end
-    end.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -452,10 +427,36 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
             end
     end.
 
+
 -spec select_best_active_sc(libp2p_crypto:pubkey_bin(), state()) ->
     {ok, blockchain_state_channel_v1:state_channel()} | {error, not_found}.
 select_best_active_sc(PubKeyBin, #state{max_actors_allowed=MaxActorsAllowed}=State) ->
-    ?MODULE:select_best_active_sc(PubKeyBin, active_scs(State), MaxActorsAllowed).
+    select_best_active_sc(PubKeyBin, active_scs(State), MaxActorsAllowed).
+
+-spec select_best_active_sc(libp2p_crypto:pubkey_bin(),
+                            [blockchain_state_channel_v1:state_channel()],
+                            pos_integer()) ->
+    {ok, blockchain_state_channel_v1:state_channel()} | {error, not_found}.
+select_best_active_sc(PubKeyBin, ActiveSCs, Max) ->
+    CanFitFilterFun = fun(ActiveSC) ->
+        case blockchain_state_channel_v1:can_fit(PubKeyBin, ActiveSC, Max) of
+            false -> false;
+            true -> true;
+            found -> {true, {found, ActiveSC}}
+        end
+    end,
+    case lists:filtermap(CanFitFilterFun, ActiveSCs) of
+        [] ->
+            {error, not_found};
+        FilteredActiveSCs ->
+            case lists:keyfind(found, 1, FilteredActiveSCs) of
+                false ->
+                    [ActiveSC|_] = FilteredActiveSCs,
+                    {ok, ActiveSC};
+                {found, ActiveSC} ->
+                    {ok, ActiveSC}
+            end
+    end.
 
 -spec maybe_add_stream(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
                        Stream :: pid(),
