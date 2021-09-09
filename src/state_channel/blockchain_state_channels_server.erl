@@ -65,7 +65,8 @@
 -type sc_value() :: {blockchain_state_channel_v1:state_channel(), skewed:skewed()}.
 -type state_channels() :: #{sc_key() => sc_value()}.
 -type blooms() :: #{sc_key() => bloom_nif:bloom()}.
--type streams() :: #{libp2p_crypto:pubkey_bin() => {pid(), reference()}}.
+-type stream() :: {pid(), reference()}.
+-type streams() :: #{libp2p_crypto:pubkey_bin() => stream()}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -344,7 +345,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
             case SCVer > 1 andalso bloom:check_and_set(PacketBloom, Payload) of
                 true ->
                     %% Don't add payload
-                    maybe_add_stream(ClientPubKeyBin, HandlerPid, State);
+                    maybe_add_stream(SC, ClientPubKeyBin, HandlerPid, State);
                 false ->
                     {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
                     ExistingSCNonce = blockchain_state_channel_v1:nonce(SC1),
@@ -366,7 +367,7 @@ handle_packet(ClientPubKeyBin, Packet, HandlerPid,
                     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
                     %% Put new state_channel in our map
                     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
-                    maybe_add_stream(ClientPubKeyBin, HandlerPid, TempState)
+                    maybe_add_stream(SignedSC, ClientPubKeyBin, HandlerPid, TempState)
             end
     end.
 
@@ -443,9 +444,10 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
                                                                                         Region),
                                     {_, Skewed} = maps:get(ActiveSCID, SCs),
                                     ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
-                                    maybe_add_stream(Hotspot,
-                                                         HandlerPid,
-                                                         State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)})
+                                    maybe_add_stream(SignedPurchaseSC,
+                                                     Hotspot,
+                                                     HandlerPid,
+                                                     State0#state{state_channels=maps:put(ActiveSCID, {SignedPurchaseSC, Skewed}, SCs)})
                             end
 
                     end
@@ -457,21 +459,29 @@ handle_offer(SCOffer, HandlerPid, #state{db=DB, dc_payload_size=DCPayloadSize, a
 select_best_active_sc(PubKeyBin, #state{max_actors_allowed=MaxActorsAllowed}=State) ->
     ?MODULE:select_best_active_sc(PubKeyBin, active_scs(State), MaxActorsAllowed).
 
--spec maybe_add_stream(ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
+-spec maybe_add_stream(ChosenSC :: blockchain_state_channel_v1:state_channel(),
+                       ClientPubKeyBin :: libp2p_crypto:pubkey_bin(),
                        Stream :: pid(),
                        State :: state()) -> state().
-maybe_add_stream(ClientPubKeyBin, Stream, #state{streams=Streams}=State) ->
-   State#state{streams =
-               maps:update_with(ClientPubKeyBin, fun({_OldStream, OldRef}) ->
-                                                         %% we have an existing stream, demonitor it
-                                                         %% and monitor new one
-                                                         erlang:demonitor(OldRef),
-                                                         Ref = erlang:monitor(process, Stream),
-                                                         {Stream, Ref}
-                                                 end,
-                                %% value if not present
-                                {Stream, erlang:monitor(process, Stream)},
-                                Streams)}.
+maybe_add_stream(ChosenSC, ClientPubKeyBin, Stream, #state{streams=Streams}=State) ->
+    ClientUpdate =
+        case maps:get(ClientPubKeyBin, Streams, undefined) of
+            undefined ->
+                %% first time we've communicated with a client. let them know about
+                %% their first state channel, should be updated down the road with
+                %% replacement SC when ChosenSC closes
+                Client = {Stream, erlang:monitor(process, Stream)},
+                ok = broadcast_banner(ChosenSC, [Client]),
+                Client;
+            {_OldStream, OldRef} ->
+                %% we have an existing stream, demonitor it
+                %% and monitor new one
+                erlang:demonitor(OldRef),
+                Ref = erlang:monitor(process, Stream),
+                {Stream, Ref}
+        end,
+    State#state{streams = maps:put(ClientPubKeyBin, ClientUpdate, Streams)}.
+
 -spec update_state_sc_open(
     Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
     BlockHash :: blockchain_block:hash(),
@@ -544,7 +554,7 @@ update_state_sc_close(Txn, #state{db=DB, cf=SCF, blooms=Blooms, state_channels=S
                      active_sc_ids=NewActiveSCIDs},
     case NewActiveSCIDs /= ActiveSCIDs1 of
         true ->
-            ok = maybe_broadcast_banner(active_scs(State1), State1);
+            ok = broadcast_replacement_banner(ClosedSC, State1);
         false ->
             ok
     end,
@@ -955,39 +965,67 @@ update_sc_summary(ClientPubKeyBin, PayloadSize, DCPayloadSize, SC, MaxActorsAllo
             {NewSC, DidFit}
     end.
 
--spec maybe_broadcast_banner(SC :: [blockchain_state_channel_v1:state_channel()],
-                             State :: state()) -> ok.
+-spec broadcast_replacement_banner(
+        ClosedSC :: blockchain_state_channel_v1:state_channel(),
+        State :: #state{}) -> ok.
+broadcast_replacement_banner(ClosedSC, #state{streams=Streams, state_channels=SCs}=State) ->
+    %% closed sc already removed from state
+    case maybe_get_new_active(State) of
+        undefined ->
+            lager:warning("no state channel to banner replacement for ~p",
+                          [blockchain_state_channel_v1:id(ClosedSC)]),
+            ok;
+        ReplacementSCID ->
+            PubKeyBins =
+                lists:map(
+                  fun(Summary) -> blockchain_state_channel_summary_v1:client_pubkeybin(Summary) end,
+                  blockchain_state_channel_v1:summaries(ClosedSC)
+                 ),
+            StreamsNeedingReplacementSC = maps:with(PubKeyBins, Streams),
+
+            {SC, _Skewed} = maps:get(ReplacementSCID, SCs),
+            broadcast_banner(SC, StreamsNeedingReplacementSC)
+    end.
+
+-spec maybe_broadcast_banner(
+        SCs :: [blockchain_state_channel_v1:state_channel()],
+        State :: state()) -> ok.
 maybe_broadcast_banner(_, #state{chain=undefined}) -> ok;
 maybe_broadcast_banner([], _State) -> ok;
-maybe_broadcast_banner(SCs, #state{sc_version=SCVersion}=State) ->
-    lists:foreach(
-        fun(SC) ->
+maybe_broadcast_banner(SCs, #state{sc_version=SCVersion, streams=Streams}) ->
+    case application:get_env(blockchain, banner_for_sc_updates, false) of
+        true ->
             case SCVersion of
                 2 ->
-                    ok = broadcast_banner(SC, State);
+                    broadcast_banners(SCs, Streams);
                 _ ->
                     ok
-            end
-        end,
-        SCs
-    ).
+            end;
+        false -> ok
+    end.
+
+-spec broadcast_banners(SCs :: [blockchain_state_channel_v1:state_channel()],
+                        Streams :: streams()) -> ok.
+broadcast_banners(SCs, Streams) ->
+    lists:foreach(
+      fun(SC) -> broadcast_banner(SC, Streams) end,
+      SCs
+     ).
 
 -spec broadcast_banner(SC :: blockchain_state_channel_v1:state_channel(),
-                       State :: state()) -> ok.
-broadcast_banner(SC, #state{streams=Streams}) ->
-    case maps:size(Streams) of
-        0 ->
-            ok;
-        _ ->
-            _ =
-                blockchain_utils:pmap(
-                    fun({Stream, _Ref}) ->
-                        catch send_banner(SC, Stream)
-                    end,
-                    maps:values(Streams)
-                ),
-            ok
-    end.
+                       Streams :: streams() | list(stream())) -> ok.
+broadcast_banner(_, []) -> ok;
+broadcast_banner(SC, Streams) when is_map(Streams) ->
+    broadcast_banner(SC, maps:values(Streams));
+broadcast_banner(SC, Streams) ->
+    _ =
+        blockchain_utils:pmap(
+          fun({Stream, _Ref}) ->
+                  catch send_banner(SC, Stream)
+          end,
+          Streams
+         ),
+    ok.
 
 -spec send_banner(SC :: blockchain_state_channel_v1:state_channel(),
                   Stream :: pid()) -> ok.
