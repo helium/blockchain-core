@@ -282,7 +282,8 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                             true ->
                                 false;
                             false ->
-                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessGw, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                Mode = blockchain_ledger_gateway_v2:mode(WitnessGw),
+                                case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
                                     false -> false;
                                     true ->
                                         WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
@@ -413,8 +414,8 @@ challenge_age(Vars) ->
 %% we assume that everything that has made it into build has already
 %% been asserted, and thus the lookup will never fail. This function
 %% in no way exists simply because
-%% blockchain_gateway_cache:get is too much to type a bunch
+%% blockchain_ledger_v1:find_gateway_info is too much to type a bunch
 %% of times.
 find(Addr, Ledger) ->
-    {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
+    {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
     Gw.

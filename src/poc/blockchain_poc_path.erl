@@ -274,8 +274,9 @@ neighbors(Gw, Gateways, Ledger) ->
                   _ ->
                       G0
               end,
+              Mode = blockchain_ledger_gateway_v2:mode(G),
               case {blockchain_ledger_gateway_v2:location(G),
-                    blockchain_ledger_gateway_v2:is_valid_capability(G, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)} of
+                    blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)} of
                   {undefined, _} -> Acc;
                   {_, false} -> Acc;
                   {Index, _} ->

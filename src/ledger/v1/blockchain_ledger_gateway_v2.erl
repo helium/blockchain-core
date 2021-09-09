@@ -337,12 +337,12 @@ nonce(Nonce, Gateway) ->
     Gateway#gateway_v2{nonce=Nonce}.
 
 -spec mask(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger())-> non_neg_integer().
-mask(Gateway, Ledger)->
-    mask_for_gateway_mode(Gateway, Ledger).
+mask(#gateway_v2{mode = Mode}, Ledger)->
+    mask_for_mode(Mode, Ledger).
 
--spec is_valid_capability(Gateway :: gateway(), non_neg_integer(), Ledger :: blockchain_ledger_v1:ledger())-> boolean().
-is_valid_capability(Gateway, Capability, Ledger)->
-    Mask = mask_for_gateway_mode(Gateway, Ledger),
+-spec is_valid_capability(Mode :: atom(), non_neg_integer(), Ledger :: blockchain_ledger_v1:ledger())-> boolean().
+is_valid_capability(Mode, Capability, Ledger)->
+    Mask = mask_for_mode(Mode, Ledger),
     (Mask band Capability) == Capability.
 
 -spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
@@ -719,18 +719,18 @@ convert(#gateway_v1{
        %% this gets set in the upgrade path
        neighbors = []}.
 
--spec mask_for_gateway_mode(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
-mask_for_gateway_mode(#gateway_v2{mode = dataonly}, Ledger)->
+-spec mask_for_mode(Mode :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+mask_for_mode(dataonly, Ledger)->
     case blockchain:config(?dataonly_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_DATAONLY_GATEWAY_V1;
         {ok, V} -> V
     end;
-mask_for_gateway_mode(#gateway_v2{mode = light}, Ledger)->
+mask_for_mode(light, Ledger)->
     case blockchain:config(?light_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_LIGHT_GATEWAY_V1;
         {ok, V} -> V
     end;
-mask_for_gateway_mode(#gateway_v2{mode = full}, Ledger)->
+mask_for_mode(full, Ledger)->
     case blockchain:config(?full_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_FULL_GATEWAY_V1;
         {ok, V} -> V

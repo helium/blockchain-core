@@ -35,3 +35,11 @@
 ]).
 
 -define(bones(HNT), HNT * 100000000).
+
+-record(block_info,
+        {
+         time,
+         height,
+         hash,
+         pocs
+        }).

@@ -12,6 +12,7 @@
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -195,8 +196,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, Blk} = blockchain:get_block(LedgerHeight, Chain),
-    Time = blockchain_block:time(Blk),
+    {ok, #block_info{time = Time}} = blockchain:get_block_info(LedgerHeight, Chain),
 
     Entry = blockchain_ledger_oracle_price_entry:new(
               Time,

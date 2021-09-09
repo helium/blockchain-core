@@ -386,7 +386,7 @@ do_remaining_checks(Txn, TotalFee, Ledger) ->
             Error;
         ok ->
             Gateway = ?MODULE:gateway(Txn),
-            case blockchain_gateway_cache:get(Gateway, Ledger) of
+            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
                 {error, _} ->
                     {error, {unknown_gateway, {assert_location_v2, Gateway, Ledger}}};
                 {ok, GwInfo} ->
@@ -431,7 +431,7 @@ absorb(Txn, Chain) ->
     TxnHash = ?MODULE:hash(Txn),
     ActualPayer = fee_payer(Txn, Ledger),
 
-    {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
+    {ok, OldGw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     %% NOTE: It is assumed that the staking_fee is set to 0 at user level for assert_location_v2 transactions
     %% which only update gain/elevation
     case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
@@ -456,7 +456,7 @@ maybe_update_neighbors(Gateway, Ledger) ->
             %% TODO gc this nonsense in some deterministic way
             Gateways = blockchain_ledger_v1:active_gateways(Ledger),
             Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
-            {ok, Gw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
+            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
             ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
             Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
             ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)

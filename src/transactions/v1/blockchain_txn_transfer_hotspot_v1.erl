@@ -207,7 +207,7 @@ absorb(Txn, Chain) ->
     BuyerNonce = ?MODULE:buyer_nonce(Txn),
     HNTToSeller = ?MODULE:amount_to_seller(Txn),
 
-    {ok, GWInfo} = blockchain_gateway_cache:get(Gateway, Ledger),
+    {ok, GWInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     %% fees here are in DC (and perhaps converted to HNT automagically)
     case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason} = Error -> Error;
@@ -247,7 +247,7 @@ to_json(Txn, _Opts) ->
 -spec seller_owns_gateway(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
 seller_owns_gateway(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW,
                                                            seller=Seller}, Ledger) ->
-    case blockchain_gateway_cache:get(GW, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
         {error, _} -> false;
         {ok, GwInfo} ->
             GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
@@ -257,7 +257,7 @@ seller_owns_gateway(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW,
 -spec gateway_not_stale(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
 gateway_not_stale(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW}, Ledger) ->
     StaleInterval = get_config_or_default(?transfer_hotspot_stale_poc_blocks, Ledger),
-    case blockchain_gateway_cache:get(GW, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
         {error, _} -> false;
         {ok, GwInfo} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),

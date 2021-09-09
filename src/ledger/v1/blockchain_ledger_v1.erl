@@ -55,6 +55,7 @@
     find_gateway_location/2,
     find_gateway_owner/2,
     find_gateway_last_challenge/2,
+    find_gateway_mode/2,
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -144,7 +145,7 @@
 
     apply_raw_changes/2,
 
-    set_hexes/2, get_hexes/1,
+    set_hexes/2, get_hexes/1, get_hexes_list/1,
     set_hex/3, get_hex/2, delete_hex/2,
 
     add_to_hex/3,
@@ -537,7 +538,7 @@ bootstrap_aux(Path, Ledger) ->
                 {ok, Height} when Height > 0 ->
                     %% bootstrap from active ledger
                     lager:info("bootstrapping aux_ledger from active ledger in path: ~p", [Path]),
-                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], active),
+                    {ok, Snap} = blockchain_ledger_snapshot_v1:snapshot(Ledger, [], [], active),
                     blockchain_ledger_snapshot_v1:load_into_ledger(Snap, NewLedger, aux),
                     NewLedger;
                 _ ->
@@ -649,13 +650,11 @@ reset_context(Ledger) ->
 -spec commit_context(ledger()) -> ok.
 commit_context(Ledger) ->
     DB = db(Ledger),
-    {ok, Height} = current_height(Ledger),
     case ?MODULE:context_cache(Ledger) of
-        {direct, GwCache} ->
-            prewarm_gateways(mode(Ledger), Height, Ledger, GwCache);
-        {Cache, GwCache} ->
+        {direct, _GwCache} ->
+            ok;
+        {Cache, _GwCache} ->
             {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
-            prewarm_gateways(mode(Ledger), Height, Ledger, GwCache),
             delete_context(Ledger),
             ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
             rocksdb:release_batch(Batch),
@@ -1355,12 +1354,14 @@ load_gateways(Gws, Ledger) ->
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
               Location = blockchain_ledger_gateway_v2:location(Gw),
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
@@ -1564,6 +1565,25 @@ find_gateway_last_challenge(Address, Ledger) ->
             end
     end.
 
+find_gateway_mode(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-mode">>, []) of
+        {ok, BinMode} ->
+            {ok, binary_to_term(BinMode)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+                    {ok, Mode};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     add_gateway(OwnerAddr, GatewayAddress, full, Ledger).
@@ -1663,11 +1683,13 @@ update_gateway(Gw, GwAddr, Ledger) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
     Location = blockchain_ledger_gateway_v2:location(Gw),
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
     Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
               term_to_binary(LastChallenge)),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -2504,8 +2526,7 @@ do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     case CurrentHeight rem Interval == 0 of
         false -> ok;
         true ->
-            {ok, Block} = blockchain:get_block(CurrentHeight, Blockchain),
-            BlockT = blockchain_block:time(Block),
+            {ok, #block_info{time = BlockT}} = blockchain:get_block_info(CurrentHeight, Blockchain),
             {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
             cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(NewPriceList)),
             cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(NewPrice))
@@ -3494,9 +3515,8 @@ next_oracle_prices(Blockchain, Ledger) ->
 
     LastUpdate = CurrentHeight - (CurrentHeight rem Interval),
 
-    {ok, Block} = blockchain:get_block(LastUpdate, Blockchain),
+    {ok, #block_info{time = BlockT}} = blockchain:get_block_info(LastUpdate, Blockchain),
     {ok, LastPrice} = current_oracle_price(Ledger),
-    BlockT = blockchain_block:time(Block),
 
     StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
     EndScan = (BlockT - MaxSecs) + DelaySecs, % typically 1 day (in seconds)
@@ -4136,6 +4156,18 @@ get_hexes(Ledger) ->
             Error
     end.
 
+-spec get_hexes_list(Ledger :: ledger()) -> {ok, []} | {error, any()}.
+get_hexes_list(Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, ?hex_list, []) of
+        {ok, BinList} ->
+            {ok, binary_to_term(BinList)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 -spec set_hex(Hex :: h3:h3_index(),
               GwPubkeyBins :: [libp2p_crypto:pubkey_bin()],
               Ledger :: ledger()) -> ok | {error, any()}.
@@ -4367,11 +4399,13 @@ bootstrap_gw_denorm(Ledger) ->
       fun({GwAddr, Binary}, _) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
               Location = blockchain_ledger_gateway_v2:location(Gw),
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
       end,
       ignore).
@@ -4684,40 +4718,6 @@ invoke_commit_hooks(Changes, Filters) ->
                 end,
                 Filters)
       end).
-
-prewarm_gateways(active, Height, Ledger, GwCache) ->
-    %% in larger caches, the list of gateways to precache can get pretty big, so make sure that
-    %% we're honoring the limits set in the config, esp since we're sending this to another process
-    %% and thus at least briefly doubling the memory it uses.
-    RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
-    {_, GWList} =
-        ets:foldl(
-          fun(_, {done, Acc}) ->
-                  {done, Acc};
-             ({_, ?CACHE_TOMBSTONE}, Acc) ->
-                  Acc;
-             ({Key, spillover}, {Ct, Acc}) ->
-                  AGwsCF = active_gateways_cf(Ledger),
-                  {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
-                  case Ct >= RetentionLimit of
-                      true ->
-                          {done, Acc};
-                      false ->
-                          {Ct + 1, [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc]}
-                  end;
-             ({Key, Value}, {Ct, Acc}) ->
-                  case Ct >= RetentionLimit of
-                      true ->
-                          {done, Acc};
-                      false ->
-                          {Ct + 1, [{Key, Value}|Acc]}
-                  end
-          end, {0, []}, GwCache),
-    %% best effort here
-    try blockchain_gateway_cache:bulk_put(Height, GWList) catch _:_ -> ok end;
-prewarm_gateways(_, _, _, _) ->
-    %% Don't prewarm if the ledger mode is anything other than active
-    ok.
 
 %% @doc Increment a binary for the purposes of lexical sorting
 -spec increment_bin(binary()) -> binary().
