@@ -1980,17 +1980,17 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
                         BlockHeight :: pos_integer(),
                         Ledger :: ledger()) -> ok | {error, any()}.
 save_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
-    case ?MODULE:find_gateway_info(Challenger, Ledger) of
-        {error, _} ->
-            {error, no_active_gateway};
-        {ok, _Gw0} ->
+%%    case ?MODULE:find_gateway_info(Challenger, Ledger) of
+%%        {error, _} ->
+%%            {error, no_active_gateway};
+%%        {ok, _Gw0} ->
             case ?MODULE:find_poc(OnionKeyHash, Ledger) of
                 {error, not_found} ->
                     save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger);
                 {error, _Reason} = Error ->
                     Error
-            end
-    end.
+            end.
+%%    end.
 
 save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     %%TODO - consider how/when to GC old POCs from ledger
@@ -2004,8 +2004,7 @@ find_public_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
         {ok, BinPoC} ->
-            PoC = erlang:binary_to_term(BinPoC),
-            {ok, blockchain_ledger_poc_v3:deserialize(PoC)};
+            {ok, blockchain_ledger_poc_v3:deserialize(BinPoC)};
         not_found ->
             {error, not_found};
         Error ->

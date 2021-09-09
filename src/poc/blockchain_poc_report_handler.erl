@@ -65,17 +65,13 @@ handle_data(client, Data, State) ->
     lager:info("client got data: ~p", [Data]),
     %% client should not receive data
     {stop, normal, State};
-handle_data(server, {OnionKeyHash, Data}, State) ->
+handle_data(server, {OnionKeyHash, Data}, #state{peer = SelfPeer} = State) ->
+    P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(SelfPeer),
     try ?MODULE:decode(data) of
-        {witness, Witness} ->
-            ok = blockchain_poc_mgr:witness(State#state.peer, OnionKeyHash, Witness);
-        {receipt, Receipt} ->
-            ok = blockchain_poc_mgr:receipt(
-                State#state.peer,
-                OnionKeyHash,
-                Receipt,
-                State#state.peer_addr
-            )
+        {witness, _} = Report ->
+            ok = blockchain_poc_mgr:report(Report, OnionKeyHash, SelfPeer, P2PAddr);
+        {receipt, _} = Report ->
+            ok = blockchain_poc_mgr:report(Report, OnionKeyHash, SelfPeer, P2PAddr)
     catch
         _:_ ->
             lager:error("got unknown data ~p", [Data])
