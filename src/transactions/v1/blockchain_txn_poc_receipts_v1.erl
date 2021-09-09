@@ -382,7 +382,7 @@ maybe_log_duration(Type, Start) ->
     case application:get_env(blockchain, log_validation_times, false) of
         true ->
             End = erlang:monotonic_time(microsecond),
-            lager:info("~p took ~p ms", [Type, End - Start]),
+            lager:info("~p took ~p usec", [Type, End - Start]),
             End;
         _ -> ok
     end.
@@ -746,8 +746,20 @@ absorb(Txn, Chain) ->
 
     try
         %% get these to make sure we're not replaying.
-        {ok, PoCs} = blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger),
-        {ok, _PoC} = blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret),
+        PoCs = case blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger) of
+                   {ok, Ps} ->
+                       Ps;
+                   {error, not_found} ->
+                       lager:warning("potential replay: ~p not found", [LastOnionKeyHash]),
+                       throw(replay)
+               end,
+        case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
+            {ok, _PoC} ->
+                ok;
+            {error, not_found} ->
+                lager:warning("potential replay: ~p ~p not in ~p", [Challenger, Secret, PoCs]),
+                throw(replay)
+        end,
         {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of
@@ -815,10 +827,12 @@ absorb(Txn, Chain) ->
                         end
                 end
         end
-    catch What:Why:Stacktrace ->
-              lager:error([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p",
-                          [What, Why, Stacktrace]),
-              {error, state_missing}
+    catch throw:Reason ->
+            {error, Reason};
+          What:Why:Stacktrace ->
+            lager:error([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p",
+                        [What, Why, Stacktrace]),
+            {error, state_missing}
     end.
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),
