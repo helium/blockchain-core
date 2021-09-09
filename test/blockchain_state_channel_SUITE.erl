@@ -4,7 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_ct_utils.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([groups/0, all/0, test_cases/0, init_per_group/2, end_per_group/2, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
     basic_test/1,
@@ -38,7 +38,20 @@
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
 
+groups() ->
+    [{sc_libp2p,
+      [],
+      test_cases()
+     },
+     {sc_grpc,
+      [],
+      test_cases()
+     }].
+
 all() ->
+    [{group, sc_libp2p}, {group, sc_grpc}].
+
+test_cases() ->
     [
         basic_test,
         full_test,
@@ -66,6 +79,11 @@ all() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
+init_per_group(sc_libp2p, Config) ->
+    [{sc_client_transport_handler, blockchain_state_channel_handler} | Config];
+init_per_group(sc_grpc, Config) ->
+    [{sc_client_transport_handler, blockchain_grpc_sc_client_test_handler} | Config].
+
 init_per_testcase(basic_test, Config) ->
     BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
     [{base_dir, BaseDir} |Config];
@@ -113,6 +131,34 @@ init_per_testcase(Test, Config, SCVersion) ->
 
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
+    %% the SC tests use the first two nodes as the gateway and router
+    %% for the GRPC group to work we need to ensure these two nodes are connected to each other
+    %% in blockchain_ct_utils:init_per_testcase the nodes are connected to a majority of the group
+    %% but that does not guarantee these two nodes will be connected
+    [RouterNode, GatewayNode|_] = Nodes,
+    [RouterNodeAddr, GatewayNodeAddr|_] = Addrs,
+    ok = blockchain_ct_utils:wait_until(
+             fun() ->
+                     lists:all(
+                       fun({Node, AddrToConnectToo}) ->
+                               try
+                                   GossipPeers = ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500),
+                                   ct:pal("~p connected to peers ~p", [Node, GossipPeers]),
+                                   case lists:member(libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo), GossipPeers) of
+                                       true -> true;
+                                       false ->
+                                           ct:pal("~p is not connected to desired peer ~p", [Node, AddrToConnectToo]),
+                                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
+                                           CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, AddrToConnectToo], 500),
+                                           ct:pal("Connecting ~p to ~p: ~p", [Node, AddrToConnectToo, CRes]),
+                                           false
+                                   end
+                               catch _C:_E ->
+                                       false
+                               end
+                       end, [{RouterNode, GatewayNodeAddr}, {GatewayNode, RouterNodeAddr}])
+             end, 200, 150),
+
     DefaultVars = #{num_consensus_members => NumConsensusMembers},
     ExtraVars = #{max_open_sc => 2,
                   min_expire_within => 10,
@@ -145,7 +191,7 @@ init_per_testcase(Test, Config, SCVersion) ->
                           ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
                   end, Nodes),
 
-    %% wait till each worker gets the gensis block
+    %% wait till each worker gets the genesis block
     ok = lists:foreach(
            fun(Node) ->
                    ok = blockchain_ct_utils:wait_until(
@@ -169,6 +215,8 @@ end_per_testcase(basic_test, _Config) ->
 end_per_testcase(Test, Config) ->
     blockchain_ct_utils:end_per_testcase(Test, Config).
 
+end_per_group(_, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -224,6 +272,8 @@ full_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
     RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    ct:pal("RouterNode ~p", [RouterNode]),
+    ct:pal("Gateway node1 ~p", [GatewayNode1]),
 
     %% Check that the meck txn forwarding works
     Self = self(),
@@ -274,6 +324,7 @@ full_test(Config) ->
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
+    ct:pal("Gateway node1 ~p", [GatewayNode1]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     timer:sleep(timer:seconds(1)),
