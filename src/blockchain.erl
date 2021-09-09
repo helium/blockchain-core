@@ -692,7 +692,7 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             case get_block(Height, Chain) of
                 {ok, Block} ->
                     Hash = blockchain_block:hash_block(Block),
-                    Info = mk_info(Hash, Block),
+                    Info = mk_block_info(Hash, Block),
                     ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []),
                     {ok, Info};
                 Error ->
@@ -702,7 +702,7 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             Error
     end.
 
-mk_info(Hash, Block) ->
+mk_block_info(Hash, Block) ->
     PoCs = lists:flatmap(
              fun(Txn) ->
                      case blockchain_txn:type(Txn) of
@@ -2166,7 +2166,7 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     %% lexiographic ordering works better with big endian
     ok = rocksdb:batch_put(Batch, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
-    Info = mk_info(Hash, Block),
+    Info = mk_block_info(Hash, Block),
     ok = rocksdb:batch_put(Batch, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info)).
 
 save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}=Chain) ->
