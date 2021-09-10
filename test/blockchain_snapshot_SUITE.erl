@@ -100,7 +100,7 @@ basic_test(Config) ->
             blockchain_ledger_v1:commit_context(LedgerBoot);
         _ -> ok
     end,
-    {ok, SnapshotA} = blockchain_ledger_snapshot_v1:snapshot(LedgerA, []),
+    {ok, SnapshotA} = blockchain_ledger_snapshot_v1:snapshot(LedgerA, [], []),
     %% make a dir for the loaded snapshot
     Dir = ?config(priv_dir, Config),
     PrivDir = filename:join([Dir, "priv"]),
@@ -135,7 +135,7 @@ basic_test(Config) ->
             snap_hash_without_field(upgrades, SnapshotA),
             SnapshotB
         ),
-    {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, []),
+    {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, [], []),
     ?assertMatch(
         [_|_],
         blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotC, undefined)),
