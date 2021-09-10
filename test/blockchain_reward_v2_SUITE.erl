@@ -148,9 +148,9 @@ diff_v1_v2(RewardsV1, V1, RewardsV2) ->
                                      maps:update_with(not_in_v2,
                                                       fun(E) -> [ {Owner, Amount} | E ] end,
                                                       [{Owner, Amount}], Acc);
-                                 {_RType, Owner, Amount} ->
+                                 {_RType1, Owner, Amount} ->
                                      maps:update_with(same, fun(C) -> C + 1 end, 1, Acc);
-                                 {_RType, Owner, V2Amount} ->
+                                 {_RType2, Owner, V2Amount} ->
                                      maps:update_with(amt_in_v2_different,
                                                      fun(E) -> [ {Owner, Amount, V2Amount} | E ] end,
                                                      [ {Owner, Amount, V2Amount} ], Acc)
@@ -168,9 +168,9 @@ diff_v1_v2(RewardsV1, V1, RewardsV2) ->
                                      maps:update_with(not_in_v1,
                                                       fun(E) -> [ {Owner, Amount} | E ] end,
                                                       [{Owner, Amount}], Acc);
-                                 {_RType, Owner, Amount} ->
+                                 {_RType1, Owner, Amount} ->
                                      maps:update_with(same, fun(C) -> C + 1 end, 1, Acc);
-                                 {_RType, Owner, V1Amount} ->
+                                 {_RType2, Owner, V1Amount} ->
                                      %% only insert if the owner is not already in the list from v1
                                      case lists:keyfind(Owner, 1, DifferAmts) of
                                          false ->

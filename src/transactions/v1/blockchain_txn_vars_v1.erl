@@ -783,6 +783,7 @@ validate_var(?election_version, Value) ->
         3 -> ok;
         4 -> ok;
         5 -> ok;  % validator move trigger
+        6 -> ok;  % move to maps
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
