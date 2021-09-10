@@ -2265,7 +2265,7 @@ election_v5_test(Config) ->
 
     %% generate new group of the same length
     New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
-    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 2000),
 
     ct:pal("new ~p new1 ~p", [New, New1]),
 
@@ -2280,7 +2280,11 @@ election_v5_test(Config) ->
     ?assertEqual(lists:usort(New), lists:sort(New)),
     ?assertEqual(lists:usort(New1), lists:sort(New1)),
 
-    ?assertEqual(1, length(New -- OldGroup)),
+
+    ct:pal("diff ~p", [New -- OldGroup]),
+
+    ?assertEqual(2, length(New -- OldGroup)),
+    ?assertEqual(3, length(New1 -- OldGroup)),
 
     OldGroupVals =
         [begin
@@ -2377,7 +2381,7 @@ election_v6_test(Config) ->
 
     %% generate new group of the same length
     New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
-    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 2000),
 
     ct:pal("new ~p new1 ~p", [New, New1]),
 
@@ -2392,7 +2396,8 @@ election_v6_test(Config) ->
     ?assertEqual(lists:usort(New), lists:sort(New)),
     ?assertEqual(lists:usort(New1), lists:sort(New1)),
 
-    ?assertEqual(1, length(New -- OldGroup)),
+    ?assertEqual(2, length(New -- OldGroup)),
+    ?assertEqual(3, length(New1 -- OldGroup)),
 
     OldGroupVals =
         [begin
