@@ -650,7 +650,7 @@ submit_receipts(
                 )
         end,
     Txn1 = blockchain_txn:sign(Txn0, SigFun),
-    lager:info("submitting blockchain_txn_poc_receipts_v1 ~p", [Txn0]),
+    lager:info("submitting blockchain_txn_poc_receipts_v1 for onion key hash ~p: ~p", [OnionKeyHash, Txn0]),
     TxnRef = make_ref(),
     Self = self(),
     ok = blockchain_worker:submit_txn(Txn1, fun(Result) -> Self ! {TxnRef, Result} end),

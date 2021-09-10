@@ -203,7 +203,7 @@ is_valid(Txn, Chain) ->
         true ->
             case blockchain_ledger_v1:find_gateway_mode(Challenger, Ledger) of
                 {error, _Reason}=Error ->
-                    lager:info("poc_receipts: gateway not found",[]),
+                    lager:info("poc_receipts: gateway not found for challenger ~p",[Challenger]),
                     Error;
                 {ok, ChallengerGWMode} ->
                     %% check the challenger is allowed to issue POCs
@@ -223,7 +223,7 @@ is_valid(Txn, Chain) ->
                                         Error -> Error
                                     end
                             end
-                    end
+%%                    end
             end
     end.
 
