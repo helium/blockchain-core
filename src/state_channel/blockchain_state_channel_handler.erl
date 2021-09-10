@@ -253,18 +253,8 @@ handle_offer(Offer, Time, State) ->
     lager:info("sc_handler server got offer: ~p", [Offer]),
     case blockchain_state_channels_server:offer(Offer, State#state.ledger, State#state.handler_mod, self()) of
         ok ->
-            %% offer is pending, just block the stream waiting for the purchase or rejection
-            receive
-                {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region} ->
-                    PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
-                    %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
-                    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-                    Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
-                    {noreply, State#state{pending_packet_offers=maps:put(PacketHash, {Offer, Time}, State#state.pending_packet_offers)}, Data};
-                {send_rejection, Rejection} ->
-                    Data = blockchain_state_channel_message_v1:encode(Rejection),
-                    {noreply, State, Data}
-            end;
+            PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
+            {noreply, State#state{pending_packet_offers=maps:put(PacketHash, {Offer, Time}, State#state.pending_packet_offers)}};
         reject ->
             %% we were able to reject out of hand
             Rejection = blockchain_state_channel_rejection_v1:new(),
