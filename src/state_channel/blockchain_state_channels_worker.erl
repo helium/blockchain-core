@@ -367,7 +367,7 @@ refresh_cache(SC) ->
     Summaries = blockchain_state_channel_v1:summaries(SC),
     lists:foreach(
         fun(Summary) ->
-            HotspotID = blockchain_state_channel_v1:owner(Summary),
+            HotspotID = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
             ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid)
         end,
         Summaries
