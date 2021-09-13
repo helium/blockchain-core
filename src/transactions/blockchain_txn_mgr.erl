@@ -21,6 +21,12 @@
          make_ets_table/0
         ]).
 
+%% Testing backdoors
+-export([
+    force_process_cached_txns/0,
+    get_rejections_deferred/0
+]).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -96,6 +102,12 @@ submit(Txn, Callback) ->
 submit(Txn, Key, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, Key, Callback}).
 
+-spec get_rejections_deferred() -> [rejection()].
+get_rejections_deferred() ->
+    gen_server:call(?MODULE, get_rejections_deferred, infinity).
+
+force_process_cached_txns() ->
+    gen_server:call(?MODULE, force_process_cached_txns, infinity).
 
 -spec set_chain(blockchain:blockchain()) -> ok.
 set_chain(Chain) ->
@@ -165,6 +177,22 @@ handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown cast: ~p", [_Msg]),
     {noreply, State}.
 
+handle_call(
+    force_process_cached_txns,
+    _,
+    #state{
+        chain = Chain,
+        cur_block_height = CurBlockHeight,
+        submit_f = SubmitF
+    }=S
+) ->
+    HasBeenSynced = false,
+    IsNewElection = false,
+    NewCGMembers = [],
+    Result = process_cached_txns(Chain, CurBlockHeight, SubmitF, HasBeenSynced, IsNewElection, NewCGMembers),
+    {reply, Result, S};
+handle_call(get_rejections_deferred, _, #state{rejections_deferred=Deferred}=S) ->
+    {reply, Deferred, S};
 handle_call({txn_status, Hash}, _, State) ->
     lists:foreach(fun({_, Txn, TxnData}) ->
                           case blockchain_txn:hash(Txn) == Hash of
@@ -236,7 +264,7 @@ handle_info(
                 Rejection
         end,
     lager:debug(
-        "txn: ~s, rejected_by: ~p, Dialer: ~p,"
+        "txn: ~s, rejected_by: ~p, Dialer: ~p, "
         "my height: ~p, rejector height: ~p",
         [
             blockchain_txn:print(Txn), Member, Dialer,

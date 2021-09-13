@@ -48,8 +48,7 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, [Path, Parent, TxnHash]) ->
     {ok, #state{parent=Parent, txn_hash=TxnHash, path=Path}};
-init(server, _Conn, [_Path0, Path, _Parent, Callback] = _Args) ->
-    lager:warning("init as server. Path0: ~p", [Path]),
+init(server, _Conn, [_, Path, _, Callback] = _Args) ->
     {ok, #state{callback = Callback, path=Path}}.
 
 handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
