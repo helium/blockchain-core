@@ -373,15 +373,8 @@ serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
                 term_to_binary([])
         end,
     Snapshot1 = maps:put(blocks, Blocks, Snapshot0),
-    Snapshot2 =
-        case BlocksOrNoBlocks of
-            blocks ->
-                Snapshot1;
-            noblocks ->
-                maps:put(infos, term_to_binary([]), Snapshot1)
-        end,
 
-    Pairs = lists:keysort(1, maps:to_list(Snapshot2)),
+    Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
