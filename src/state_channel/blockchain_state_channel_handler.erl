@@ -86,6 +86,11 @@ init(server, _Conn, [_Path, Blockchain]) ->
             {ok, HandlerState}
     end.
 
+-spec handle_data(
+        Kind :: libp2p_framed_stream:kind(),
+        Data :: any(),
+        HandlerState :: any()
+) -> libp2p_framed_stream:handle_data_result().
 handle_data(client, Data, HandlerState) ->
     %% get ledger if we don't yet have one
     Ledger = case blockchain_state_channel_common:ledger(HandlerState) of
@@ -142,7 +147,10 @@ handle_data(server, Data, HandlerState) ->
     PendingOfferCount = maps:size(PendingOffers),
     case blockchain_state_channel_message_v1:decode(Data) of
         {offer, Offer} when PendingOfferCount < PendingOfferLimit ->
-            blockchain_state_channel_common:handle_offer(Offer, Time, HandlerState);
+            case blockchain_state_channel_common:handle_offer(Offer, Time, HandlerState) of
+                {ok, State} -> {noreply, State};
+                {ok, State, Msg} -> {noreply, State, Msg}
+            end;
         {offer, Offer} ->
             %% queue the offer
             CurOfferQueue = blockchain_state_channel_common:offer_queue(HandlerState),
@@ -172,7 +180,10 @@ handle_data(server, Data, HandlerState) ->
                             HandlerMod = blockchain_state_channel_common:handler_mod(HandlerState),
                             blockchain_state_channels_server:packet(Packet, PendingOfferTime, HandlerMod, self()),
                             NewHandlerState = blockchain_state_channel_common:pending_packet_offers(maps:remove(PacketHash, PendingOffers), HandlerState),
-                            blockchain_state_channel_common:handle_next_offer(NewHandlerState)
+                            case blockchain_state_channel_common:handle_next_offer(NewHandlerState) of
+                                {ok, State} -> {noreply, State};
+                                {ok, State, Msg} -> {noreply, State, Msg}
+                            end
                     end
             end
     end.
