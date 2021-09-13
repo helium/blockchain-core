@@ -375,10 +375,13 @@ serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
     Snapshot1 = maps:put(blocks, Blocks, Snapshot0),
     Snapshot2 =
         case BlocksOrNoBlocks of
-            blocks ->
-                Snapshot1;
+            blocks -> Snapshot1;
             noblocks ->
-                maps:put(infos, term_to_binary([]), Snapshot1)
+                case maps:is_key(infos, Snapshot1) of
+                    true ->
+                        maps:put(infos, term_to_binary([]), Snapshot1);
+                    _ -> Snapshot1
+                end
         end,
 
     Pairs = lists:keysort(1, maps:to_list(Snapshot2)),
