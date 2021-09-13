@@ -45,7 +45,8 @@
              | blockchain_txn_stake_validator_v1:txn_stake_validator()
              | blockchain_txn_transfer_validator_stake_v1:txn_transfer_validator_stake()
              | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
-             | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat().
+             | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat()
+             | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -135,7 +136,8 @@
     {blockchain_txn_unstake_validator_v1, 32},
     {blockchain_txn_validator_heartbeat_v1, 33},
     {blockchain_txn_gen_price_oracle_v1, 34},
-    {blockchain_txn_consensus_group_failure_v1, 35}
+    {blockchain_txn_consensus_group_failure_v1, 35},
+    {blockchain_txn_transfer_hotspot_v2, 36}
 ]).
 
 block_delay() ->
@@ -242,7 +244,9 @@ wrap_txn(#blockchain_txn_unstake_validator_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_validator_heartbeat_v1_pb{} = Txn) ->
     #blockchain_txn_pb{txn={val_heartbeat, Txn}};
 wrap_txn(#blockchain_txn_consensus_group_failure_v1_pb{} = Txn) ->
-    #blockchain_txn_pb{txn={consensus_group_failure, Txn}}.
+    #blockchain_txn_pb{txn={consensus_group_failure, Txn}};
+wrap_txn(#blockchain_txn_transfer_hotspot_v2_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={transfer_hotspot_v2, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -686,7 +690,9 @@ type(#blockchain_txn_unstake_validator_v1_pb{}) ->
 type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
     blockchain_txn_transfer_validator_stake_v1;
 type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
-    blockchain_txn_validator_heartbeat_v1.
+    blockchain_txn_validator_heartbeat_v1;
+type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
+    blockchain_txn_transfer_hotspot_v2.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
