@@ -80,6 +80,8 @@ msg(#blockchain_state_channel_message_v1_pb{msg = Msg}, StreamState) ->
                 {ok, NewHandlerState}->
                     NewStreamState = grpcbox_stream:stream_handler_state(StreamState, NewHandlerState),
                     {ok, NewStreamState};
+                ok ->
+                    {ok, HandlerState};
                 stop->
                     {stop, HandlerState}
             end
