@@ -112,21 +112,24 @@ init(server, _Conn, [_Path, Blockchain]) ->
     State = #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
-            case blockchain_state_channels_server:get_actives() of
+            ActiveSCs = maps:to_list(blockchain_state_channels_server:get_actives()),
+            case ActiveSCs of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:info("sending empty banner", []),
                     {ok, State, blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSCs ->
-                    [ActiveSC|_] = ActiveSCs,
+                    [{SCID, ActiveSC}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    SCID = blockchain_state_channel_v1:id(ActiveSC),
                     lager:info("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     EncodedSCBanner =
                         e2qc:cache(
                             blockchain_state_channel_handler,
                             SCID,
-                            fun() -> blockchain_state_channel_message_v1:encode(SCBanner) end),
+                            fun() ->
+                                blockchain_state_channel_message_v1:encode(SCBanner)
+                            end
+                        ),
                     {ok, State, EncodedSCBanner}
             end;
         _ ->

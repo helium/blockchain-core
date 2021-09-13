@@ -40,7 +40,7 @@
     chain = undefined :: blockchain:blockchain() | undefined,
     owner = undefined :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
     state_channels = #{} :: state_channels(),
-    actives = #{} :: #{pid() => blockchain_state_channel_v1:id()},
+    actives = [] :: [{pid(), blockchain_state_channel_v1:id()}],
     sc_version = 0 :: non_neg_integer() %% defaulting to 0 instead of undefined
 }).
 
@@ -57,7 +57,7 @@ start_link(Args) ->
 get_all() ->
     gen_server:call(?SERVER, get_all, infinity).
 
--spec get_actives() -> [blockchain_state_channel_v1:id()].
+-spec get_actives() -> state_channels().
 get_actives() ->
     gen_server:call(?SERVER, get_actives, infinity).
 
@@ -110,8 +110,6 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
             ok
     end.
 
-
-
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -128,7 +126,7 @@ init(Args) ->
 handle_call(get_all, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
 handle_call(get_actives, _From, #state{state_channels=SCs, actives=ActiveSCs}=State) ->
-    {reply, maps:with(maps:values(ActiveSCs), SCs), State};
+    {reply, maps:with([ID || {_, ID} <- ActiveSCs], SCs), State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -175,22 +173,29 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                     fun(Txn, State) ->
                             case blockchain_txn:type(Txn) of
                                 blockchain_txn_state_channel_open_v1 ->
-                                    open_state_channel(Txn, BlockHash, Block, State);
+                                    opened_state_channel(Txn, BlockHash, Block, State);
                                 blockchain_txn_state_channel_close_v1 ->
-                                    State % TODO: shutdown worker
+                                    closed_state_channel(Txn, State)
                             end
                     end,
                     State0,
                     Txns
                 ),
-                %% TODO: check expiration
-            {noreply, State1}
+            State2 = check_state_channel_expiration(Block, State1),
+            {noreply, State2}
     end;
-handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{state_channels=SCs, actives=Actives}=State) ->
+handle_info(
+    {'DOWN', _Ref, process, Pid, _Reason},
+    #state{state_channels=SCs, actives=Actives}=State0
+) ->
     %% TODO: we need to do more here
     ID = maps:get(Pid, Actives),
     lager:info("~p went @ ~p down: ~p", [blockchain_utils:addr2name(ID), Pid, _Reason]),
-    {noreply, State#state{state_channels=maps:remove(ID, SCs), actives=maps:remove(Pid, Actives)}};
+    State1 = State0#state{
+        state_channels=maps:remove(ID, SCs),
+        actives=lists:keydelete(Pid, 1, Actives)
+    },
+    {noreply, State1};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -205,13 +210,13 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec open_state_channel(
+-spec opened_state_channel(
     Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
     BlockHash :: blockchain_block:hash(),
     Block :: blockchain_block:block(),
     State :: state()
 ) -> state().
-open_state_channel(
+opened_state_channel(
     Txn,
     BlockHash,
     Block,
@@ -242,10 +247,101 @@ open_state_channel(
             lager:info("no active state channel setting ~p as active",
                         [blockchain_utils:addr2name(blockchain_state_channel_v1:id(SignedSC))]),
             Pid = start_worker(SC, Skewed, State1),
-            State1#state{actives=maps:put(Pid, ID, Actives)};
+            State1#state{actives=[{Pid, ID}|Actives]};
         _ ->
             lager:debug("already got some active state channels"),
             State1
+    end.
+
+-spec closed_state_channel(
+    Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
+    State :: state()
+) -> state().
+closed_state_channel(Txn, #state{state_channels=SCs}=State) ->
+    ClosedSC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+    ClosedID = blockchain_state_channel_v1:id(ClosedSC),
+    State#state{
+        state_channels=maps:remove(ClosedID, SCs)
+    }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Close expired state channels
+%% @end
+%%--------------------------------------------------------------------
+-spec check_state_channel_expiration(
+    Block :: blockchain_block:block(),
+    State :: state()
+) -> state().
+check_state_channel_expiration(
+    Block,
+    #state{
+        owner={Owner, OwnerSigFun},
+        state_channels=SCs0
+    }=State
+) ->
+    BlockHeight = blockchain_block:height(Block),
+    SCs1 = maps:map(
+        fun(ID, SC) ->
+            ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+            case ExpireAt =< BlockHeight andalso blockchain_state_channel_v1:state(SC) == open of
+                false ->
+                    SC;
+                true ->
+                    lager:info("closing ~p expired", [blockchain_utils:addr2name(ID)]),
+                    SC0 = blockchain_state_channel_v1:state(closed, SC),
+                    SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
+                    ok = expire_state_channel(SC1, Owner, OwnerSigFun, State),
+                    SC1
+            end
+        end,
+        SCs0
+    ),
+    State#state{state_channels=SCs1}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Close state channel
+%% @end
+%%--------------------------------------------------------------------
+-spec expire_state_channel(
+    SC :: blockchain_state_channel_v1:state_channel(),
+    Owner :: libp2p_crypto:pubkey_bin(),
+    OwnerSigFun :: function(),
+    State :: state()
+) -> ok.
+expire_state_channel(SC, Owner, OwnerSigFun, State) ->
+    SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
+    Txn = blockchain_txn_state_channel_close_v1:new(SignedSC, Owner),
+    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
+    ok = blockchain_worker:submit_txn(SignedTxn),
+    ID = blockchain_state_channel_v1:id(SC),
+    Name = blockchain_utils:addr2name(ID),
+    lager:info(
+        "submit close state channel txn for ~p: ~p",
+        [Name, SignedTxn]
+    ),
+    case get_worker_pid(ID, State) of
+        undefined ->
+            lager:warning("failed to find pid for ~p", [Name]);
+        Pid ->
+            ok = blockchain_state_channels_worker:shutdown(Pid, expired)
+    end,
+    ok.
+
+-spec get_worker_pid(
+    ID :: blockchain_state_channel_v1:id(),
+    State :: state()
+) -> pid() | undefined.
+get_worker_pid(ID, #state{actives=Actives}) ->
+    case lists:keyfind(ID, 2, Actives) of
+        {Pid, ID} ->
+            case erlang:is_process_alive(Pid) of
+                false -> undefined;
+                true -> Pid
+            end;
+        _ ->
+            undefined
     end.
 
 -spec start_workers(
@@ -258,7 +354,7 @@ start_workers(SCsWithSkewed, ActiveSCIDs, State0) ->
         fun(ID, #state{actives=Actives}=State) ->
             {SC, Skewed} = maps:get(ID, SCsWithSkewed),
             Pid = start_worker(SC, Skewed, State),
-            State#state{actives=maps:put(Pid, ID, Actives)}
+            State#state{actives=[{Pid, ID}|Actives]}
         end,
         State0,
         ActiveSCIDs

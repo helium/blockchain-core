@@ -15,6 +15,7 @@
 %% ------------------------------------------------------------------
 -export([
     start/1,
+    shutdown/2,
     handle_offer/3,
     handle_packet/3
 ]).
@@ -32,6 +33,7 @@
 ]).
 
 -define(SERVER, ?MODULE).
+-define(SHUTDOWN_TIMER, 1000).
 -define(FP_RATE, 0.99).
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
 
@@ -59,6 +61,11 @@
 -spec start(map()) -> {ok, pid()} | ignore | {error, any()}.
 start(Args) ->
     gen_server:start(?SERVER, Args, []).
+
+-spec shutdown(Pid :: pid(), Reason :: any()) -> ok.
+shutdown(Pid, Reason) ->
+    catch gen_server:stop(Pid, {shutdown, Reason}, ?SHUTDOWN_TIMER),
+    ok.
 
 -spec handle_offer(
     Pid :: pid(),
@@ -305,13 +312,8 @@ update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
 
 -spec send_offer_rejection(HandlerPid :: pid()) -> ok.
 send_offer_rejection(HandlerPid) ->
-    _ = erlang:spawn(
-        fun() ->
-            RejectionMsg = blockchain_state_channel_rejection_v1:new(),
-            ok = blockchain_state_channel_handler:send_rejection(HandlerPid, RejectionMsg)
-        end
-    ),
-    ok.
+    RejectionMsg = blockchain_state_channel_rejection_v1:new(),
+    ok = blockchain_state_channel_handler:send_rejection(HandlerPid, RejectionMsg).
 
 -spec try_update_summary(SC :: blockchain_state_channel_v1:state_channel(),
                          HotspotID :: libp2p_crypto:pubkey_bin(),
@@ -338,22 +340,18 @@ update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) -
         {error, not_found} ->
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(HotspotID, 1, NumDCs),
-            %% Add this to summaries
             {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(HotspotID,
                                                                              NewSummary,
                                                                              SC,
                                                                              MaxActorsAllowed),
             {NewSC, DidFit};
         {ok, ExistingSummary} ->
-            %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
-            %% Update DC count for this client
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
             ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
             NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                     ExistingNumPackets + 1,
                                                                     ExistingSummary),
-            %% Update summaries
             {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(HotspotID,
                                                                              NewSummary,
                                                                              SC,
