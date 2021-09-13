@@ -299,9 +299,10 @@ handle_client_msg(Msg, HandlerState) ->
     HandlerState#handler_state{ledger=Ledger}.
 
 
-
+-spec handle_next_offer(State) -> {ok, State} | {ok, State, Msg :: any()} when
+    State :: #handler_state{}.
 handle_next_offer(HandlerState=#handler_state{offer_queue=[]}) ->
-    {noreply, HandlerState};
+    {ok, HandlerState};
 handle_next_offer(HandlerState=#handler_state{offer_queue=[{NextOffer, OfferTime}|Offers], pending_packet_offers=PendingOffers, pending_offer_limit=Limit}) ->
     case maps:size(PendingOffers) < Limit of
         true ->
@@ -310,6 +311,11 @@ handle_next_offer(HandlerState=#handler_state{offer_queue=[{NextOffer, OfferTime
             {ok, HandlerState}
     end.
 
+-spec handle_offer(
+        Offer :: blockchain_state_channel_packet_offer_v1:offer(),
+        Time :: pos_integer(),
+        HandlerState :: #handler_state{}
+) -> {ok, State :: #handler_state{}, Msg :: any()}.
 handle_offer(Offer, Time, HandlerState) ->
     lager:debug("sc_handler server got offer: ~p", [Offer]),
     MaybeEncodeMsg = HandlerState#handler_state.encode_pb,
@@ -326,6 +332,9 @@ handle_offer(Offer, Time, HandlerState) ->
                 {send_rejection, Rejection} ->
                     Msg = maybe_encode_msg(MaybeEncodeMsg, Rejection),
                     {ok, HandlerState, Msg}
+            after timer:seconds(15) ->
+                    lager:error("sc handle_offer timeout for offer: ~p", [Offer]),
+                    {ok, HandlerState}
             end;
         reject ->
             %% we were able to reject out of hand
