@@ -200,7 +200,6 @@ basic_test(Config) ->
     ID = <<"ID1">>,
 
     ?assert(erlang:is_process_alive(Sup)),
-    ?assertEqual({error, not_found}, blockchain_state_channels_server:nonce(ID)),
 
     true = erlang:exit(Sup, normal),
     ok = libp2p_swarm:stop(Swarm),

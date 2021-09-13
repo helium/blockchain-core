@@ -7,6 +7,8 @@
 
 -behavior(libp2p_framed_stream).
 
+% TODO
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -110,7 +112,7 @@ init(server, _Conn, [_Path, Blockchain]) ->
     State = #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
-            case blockchain_state_channels_server:active_scs() of
+            case blockchain_state_channels_server:get_actives() of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:info("sending empty banner", []),
@@ -193,13 +195,13 @@ handle_data(server, Data, State=#state{pending_packet_offers=PendingOffers, pend
             case maps:get(PacketHash, PendingOffers, undefined) of
                 undefined ->
                     lager:info("sc_handler server got packet: ~p", [Packet]),
-                    blockchain_state_channels_server:packet(Packet, Time, State#state.handler_mod, self()),
+                    blockchain_state_channels_server:handle_packet(Packet, Time, State#state.handler_mod, self()),
                     {noreply, State};
                 {PendingOffer, PendingOfferTime} ->
                     case blockchain_state_channel_packet_v1:validate(Packet, PendingOffer) of
                         {error, packet_offer_mismatch} ->
                             %% might as well try it, it's free
-                            blockchain_state_channels_server:packet(Packet, Time, State#state.handler_mod, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, Time, State#state.handler_mod, self()),
                             lager:warning("packet failed to validate ~p against offer ~p", [Packet, PendingOffer]),
                             {stop, normal};
                         {error, Reason} ->
@@ -207,7 +209,7 @@ handle_data(server, Data, State=#state{pending_packet_offers=PendingOffers, pend
                             {stop, normal};
                         true ->
                             lager:info("sc_handler server got packet: ~p", [Packet]),
-                            blockchain_state_channels_server:packet(Packet, PendingOfferTime, State#state.handler_mod, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, State#state.handler_mod, self()),
                             handle_next_offer(State#state{pending_packet_offers=maps:remove(PacketHash, PendingOffers)})
                     end
             end
@@ -251,7 +253,7 @@ handle_next_offer(State=#state{offer_queue=[{NextOffer, OfferTime}|Offers], pend
 
 handle_offer(Offer, Time, State) ->
     lager:info("sc_handler server got offer: ~p", [Offer]),
-    case blockchain_state_channels_server:offer(Offer, State#state.ledger, State#state.handler_mod, self()) of
+    case blockchain_state_channels_server:handle_offer(Offer, State#state.handler_mod, self()) of
         ok ->
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
             {noreply, State#state{pending_packet_offers=maps:put(PacketHash, {Offer, Time}, State#state.pending_packet_offers)}};
