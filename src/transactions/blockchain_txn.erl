@@ -854,7 +854,7 @@ absorb_aux(Block0, Chain0) ->
                                                   ok ->
                                                       case FollowAux of
                                                           true ->
-                                                              case blockchain_ledger_v1:commit_context(AuxLedger1) of
+                                                              case blockchain_ledger_v1:commit_context(blockchain:ledger(Chain)) of
                                                                   ok ->
                                                                       case blockchain_ledger_v1:new_snapshot(AuxLedger0) of
                                                                           {ok, AuxLedger2} ->
