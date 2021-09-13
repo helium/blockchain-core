@@ -332,6 +332,9 @@ handle_offer(Offer, Time, HandlerState) ->
                 {send_rejection, Rejection} ->
                     Msg = maybe_encode_msg(MaybeEncodeMsg, Rejection),
                     {ok, HandlerState, Msg}
+            after timer:seconds(15) ->
+                    lager:error("sc handle_offer timeout for offer: ~p", [Offer]),
+                    {ok, HandlerState}
             end;
         reject ->
             %% we were able to reject out of hand
