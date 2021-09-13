@@ -757,16 +757,20 @@ absorb(Txn, Chain) ->
                         %% Older poc version, don't add witnesses
                         ok;
                     {ok, POCVersion} when POCVersion >= 9 ->
-                        %% Add filtered witnesses with poc-v9
-                        ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
-                                                              Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                              case FilteredReceipt of
-                                                                  undefined ->
-                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                                                                  FR ->
-                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                                                              end
-                                                      end, ok, Txn, Ledger, Chain);
+                        case blockchain:follow_mode() of
+                            false ->
+                                %% Add filtered witnesses with poc-v9
+                                ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
+                                                                      Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                                      case FilteredReceipt of
+                                                                          undefined ->
+                                                                              ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
+                                                                          FR ->
+                                                                              ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
+                                                                      end
+                                                              end, ok, Txn, Ledger, Chain);
+                            _ -> ok
+                        end;
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
