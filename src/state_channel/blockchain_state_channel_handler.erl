@@ -39,10 +39,8 @@
 
 -record(state, {
     ledger :: undefined | blockchain_ledger_v1:ledger(),
-    pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
-    offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
-    handler_mod :: atom(),
-    pending_offer_limit = undefined :: undefined | pos_integer()
+    pending_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
+    handler_mod :: atom()
 }).
 
 %% ------------------------------------------------------------------
@@ -108,8 +106,7 @@ init(client, _Conn, _) ->
 init(server, _Conn, [_Path, Blockchain]) ->
     Ledger = blockchain:ledger(Blockchain),
     HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
-    OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
-    State = #state{ledger=Ledger, handler_mod=HandlerMod, pending_offer_limit=OfferLimit},
+    State = #state{ledger=Ledger, handler_mod=HandlerMod},
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
             ActiveSCs = maps:to_list(blockchain_state_channels_server:get_actives()),
@@ -124,7 +121,7 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     lager:info("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     EncodedSCBanner =
                         e2qc:cache(
-                            blockchain_state_channel_handler,
+                            ?MODULE,
                             SCID,
                             fun() ->
                                 blockchain_state_channel_message_v1:encode(SCBanner)
@@ -133,21 +130,22 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     {ok, State, EncodedSCBanner}
             end;
         _ ->
-            {ok, #state{handler_mod=HandlerMod, pending_offer_limit=OfferLimit}}
+            {ok, State#state{handler_mod=HandlerMod}}
     end.
 
 handle_data(client, Data, State) ->
     %% get ledger if we don't yet have one
-    Ledger = case State#state.ledger of
-                 undefined ->
-                     case blockchain_worker:blockchain() of
-                         undefined ->
-                             undefined;
-                         Chain ->
-                             blockchain:ledger(Chain)
-                     end;
-                 L -> L
-             end,
+    Ledger =
+        case State#state.ledger of
+            undefined ->
+                case blockchain_worker:blockchain() of
+                    undefined ->
+                        undefined;
+                    Chain ->
+                        blockchain:ledger(Chain)
+                end;
+            L -> L
+        end,
     case blockchain_state_channel_message_v1:decode(Data) of
         {banner, Banner} ->
             case blockchain_state_channel_banner_v1:sc(Banner) of
@@ -184,15 +182,11 @@ handle_data(client, Data, State) ->
             blockchain_state_channels_client:response(Resp)
     end,
     {noreply, State#state{ledger=Ledger}};
-handle_data(server, Data, State=#state{pending_packet_offers=PendingOffers, pending_offer_limit=PendingOfferLimit}) ->
+handle_data(server, Data, State=#state{pending_offers=PendingOffers}) ->
     Time = erlang:system_time(millisecond),
-    PendingOfferCount = maps:size(PendingOffers),
     case blockchain_state_channel_message_v1:decode(Data) of
-        {offer, Offer} when PendingOfferCount < PendingOfferLimit ->
-            handle_offer(Offer, Time, State);
         {offer, Offer} ->
-            %% queue the offer
-            {noreply, State#state{offer_queue=State#state.offer_queue ++ [{Offer, Time}]}};
+            handle_offer(Offer, Time, State);
         {packet, Packet} ->
             PacketHash = blockchain_helium_packet_v1:packet_hash(blockchain_state_channel_packet_v1:packet(Packet)),
             case maps:get(PacketHash, PendingOffers, undefined) of
@@ -213,7 +207,7 @@ handle_data(server, Data, State=#state{pending_packet_offers=PendingOffers, pend
                         true ->
                             lager:info("sc_handler server got packet: ~p", [Packet]),
                             blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, State#state.handler_mod, self()),
-                            handle_next_offer(State#state{pending_packet_offers=maps:remove(PacketHash, PendingOffers)})
+                            {noreply, State}
                     end
             end
     end.
@@ -244,22 +238,16 @@ handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unhandled msg: ~p", [_Type, _Msg]),
     {noreply, State}.
 
-handle_next_offer(State=#state{offer_queue=[]}) ->
-    {noreply, State};
-handle_next_offer(State=#state{offer_queue=[{NextOffer, OfferTime}|Offers], pending_packet_offers=PendingOffers, pending_offer_limit=Limit}) ->
-    case maps:size(PendingOffers) < Limit of
-        true ->
-            handle_offer(NextOffer, OfferTime, State#state{offer_queue=Offers});
-        false ->
-            {noreply, State}
-    end.
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 
 handle_offer(Offer, Time, State) ->
     lager:info("sc_handler server got offer: ~p", [Offer]),
     case blockchain_state_channels_server:handle_offer(Offer, State#state.handler_mod, self()) of
         ok ->
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
-            {noreply, State#state{pending_packet_offers=maps:put(PacketHash, {Offer, Time}, State#state.pending_packet_offers)}};
+            {noreply, State#state{pending_offers=maps:put(PacketHash, {Offer, Time}, State#state.pending_offers)}};
         reject ->
             %% we were able to reject out of hand
             Rejection = blockchain_state_channel_rejection_v1:new(),

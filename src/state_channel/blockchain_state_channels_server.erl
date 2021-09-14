@@ -238,8 +238,9 @@ handle_offer(Offer, HandlerPid) ->
                         HandlerPid
                     );
                 {error, _Reason} ->
-                    ok = gen_server:cast(?SERVER, get_new_active),
                     %% TODO: Worker could report when they get at capacity so we can add an extra active
+                    ok = gen_server:cast(?SERVER, get_new_active),
+                    %% TODO: maybe we should not reject here?
                     reject
             end;
         Pid ->
