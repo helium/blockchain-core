@@ -7,6 +7,7 @@
 
 -behavior(gen_server).
 
+-include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 
 %% ------------------------------------------------------------------
@@ -16,6 +17,7 @@
     start_link/1,
     get_all/0,
     get_actives/0,
+    get_actives_count/0,
     handle_offer/3,
     handle_packet/4
 ]).
@@ -33,6 +35,8 @@
 ]).
 
 -define(SERVER, ?MODULE).
+-define(SC_WORKER_GROUP, state_channel_workers_union).
+-define(MAX_ACTORS_CACHE, max_actors_allowed_cache).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -61,6 +65,10 @@ get_all() ->
 get_actives() ->
     gen_server:call(?SERVER, get_actives, infinity).
 
+-spec get_actives_count() -> non_neg_integer().
+get_actives_count() ->
+    erlang:length(pg2:get_members(?SC_WORKER_GROUP)).
+
 -spec handle_offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
     SCPacketHandler :: atom(),
@@ -76,17 +84,7 @@ handle_offer(Offer, SCPacketHandler, HandlerPid) ->
                 {error, _Why} ->
                     reject;
                 ok ->
-                    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
-                    case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
-                        undefined ->
-                            ok; %% TODO: select new
-                        Pid ->
-                            blockchain_state_channels_worker:handle_offer(
-                                Pid,
-                                Offer,
-                                HandlerPid
-                            )
-                    end
+                    handle_offer(Offer, HandlerPid)
             end
     end.
 
@@ -149,9 +147,14 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
                     _ ->
                         0
                 end,
-            State1 = State0#state{chain=Chain, sc_version=SCVer},
+            State1 = State0#state{
+                chain=Chain,
+                sc_version=SCVer
+            },
             {SCsWithSkewed, ActiveSCIDs} = load_state_channels(State1),
+            ok = pg2:create(?SC_WORKER_GROUP),
             State2 = start_workers(SCsWithSkewed, ActiveSCIDs, State1),
+            %% TODO: if empty ActiveSCIDs we should try to get a new active
             {noreply, State2}
     end;
 handle_info({blockchain_event, {new_chain, Chain}}, State) ->
@@ -160,6 +163,7 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #sta
     erlang:send_after(500, self(), post_init),
     {noreply, State};
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain}=State0) ->
+    _ = e2qc:evict(?SERVER, ?MAX_ACTORS_CACHE),
     case get_state_channel_txns_from_block(Chain, BlockHash, State0) of
         {_, undefined} ->
             lager:error("failed to get block ~p", [BlockHash]),
@@ -209,6 +213,77 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec handle_offer(
+    Offer :: blockchain_state_channel_offer_v1:offer(),
+    HandlerPid :: pid()
+) -> ok | reject.
+handle_offer(Offer, HandlerPid) ->
+    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
+        undefined ->
+            MaxActorsAllowed = max_actors_allowed(),
+            Actives = pg2:get_members(?SC_WORKER_GROUP),
+            case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
+                {ok, Pid} ->
+                    ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
+                    blockchain_state_channels_worker:handle_offer(
+                        Pid,
+                        Offer,
+                        HandlerPid
+                    );
+                {error, _Reason} ->
+                    %% TODO: We can't get another active lets try to get a new one
+                    reject
+            end;
+        Pid ->
+            blockchain_state_channels_worker:handle_offer(
+                Pid,
+                Offer,
+                HandlerPid
+            )
+    end.
+
+-spec select_best_active(
+    HotspotID :: libp2p_crypto:pubkey_bin(),
+    Actives :: list(pid()),
+    MaxActorsAllowed :: non_neg_integer()
+)-> {ok, pid()} | {error, not_found}.
+select_best_active(
+    HotspotID,
+    Actives,
+    MaxActorsAllowed
+) ->
+    Fun = fun(Pid, HID, Max) ->
+        SC = blockchain_state_channels_worker:get(Pid), %% Only blocking call so far but done in parallel 
+        case blockchain_state_channel_v1:can_fit(HID, SC, Max) of
+            false -> false;
+            true -> {true, Pid};
+            %% we don't care about found ones because if process was alive it should have been in ets cache
+            found -> {true, Pid}
+        end
+    end,
+    Todos = [[Pid, HotspotID, MaxActorsAllowed] || Pid <- Actives],
+    case blockchain_utils:change_my_name(Fun, Todos) of
+        false -> {error, not_found};
+        {true, Pid} -> {ok, Pid}
+    end.
+
+-spec max_actors_allowed() -> non_neg_integer().
+max_actors_allowed() ->
+    e2qc:cache(
+        ?SERVER,
+        ?MAX_ACTORS_CACHE,
+        fun() ->
+            case blockchain_worker:blockchain() of
+                undefined ->
+                    ?SC_MAX_ACTORS;
+                Chain ->
+                    Ledger = blockchain:ledger(Chain),
+                    blockchain_ledger_v1:get_sc_max_actors(Ledger)
+            end
+        end
+    ).
 
 -spec opened_state_channel(
     Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
@@ -375,6 +450,7 @@ start_worker(SC, Skewed, #state{db=DB, chain=Chain, owner=Owner}) ->
     },
     {ok, Pid} = blockchain_state_channels_worker:start(Args),
     _Ref = erlang:monitor(process, Pid),
+    ok = pg2:join(?SC_WORKER_GROUP, Pid),
     Pid.
 
 %%--------------------------------------------------------------------

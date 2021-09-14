@@ -17,6 +17,7 @@
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
     poc_id/1,
+    change_my_name/2,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -170,6 +171,43 @@ hex_to_bin(Hex) ->
 poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     Hash = crypto:hash(sha256, PubKeyBin),
     ?BIN_TO_B64(Hash).
+
+-spec change_my_name(F :: function(), list(list())) -> boolean() | {true, any()}.
+change_my_name(F, ToDos) ->
+    Opts = [
+        {fullsweep_after, 0},
+        {priority, high}
+    ],
+    Parent = self(),
+    Workers = lists:foldl(
+        fun(Args, Acc) ->
+            Pid = erlang:spawn_opt(
+                fun() ->
+                    Result = erlang:apply(F, Args),
+                    Parent ! {change_my_name, Result}
+                end,
+                Opts
+            ),
+            [Pid|Acc]
+        end,
+        [],
+        ToDos
+    ),
+    Results = change_my_name_rcv(false, erlang:length(ToDos)),
+    [erlang:exit(Pid, done) || Pid <- Workers],
+    Results.
+ 
+change_my_name_rcv(Result, 0) ->
+    Result;
+change_my_name_rcv(Result, Left) ->
+    receive
+        {change_my_name, true} ->
+            true;
+        {change_my_name, {true, Data}} ->
+            {true, Data};
+        {change_my_name, _} ->
+            change_my_name_rcv(Result, Left-1)
+    end.
 
 pmap(F, L) ->
     Width = validation_width(),

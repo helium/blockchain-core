@@ -16,6 +16,7 @@
 -export([
     start/1,
     shutdown/2,
+    get/1,
     handle_offer/3,
     handle_packet/3
 ]).
@@ -66,6 +67,10 @@ start(Args) ->
 shutdown(Pid, Reason) ->
     catch gen_server:stop(Pid, {shutdown, Reason}, ?SHUTDOWN_TIMER),
     ok.
+
+-spec get(Pid :: pid()) -> blockchain_state_channel_v1:state_channel().
+get(Pid) ->
+    gen_server:call(Pid, get).
 
 -spec handle_offer(
     Pid :: pid(),
@@ -130,6 +135,8 @@ init(Args) ->
     },
     {ok, State}.
 
+handle_call(get, _From, #state{state_channel=SC}=State) ->
+    {reply, SC, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
