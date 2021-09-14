@@ -862,7 +862,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
     Me = self(),
     Key = snapshot_key(Ledger, Height),
     case ets:lookup(Cache, Key) of
-        [{Height, {pending, Pid}} = OtherPend] when Pid /= Me ->
+        [{Key, {pending, Pid}} = OtherPend] when Pid /= Me ->
             lager:debug("other pid ~p has the snapshot lock for ~p", [Pid, Height]),
             case is_process_alive(Pid) of
                 true ->
@@ -907,20 +907,26 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                    end,
                             try
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
-                                %% new/2 wants to add on the ledger.db part itself
-                                NewLedger = new(filename:dirname(CheckpointDir), true, []),
-                                %% share the snapshot cache with the new ledger
-                                NewLedger2 = blockchain_ledger_v1:mode(Mode,
-                                                                       NewLedger#ledger_v1{
-                                                                         blocks_db = Ledger#ledger_v1.blocks_db,
-                                                                         blocks_cf = Ledger#ledger_v1.blocks_cf,
-                                                                         heights_cf = Ledger#ledger_v1.heights_cf,
-                                                                         snapshots=Cache}),
+                                NewLedger = case mode(Ledger) of
+                                    aux ->
+                                        new_aux(CheckpointDir, Ledger);
+                                    _ ->
+                                        %% new/2 wants to add on the ledger.db part itself
+                                        NewLedger0 = new(filename:dirname(CheckpointDir), true, []),
+                                        %% share the snapshot cache with the new ledger
+                                        blockchain_ledger_v1:mode(Mode,
+                                                                  NewLedger0#ledger_v1{
+                                                                    blocks_db = Ledger#ledger_v1.blocks_db,
+                                                                    blocks_cf = Ledger#ledger_v1.blocks_cf,
+                                                                    heights_cf = Ledger#ledger_v1.heights_cf,
+                                                                    snapshots=Cache})
+
+                                end,
                                 %% sanity check
-                                case current_height(NewLedger2) of
+                                case current_height(NewLedger) of
                                     {ok, Height} ->
-                                        1 = ets:select_replace(Cache, [{Old, [], [{const, {Key, {ledger, NewLedger2}}}]}]),
-                                        {ok, new_context(NewLedger2)};
+                                        1 = ets:select_replace(Cache, [{Old, [], [{const, {Key, {ledger, NewLedger}}}]}]),
+                                        {ok, new_context(NewLedger)};
                                     {ok, OtherHeight} ->
                                         lager:warning("expected checkpoint ledger at height ~p but got height ~p",
                                                       [Height, OtherHeight]),
