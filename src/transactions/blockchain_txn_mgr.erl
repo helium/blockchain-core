@@ -271,28 +271,41 @@ handle_info(
             CurBlockHeight, RejectorHeight
         ]
     ),
-    S1 =
-        case {} of
+    MaxRejectionAge = 15,  % TODO configurable?
+    Deferred1 =
+        case CurBlockHeight - RejectorHeight of
             %% future:
-            _ when RejectorHeight > CurBlockHeight ->
+            Age when Age < 0 ->
                 %% TODO Maybe limit how far in the future?
                 lager:warning(
                     "Received txn rejection from the future. Deferring: ~p",
                     [Rejection]
                 ),
-                Deferred1 = ordsets:add_element(Rejection, Deferred0),
-                S0#state{rejections_deferred = Deferred1};
-
-            %% past:
-            _ when RejectorHeight < CurBlockHeight ->
-                lager:warning("Received txn rejection from the past. Ignoring: ~p", [Rejection]),
-                S0;
-
-            %% present:
-            _ ->
+                ordsets:add_element(Rejection, Deferred0);
+            %% present or recent past:
+            Age when (Age >= 0) andalso (Age < MaxRejectionAge) ->
+                case Age > 0 of
+                    true ->
+                        lager:warning(
+                            "Received txn rejection from the past. "
+                            "From ~b blocks ago. Counting: ~p",
+                            [Age, Rejection]
+                        );
+                    false ->
+                        ok
+                end,
                 ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
-                S0
+                Deferred0;
+            %% distant past:
+            Age ->
+                lager:warning(
+                    "Received txn rejection from the past. "
+                    "From ~b blocks ago. Ignoring: ~p",
+                    [Age, Rejection]
+                ),
+                Deferred0
         end,
+    S1 = S0#state{rejections_deferred = Deferred1},
     {noreply, S1};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
@@ -790,5 +803,3 @@ get_txn_key()->
     %% define a unique value to use as they cache key for the received txn, for now its just a mono increasing timestamp.
     %% Timestamp is a poormans key but as txns are serialised via a single txn mgr per node, it satisfies the need here
     erlang:monotonic_time().
-
-
