@@ -66,7 +66,7 @@ sc_active_usage() ->
     ].
 
 sc_active(["sc", "active"], [], []) ->
-    case (catch blockchain_state_channels_server:active_sc_ids()) of
+    case (catch maps:keys(blockchain_state_channels_server:get_actives())) of
         {'EXIT', _} ->
             [clique_status:text("timeout")];
         undefined ->
@@ -94,7 +94,7 @@ sc_list_usage() ->
     ].
 
 sc_list(["sc", "list"], [], []) ->
-    case (catch blockchain_state_channels_server:state_channels()) of
+    case (catch blockchain_state_channels_server:get_all()) of
         {'EXIT', _} ->
             [clique_status:text("timeout")];
         M when map_size(M) == 0 ->
@@ -110,7 +110,7 @@ format_sc_list(SCs) ->
     Chain = blockchain_worker:blockchain(),
     {ok, Height} = blockchain:height(Chain),
     maps:fold(
-        fun(SCID, {SC, _}, Acc) ->
+        fun(SCID, SC, Acc) ->
             ID = format_sc_id(SCID),
             SCNonce = blockchain_state_channel_v1:nonce(SC),
             Amount = blockchain_state_channel_v1:amount(SC),
@@ -151,7 +151,7 @@ summarize(Summaries) ->
                 {0, 0, 0}, Summaries).
 
 is_active(SC) ->
-    ActiveSCIDs = blockchain_state_channels_server:active_sc_ids(),
+    ActiveSCIDs = maps:keys(blockchain_state_channels_server:get_actives()),
     SCID = blockchain_state_channel_v1:id(SC),
     lists:member(SCID, ActiveSCIDs).
 

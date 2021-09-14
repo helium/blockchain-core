@@ -18,6 +18,7 @@
     get_all/0,
     get_actives/0,
     get_actives_count/0,
+    gc_state_channels/1,
     handle_offer/3,
     handle_packet/4
 ]).
@@ -68,6 +69,11 @@ get_actives() ->
 -spec get_actives_count() -> non_neg_integer().
 get_actives_count() ->
     erlang:length(pg2:get_members(?SC_WORKER_GROUP)).
+
+-spec gc_state_channels([binary()]) -> ok.
+gc_state_channels([]) -> ok;
+gc_state_channels(SCIDs) ->
+    gen_server:cast(?SERVER, {gc_state_channels, SCIDs}).
 
 -spec handle_offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
@@ -129,6 +135,24 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
+    %% let's make sure whatever IDs we are getting rid of here we also dump
+    %% from pending writes... we don't want some ID that's been
+    %% deleted from the DB to ressurrect like a zombie because it was
+    %% a pending write.
+    ok = blockchain_state_channels_db_owner:gc(SCIDs),
+    lists:foreach(
+        fun(ID) ->
+            case get_worker_pid(ID, State) of
+                undefined ->
+                    ok;
+                Pid ->
+                    ok = blockchain_state_channels_worker:shutdown(Pid, gc)
+            end
+        end,
+        SCIDs
+    ),
+    {noreply, State#state{state_channels=maps:without(SCIDs, SCs)}};
 handle_cast(get_new_active, State0) ->
     lager:info("get a new active state channel"),
     State1 = get_new_active(State0),
@@ -197,7 +221,7 @@ handle_info(
     #state{state_channels=SCs, actives=Actives}=State0
 ) ->
     %% TODO: we need to do more here
-    ID = maps:get(Pid, Actives),
+    ID = lists:keyfind(Pid, 1, Actives),
     lager:info("~p went @ ~p down: ~p", [blockchain_utils:addr2name(ID), Pid, _Reason]),
     State1 = State0#state{
         state_channels=maps:remove(ID, SCs),
@@ -329,7 +353,7 @@ get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, s
                 fun({_ID1, SC1}, {_ID2, SC2}) ->
                     blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
                 end,
-            case lists:filter(SCSortFun2, lists:sort(SCSortFun1, lists:filter(FilterFun, PassiveSCs))) of
+            case lists:sort(SCSortFun2, lists:sort(SCSortFun1, lists:filter(FilterFun, PassiveSCs))) of
                 [] ->
                     lager:warning("don't have any qualifying state channel left unused"),
                     State0;

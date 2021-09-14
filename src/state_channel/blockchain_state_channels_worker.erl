@@ -248,7 +248,7 @@ offer(
     SCPacket :: blockchain_state_channel_packet_v1:packet(),
     HandlerPid :: pid(),
     State0 :: state()
-) -> {noreply, state()} | {stop, any(), state()}.
+) -> state().
 packet(
     SCPacket,
     HandlerPid,
