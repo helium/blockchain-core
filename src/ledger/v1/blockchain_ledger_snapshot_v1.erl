@@ -581,14 +581,14 @@ load_into_ledger(Snapshot, L0, Mode) ->
     case maps:find(net_overage, Snapshot) of
         error -> ok;
         {ok, NO} ->
-            ok = blockchain_ledger_v1:net_overage(NO, L)
+            ok = blockchain_ledger_v1:net_overage(binary_to_term(NO), L)
     end,
 
     case maps:find(hnt_burned, Snapshot) of
         error -> ok;
         {ok, HB} ->
             ok = blockchain_ledger_v1:clear_hnt_burned(L),
-            ok = blockchain_ledger_v1:add_hnt_burned(HB, L)
+            ok = blockchain_ledger_v1:add_hnt_burned(binary_to_term(HB), L)
     end,
 
 
