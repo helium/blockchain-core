@@ -776,8 +776,8 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                         1 = ets:select_replace(Cache, [{Old, [], [{const, {Key, {ledger, NewLedger}}}]}]),
                                         {ok, new_context(NewLedger)};
                                     {ok, OtherHeight} ->
-                                        lager:warning("expected checkpoint ledger at height ~p but got height ~p",
-                                                      [Height, OtherHeight]),
+                                        lager:warning("expected checkpoint ~p ledger in dir ~p at height ~p but got height ~p",
+                                                      [Mode, CheckpointDir, Height, OtherHeight]),
                                         %% just blow it away and let it get re-calculated
                                         remove_checkpoint(CheckpointDir),
                                         ets:delete(Cache, Key),
@@ -790,7 +790,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                       {error, snapshot_not_found}
                             end;
                         _ ->
-                            lager:warning("couldn't find checkpoint dir? for ~p", [Height]),
+                            lager:warning("couldn't find checkpoint dir ~p for ~p", [CheckpointDir, Height]),
                             ets:delete(Cache, Key),
                             {error, snapshot_not_found}
                     end
