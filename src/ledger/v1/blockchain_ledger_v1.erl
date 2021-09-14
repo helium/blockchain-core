@@ -691,8 +691,7 @@ context_cache(Ledger) ->
     {Cache, GwCache}.
 
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
-new_snapshot(#ledger_v1{db=DB,
-                        snapshot=undefined,
+new_snapshot(#ledger_v1{snapshot=undefined,
                         snapshots=Cache,
                         mode=Mode,
                         active=#sub_ledger_v1{cache=undefined},
@@ -707,7 +706,7 @@ new_snapshot(#ledger_v1{db=DB,
         _ ->
             %% take a real rocksdb snapshot here and put that in the cache
             %% instead of using a checkpoint ledger as it's likely faster and cheaper
-            case rocksdb:snapshot(DB) of
+            case rocksdb:snapshot(db(Ledger)) of
                 {ok, SnapshotHandle} ->
                     %% set the snapshot handle in the ledger handle
                     %% so that the ledger we return from this function remains
@@ -737,7 +736,7 @@ new_snapshot(#ledger_v1{db=DB,
                         false ->
                             CheckpointDir = checkpoint_dir(Ledger, Height),
                             ok = filelib:ensure_dir(CheckpointDir),
-                            case rocksdb:checkpoint(DB, CheckpointDir) of
+                            case rocksdb:checkpoint(db(Ledger), CheckpointDir) of
                                 ok ->
                                     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                                     {ok, DelayedHeight} = current_height(DelayedLedger),
