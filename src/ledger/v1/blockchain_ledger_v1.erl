@@ -615,7 +615,7 @@ checkpoint_base(Dir) ->
             Dir
     end.
 
-checkpoint_dir(#ledger_v1{mode=aux, aux=#aux_ledger_v1{dir=Dir}}, Height) ->
+checkpoint_dir(#ledger_v1{mode=Aux, aux=#aux_ledger_v1{dir=Dir}}, Height) when Aux == aux; Aux == aux_load ->
     BaseDir = checkpoint_base(Dir),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]);
 checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
@@ -634,7 +634,7 @@ snapshot_key(#ledger_v1{mode=Aux}, Height) when Aux == aux; Aux == aux_load ->
 snapshot_key(#ledger_v1{}, Height) ->
     Height.
 
-context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
+context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) when Mode == active; Mode == delayed ->
     case application:get_env(blockchain, follow_mode, false) of
         true ->
             {ok, Ledger};
@@ -751,8 +751,8 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                             Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
                                        true ->
                                            delayed;
-                                       false ->
-                                           active
+                                       _ ->
+                                           mode(Ledger)
                                    end,
                             try
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
