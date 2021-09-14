@@ -179,12 +179,13 @@ change_my_name(F, ToDos) ->
         {priority, high}
     ],
     Parent = self(),
+    Ref = erlang:make_ref(),
     Workers = lists:foldl(
         fun(Args, Acc) ->
             Pid = erlang:spawn_opt(
                 fun() ->
                     Result = erlang:apply(F, Args),
-                    Parent ! {change_my_name, Result}
+                    Parent ! {Ref, Result}
                 end,
                 Opts
             ),
@@ -193,20 +194,20 @@ change_my_name(F, ToDos) ->
         [],
         ToDos
     ),
-    Results = change_my_name_rcv(false, erlang:length(ToDos)),
+    Results = change_my_name_rcv(Ref, false, erlang:length(ToDos)),
     [erlang:exit(Pid, done) || Pid <- Workers],
     Results.
  
-change_my_name_rcv(Result, 0) ->
+change_my_name_rcv(_Ref, Result, 0) ->
     Result;
-change_my_name_rcv(Result, Left) ->
+change_my_name_rcv(Ref, Result, Left) ->
     receive
-        {change_my_name, true} ->
+        {Ref, true} ->
             true;
-        {change_my_name, {true, Data}} ->
+        {Ref, {true, Data}} ->
             {true, Data};
-        {change_my_name, _} ->
-            change_my_name_rcv(Result, Left-1)
+        {Ref, _} ->
+            change_my_name_rcv(Ref, Result, Left-1)
     end.
 
 pmap(F, L) ->
@@ -725,5 +726,16 @@ fold_condition_checks_bad_test() ->
            {fun() -> 10 > 100 end, {error, '10_not_greater_than_100'}},
            {fun() -> <<"blort">> == <<"blort">> end, {error, blort_isnt_blort}}],
     ?assertEqual({error, '10_not_greater_than_100'}, fold_condition_checks(Bad)).
+
+change_my_name_test() ->
+    F = fun(I) ->
+        case I rem 2 == 0 of
+            true -> {true, I};
+            false -> false
+        end
+    end,
+    Args = [[I] || I <- lists:seq(1, 6)],
+    ?assertEqual({true, 2}, change_my_name(F, Args)),
+    ok.
 
 -endif.

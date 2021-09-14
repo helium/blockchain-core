@@ -197,7 +197,6 @@ basic_test(Config) ->
     meck:expect(blockchain_ledger_v1, find_scs_by_owner, fun(_, _) -> {ok, #{}} end),
 
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
-    ID = <<"ID1">>,
 
     ?assert(erlang:is_process_alive(Sup)),
 
