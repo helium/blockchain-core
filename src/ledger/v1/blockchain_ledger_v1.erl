@@ -544,10 +544,11 @@ new_snapshot(#ledger_v1{db=DB,
                         mode=Mode,
                         active=#sub_ledger_v1{cache=undefined},
                         delayed=#sub_ledger_v1{cache=undefined}}=Ledger)
-  when Mode == active ->
+  when Mode == active; Mode == aux; Mode == aux_load ->
     {ok, Height} = current_height(Ledger),
     Me = self(),
-    Old = {Height, {pending, Me}},
+    Key = snapshot_key(Ledger, Height),
+    Old = {Key, {pending, Me}},
     case ets:insert_new(Cache, Old) of
         false -> {ok, Ledger};
         _ ->
@@ -563,14 +564,14 @@ new_snapshot(#ledger_v1{db=DB,
                     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                     {ok, DelayedHeight} = current_height(DelayedLedger),
                     DeleteHeight = DelayedHeight - 1,
-                    case ets:lookup(Cache, DeleteHeight) of
+                    case ets:lookup(Cache, snapshot_key(Ledger, DelayedHeight)) of
                         [{_DeleteHeight, {snapshot, DeleteSnap}}] ->
                             rocksdb:release_snapshot(DeleteSnap);
                         _ ->
                             ok
                     end,
-                    ets:delete(Cache, DeleteHeight),
-                    1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {snapshot, SnapshotHandle}}}]}]),
+                    ets:delete(Cache, snapshot_key(Ledger, DeleteHeight)),
+                    1 = ets:select_replace(Cache, [{Old, [], [{const, {Key, {snapshot, SnapshotHandle}}}]}]),
                     %% take a checkpoint as well for use after a restart
                     %% This is treated as atomic and there are no further updates required, unlike
                     %% context_snapshot
@@ -600,16 +601,6 @@ new_snapshot(#ledger_v1{db=DB,
                     Error
             end
     end;
-new_snapshot(#ledger_v1{mode=Mode}=Ledger) when Mode == aux ->
-    case rocksdb:snapshot(db(Ledger)) of
-        {ok, SnapshotHandle} ->
-            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
-        E ->
-            E
-    end;
-new_snapshot(#ledger_v1{mode=Mode}=Ledger) when Mode == aux_load ->
-    %% noop
-    {ok, Ledger};
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
@@ -623,6 +614,9 @@ checkpoint_base(Dir) ->
             Dir
     end.
 
+checkpoint_dir(#ledger_v1{mode=aux, aux=#aux_ledger_v1{dir=Dir}}, Height) ->
+    BaseDir = checkpoint_base(Dir),
+    filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]);
 checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
     BaseDir = checkpoint_base(Dir),
     filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
@@ -634,6 +628,11 @@ remove_checkpoint(CheckpointDir) ->
     [begin rocksdb:destroy(TmpDir, []), file:del_dir(filename:dirname(TmpDir)) end || TmpDir <- filelib:wildcard(CheckpointDir ++ "-[0-9]*/" ++ ?DB_FILE)],
     file:del_dir(filename:dirname(CheckpointDir)).
 
+snapshot_key(#ledger_v1{mode=Aux}, Height) when Aux == aux; Aux == aux_load ->
+    {aux, Height};
+snapshot_key(#ledger_v1{}, Height) ->
+    Height.
+
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
     case application:get_env(blockchain, follow_mode, false) of
         true ->
@@ -641,15 +640,16 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
         false ->
             {ok, Height} = current_height(Ledger),
             CheckpointDir = checkpoint_dir(Ledger, Height),
-            case ets:lookup(Cache, Height) of
-                [{Height, {pending, _Pid}}] ->
+            Key = snapshot_key(Ledger, Height),
+            case ets:lookup(Cache, Key) of
+                [{Key, {pending, _Pid}}] ->
                     has_snapshot(Height, Ledger);
-                [{_Height, _SnapLedger}] ->
+                [{Key, _SnapLedger}] ->
                     %% ledger already exists
                     has_snapshot(Height, Ledger);
                 [] ->
                     Me = self(),
-                    Old = {Height, {pending, Me}},
+                    Old = {Key, {pending, Me}},
                     case ets:insert_new(Cache, Old) of
                         false -> has_snapshot(Height, Ledger);
                         _ ->
@@ -670,7 +670,7 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                                     case Mode of
                                         delayed ->
                                             file:write_file(filename:join(TmpDir, "delayed"), <<>>);
-                                        active ->
+                                        _ ->
                                             ok
                                     end,
                                     %% open the checkpoint read-write and commit the changes in the ETS table into it
@@ -693,7 +693,7 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                                             file:delete(filename:join([TmpDir, "delayed"])),
                                             rocksdb:destroy(TmpDir, []),
                                             file:del_dir(filename:dirname(TmpDir)),
-                                            ets:delete(Cache, Height)
+                                            ets:delete(Cache, Key)
                                     end,
                                     has_snapshot(Height, Ledger)
                             end
@@ -703,11 +703,13 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
 
 has_snapshot(Height, Ledger) ->
     has_snapshot(Height, Ledger, 120).
+
 has_snapshot(_Height, _Ledger, 0) ->
     {error, too_many_retries};
 has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
     Me = self(),
-    case ets:lookup(Cache, Height) of
+    Key = snapshot_key(Ledger, Height),
+    case ets:lookup(Cache, Key) of
         [{Height, {pending, Pid}} = OtherPend] when Pid /= Me ->
             lager:debug("other pid ~p has the snapshot lock for ~p", [Pid, Height]),
             case is_process_alive(Pid) of
@@ -717,7 +719,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                 false ->
                     case ets:select_replace(Cache,
                                             [{OtherPend, [],
-                                              [{const, {Height, {pending, Me}}}]}]) of
+                                              [{const, {Key, {pending, Me}}}]}]) of
                         %% we grabbed the lock, proceed by restarting
                         1 -> has_snapshot(Height, Ledger, Retries);
                         0 ->
@@ -725,9 +727,9 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                             has_snapshot(Height, Ledger, Retries - 1)
                     end
             end;
-        Res when Res == [] orelse Res == [{Height, {pending, Me}}] ->
+        Res when Res == [] orelse Res == [{Key, {pending, Me}}] ->
             %% try to mark pending since this can take a bit
-            Old = {Height, {pending, Me}},
+            Old = {Key, {pending, Me}},
             GotLock = case Res of
                 [] ->
                     %% nobody has the lock, try to take it
@@ -765,29 +767,29 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                 %% sanity check
                                 case current_height(NewLedger2) of
                                     {ok, Height} ->
-                                        1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
+                                        1 = ets:select_replace(Cache, [{Old, [], [{const, {Key, {ledger, NewLedger2}}}]}]),
                                         {ok, new_context(NewLedger2)};
                                     {ok, OtherHeight} ->
                                         lager:warning("expected checkpoint ledger at height ~p but got height ~p",
                                                       [Height, OtherHeight]),
                                         %% just blow it away and let it get re-calculated
                                         remove_checkpoint(CheckpointDir),
-                                        ets:delete(Cache, Height),
+                                        ets:delete(Cache, Key),
                                         {error, snapshot_not_found}
                                 end
                             catch What:Why ->
                                       lager:warning("error opening checkpoint: ~p ~p", [What, Why]),
                                       remove_checkpoint(CheckpointDir),
-                                      ets:delete(Cache, Height),
+                                      ets:delete(Cache, Key),
                                       {error, snapshot_not_found}
                             end;
                         _ ->
                             lager:warning("couldn't find checkpoint dir? for ~p", [Height]),
-                            ets:delete(Cache, Height),
+                            ets:delete(Cache, Key),
                             {error, snapshot_not_found}
                     end
             end;
-        [{Height, {snapshot, SnapshotHandle}}] ->
+        [{Key, {snapshot, SnapshotHandle}}] ->
             lager:debug("snapshot @ ~p", [Height]),
             %% because the snapshot was taken as we ingested a block to the leading ledger we need to query it
             %% as an active ledger to get the right information at this desired height
@@ -795,7 +797,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                    blockchain_ledger_v1:mode(active,
                                              Ledger#ledger_v1{snapshot=SnapshotHandle}))
             };
-        [{Height, {ledger, SnapLedger}}] ->
+        [{Key, {ledger, SnapLedger}}] ->
             lager:debug("cached checkpoint @ ~p", [Height]),
             {ok, new_context(SnapLedger)}
     end.
