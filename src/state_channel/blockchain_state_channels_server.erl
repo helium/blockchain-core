@@ -17,6 +17,7 @@
     start_link/1,
     get_all/0,
     get_actives/0,
+    get_active_pid/1,
     get_actives_count/0,
     gc_state_channels/1,
     handle_offer/3,
@@ -66,6 +67,10 @@ get_all() ->
 get_actives() ->
     gen_server:call(?SERVER, get_actives, infinity).
 
+-spec get_active_pid(ID :: blockchain_state_channel_v1:id()) -> pid() | undefined.
+get_active_pid(ID) ->
+    gen_server:call(?SERVER, {get_active_pid, ID}, infinity).
+
 -spec get_actives_count() -> non_neg_integer().
 get_actives_count() ->
     erlang:length(pg2:get_members(?SC_WORKER_GROUP)).
@@ -81,6 +86,7 @@ gc_state_channels(SCIDs) ->
     HandlerPid :: pid()
 ) -> ok | reject.
 handle_offer(Offer, SCPacketHandler, HandlerPid) ->
+    lager:debug("handle_offer ~p from ~p", [Offer, HandlerPid]),
     case blockchain_state_channel_offer_v1:validate(Offer) of
         {error, _Reason} ->
             lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]),
@@ -96,6 +102,7 @@ handle_offer(Offer, SCPacketHandler, HandlerPid) ->
 
 -spec handle_packet(blockchain_state_channel_packet_v1:packet(), pos_integer(), atom(), pid()) -> ok.
 handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
+    lager:debug("handle_packet ~p from ~p (~pms)", [SCPacket, HandlerPid, PacketTime]),
     case SCPacketHandler:handle_packet(SCPacket, PacketTime, HandlerPid) of
         ok ->
             HotspotID = blockchain_state_channel_packet_v1:hotspot(SCPacket),
@@ -131,6 +138,13 @@ handle_call(get_all, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
 handle_call(get_actives, _From, #state{state_channels=SCs, actives=ActiveSCs}=State) ->
     {reply, maps:with([ID || {_, ID} <- ActiveSCs], SCs), State};
+handle_call({get_active_pid, ID}, _From, #state{actives=ActiveSCs}=State) ->
+    Reply = 
+        case lists:keyfind(ID, 2, ActiveSCs) of
+            false -> undefined;
+            {Pid, ID} -> Pid
+        end,
+    {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -196,8 +210,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
         {_, undefined} ->
             lager:error("failed to get block ~p", [BlockHash]),
             {noreply, State0};
-        {[], _} ->
-            lager:debug("no transactions found in ~p", [BlockHash]),
+        {[], Block} ->
+            lager:debug("no transactions found in ~p", [blockchain_block:height(Block)]),
             {noreply, State0};
         {Txns, Block} ->
             State1 =
@@ -249,12 +263,15 @@ terminate(_Reason, _State) ->
 ) -> ok | reject.
 handle_offer(Offer, HandlerPid) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    HotspotName = blockchain_utils:addr2name(HotspotID),
     case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
         undefined ->
+            lager:debug("could not finds hotspot in cache for ~p", [HotspotName]),
             MaxActorsAllowed = max_actors_allowed(),
             Actives = pg2:get_members(?SC_WORKER_GROUP),
             case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
                 {ok, Pid} ->
+                    lager:debug("found ~p for ~p", [Pid, HotspotName]),
                     ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
                     blockchain_state_channels_worker:handle_offer(
                         Pid,
@@ -262,12 +279,14 @@ handle_offer(Offer, HandlerPid) ->
                         HandlerPid
                     );
                 {error, _Reason} ->
+                    lager:debug("count not find any state channel for ~p", [HotspotName]),
                     %% TODO: Worker could report when they get at capacity so we can add an extra active
                     ok = gen_server:cast(?SERVER, get_new_active),
                     %% TODO: maybe we should not reject here?
                     reject
             end;
         Pid ->
+            lager:debug("found ~p for ~p", [Pid, HotspotName]),
             blockchain_state_channels_worker:handle_offer(
                 Pid,
                 Offer,
@@ -387,21 +406,23 @@ opened_state_channel(
     Amt = blockchain_txn_state_channel_open_v1:amount(Txn),
     ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
     BlockHeight = blockchain_block:height(Block),
+    ExpireAt = BlockHeight + ExpireWithin,
     {SC, Skewed} =
         blockchain_state_channel_v1:new(
             ID,
             Owner,
             Amt,
             BlockHash,
-            (BlockHeight + ExpireWithin)
+            ExpireAt
         ),
     SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
     State1 = State0#state{state_channels=maps:put(ID, SignedSC, SCs)},
+    SCName = blockchain_utils:addr2name(blockchain_state_channel_v1:id(SignedSC)),
+    lager:info("opened state channel ~p (with ~p DC) will expire at block ~p", [SCName, Amt, ExpireAt]),
     case Actives of
         [] ->
-            lager:info("no active state channel setting ~p as active",
-                        [blockchain_utils:addr2name(blockchain_state_channel_v1:id(SignedSC))]),
+            lager:info("no active state channel setting ~p as active", [SCName]),
             Pid = start_worker(SC, Skewed, State1),
             State1#state{actives=[{Pid, ID}|Actives]};
         _ ->

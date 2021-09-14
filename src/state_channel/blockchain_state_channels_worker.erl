@@ -78,6 +78,7 @@ get(Pid) ->
     HandlerPid :: pid()
 ) -> ok | reject.
 handle_offer(Pid, Offer, HandlerPid) ->
+    lager:debug("got offer ~p from ~p (to ~p)", [Offer, HandlerPid, Pid]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(Offer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
@@ -94,6 +95,7 @@ handle_offer(Pid, Offer, HandlerPid) ->
     HandlerPid :: pid()
 ) -> ok.
 handle_packet(Pid, SCPacket, HandlerPid) ->
+    lager:debug("got packet ~p from ~p (to ~p)", [SCPacket, HandlerPid, Pid]),
     gen_server:cast(Pid, {handle_packet, SCPacket, HandlerPid}).
 
 %% ------------------------------------------------------------------
@@ -197,7 +199,7 @@ offer(
     HotspotName = blockchain_utils:addr2name(HotspotID),
     lager:debug("handling offer from ~p", [HotspotName]),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(Offer),
-    NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, State0#state.dc_payload_size),
+    NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
     TotalDCs = blockchain_state_channel_v1:total_dcs(SC),
     DCAmount = blockchain_state_channel_v1:amount(SC),
     case (TotalDCs + NumDCs) > DCAmount andalso PreventOverSpend of
@@ -229,18 +231,20 @@ offer(
                     ok = send_offer_rejection(HandlerPid),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
-                    lager:debug("purchasing offer from ~p", [HotspotName]),
+                    lager:debug("purchasing offer from ~p ~p", [HotspotName, PurchaseSC]),
                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
-                    ok = blockchain_state_channel_handler:send_purchase(HandlerPid,
-                                                                        SignedPurchaseSC,
-                                                                        HotspotID,
-                                                                        PacketHash,
-                                                                        Region),
+                    ok = blockchain_state_channel_handler:send_purchase(
+                        HandlerPid,
+                        SignedPurchaseSC,
+                        HotspotID,
+                        PacketHash,
+                        Region
+                    ),
                     ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
                     State1 = update_streams(HotspotID, HandlerPid, State0),
-                    {noreply, State1}
+                    {noreply, State1#state{state_channel=SignedPurchaseSC}}
             end
     end.
 
@@ -322,11 +326,13 @@ send_offer_rejection(HandlerPid) ->
     RejectionMsg = blockchain_state_channel_rejection_v1:new(),
     ok = blockchain_state_channel_handler:send_rejection(HandlerPid, RejectionMsg).
 
--spec try_update_summary(SC :: blockchain_state_channel_v1:state_channel(),
-                         HotspotID :: libp2p_crypto:pubkey_bin(),
-                         PayloadSize :: pos_integer(),
-                         DCPayloadSize :: undefined | pos_integer(),
-                         MaxActorsAllowed :: non_neg_integer()) ->
+-spec try_update_summary(
+    SC :: blockchain_state_channel_v1:state_channel(),
+    HotspotID :: libp2p_crypto:pubkey_bin(),
+    PayloadSize :: pos_integer(),
+    DCPayloadSize :: undefined | pos_integer(),
+    MaxActorsAllowed :: non_neg_integer()
+) ->
     {ok, blockchain_state_channel_v1:state_channel()} | {error, does_not_fit}.
 try_update_summary(SC, HotspotID, PayloadSize, DCPayloadSize, MaxActorsAllowed) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),

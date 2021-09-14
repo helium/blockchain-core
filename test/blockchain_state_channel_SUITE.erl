@@ -69,6 +69,8 @@ all() ->
 init_per_testcase(basic_test, Config) ->
     BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
     [{base_dir, BaseDir} |Config];
+init_per_testcase(full_test, Config) ->
+    init_per_testcase(full_test, Config, 2);
 init_per_testcase(max_scs_open_v2_test, Config) ->
     init_per_testcase(max_scs_open_v2_test, Config, 2);
 init_per_testcase(Test, Config) ->
@@ -85,24 +87,50 @@ init_per_testcase(Test, Config, SCVersion) ->
     Balance = 50000,
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
-    [RouterNode|_] = Nodes,
+    [RouterNode, GatewayNode1|_] = Nodes,
+    Dir = os:getenv("SC_DIR", ""),
     {ok, _} = ct_rpc:call(
         RouterNode,
         lager,
         trace_file,
-        ["sc.log", [{module, blockchain_state_channels_server}], debug]
+        [Dir ++ "sc_server.log", [{module, blockchain_state_channels_server}], debug]
     ),
     {ok, _} = ct_rpc:call(
         RouterNode,
         lager,
         trace_file,
-        ["sc.log", [{module, blockchain_state_channel_handler}], debug]
+        [Dir ++ "sc_server.log", [{module, blockchain_state_channel_handler}], debug]
     ),
     {ok, _} = ct_rpc:call(
         RouterNode,
         lager,
         trace_file,
-        ["sc.log", [{module, blockchain_state_channel_v1}], debug]
+        [Dir ++ "sc_server.log", [{module, blockchain_state_channel_v1}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        [Dir ++ "sc_server.log", [{module, blockchain_state_channels_worker}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        RouterNode,
+        lager,
+        trace_file,
+        [Dir ++ "sc_server.log", [{module, blockchain_state_channels_cache}], debug]
+    ),
+
+    {ok, _} = ct_rpc:call(
+        GatewayNode1,
+        lager,
+        trace_file,
+        [Dir ++ "sc_client.log", [{module, blockchain_state_channels_client}], debug]
+    ),
+    {ok, _} = ct_rpc:call(
+        GatewayNode1,
+        lager,
+        trace_file,
+        [Dir ++ "sc_client.log", [{module, blockchain_state_channel_handler}], debug]
     ),
 
     %% accumulate the address of each node
@@ -114,17 +142,19 @@ init_per_testcase(Test, Config, SCVersion) ->
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
     DefaultVars = #{num_consensus_members => NumConsensusMembers},
-    ExtraVars = #{max_open_sc => 2,
-                  min_expire_within => 10,
-                  max_xor_filter_size => 1024*100,
-                  max_xor_filter_num => 5,
-                  max_subnet_size => 65536,
-                  min_subnet_size => 8,
-                  max_subnet_num => 20,
-                  sc_grace_blocks => 5,
-                  dc_payload_size => 24,
-                  sc_max_actors => 100,
-                  sc_version => SCVersion},
+    ExtraVars = #{
+        max_open_sc => 2,
+        min_expire_within => 10,
+        max_xor_filter_size => 1024*100,
+        max_xor_filter_num => 5,
+        max_subnet_size => 65536,
+        min_subnet_size => 8,
+        max_subnet_num => 20,
+        sc_grace_blocks => 5,
+        dc_payload_size => 24,
+        sc_max_actors => 100,
+        sc_version => SCVersion
+    },
 
     {InitialVars, {master_key, MasterKey}} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
@@ -141,21 +171,29 @@ init_per_testcase(Test, Config, SCVersion) ->
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
     %% tell each node to integrate the genesis block
-    lists:foreach(fun(Node) ->
-                          ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
-                  end, Nodes),
+    lists:foreach(
+        fun(Node) ->
+            ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
+        end,
+        Nodes
+    ),
 
     %% wait till each worker gets the gensis block
     ok = lists:foreach(
-           fun(Node) ->
-                   ok = blockchain_ct_utils:wait_until(
-                          fun() ->
-                                  C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                                  {ok, Height} = ct_rpc:call(Node, blockchain, height, [C0]),
-                                  ct:pal("node ~p height ~p", [Node, Height]),
-                                  Height == 1
-                          end, 100, 100)
-           end, Nodes),
+        fun(Node) ->
+            ok = blockchain_ct_utils:wait_until(
+                fun() ->
+                    C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                    {ok, Height} = ct_rpc:call(Node, blockchain, height, [C0]),
+                    ct:pal("node ~p height ~p", [Node, Height]),
+                    Height == 1
+                end,
+                100,
+                100
+            )
+        end,
+        Nodes
+    ),
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
@@ -254,9 +292,16 @@ full_test(Config) ->
     %% Checking that state channel got created properly
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
-    %% Check that the nonce of the sc server is okay
+    %% Check that the state channel is in server
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        ActiveSCs = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, []),
+        maps:is_key(ID, ActiveSCs)
+    end, 30, timer:seconds(1)),
+
+    %% Check that the state channel is active and running
+    SCWorkerPid = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [ID]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        erlang:is_pid(SCWorkerPid) andalso ct_rpc:call(RouterNode, erlang, is_process_alive, [SCWorkerPid])
     end, 30, timer:seconds(1)),
 
     %% Sending 1 packet
@@ -266,7 +311,8 @@ full_test(Config) ->
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        SC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]),
+        1 == blockchain_state_channel_v1:nonce(SC)
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
@@ -274,11 +320,10 @@ full_test(Config) ->
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
-    timer:sleep(timer:seconds(1)),
-
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        SC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]),
+        2 == blockchain_state_channel_v1:nonce(SC)
     end, 30, timer:seconds(1)),
 
     %% Adding 20 fake blocks to get the state channel to expire
@@ -304,6 +349,16 @@ full_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
+
+    %% Check that the state channel is not active and not running
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ct_rpc:call(RouterNode, erlang, is_process_alive, [SCWorkerPid]) == false
+    end, 30, timer:seconds(1)),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ActiveSCs = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, []),
+        maps:is_key(ID, ActiveSCs) == false
+    end, 30, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
 
@@ -2356,9 +2411,11 @@ check_all_closed(IDs) ->
 check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID) ->
     RouterLedger = blockchain:ledger(RouterChain),
     {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
-    C1 = ID == blockchain_ledger_state_channel_v1:id(SC),
-    C2 = RouterPubkeyBin == blockchain_ledger_state_channel_v1:owner(SC),
-    C1 andalso C2.
+    SCModule = case erlang:element(1, SC) == ledger_state_channel_v2 of 
+        true -> blockchain_ledger_state_channel_v2;
+        false -> blockchain_ledger_state_channel_v1
+    end,
+    ID == SCModule:id(SC) andalso RouterPubkeyBin == SCModule:owner(SC).
 
 add_block(RouterNode, RouterChain, ConsensusMembers, Txns) ->
     ct:pal("RouterChain: ~p", [RouterChain]),

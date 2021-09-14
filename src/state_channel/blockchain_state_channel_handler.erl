@@ -67,7 +67,6 @@ send_packet(Pid, Packet) ->
 
 -spec send_offer(pid(), blockchain_state_channel_packet_offer_v1:offer()) -> ok.
 send_offer(Pid, Offer) ->
-    lager:info("sending offer: ~p, pid: ~p", [Offer, Pid]),
     Pid ! {send_offer, Offer},
     ok.
 
@@ -77,19 +76,16 @@ send_offer(Pid, Offer) ->
                     PacketHash :: binary(),
                     Region :: atom()) -> ok.
 send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
-    %lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
     Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
     ok.
 
 -spec send_banner(pid(), blockchain_state_channel_banner_v1:banner()) -> ok.
 send_banner(Pid, Banner) ->
-    lager:info("sending banner: ~p, pid: ~p", [Banner, Pid]),
     Pid ! {send_banner, Banner},
     ok.
 
 -spec send_rejection(pid(), blockchain_state_channel_rejection_v1:rejection()) -> ok.
 send_rejection(Pid, Rejection) ->
-    lager:info("sending rejection: ~p, pid: ~p", [Rejection, Pid]),
     Pid ! {send_rejection, Rejection},
     ok.
 
@@ -118,7 +114,7 @@ init(server, _Conn, [_Path, Blockchain]) ->
                 ActiveSCs ->
                     [{SCID, ActiveSC}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    lager:info("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
+                    lager:debug("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     EncodedSCBanner =
                         e2qc:cache(
                             ?MODULE,
@@ -205,7 +201,7 @@ handle_data(server, Data, State=#state{pending_offers=PendingOffers}) ->
                             lager:warning("packet failed to validate ~p reason ~p", [Packet, Reason]),
                             {stop, normal};
                         true ->
-                            lager:info("sc_handler server got packet: ~p", [Packet]),
+                            lager:debug("sc_handler server got packet: ~p", [Packet]),
                             blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, State#state.handler_mod, self()),
                             {noreply, State}
                     end
@@ -214,25 +210,29 @@ handle_data(server, Data, State=#state{pending_offers=PendingOffers}) ->
 
 handle_info(client, {send_offer, Offer}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Offer),
+    lager:debug("sending offer: ~p", [Offer]),
     {noreply, State, Data};
 handle_info(client, {send_packet, Packet}, State) ->
-    lager:debug("sc_handler client sending packet: ~p", [Packet]),
     Data = blockchain_state_channel_message_v1:encode(Packet),
+    lager:debug("sc_handler client sending packet: ~p", [Packet]),
     {noreply, State, Data};
 handle_info(server, {send_banner, Banner}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Banner),
+    lager:debug("sending banner: ~p", [Banner]),
     {noreply, State, Data};
 handle_info(server, {send_rejection, Rejection}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Rejection),
+    lager:debug("sending rejection: ~p", [Rejection]),
     {noreply, State, Data};
 handle_info(server, {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region}, State) ->
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
+    lager:debug("sending purchase: ~p", [PurchaseMsg]),
     {noreply, State, Data};
 handle_info(server, {send_response, Resp}, State) ->
-    lager:debug("sc_handler server sending resp: ~p", [Resp]),
     Data = blockchain_state_channel_message_v1:encode(Resp),
+    lager:debug("sc_handler server sending resp: ~p", [Resp]),
     {noreply, State, Data};
 handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unhandled msg: ~p", [_Type, _Msg]),
