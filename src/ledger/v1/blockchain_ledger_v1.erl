@@ -750,7 +750,12 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                        true ->
                                            delayed;
                                        _ ->
-                                           mode(Ledger)
+                                           case mode(Ledger) of
+                                               aux ->
+                                                   aux;
+                                               _ ->
+                                                   active
+                                           end
                                    end,
                             try
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
