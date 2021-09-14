@@ -129,6 +129,10 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast(get_new_active, State0) ->
+    lager:info("get a new active state channel"),
+    State1 = get_new_active(State0),
+    {noreply, State1};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -214,6 +218,7 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%% TODO: function docs
 -spec handle_offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
     HandlerPid :: pid()
@@ -233,7 +238,8 @@ handle_offer(Offer, HandlerPid) ->
                         HandlerPid
                     );
                 {error, _Reason} ->
-                    %% TODO: We can't get another active lets try to get a new one
+                    ok = gen_server:cast(?SERVER, get_new_active),
+                    %% TODO: Worker could report when they get at capacity so we can add an extra active
                     reject
             end;
         Pid ->
@@ -255,7 +261,8 @@ select_best_active(
     MaxActorsAllowed
 ) ->
     Fun = fun(Pid, HID, Max) ->
-        SC = blockchain_state_channels_worker:get(Pid), %% Only blocking call so far but done in parallel 
+        %% Only blocking call so far but done in parallel 
+        SC = blockchain_state_channels_worker:get(Pid),
         case blockchain_state_channel_v1:can_fit(HID, SC, Max) of
             false -> false;
             true -> {true, Pid};
@@ -284,6 +291,55 @@ max_actors_allowed() ->
             end
         end
     ).
+
+-spec get_new_active(State :: state()) -> state().
+get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, sc_version=SCVersion}=State0) ->
+    {ok, BlockHeight} = blockchain:height(Chain),
+    case maps:to_list(maps:without([ID || {_, ID} <- Actives], SCs)) of
+        [] ->
+            lager:warning("don't have any state channel left unused"),
+            State0;
+        PassiveSCs ->
+            %% We want to pick the next active state channel which has a higher block expiration
+            %% but lower nonce
+            Headroom =
+                case application:get_env(blockchain, sc_headroom, 11) of
+                    {ok, X} -> X;
+                    X -> X
+                end,
+            FilterFun =
+                fun({_, SC}) ->
+                        case SCVersion of
+                            2 ->
+                                ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+                                ExpireAt > BlockHeight andalso
+                                blockchain_state_channel_v1:state(SC) == open andalso
+                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom);
+                            _ ->
+                                %% We are not on sc_version=2, just set this to true to include any state channel
+                                true
+                        end
+                end,
+            SCSortFun1 =
+                fun({_ID1, SC1}, {_ID2, SC2}) ->
+                    blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
+                end,
+            SCSortFun2 =
+                fun({_ID1, SC1}, {_ID2, SC2}) ->
+                    blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
+                end,
+            case lists:filter(SCSortFun2, lists:sort(SCSortFun1, lists:filter(FilterFun, PassiveSCs))) of
+                [] ->
+                    lager:warning("don't have any qualifying state channel left unused"),
+                    State0;
+                Filtered ->
+                    [{ID, SC}|_] = Filtered,
+                    {ok, {_, Skewed}} = blockchain_state_channel_v1:fetch(DB, ID),
+                    Pid = start_worker(SC, Skewed, State0),
+                    lager:info("~p is now active", [blockchain_utils:addr2name(ID)]),
+                    State0#state{actives=[{Pid, ID}|Actives]}
+            end
+    end.
 
 -spec opened_state_channel(
     Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
