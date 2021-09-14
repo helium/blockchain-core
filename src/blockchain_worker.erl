@@ -1198,13 +1198,14 @@ delete_dir(Filename) ->
               false -> filename:dirname(Filename)
           end,
 
-    Files = case file:list_dir(Dir) of
-                {error, enoent} -> [];
-                {error, _} = Err -> throw(Err);
-                {ok, F} -> F
-            end,
+    do_clean_dir(get_files_to_delete(Dir), fun(_) -> true end).
 
-    do_clean_dir(Files, fun(_) -> true end).
+get_files_to_delete(Dir) ->
+    case file:list_dir(Dir) of
+        {error, enoent} -> [];
+        {error, _} = Err -> throw(Err);
+        {ok, Fs} -> [ filename:join(Dir, F) || F <- Fs ]
+    end.
 
 clean_dir(Dir) ->
     WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
@@ -1221,7 +1222,7 @@ clean_dir(Dir) ->
                         end
                 end,
 
-    do_clean_dir(element(2, file:list_dir(Dir)), FilterFun).
+    do_clean_dir(get_files_to_delete(Dir), FilterFun).
 
 do_clean_dir(Files, FilterFun) ->
     lists:foreach(fun(F) -> file:delete(F) end,
