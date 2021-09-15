@@ -433,7 +433,6 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
-            lager:info("took ~p ms for block height ~p", [End - Start, Height]),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
@@ -441,8 +440,13 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
-                            absorb_delayed(Block, Chain0),
-                            absorb_aux(Block, Chain0);
+                            End2 = erlang:monotonic_time(millisecond),
+                            ok = absorb_delayed(Block, Chain0),
+                            ok = absorb_aux(Block, Chain0),
+                            End3 = erlang:monotonic_time(millisecond),
+                            lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
+                                       [End - Start, End2 - End, End3 - End2, Height]),
+                            ok;
                         Any ->
                             Any
                     end;
@@ -525,13 +529,21 @@ absorb_block(Block, Rescue, Chain) ->
 -spec absorb(txn(),blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
+    Start = erlang:monotonic_time(millisecond),
+
     try Type:absorb(Txn, Chain) of
         {error, _Reason}=Error ->
             lager:info("failed to absorb ~p ~p ~s",
                        [Type, _Reason, ?MODULE:print(Txn)]),
             Error;
         ok ->
-            ok
+            End = erlang:monotonic_time(millisecond),
+            case (End - Start) >= 5 of
+                true ->
+                    lager:info("took ~p ms to absorb ~p", [End - Start, Type]),
+                    ok;
+                _ -> ok
+            end
     catch
         What:Why:Stack ->
             lager:warning("crash during absorb: ~p ~p", [Why, Stack]),

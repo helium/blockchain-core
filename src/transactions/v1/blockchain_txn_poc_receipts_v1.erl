@@ -799,10 +799,16 @@ absorb(Txn, Chain) ->
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
                         %% as new calculate_delta calls back into check_is_valid_poc
-                        lists:foreach(fun({Gateway, Delta}) ->
-                                              blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
-                                      end,
-                                      ?MODULE:deltas(Txn, Chain)),
+                        case blockchain:config(?election_version, Ledger) of
+                            %% election v4 removed score from consideration
+                            {ok, EV} when EV >= 4 ->
+                                ok;
+                            _ ->
+                                lists:foreach(fun({Gateway, Delta}) ->
+                                                      blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
+                                              end,
+                                              ?MODULE:deltas(Txn, Chain))
+                        end,
                         blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger);
                     _ ->
                         %% continue doing the old behavior
