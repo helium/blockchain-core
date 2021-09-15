@@ -345,11 +345,6 @@ full_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
-    RouterLedger = blockchain:ledger(RouterChain),
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
-    end, 10, timer:seconds(1)),
-
     %% Check that the state channel is not active and not running
     ok = blockchain_ct_utils:wait_until(fun() ->
         ct_rpc:call(RouterNode, erlang, is_process_alive, [SCWorkerPid]) == false

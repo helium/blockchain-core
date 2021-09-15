@@ -212,8 +212,10 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
             {noreply, State0};
         {[], Block} ->
             lager:debug("no transactions found in ~p", [blockchain_block:height(Block)]),
-            {noreply, State0};
+            State1 = check_state_channel_expiration(Block, State0),
+            {noreply, State1};
         {Txns, Block} ->
+            lager:info("found ~p in ~p", [Txns, blockchain_block:height(Block)]),
             State1 =
                 lists:foldl(
                     fun(Txn, State) ->
@@ -234,11 +236,10 @@ handle_info(
     {'DOWN', _Ref, process, Pid, _Reason},
     #state{state_channels=SCs, actives=Actives}=State0
 ) ->
-    %% TODO: we need to do more here
-    ID = lists:keyfind(Pid, 1, Actives),
-    lager:info("~p went @ ~p down: ~p", [blockchain_utils:addr2name(ID), Pid, _Reason]),
+    {Pid, ID} = lists:keyfind(Pid, 1, Actives),
+    lager:info("state channel ~p @ ~p went down: ~p", [blockchain_utils:addr2name(ID), Pid, _Reason]),
     State1 = State0#state{
-        state_channels=maps:remove(ID, SCs),
+        state_channels=maps:remove(ID, SCs), %% TODO: Maybe marked as closed?
         actives=lists:keydelete(Pid, 1, Actives)
     },
     {noreply, State1};
@@ -280,7 +281,6 @@ handle_offer(Offer, HandlerPid) ->
                     );
                 {error, _Reason} ->
                     lager:debug("count not find any state channel for ~p", [HotspotName]),
-                    %% TODO: Worker could report when they get at capacity so we can add an extra active
                     ok = gen_server:cast(?SERVER, get_new_active),
                     %% TODO: maybe we should not reject here?
                     reject
@@ -466,7 +466,14 @@ check_state_channel_expiration(
                     SC;
                 true ->
                     lager:info("closing ~p expired", [blockchain_utils:addr2name(ID)]),
-                    SC0 = blockchain_state_channel_v1:state(closed, SC),
+                    LatestSC =
+                        case get_worker_pid(ID, State) of
+                            undefined ->
+                                SC;
+                            Pid ->
+                                blockchain_state_channels_worker:get(Pid)
+                        end,
+                    SC0 = blockchain_state_channel_v1:state(closed, LatestSC),
                     SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
                     ok = expire_state_channel(SC1, Owner, OwnerSigFun, State),
                     SC1
@@ -583,7 +590,8 @@ get_state_channel_txns_from_block(Chain, BlockHash, #state{owner={Owner, _}}) ->
                         blockchain_txn_state_channel_close_v1 ->
                             SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
                             blockchain_state_channel_v1:owner(SC) == Owner;
-                        _ -> false
+                        _ ->
+                            false
                     end
                 end,
                 blockchain_block:transactions(Block)

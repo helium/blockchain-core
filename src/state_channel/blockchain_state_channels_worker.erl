@@ -170,7 +170,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 terminate(_Reason, _State) ->
     Deleted = blockchain_state_channels_cache:delete_pids(self()),
-    lager:info("terminate: ~p, deleted ~p from cache", [Deleted]),
+    lager:info("terminate: ~p, deleted ~p from cache", [_Reason, Deleted]),
     ok.
 
 %% ------------------------------------------------------------------
@@ -275,25 +275,23 @@ packet(
             update_streams(HotspotID, HandlerPid, State0);
         false ->
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC0, Skewed0),
-            ExistingSCNonce = blockchain_state_channel_v1:nonce(SC1),
-            SC2 = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC1),
-            SC3 = case SCVer of
+            SC2 = case SCVer of
                 2 ->
                     %% we don't update the state channel summary here
                     %% it happens in `send_purchase` for v2 SCs
-                    SC2;
+                    SC1;
                 _ ->
-                    {SC, _} =
-                        update_sc_summary(
+                    {ok, SC} = 
+                        try_update_summary(
+                            SC1, 
                             HotspotID,
                             erlang:byte_size(Payload),
                             DCPayloadSize,
-                            SC2,
                             MaxActorsAllowed
                         ),
                     SC
             end,
-            SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
+            SignedSC = blockchain_state_channel_v1:sign(SC2, OwnerSigFun),
             ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
             State1 = State0#state{state_channel=SignedSC, skewed=Skewed1},
             update_streams(HotspotID, HandlerPid, State1)
