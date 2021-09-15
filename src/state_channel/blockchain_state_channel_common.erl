@@ -315,7 +315,7 @@ handle_next_offer(HandlerState=#handler_state{offer_queue=[{NextOffer, OfferTime
         Offer :: blockchain_state_channel_packet_offer_v1:offer(),
         Time :: pos_integer(),
         HandlerState :: #handler_state{}
-) -> {ok, State :: #handler_state{}, Msg :: any()}.
+) -> {ok, State :: #handler_state{}, Msg :: any()} | {ok, State :: #handler_state{}}.
 handle_offer(Offer, Time, HandlerState) ->
     lager:debug("sc_handler server got offer: ~p", [Offer]),
     MaybeEncodeMsg = HandlerState#handler_state.encode_pb,
