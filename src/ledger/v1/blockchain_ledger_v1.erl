@@ -363,6 +363,7 @@
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
 -type reward_diff() :: {ActualRewards :: blockchain_txn_reward_v1:rewards(), AuxRewards :: blockchain_txn_reward_v1:rewards()}.
 -type reward_md_diff() :: {ActualRewardsMD :: blockchain_txn_reward_v1:rewards_metadata(), AuxRewardsMD :: blockchain_txn_reward_v1:rewards_metadata()}.
+-type reward_diff_map() :: #{Height :: non_neg_integer() => #{Key :: binary() => {#{Orig :: amount => non_neg_integer()}, Aux :: #{amount => non_neg_integer()}}}}.
 -type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -export_type([ledger/0]).
@@ -3841,7 +3842,7 @@ maps_sum(A, B) ->
                         Acc#{K => maps:get(K, A, 0) + maps:get(K, B, 0)}
                 end, #{}, Keys).
 
--spec diff_aux_rewards(Ledger :: ledger()) -> map().
+-spec diff_aux_rewards(Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards(Ledger) ->
     case has_aux(Ledger) of
         false -> #{};
@@ -3880,13 +3881,13 @@ diff_aux_rewards(Ledger) ->
             maps:fold(DiffFun, #{}, OverallAuxRewards)
     end.
 
--spec diff_aux_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> map().
+-spec diff_aux_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards_md(witnesses, Ledger) ->
     diff_aux_rewards_md_(witnesses, Ledger);
 diff_aux_rewards_md(challengees, Ledger) ->
     diff_aux_rewards_md_(challengees, Ledger).
 
--spec diff_aux_rewards_md_(Type :: witnesses | challengees, Ledger :: ledger()) -> map().
+-spec diff_aux_rewards_md_(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards_md_(Type, Ledger) ->
     case has_aux(Ledger) of
         false ->
@@ -3935,7 +3936,8 @@ diff_aux_rewards_md_(Type, Ledger) ->
 tally_md_fun(witnesses) ->
     fun({gateway, poc_witnesses, GWPubkeyBin}, Amount, AccIn) ->
         maps:update_with(
-            GWPubkeyBin,
+            %% NOTE: pubkey_bin to animal name for readability when reviewing
+            blockchain_utils:addr2name(GWPubkeyBin),
             fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
             #{amount => Amount},
             AccIn
@@ -3944,7 +3946,8 @@ tally_md_fun(witnesses) ->
 tally_md_fun(challengees) ->
     fun({gateway, poc_challengees, GWPubkeyBin}, Amount, AccIn) ->
         maps:update_with(
-            GWPubkeyBin,
+            %% NOTE: pubkey_bin to animal name for readability when reviewing
+            blockchain_utils:addr2name(GWPubkeyBin),
             fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
             #{amount => Amount},
             AccIn
