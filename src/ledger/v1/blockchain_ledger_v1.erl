@@ -19,6 +19,11 @@
     diff_aux_rewards_for/2, diff_aux_rewards/1,
     diff_aux_reward_sums/1,
 
+    set_aux_rewards_md/4,
+    get_aux_rewards_md/1,
+    diff_aux_rewards_md/2,
+    diff_aux_rewards_md_sums/2,
+
     check_key/2, mark_key/2, unmark_key/2,
 
     new_context/1, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
@@ -304,7 +309,8 @@
           aux :: sub_ledger(),
           %% it provides this extra aux_heights column to differentiate actual
           %% rewards vs aux rewards (for now, but can be extended to show other differences)
-          aux_heights :: rocksdb:cf_handle()
+          aux_heights :: rocksdb:cf_handle(),
+          aux_heights_md :: rocksdb:cf_handle()
          }).
 
 %% This record is for managing validator stake cooldown information in the
@@ -333,6 +339,7 @@
 -define(hex_list, <<"$hex_list">>).
 -define(hex_prefix, "$hex_").
 -define(aux_height_prefix, "aux_height_").
+-define(aux_height_md_prefix, "aux_height_md_").
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
@@ -356,7 +363,11 @@
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
 -type reward_diff() :: {ActualRewards :: blockchain_txn_reward_v1:rewards(), AuxRewards :: blockchain_txn_reward_v1:rewards()}.
+-type reward_md_diff() :: {ActualRewardsMD :: blockchain_txn_reward_v1:rewards_metadata(), AuxRewardsMD :: blockchain_txn_reward_v1:rewards_metadata()}.
+-type reward_diff_map() :: #{Height :: non_neg_integer() => #{Key :: binary() => {#{Orig :: amount => non_neg_integer()}, Aux :: #{amount => non_neg_integer()}}}}.
+-type reward_diff_md_sum() :: #{Key :: binary() => #{orig_amt => non_neg_integer(), aux_amt => non_neg_integer()}}.
 -type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
+-type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -494,11 +505,12 @@ new_aux(Path, Ledger) ->
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     {ok, DB, CFs} = open_db(aux, Path, false, false, GlobalOpts),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, AuxHeightsCF] = CFs,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, AuxHeightsCF, AuxHeightsMDCF] = CFs,
     Ledger#ledger_v1{aux=#aux_ledger_v1{
        dir = Path,
        db = DB,
        aux_heights = AuxHeightsCF,
+       aux_heights_md = AuxHeightsMDCF,
        aux = #sub_ledger_v1{
        default=DefaultCF,
        active_gateways=AGwsCF,
@@ -3740,6 +3752,13 @@ aux_heights_cf(Ledger) ->
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights
     end.
 
+-spec aux_heights_md_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_md_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_md
+    end.
+
 -spec aux_db(ledger()) -> undefined | rocksdb:db_handle().
 aux_db(Ledger) ->
     case has_aux(Ledger) of
@@ -3765,6 +3784,32 @@ set_aux_rewards(Height, Rewards, AuxRewards, Ledger) ->
                 not_found ->
                     Value = term_to_binary({Rewards, AuxRewards}),
                     rocksdb:put(AuxDB, AuxHeightsCF, Key, Value, []);
+                Error ->
+                    Error
+            end
+    end.
+
+-spec set_aux_rewards_md(
+    Height :: non_neg_integer(),
+    OrigMD :: blockchain_txn_rewards_v2:rewards_metadata(),
+    AuxMD :: blockchain_txn_rewards_v2:rewards_metadata(),
+    Ledger :: ledger()
+) -> ok | {error, any()}.
+set_aux_rewards_md(Height, OrigMD, AuxMD, Ledger) ->
+    case has_aux(Ledger) of
+        false ->
+            {error, no_aux_ledger};
+        true ->
+            AuxDB = aux_db(Ledger),
+            AuxHeightsMDCF = aux_heights_md_cf(Ledger),
+            Key = aux_height_md(Height),
+            case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
+                {ok, _} ->
+                    %% already exists, don't do anything
+                    ok;
+                not_found ->
+                    Value = term_to_binary({OrigMD, AuxMD}),
+                    rocksdb:put(AuxDB, AuxHeightsMDCF, Key, Value, []);
                 Error ->
                     Error
             end
@@ -3799,7 +3844,7 @@ maps_sum(A, B) ->
                         Acc#{K => maps:get(K, A, 0) + maps:get(K, B, 0)}
                 end, #{}, Keys).
 
--spec diff_aux_rewards(Ledger :: ledger()) -> map().
+-spec diff_aux_rewards(Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards(Ledger) ->
     case has_aux(Ledger) of
         false -> #{};
@@ -3836,6 +3881,115 @@ diff_aux_rewards(Ledger) ->
                       end,
 
             maps:fold(DiffFun, #{}, OverallAuxRewards)
+    end.
+
+-spec diff_aux_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_md_sum().
+diff_aux_rewards_md_sums(witnesses, Ledger) ->
+    diff_aux_rewards_md_sums_(witnesses, Ledger);
+diff_aux_rewards_md_sums(challengees, Ledger) ->
+    diff_aux_rewards_md_sums_(challengees, Ledger).
+
+-spec diff_aux_rewards_md_sums_(Type :: witnesses | challengees, Ledger :: ledger()) ->
+    reward_diff_md_sum().
+diff_aux_rewards_md_sums_(Type, Ledger) ->
+    Diff =
+        case Type of
+            witnesses -> diff_aux_rewards_md(witnesses, Ledger);
+            challengees -> diff_aux_rewards_md(challengees, Ledger)
+        end,
+
+    lists:foldl(
+        fun(DiffMap, Acc) ->
+            maps:fold(
+                fun(GW, {#{amount := Orig}, #{amount := Aux}}, Acc1) ->
+                    maps:update_with(
+                        GW,
+                        fun(#{orig_amt := O, aux_amt := A}) ->
+                            #{orig_amt => O + Orig, aux_amt => A + Aux}
+                        end,
+                        #{orig_amt => Orig, aux_amt => Aux},
+                        Acc1
+                    )
+                end,
+                Acc,
+                DiffMap
+            )
+        end,
+        #{},
+        maps:values(Diff)
+    ).
+
+-spec diff_aux_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
+diff_aux_rewards_md(witnesses, Ledger) ->
+    diff_aux_rewards_md_(witnesses, Ledger);
+diff_aux_rewards_md(challengees, Ledger) ->
+    diff_aux_rewards_md_(challengees, Ledger).
+
+-spec diff_aux_rewards_md_(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
+diff_aux_rewards_md_(Type, Ledger) ->
+    case has_aux(Ledger) of
+        false ->
+            #{};
+        true ->
+            OverallAuxRewardsMD = get_aux_rewards_md(Ledger),
+            {TallyFun, MDRewardKey} =
+                case Type of
+                    witnesses ->
+                        {tally_md_fun(witnesses), poc_witness};
+                    challengees ->
+                        {tally_md_fun(challengees), poc_challengee}
+                end,
+
+            DiffFun = fun(Height, {OrigMD, AuxMD}, Acc) ->
+                OrigWitnessMD = maps:fold(TallyFun, #{}, maps:get(MDRewardKey, OrigMD)),
+                AuxWitnessMD = maps:fold(TallyFun, #{}, maps:get(MDRewardKey, AuxMD)),
+                Combined = maps:merge(AuxWitnessMD, OrigWitnessMD),
+                Res = maps:fold(
+                    fun(K, V, Acc2) ->
+                        V2 = maps:get(K, AuxWitnessMD, #{amount => 0}),
+                        case V == V2 of
+                            true ->
+                                %% check this is not missing in actual balances
+                                case maps:is_key(K, OrigWitnessMD) of
+                                    false ->
+                                        maps:put(K, {#{amount => 0}, V}, Acc2);
+                                    true ->
+                                        %% no difference
+                                        Acc2
+                                end;
+                            false ->
+                                maps:put(K, {V, V2}, Acc2)
+                        end
+                    end,
+                    #{},
+                    Combined
+                ),
+                maps:put(Height, Res, Acc)
+            end,
+
+            maps:fold(DiffFun, #{}, OverallAuxRewardsMD)
+    end.
+
+-spec tally_md_fun(witnesses | challengees) -> fun().
+tally_md_fun(witnesses) ->
+    fun({gateway, poc_witnesses, GWPubkeyBin}, Amount, AccIn) ->
+        maps:update_with(
+            %% NOTE: pubkey_bin to animal name for readability when reviewing
+            blockchain_utils:addr2name(GWPubkeyBin),
+            fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
+            #{amount => Amount},
+            AccIn
+        )
+    end;
+tally_md_fun(challengees) ->
+    fun({gateway, poc_challengees, GWPubkeyBin}, Amount, AccIn) ->
+        maps:update_with(
+            %% NOTE: pubkey_bin to animal name for readability when reviewing
+            blockchain_utils:addr2name(GWPubkeyBin),
+            fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
+            #{amount => Amount},
+            AccIn
+        )
     end.
 
 -spec tally_fun_v1() -> fun().
@@ -3906,6 +4060,38 @@ get_aux_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
                 Acc
         end,
     get_aux_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+
+-spec get_aux_rewards_md(Ledger :: ledger()) -> aux_rewards_md().
+get_aux_rewards_md(Ledger) ->
+    case has_aux(Ledger) of
+        false -> #{};
+        true -> get_aux_rewards_md_(Ledger)
+    end.
+
+get_aux_rewards_md_(Ledger) ->
+    {ok, Itr} = rocksdb:iterator(aux_db(Ledger), aux_heights_md_cf(Ledger), []),
+    Res = get_aux_rewards_md_(Itr, rocksdb:iterator_move(Itr, first), #{}),
+    catch rocksdb:iterator_close(Itr),
+    Res.
+
+get_aux_rewards_md_(_Itr, {error, _}, Acc) ->
+    Acc;
+get_aux_rewards_md_(Itr, {ok, Key, BinRes}, Acc) ->
+    NewAcc =
+        try binary_to_term(BinRes) of
+            {OrigMD, AuxMD} ->
+                <<"aux_height_md_", Height/binary>> = Key,
+                maps:put(binary_to_integer(Height), {OrigMD, AuxMD}, Acc)
+        catch
+            What:Why ->
+                lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
+                    Key,
+                    What,
+                    Why
+                ]),
+                Acc
+        end,
+    get_aux_rewards_md_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
 -spec validators_cf(ledger()) -> rocksdb:cf_handle().
 validators_cf(Ledger) ->
@@ -4126,7 +4312,7 @@ delayed_cfs() ->
 
 -spec aux_cfs() -> list().
 aux_cfs() ->
-    ["aux_heights"].
+    ["aux_heights", "aux_heights_md"].
 
 -spec maybe_use_snapshot(ledger(), list()) -> list().
 maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
@@ -4198,6 +4384,9 @@ hex_name(Hex) ->
 
 aux_height(Height) ->
     <<?aux_height_prefix, (integer_to_binary(Height))/binary>>.
+
+aux_height_md(Height) ->
+    <<?aux_height_md_prefix, (integer_to_binary(Height))/binary>>.
 
 add_to_hex(Hex, Gateway, Ledger) ->
     Hexes = case get_hexes(Ledger) of
