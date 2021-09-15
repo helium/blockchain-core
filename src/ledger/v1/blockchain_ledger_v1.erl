@@ -365,7 +365,7 @@
 -type reward_diff() :: {ActualRewards :: blockchain_txn_reward_v1:rewards(), AuxRewards :: blockchain_txn_reward_v1:rewards()}.
 -type reward_md_diff() :: {ActualRewardsMD :: blockchain_txn_reward_v1:rewards_metadata(), AuxRewardsMD :: blockchain_txn_reward_v1:rewards_metadata()}.
 -type reward_diff_map() :: #{Height :: non_neg_integer() => #{Key :: binary() => {#{Orig :: amount => non_neg_integer()}, Aux :: #{amount => non_neg_integer()}}}}.
--type reward_diff_md_sum() :: #{Key :: binary() => {Orig :: non_neg_integer(), Aux :: non_neg_integer()}}.
+-type reward_diff_md_sum() :: #{Key :: binary() => #{orig_amt => non_neg_integer(), aux_amt => non_neg_integer()}}.
 -type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -export_type([ledger/0]).
@@ -3889,20 +3889,35 @@ diff_aux_rewards_md_sums(witnesses, Ledger) ->
 diff_aux_rewards_md_sums(challengees, Ledger) ->
     diff_aux_rewards_md_sums_(challengees, Ledger).
 
--spec diff_aux_rewards_md_sums_(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_md_sum().
+-spec diff_aux_rewards_md_sums_(Type :: witnesses | challengees, Ledger :: ledger()) ->
+    reward_diff_md_sum().
 diff_aux_rewards_md_sums_(Type, Ledger) ->
-    Diff = case Type of
-               witnesses -> diff_aux_rewards_md(witnesses, Ledger);
-               challengees -> diff_aux_rewards_md(challengees, Ledger)
-           end,
+    Diff =
+        case Type of
+            witnesses -> diff_aux_rewards_md(witnesses, Ledger);
+            challengees -> diff_aux_rewards_md(challengees, Ledger)
+        end,
 
-    maps:fold(fun(_Height, DiffMap, Acc) ->
-                      maps:fold(fun(GW, {#{amount := Orig}, #{amount := Aux}}, Acc1) ->
-                                        maps:update_with(GW,
-                                                         fun({O, A}) -> {O + Orig, A + Aux} end,
-                                                         {Orig, Aux}, Acc1)
-                                end, Acc, DiffMap)
-              end, #{}, Diff).
+    lists:foldl(
+        fun(DiffMap, Acc) ->
+            maps:fold(
+                fun(GW, {#{amount := Orig}, #{amount := Aux}}, Acc1) ->
+                    maps:update_with(
+                        GW,
+                        fun(#{orig_amt := O, aux_amt := A}) ->
+                            #{orig_amt => O + Orig, aux_amt => A + Aux}
+                        end,
+                        #{orig_amt => Orig, aux_amt => Aux},
+                        Acc1
+                    )
+                end,
+                Acc,
+                DiffMap
+            )
+        end,
+        #{},
+        maps:values(Diff)
+    ).
 
 -spec diff_aux_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards_md(witnesses, Ledger) ->
