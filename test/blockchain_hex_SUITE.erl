@@ -166,13 +166,14 @@ known_values_test(Config) ->
 
     %% assert some known values calculated from the python model (thanks @para1!)
     blockchain_hex:precalc(true, ?config(ledger, Config)),
+    Clipped = get('__blockchain_hex_clipped_tbl'),
     true = lists:all(
         fun({Hex, Density}) ->
             case h3:get_resolution(Hex) of
                 0 ->
                     true;
                 Res ->
-                    GotDensity = blockchain_hex:clookup(h3:parent(Hex, Res)),
+                    GotDensity = blockchain_hex:lookup(Clipped, h3:parent(Hex, Res)),
 
                     ct:pal("hex ~p ~p ~p ~p",
                            [
