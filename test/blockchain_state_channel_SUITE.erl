@@ -510,9 +510,7 @@ expired_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -520,9 +518,7 @@ expired_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Add some fake blocks
     FakeBlocks = 15,
@@ -589,9 +585,7 @@ cached_routing_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -599,9 +593,7 @@ cached_routing_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Checking that we have a cached route
     _RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet0),
@@ -677,10 +669,7 @@ max_actor_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])
-    end, 30, timer:seconds(1)),
-
+    ok = expect_nonce_for_state_channel(RouterNode, ID1, 0),
 
     ct:pal("ID1: ~p", [libp2p_crypto:bin_to_b58(ID1)]),
     ct:pal("ID2: ~p", [libp2p_crypto:bin_to_b58(ID2)]),
@@ -819,9 +808,7 @@ replay_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -829,9 +816,7 @@ replay_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -839,9 +824,7 @@ replay_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Add some fake blocks
     FakeBlocks = 15,
@@ -918,9 +901,7 @@ multiple_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Add some fake blocks
     FakeBlocks = 20,
@@ -957,9 +938,7 @@ multiple_test(Config) ->
     %% Checking that state channel got created properly
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
 
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID2, 0),
 
     %% Add some fake blocks
     FakeBlocks = 20,
@@ -1179,10 +1158,7 @@ multi_active_sc_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
-
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -1190,9 +1166,7 @@ multi_active_sc_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Add some fake blocks
     FakeBlocks = 20,
@@ -1557,9 +1531,7 @@ crash_single_sc_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% look at sc server before sending the packet
     {_, _, _} = debug(RouterNode),
@@ -1574,9 +1546,7 @@ crash_single_sc_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Check stuff before crash =====================================
     ct:pal("********** before crash *****************"),
@@ -1604,9 +1574,7 @@ crash_single_sc_test(Config) ->
     ct:pal("Packet1: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet1))]),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Adding 30 fake blocks to get the state channel to expire
     FakeBlocks = 15,
@@ -1849,10 +1817,7 @@ sc_gc_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
-
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -1860,9 +1825,7 @@ sc_gc_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -1870,9 +1833,7 @@ sc_gc_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Adding 100 fake blocks to trigger the sc gc
     FakeBlocks = 110,
@@ -2028,9 +1989,7 @@ crash_sc_sup_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -2038,9 +1997,7 @@ crash_sc_sup_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% =====================================
     SupPid = ct_rpc:call(RouterNode, erlang, whereis, [blockchain_state_channel_sup]),
@@ -2069,9 +2026,7 @@ crash_sc_sup_test(Config) ->
     %% =====================================
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -2079,9 +2034,7 @@ crash_sc_sup_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Adding 20 fake blocks to get the state channel to expire
     FakeBlocks = 15,
@@ -2180,10 +2133,7 @@ hotspot_in_router_oui_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
-
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -2191,9 +2141,7 @@ hotspot_in_router_oui_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -2201,9 +2149,7 @@ hotspot_in_router_oui_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Adding 20 fake blocks to get the state channel to expire
     FakeBlocks = 15,
@@ -2284,10 +2230,7 @@ default_routers_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
-
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 0),
 
     %% Sending first packet and routing using the default routers
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -2295,9 +2238,7 @@ default_routers_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, DefaultRouters, 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -2305,9 +2246,7 @@ default_routers_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, DefaultRouters, 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Adding 20 fake blocks to get the state channel to expire
     FakeBlocks = 15,
@@ -2473,3 +2412,15 @@ debug(Node) ->
     ct:pal("active: ~p", [A]),
     {P, S, A}.
 
+expect_nonce_for_state_channel(RouterNode, SCID, ExpectedNonce) ->
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        case get_nonce_for_state_channel(RouterNode, SCID) of
+            ExpectedNonce -> true;
+            N -> {bad_nonce, expected, ExpectedNonce, got, N}
+        end
+    end, 30, timer:seconds(1)).
+
+get_nonce_for_state_channel(RouterNode, SCID) ->
+    SCWorkerPid = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [SCID]),
+    SC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]),
+    blockchain_state_channel_v1:nonce(SC).
