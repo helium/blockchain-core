@@ -1041,10 +1041,11 @@ add_block_(Block, Blockchain, Syncing) ->
 
 process_snapshot(ConsensusHash, MyAddress, Signers,
                  Ledger, Height, Blockchain) ->
-    case lists:member(MyAddress, Signers) of
+    case lists:member(MyAddress, Signers) orelse follow_mode() of
         true ->
             %% signers add the snapshot as when the block is created?
             %% otherwise we have to make it twice?
+            %% also followers get overwhelmed by how big snaps are now, don't waste the space/time
             ok;
         false ->
             %% hash here is *pre*absorb.
