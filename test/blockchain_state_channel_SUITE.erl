@@ -2405,10 +2405,10 @@ debug(Node) ->
     P = ct_rpc:call(Node, erlang, whereis, [blockchain_state_channels_server]),
     ct:pal("sc_server pid: ~p", [P]),
 
-    S = ct_rpc:call(Node, blockchain_state_channels_server, state_channels, []),
+    S = maps:keys(ct_rpc:call(Node, blockchain_state_channels_server, get_all, [])),
     ct:pal("state_channels: ~p", [S]),
 
-    A = ct_rpc:call(Node, blockchain_state_channels_server, active_sc_ids, []),
+    A = maps:keys(ct_rpc:call(Node, blockchain_state_channels_server, get_actives, [])),
     ct:pal("active: ~p", [A]),
     {P, S, A}.
 
