@@ -11,6 +11,7 @@
     challenger/1, challenger/2,
     block_hash/1, block_hash/2,
     start_height/1, start_height/2,
+    orig_version/1,
     serialize/1, deserialize/1,
     rxtx/0, rx/0, tx/0, fail/0
 ]).
@@ -20,12 +21,13 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
 -record(poc_v3, {
+    secret_hash :: binary(),
     onion_key_hash :: binary(),
     challenger :: libp2p_crypto:pubkey_bin(),
     block_hash :: binary(),
-    start_height :: pos_integer()
+    start_height :: pos_integer(),
+    orig_version :: pos_integer()
 }).
 
 -define(RXTX, rxtx).
@@ -45,7 +47,8 @@ new(OnionKeyHash, Challenger, BlockHash, StartHeight) ->
         onion_key_hash=OnionKeyHash,
         challenger=Challenger,
         block_hash=BlockHash,
-        start_height=StartHeight
+        start_height=StartHeight,
+        orig_version = 3
     }.
 
 -spec onion_key_hash(poc()) -> binary().
@@ -80,6 +83,10 @@ start_height(PoC) ->
 start_height(Height, PoC) ->
     PoC#poc_v3{start_height=Height}.
 
+-spec orig_version(poc()) -> binary().
+orig_version(PoC) ->
+    PoC#poc_v3.orig_version.
+
 -spec serialize(poc()) -> binary().
 serialize(PoC) ->
     %% intentionally don't compress here, we compress these in batches
@@ -88,8 +95,15 @@ serialize(PoC) ->
     <<3, BinPoC/binary>>.
 
 -spec deserialize(binary()) -> poc().
+deserialize(<<1, Bin/binary>>) ->
+    V1 = erlang:binary_to_term(Bin),
+    convert(V1);
+deserialize(<<2, Bin/binary>>) ->
+    V2 = erlang:binary_to_term(Bin),
+    convert(V2);
 deserialize(<<3, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -123,7 +137,43 @@ tx() ->
 fail() ->
     ?FAIL.
 
+-record(poc_v1, {
+    secret_hash :: binary(),
+    onion_key_hash :: binary(),
+    challenger :: libp2p_crypto:pubkey_bin()
+}).
+-record(poc_v2, {
+    secret_hash :: binary(),
+    onion_key_hash :: binary(),
+    challenger :: libp2p_crypto:pubkey_bin(),
+    block_hash :: binary()
+}).
 
+convert(#poc_v1{secret_hash=SecretHash,
+                onion_key_hash=OnionKeyHash,
+                challenger=Challenger
+               }) ->
+    #poc_v3{
+        secret_hash=SecretHash,
+        onion_key_hash=OnionKeyHash,
+        challenger=Challenger,
+        block_hash= <<>>,
+        start_height=1,
+        orig_version=1
+    };
+convert(#poc_v2{secret_hash=SecretHash,
+                onion_key_hash=OnionKeyHash,
+                challenger=Challenger,
+                block_hash=BlockHash
+               }) ->
+    #poc_v3{
+        secret_hash=SecretHash,
+        onion_key_hash=OnionKeyHash,
+        challenger=Challenger,
+        block_hash= BlockHash,
+        start_height=1,
+        orig_version=2
+    }.
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -131,31 +181,43 @@ fail() ->
 
 new_test() ->
     PoC = #poc_v3{
+        secret_hash = <<"dark secret">>,
         onion_key_hash= <<"some key bin">>,
         challenger = <<"address">>,
         block_hash = <<"block_hash">>,
-        start_height = 120000
+        start_height = 120000,
+        orig_version = 3
     },
-    ?assertEqual(PoC, new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000)).
+    ?assertEqual(PoC, new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3)).
+
+secret_hash_test() ->
+    PoC = new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3),
+    ?assertEqual(<<"dark secret">>, secret_hash(PoC)),
+    ?assertEqual(<<"dark secret 2">>, secret_hash(secret_hash(<<"dark secret 2">>, PoC))).
 
 onion_key_hash_test() ->
-    PoC = new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000),
+    PoC = new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3),
     ?assertEqual(<<"some key bin">>, onion_key_hash(PoC)),
     ?assertEqual(<<"some key bin 2">>, onion_key_hash(onion_key_hash(<<"some key bin 2">>, PoC))).
 
 challenger_test() ->
-    PoC = new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000),
+    PoC = new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3),
     ?assertEqual(<<"address">>, challenger(PoC)),
     ?assertEqual(<<"address 2">>, challenger(challenger(<<"address 2">>, PoC))).
 
 block_hash_test() ->
-    PoC = new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000),
+    PoC = new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3),
     ?assertEqual(<<"block_hash">>, block_hash(PoC)),
     ?assertEqual(<<"block_hash 2">>, block_hash(block_hash(<<"block_hash 2">>, PoC))).
 
 start_height_test() ->
-    PoC = new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000),
-    ?assertEqual(<<"start_height">>, start_height(PoC)),
-    ?assertEqual(<<"start_height 2">>, block_hash(block_hash(<<"start_height 2">>, PoC))).
+    PoC = new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3),
+    ?assertEqual(120000, start_height(PoC)),
+    ?assertEqual(200000, start_height(start_height(200000, PoC))).
+
+orig_version_test() ->
+    PoC = new(<<"dark secret">>, <<"some key bin">>, <<"address">>, <<"block_hash">>, 120000, 3),
+    ?assertEqual(2, orig_version(PoC)),
+    ?assertEqual(3, orig_version(orig_version(3>, PoC))).
 
 -endif.

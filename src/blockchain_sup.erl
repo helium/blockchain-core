@@ -120,8 +120,14 @@ init(Args) ->
     BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_table()},
     BTxnMgrSupOpts = [],
     StateChannelSupOpts = [BaseDir],
-    {BCPocMgrTab1, BCPocMgrTab2} = blockchain_poc_mgr:make_ets_table(),
-    BPOCMgrOpts = #{tab1 => BCPocMgrTab1, tab2 => BCPocMgrTab2},
+    BCPocMgrTab = blockchain_poc_mgr:make_ets_table(),
+    BPOCMgrOpts = #{tab1 => BCPocMgrTab},
+    BPOCDBOpts = #{base_dir => BaseDir,
+                cfs => ["default",
+                        "poc_mgr_cf"
+                       ]
+               },
+
     ChildSpecs =
         [
          ?WORKER(blockchain_lock, []),
@@ -131,6 +137,7 @@ init(Args) ->
         [?WORKER(blockchain_score_cache, []),
          ?WORKER(blockchain_worker, [BWorkerOpts]),
          ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
+         ?WORKER(blockchain_poc_mgr_db_owner, [BPOCDBOpts]),
          ?WORKER(blockchain_poc_mgr, [BPOCMgrOpts]),
          ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
          ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])

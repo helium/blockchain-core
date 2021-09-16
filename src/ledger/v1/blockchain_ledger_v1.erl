@@ -81,6 +81,8 @@
     save_public_poc/5,
     find_public_poc/2,
     delete_public_poc/2,
+    update_public_poc/2,
+    active_public_pocs/1,
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
@@ -1980,26 +1982,27 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
                         BlockHeight :: pos_integer(),
                         Ledger :: ledger()) -> ok | {error, any()}.
 save_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
-%%    case ?MODULE:find_gateway_info(Challenger, Ledger) of
-%%        {error, _} ->
-%%            {error, no_active_gateway};
-%%        {ok, _Gw0} ->
-            case ?MODULE:find_poc(OnionKeyHash, Ledger) of
+    case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
+        {error, _Reason}=Error ->
+            lager:warning("failed to save poc for key ~p, validator not found for challenger ~p",[Challenger]),
+            Error;
+        {ok, _ChallengerInfo} ->
+            case ?MODULE:find_public_poc(OnionKeyHash, Ledger) of
                 {error, not_found} ->
                     save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger);
                 {error, _Reason} = Error ->
                     Error
-            end.
-%%    end.
+            end
+    end.
 
 save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
-    %%TODO - consider how/when to GC old POCs from ledger
+    %%TODO - consider how/when to GC POCs from ledger
     PoC = blockchain_ledger_poc_v3:new(OnionKeyHash, Challenger, BlockHash, BlockHeight),
     PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
 
--spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:pocs()} | {error, any()}.
+-spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
 find_public_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
@@ -2021,6 +2024,28 @@ delete_public_poc(OnionKeyHash, Ledger) ->
         {ok, _PoC} ->
             ?MODULE:delete_pocs(OnionKeyHash, Ledger)
     end.
+
+-spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
+                     Ledger :: ledger()) -> ok | {error, _}.
+update_public_poc(POC, Ledger) ->
+    POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
+    Bin = blockchain_ledger_poc_v3:serialize(POC),
+    POCsCF = pocs_cf(Ledger),
+    cache_put(Ledger, POCsCF, POCAddr, Bin).
+
+
+-spec active_public_pocs(ledger()) -> [blockchain_ledger_poc_v3:poc()].
+active_public_pocs(Ledger) ->
+    POCsCF = pocs_cf(Ledger),
+    cache_fold(
+      Ledger,
+      POCsCF,
+      fun({_KeyHash, Binary}, Acc) ->
+              POC = blockchain_ledger_poc_v3:deserialize(Binary),
+              [POC | Acc]
+      end,
+      []
+     ).
 
 -spec delete_pocs(binary(), ledger()) -> ok | {error, any()}.
 delete_pocs(OnionKeyHash, Ledger) ->
