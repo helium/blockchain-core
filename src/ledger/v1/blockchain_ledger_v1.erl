@@ -4888,10 +4888,16 @@ query_hnt_by_status(Status, Ledger) ->
     end, 0, Ledger).
 
 batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
+    ModeToFollow = case application:get_env(blockchain, follow_aux, false) of
+        true ->
+            aux;
+        false ->
+            active
+    end,
     {ok, Batch} = rocksdb:batch(),
     Filters =
         case Mode of
-            active ->
+            ModeToFollow ->
                 lists:foldl(
                   fun(#hook{cf = C} = H, A) ->
                           K = atom_to_cf(C, Ledger),
@@ -4899,7 +4905,7 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
                   end,
                   #{},
                   Hooks);
-            %% don't do any of this work on the delayed or aux ledgers
+            %% don't do any of this work on other ledger modes
             _ -> #{}
         end,
     {Batch, FilteredChanges} =
