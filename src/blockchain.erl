@@ -903,12 +903,12 @@ can_add_block(Block, Blockchain) ->
                             lager:debug("Already have this block"),
                             exists;
                         false ->
-                            case ?MODULE:get_block(Hash, Blockchain) of
-                                {ok, Block} ->
+                            case ?MODULE:has_block(Block, Blockchain) of
+                                true ->
                                     %% we already have this, thanks
                                     %% don't error here incase there's more blocks coming that *are* valid
                                     exists;
-                                _ ->
+                                false ->
                                     %% check the block is not contiguous
                                     case Height > (ChainHeight + 1) of
                                         true ->
@@ -921,7 +921,7 @@ can_add_block(Block, Blockchain) ->
                                             end;
                                         false ->
                                             lager:warning("lower block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                                                                        blockchain_block:height(HeadBlock)]),
+                                                                                                                                              blockchain_block:height(HeadBlock)]),
                                             %% if the block height is lower we probably don't care about it
                                             {error, disjoint_chain}
                                     end
