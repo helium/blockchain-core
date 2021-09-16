@@ -705,30 +705,31 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
         {error, request_block_hash_not_found} -> []
     end.
 
+%% again this is broken because of the current witness situation
 
 %% Iterate over all poc_path elements and for each path element calls a given
 %% callback function with the valid witnesses and valid receipt.
-valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
-    Path = ?MODULE:path(Txn),
-    try get_channels(Txn, Chain) of
-        {ok, Channels} ->
-            lists:foldl(fun({ElementPos, Element}, Acc) ->
-                                {PreviousElement, ReceiptChannel, WitnessChannel} =
-                                case ElementPos of
-                                    1 ->
-                                        {undefined, 0, hd(Channels)};
-                                    _ ->
-                                        {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-                                end,
+%% valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
+%%     Path = ?MODULE:path(Txn),
+%%     try get_channels(Txn, Chain) of
+%%         {ok, Channels} ->
+%%             lists:foldl(fun({ElementPos, Element}, Acc) ->
+%%                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
+%%                                 case ElementPos of
+%%                                     1 ->
+%%                                         {undefined, 0, hd(Channels)};
+%%                                     _ ->
+%%                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+%%                                 end,
 
-                                FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-                                FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+%%                                 FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+%%                                 FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
 
-                                Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
-                        end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
-    catch _:_ ->
-              Acc0
-    end.
+%%                                 Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
+%%                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
+%%     catch _:_ ->
+%%               Acc0
+%%     end.
 
 
 %%--------------------------------------------------------------------
@@ -772,16 +773,20 @@ absorb(Txn, Chain) ->
                         %% Older poc version, don't add witnesses
                         ok;
                     {ok, POCVersion} when POCVersion >= 9 ->
-                        %% Add filtered witnesses with poc-v9
-                        ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
-                                                              Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                              case FilteredReceipt of
-                                                                  undefined ->
-                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                                                                  FR ->
-                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                                                              end
-                                                      end, ok, Txn, Ledger, Chain);
+                        %% get rid of this for the time being, we will need to restore it later when
+                        %% the clean witness restore thing lands
+
+                        %% %% Add filtered witnesses with poc-v9
+                        %% ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
+                        %%                                       Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                        %%                                       case FilteredReceipt of
+                        %%                                           undefined ->
+                        %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
+                        %%                                           FR ->
+                        %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
+                        %%                                       end
+                        %%                               end, ok, Txn, Ledger, Chain);
+                        ok;
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
@@ -799,10 +804,16 @@ absorb(Txn, Chain) ->
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
                         %% as new calculate_delta calls back into check_is_valid_poc
-                        lists:foreach(fun({Gateway, Delta}) ->
-                                              blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
-                                      end,
-                                      ?MODULE:deltas(Txn, Chain)),
+                        case blockchain:config(?election_version, Ledger) of
+                            %% election v4 removed score from consideration
+                            {ok, EV} when EV >= 4 ->
+                                ok;
+                            _ ->
+                                lists:foreach(fun({Gateway, Delta}) ->
+                                                      blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
+                                              end,
+                                              ?MODULE:deltas(Txn, Chain))
+                        end,
                         blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger);
                     _ ->
                         %% continue doing the old behavior

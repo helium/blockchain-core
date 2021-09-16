@@ -1689,7 +1689,18 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
 -spec update_gateway(Gw :: blockchain_ledger_gateway_v2:gateway(),
                      GwAddr :: libp2p_crypto:pubkey_bin(),
                      Ledger :: ledger()) -> ok | {error, _}.
-update_gateway(Gw, GwAddr, Ledger) ->
+update_gateway(Gw0, GwAddr, Ledger) ->
+    %% we have to do this each time to make sure that we have ledger convergence for snapshots, but
+    %% it feels relatively cheap in comparison to continuing to update scores.
+    Gw =
+        case blockchain:config(?election_version, Ledger) of
+            %% election v4 removed score from consideration
+            {ok, EV} when EV >= 4 ->
+                blockchain_ledger_gateway_v2:set_alpha_beta_delta(0.0, 0.0, 0, Gw0);
+            _ ->
+                Gw0
+        end,
+
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
     GwDenormCF = gw_denorm_cf(Ledger),

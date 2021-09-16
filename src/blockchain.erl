@@ -116,7 +116,8 @@
                           fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1,
                           fun upgrade_gateways_lg/1,
-                          fun clear_witnesses/1]).
+                          fun clear_witnesses/1,
+                          fun upgrade_gateways_score/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -257,6 +258,27 @@ upgrade_gateways_lg(Ledger) ->
       end,
       whatever,
       Ledger).
+
+upgrade_gateways_score(Ledger) ->
+    case blockchain:config(?election_version, Ledger) of
+        %% election v4 removed score from consideration
+        {ok, EV} when EV >= 4 ->
+            blockchain_ledger_v1:cf_fold(
+              active_gateways,
+              fun({Addr, BinGw}, _) ->
+                      Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                      Gw1 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(0.0, 0.0, 0, Gw),
+                      case blockchain_ledger_gateway_v2:serialize(Gw1) of
+                          BinGw -> ok;
+                          _ ->
+                              blockchain_ledger_v1:update_gateway(Gw1, Addr, Ledger)
+                      end
+              end,
+              whatever,
+              Ledger);
+        _ -> ok
+    end.
+
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
 get_upgrades(Ledger) ->
