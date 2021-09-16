@@ -471,6 +471,8 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
+    Height = blockchain_block:height(Block),
+
     Transactions0 = blockchain_block:transactions(Block),
     %% chain vars must always be validated so we don't accidentally sync past a change we don't understand
     Transactions =
@@ -478,8 +480,10 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
            fun(T) -> Ty = ?MODULE:type(T),
                      Ty == blockchain_txn_vars_v1
            end, (Transactions0)),
+    Start = erlang:monotonic_time(millisecond),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
+            End = erlang:monotonic_time(millisecond),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
@@ -487,8 +491,13 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
+                            End2 = erlang:monotonic_time(millisecond),
                             absorb_delayed(Block, Chain0),
-                            absorb_aux(Block, Chain0);
+                            absorb_aux(Block, Chain0),
+                            End3 = erlang:monotonic_time(millisecond),
+                            lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
+                                       [End - Start, End2 - End, End3 - End2, Height]),
+                            ok;
                         Any ->
                             Any
                     end;
@@ -543,7 +552,8 @@ absorb(Txn, Chain) ->
             Error;
         ok ->
             End = erlang:monotonic_time(millisecond),
-            case (End - Start) >= 5 of
+            Slow = application:get_env(blockchain, slow_txn_log_threshold, 25), % in ms
+            case (End - Start) >= Slow of
                 true ->
                     lager:info("took ~p ms to absorb ~p", [End - Start, Type]),
                     ok;
