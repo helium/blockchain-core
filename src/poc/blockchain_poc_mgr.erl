@@ -235,7 +235,7 @@ handle_info(init, State) ->
 handle_info(
     {blockchain_event, {add_block, BlockHash, Sync, _Ledger} = _Event},
     #state{chain = Chain} = State
-) when Sync =:= false ->
+)->
     lager:info("received add block event, sync is ~p", [Sync]),
     State1 = maybe_init_addr_hash(State),
     case blockchain:get_block(BlockHash, Chain) of
@@ -266,12 +266,13 @@ handle_info(
             noop
     end,
     {noreply, State1};
-handle_info(
-    {blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = _Event},
-    #state{chain = _Chain} = State
-) when Sync =:= true ->
-    lager:info("ignoring add block event, sync is ~p", [Sync]),
-    {noreply, State};
+%% TODO: review approach to syc blocks again
+%%handle_info(
+%%    {blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = _Event},
+%%    #state{chain = _Chain} = State
+%%) when Sync =:= true ->
+%%    lager:info("ignoring add block event, sync is ~p", [Sync]),
+%%    {noreply, State};
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
 
@@ -645,15 +646,14 @@ submit_receipts(
         end,
     Txn1 = blockchain_txn:sign(Txn0, SigFun),
     lager:info("submitting blockchain_txn_poc_receipts_v1 for onion key hash ~p: ~p", [OnionKeyHash, Txn0]),
-    ok = blockchain_worker:submit_txn(Txn1, fun(_Result) -> noop end),
-%%    case miner_consensus_mgr:in_consensus() of
-%%        false ->
-%%            lager:info("node is not in consensus", []),
-%%            ok = blockchain_worker:submit_txn(Txn1, fun(_Result) -> noop end);
-%%        true ->
-%%            lager:info("node is in consensus", []),
-%%            ok = miner_hbbft_sidecar:submit(Txn1)
-%%    end,
+    case miner_consensus_mgr:in_consensus() of
+        false ->
+            lager:info("node is not in consensus", []),
+            ok = blockchain_worker:submit_txn(Txn1, fun(_Result) -> noop end);
+        true ->
+            lager:info("node is in consensus", []),
+            ok = miner_hbbft_sidecar:submit(Txn1)
+    end,
 
     ok.
 
