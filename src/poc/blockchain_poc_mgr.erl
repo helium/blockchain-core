@@ -246,11 +246,11 @@ handle_info(
             %% which has the secret
             ok = process_block_pocs(BlockHash, Block, State),
             %% take care of GC
+            ok = purge_local_pocs(Block, State),
             BlockHeight = blockchain_block:height(Block),
-            %% GC local pocs and assocaited keys every 50 blocks
+            %% GC local pocs keys every 50 blocks
             case BlockHeight rem 50 == 0 of
                 true ->
-                    ok = purge_local_pocs(Block, State),
                     ok = purge_pocs_keys(Block);
                 false ->
                     noop
@@ -266,6 +266,12 @@ handle_info(
             noop
     end,
     {noreply, State1};
+handle_info(
+    {blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = _Event},
+    #state{chain = _Chain} = State
+) when Sync =:= true ->
+    lager:info("ignoring add block event, sync is ~p", [Sync]),
+    {noreply, State};
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
 
@@ -639,9 +645,16 @@ submit_receipts(
         end,
     Txn1 = blockchain_txn:sign(Txn0, SigFun),
     lager:info("submitting blockchain_txn_poc_receipts_v1 for onion key hash ~p: ~p", [OnionKeyHash, Txn0]),
-    TxnRef = make_ref(),
-    Self = self(),
-    ok = blockchain_worker:submit_txn(Txn1, fun(Result) -> Self ! {TxnRef, Result} end),
+    ok = blockchain_worker:submit_txn(Txn1, fun(_Result) -> noop end),
+%%    case miner_consensus_mgr:in_consensus() of
+%%        false ->
+%%            lager:info("node is not in consensus", []),
+%%            ok = blockchain_worker:submit_txn(Txn1, fun(_Result) -> noop end);
+%%        true ->
+%%            lager:info("node is in consensus", []),
+%%            ok = miner_hbbft_sidecar:submit(Txn1)
+%%    end,
+
     ok.
 
 -spec cache_poc_key(poc_key(), keys()) -> ok.
