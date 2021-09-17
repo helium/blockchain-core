@@ -106,9 +106,26 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
     case SCPacketHandler:handle_packet(SCPacket, PacketTime, HandlerPid) of
         ok ->
             HotspotID = blockchain_state_channel_packet_v1:hotspot(SCPacket),
+            HotspotName = blockchain_utils:addr2name(HotspotID),
             case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
                 undefined ->
-                    ok; %% TODO: maybe select new?
+                    %% REVIEW: Is this okay to do for all SCVer?
+                    %% QUESTION: will this cause those providing free packets rewards?
+                    MaxActorsAllowed = max_actors_allowed(),
+                    Actives = pg2:get_members(?SC_WORKER_GROUP),
+                    case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
+                        {ok, Pid} ->
+                            lager:debug("found ~p for ~p without an offer", [Pid, HotspotName]),
+                            ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
+                            blockchain_state_channels_worker:handle_packet(
+                              Pid,
+                              SCPacket,
+                              HandlerPid
+                             );
+                        {error, _Reason} ->
+                            lager:debug("could not find any state channels for ~p", [HotspotName]),
+                            ok
+                    end;
                 Pid ->
                     blockchain_state_channels_worker:handle_packet(
                         Pid,
