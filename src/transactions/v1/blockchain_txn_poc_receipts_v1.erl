@@ -1395,6 +1395,11 @@ tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
     {ok, Source} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
 
+    ReceiptFreq = case blockchain_poc_path_element_v1:receipt(Element) of
+                      undefined -> undefined;
+                      Receipt -> blockchain_poc_receipt_v1:frequency(Receipt)
+                  end,
+
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
@@ -1409,6 +1414,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
+
                          Freq = blockchain_poc_witness_v1:frequency(Witness),
 
                          case {DiscardZeroFreq, Freq} of
@@ -1494,7 +1500,6 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                            %% pentagonal distortion
                                                            [{false, <<"pentagonal_distortion">>, Witness} | Acc]
                                                  end
-
                                          end
                                  end
                          end
