@@ -3668,6 +3668,7 @@ aux_db(Ledger) ->
         false -> undefined;
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.db
     end.
+
 -spec validators_cf(ledger()) -> rocksdb:cf_handle().
 validators_cf(Ledger) ->
     SL = subledger(Ledger),
