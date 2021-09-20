@@ -188,15 +188,16 @@ target_(
 filter(AddrList, ChallengerPubkeyBin, Ledger, _Height, _Vars) ->
     lists:filter(
         fun(A) ->
-            {ok, Gateway} = blockchain_gateway_cache:get(A, Ledger),
+            {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
+            Mode = blockchain_ledger_gateway_v2:mode(Gateway),
             Res = A /= ChallengerPubkeyBin andalso
                 blockchain_ledger_gateway_v2:is_valid_capability(
-                    Gateway,
+                    Mode,
                     ?GW_CAPABILITY_POC_CHALLENGEE,
                     Ledger
                 ),
             lager:info("*** filter checks. is self ~p, valid capability: ~p ", [A /= ChallengerPubkeyBin, blockchain_ledger_gateway_v2:is_valid_capability(
-                    Gateway,
+                    Mode,
                     ?GW_CAPABILITY_POC_CHALLENGEE,
                     Ledger
                 )]),
