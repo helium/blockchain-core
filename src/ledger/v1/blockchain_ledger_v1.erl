@@ -22,7 +22,7 @@
     set_aux_rewards_md/4,
     get_aux_rewards_md/1,
     diff_aux_rewards_md/2,
-    diff_aux_rewards_md_sums/2,
+    diff_aux_rewards_md_sums/2, diff_aux_rewards_md_sums/3,
 
     check_key/2, mark_key/2, unmark_key/2,
 
@@ -3894,21 +3894,44 @@ diff_aux_rewards(Ledger) ->
             maps:fold(DiffFun, #{}, OverallAuxRewards)
     end.
 
--spec diff_aux_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_md_sum().
+-spec diff_aux_rewards_md_sums(
+    Type :: witnesses | challengees,
+    Ledger :: ledger()
+) -> reward_diff_md_sum().
 diff_aux_rewards_md_sums(witnesses, Ledger) ->
-    diff_aux_rewards_md_sums_(witnesses, Ledger);
+    diff_aux_rewards_md_sums_(witnesses, Ledger, undefined);
 diff_aux_rewards_md_sums(challengees, Ledger) ->
-    diff_aux_rewards_md_sums_(challengees, Ledger).
+    diff_aux_rewards_md_sums_(challengees, Ledger, undefined).
 
--spec diff_aux_rewards_md_sums_(Type :: witnesses | challengees, Ledger :: ledger()) ->
+-spec diff_aux_rewards_md_sums(
+    Type :: witnesses | challengees,
+    Ledger :: ledger(),
+    ExportFname :: undefined | file:name_all()
+) -> reward_diff_md_sum().
+diff_aux_rewards_md_sums(witnesses, Ledger, ExportFname) ->
+    diff_aux_rewards_md_sums_(witnesses, Ledger, ExportFname);
+diff_aux_rewards_md_sums(challengees, Ledger, ExportFname) ->
+    diff_aux_rewards_md_sums_(challengees, Ledger, ExportFname).
+
+-spec diff_aux_rewards_md_sums_(
+    Type :: witnesses | challengees,
+    Ledger :: ledger(),
+    ExportFname :: undefined | file:name_all()
+) ->
     reward_diff_md_sum().
-diff_aux_rewards_md_sums_(Type, Ledger) ->
+diff_aux_rewards_md_sums_(Type, Ledger, ExportFname) ->
     Diff =
         case Type of
             witnesses -> diff_aux_rewards_md(witnesses, Ledger);
             challengees -> diff_aux_rewards_md(challengees, Ledger)
         end,
 
+    Result = calc_diff_aux_reward_sums(Diff),
+    ok = blockchain_utils:maybe_export_diff_aux_reward_sums(ExportFname, Result, Ledger),
+    Result.
+
+-spec calc_diff_aux_reward_sums(Diff :: reward_diff_map()) -> reward_diff_md_sum().
+calc_diff_aux_reward_sums(Diff) ->
     lists:foldl(
         fun(DiffMap, Acc) ->
             maps:fold(
@@ -3985,8 +4008,7 @@ diff_aux_rewards_md_(Type, Ledger) ->
 tally_md_fun(witnesses) ->
     fun({gateway, poc_witnesses, GWPubkeyBin}, Amount, AccIn) ->
         maps:update_with(
-            %% NOTE: pubkey_bin to animal name for readability when reviewing
-            blockchain_utils:addr2name(GWPubkeyBin),
+            libp2p_crypto:bin_to_b58(GWPubkeyBin),
             fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
             #{amount => Amount},
             AccIn
@@ -3995,8 +4017,7 @@ tally_md_fun(witnesses) ->
 tally_md_fun(challengees) ->
     fun({gateway, poc_challengees, GWPubkeyBin}, Amount, AccIn) ->
         maps:update_with(
-            %% NOTE: pubkey_bin to animal name for readability when reviewing
-            blockchain_utils:addr2name(GWPubkeyBin),
+            libp2p_crypto:bin_to_b58(GWPubkeyBin),
             fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
             #{amount => Amount},
             AccIn

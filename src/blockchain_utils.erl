@@ -47,7 +47,8 @@
 
     verify_multisig/3,
     count_votes/3,
-    poc_per_hop_max_witnesses/1
+    poc_per_hop_max_witnesses/1,
+    maybe_export_diff_aux_reward_sums/3
 ]).
 
 -ifdef(TEST).
@@ -543,6 +544,74 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 
 majority(N) ->
     (N div 2) + 1.
+
+-spec maybe_export_diff_aux_reward_sums(
+    ExportFname :: undefined | file:name_all(),
+    Result :: blockchain_ledger_v1:reward_diff_md_sum(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> ok.
+maybe_export_diff_aux_reward_sums(undefined, _Result, _Ledger) ->
+    %% Don't do anything
+    ok;
+maybe_export_diff_aux_reward_sums(ExportFname, Result, Ledger) ->
+    Header = ["name,latitude,longitude,h3,color,orig_amt,aux_amt"],
+
+    ColorFun = fun
+        (_OrigAmt, 0) ->
+            %% aux rewards got zero-ed
+            "red";
+        (OrigAmt, AuxAmt) when (AuxAmt - OrigAmt) >= 1000000000 ->
+            %% aux rewards are more than 10 HNT
+            "green";
+        (OrigAmt, AuxAmt) when (AuxAmt - OrigAmt) >= 100000000 ->
+            %% aux rewards are more than 1 HNT
+            "cyan";
+        (OrigAmt, AuxAmt) when (OrigAmt - AuxAmt) >= 1000000000 ->
+            %% aux rewards reduced by more than 10 HNT
+            "orange";
+        (OrigAmt, AuxAmt) when (OrigAmt - AuxAmt) >= 100000000 ->
+            %% aux rewards reduced by more than 1 HNT
+            "yellow";
+        (_OrigAmt, _AuxAmt) ->
+            "blue"
+    end,
+
+    Data = maps:fold(
+        fun(Key, #{orig_amt := OrigAmt, aux_amt := AuxAmt}, Acc) ->
+            GwPubkeyBin = libp2p_crypto:b58_to_bin(Key),
+            GwName = blockchain_utils:addr2name(GwPubkeyBin),
+            case blockchain_ledger_v1:find_gateway_location(GwPubkeyBin, Ledger) of
+                {error, _} ->
+                    Acc;
+                {ok, H3} ->
+                    {Lat, Long} = h3:to_geo(H3),
+                    ToAppend =
+                        GwName ++
+                            "," ++
+                            io_lib:format("~.20f", [Lat]) ++
+                            "," ++
+                            io_lib:format("~.20f", [Long]) ++
+                            "," ++
+                            integer_to_list(H3) ++
+                            "," ++
+                            ColorFun(OrigAmt, AuxAmt) ++
+                            "," ++
+                            integer_to_list(OrigAmt) ++
+                            "," ++
+                            integer_to_list(AuxAmt),
+                    [ToAppend | Acc]
+            end
+        end,
+        [],
+        Result
+    ),
+    TotalData = Header ++ Data,
+
+    LineSep = io_lib:nl(),
+    Print = [string:join(TotalData, LineSep), LineSep],
+    file:write_file(ExportFname, Print),
+    ok.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
