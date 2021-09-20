@@ -1382,6 +1382,11 @@ tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
     {ok, Source} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
 
+    ReceiptFreq = case blockchain_poc_path_element_v1:receipt(Element) of
+                      undefined -> undefined;
+                      Receipt -> blockchain_poc_receipt_v1:frequency(Receipt)
+                  end,
+
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
@@ -1397,19 +1402,32 @@ tagged_witnesses(Element, Channel, Ledger) ->
 
                         case is_same_region(Ledger, SourceLoc, DestinationLoc) of
                             false ->
+                                SrcName = ?TO_ANIMAL_NAME(SrcPubkeyBin),
+                                DstName = ?TO_ANIMAL_NAME(DstPubkeyBin),
                                 lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
-                                            [blockchain_utils:addr2name(SrcPubkeyBin),
-                                             blockchain_utils:addr2name(DstPubkeyBin),
-                                             SourceLoc, DestinationLoc]),
-                                [{false, <<"witness_not_same_region">>, Witness} | Acc];
+                                            [SrcName,
+                                             DstName,
+                                             SourceLoc,
+                                             DestinationLoc]),
+                                Desc = lists:flatten(
+                                         io_lib:format(
+                                           "--witness_not_same_region--src_name:~s--dst_name:~s--src_loc:~p--dst_loc:~p",
+                                           [SrcName, DstName, SourceLoc, DestinationLoc])),
+                                [{false, list_to_binary(Desc), Witness} | Acc];
                             true ->
                                 case is_too_far(Ledger, SourceLoc, DestinationLoc) of
                                     {true, Distance} ->
+                                        SrcName = ?TO_ANIMAL_NAME(SrcPubkeyBin),
+                                        DstName = ?TO_ANIMAL_NAME(DstPubkeyBin),
                                         lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
-                                                    [blockchain_utils:addr2name(SrcPubkeyBin),
-                                                     blockchain_utils:addr2name(DstPubkeyBin),
+                                                    [SrcName,
+                                                     DstName,
                                                      SourceLoc, DestinationLoc, Distance]),
-                                        [{false, <<"witness_too_far">>, Witness} | Acc];
+                                        Desc = lists:flatten(
+                                                 io_lib:format(
+                                                   "--witness_too_far--src_name:~s--dst_name:~s--src_loc:~p--dst_loc:~p--distance:~p",
+                                                   [SrcName, DstName, SourceLoc, DestinationLoc, Distance])),
+                                        [{false, list_to_binary(Desc), Witness} | Acc];
                                     {false, _Distance} ->
                                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                              Dist when Dist >= ExclusionCells ->
@@ -1422,16 +1440,22 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                          DstPubkeyBin,
                                                                          DestinationLoc,
                                                                          Freq),
-
                                                  case RSSI < MinRcvSig of
                                                      false ->
+                                                         SrcName = ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                         WitName = ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                         RejectHt = element(2, blockchain_ledger_v1:current_height(Ledger)),
                                                          %% RSSI is impossibly high discard this witness
                                                          lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
-                                                                       [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                       [SrcName,
+                                                                        WitName,
+                                                                        RejectHt,
                                                                         RSSI, MinRcvSig, SNR]),
-                                                         [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
+                                                         Desc = lists:flatten(
+                                                                  io_lib:format(
+                                                                    "--witness_rssi_too_high--src_name:~s--witness_name:~s--reject_ht:~p--rssi:~p--min_rcv_sig:~p--snr:~p--rx_freq:~p--wit_freq:~p",
+                                                                    [SrcName, WitName, RejectHt, RSSI, MinRcvSig, SNR, ReceiptFreq, Freq])),
+                                                         [{false, list_to_binary(Desc), Witness} | Acc];
                                                      true ->
                                                          case check_valid_frequency(SourceLoc, Freq, Ledger) of
                                                              true ->
@@ -1444,21 +1468,38 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                                         lager:debug("witness ok"),
                                                                                         [{true, <<"ok">>, Witness} | Acc];
                                                                                     false ->
+                                                                                        SrcName = ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                        WitName = ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                        RejectHt = element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                        WitChan = blockchain_poc_witness_v1:channel(Witness),
                                                                                         lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                                                    [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                                        blockchain_poc_witness_v1:channel(Witness), Channel,
-                                                                                                        RSSI, SNR]),
-                                                                                        [{false, <<"witness_on_incorrect_channel">>, Witness} | Acc]
+                                                                                                    [SrcName,
+                                                                                                     WitName,
+                                                                                                     RejectHt,
+                                                                                                     WitChan,
+                                                                                                     Channel,
+                                                                                                     RSSI,
+                                                                                                     SNR]),
+                                                                                        Desc = lists:flatten(
+                                                                                                 io_lib:format(
+                                                                                                   "--witness_on_incorrect_channel--src_name:~s--witness_name:~s--reject_ht:~p--witchan:~p--channel:~p--rssi:~p--snr:~p--rx_freq:~p--wit_freq:~p",
+                                                                                                   [SrcName, WitName, RejectHt, WitChan, Channel, RSSI, SNR, ReceiptFreq, Freq])),
+                                                                                        [{false, list_to_binary(Desc), Witness} | Acc]
                                                                                 end;
                                                                             {false, LowerBound} ->
+                                                                                SrcName = ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                WitName = ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                RejectHt = element(2, blockchain_ledger_v1:current_height(Ledger)),
                                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
-                                                                                            [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                                ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                                element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                                RSSI, LowerBound, SNR]),
-                                                                                [{false, <<"witness_rssi_below_lower_bound">>, Witness} | Acc]
+                                                                                            [SrcName,
+                                                                                             WitName,
+                                                                                             RejectHt,
+                                                                                             RSSI, LowerBound, SNR]),
+                                                                                Desc = lists:flatten(
+                                                                                         io_lib:format(
+                                                                                           "--witness_rssi_below_lower_bound--src_name:~s--witness_name:~s--reject_ht:~p--rssi:~p--lower_bound:~p--snr:~p--rx_freq:~p--wit_freq:~p",
+                                                                                           [SrcName, WitName, RejectHt, RSSI, LowerBound, SNR, ReceiptFreq, Freq])),
+                                                                                [{false, list_to_binary(Desc), Witness} | Acc]
                                                                         end;
                                                                     _ ->
                                                                         %% SNR+Freq+Channels not collected, nothing else we can check
