@@ -1463,15 +1463,19 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                     {ok, DataAggVsn} when DataAggVsn > 1 ->
                                                                         case check_rssi_snr(Ledger, RSSI, SNR) of
                                                                             true ->
+                                                                                SrcName = ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
+                                                                                WitName = ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
+                                                                                RejectHt = element(2, blockchain_ledger_v1:current_height(Ledger)),
+                                                                                WitChan = blockchain_poc_witness_v1:channel(Witness),
                                                                                 case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                                                     true ->
                                                                                         lager:debug("witness ok"),
-                                                                                        [{true, <<"ok">>, Witness} | Acc];
+                                                                                        Desc = lists:flatten(
+                                                                                                 io_lib:format(
+                                                                                                   "--witness_on_incorrect_channel--src_name:~s--witness_name:~s--reject_ht:~p--witchan:~p--channel:~p--rssi:~p--snr:~p--rx_freq:~p--wit_freq:~p",
+                                                                                                   [SrcName, WitName, RejectHt, WitChan, Channel, RSSI, SNR, ReceiptFreq, WitFreq])),
+                                                                                        [{true, list_to_binary(Desc), Witness} | Acc];
                                                                                     false ->
-                                                                                        SrcName = ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                        WitName = ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                        RejectHt = element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                        WitChan = blockchain_poc_witness_v1:channel(Witness),
                                                                                         lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                                                     [SrcName,
                                                                                                      WitName,
