@@ -897,7 +897,13 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_challenge_rate, Value) ->
     validate_int(Value, "poc_challenge_rate", 1, 1000, false);
-
+validate_var(?poc_challenger_type, Value) ->
+    case Value of
+        validator ->
+            ok;
+        _ ->
+            throw({error, {poc_challenger_type, Value}})
+    end;
 validate_var(?poc_version, Value) ->
     case Value of
         N when is_integer(N), N >= 1,  N =< 11 ->

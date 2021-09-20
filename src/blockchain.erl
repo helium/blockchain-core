@@ -750,20 +750,10 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
     end.
 
 mk_block_info(Hash, Block) ->
-    PoCs = lists:flatmap(
-             fun(Txn) ->
-                     case blockchain_txn:type(Txn) of
-                         blockchain_txn_poc_request_v1 ->
-                             [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
-                               blockchain_txn_poc_request_v1:block_hash(Txn)}];
-                         _ -> []
-                     end
-             end,
-             blockchain_block:transactions(Block)),
     #block_info{time = blockchain_block:time(Block),
                 hash = Hash,
                 height = blockchain_block:height(Block),
-                pocs = maps:from_list(PoCs)}.
+                pocs = blockchain_block_v1:poc_keys(Block)}.
 
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
@@ -2103,7 +2093,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 %% the gateway, and the given owner and payer
 %%
 %% NOTE: This is an alternative add_gateway creation that calculates the fee and
-%% staking fee from the current live blockchain. 
+%% staking fee from the current live blockchain.
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58) ->

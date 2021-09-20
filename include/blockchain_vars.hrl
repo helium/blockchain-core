@@ -138,6 +138,9 @@
 %% Number of challenges per block
 -define(poc_challenge_rate, poc_challenge_rate).
 
+%% Actor type of the challenger
+-define(poc_challenger_type, poc_challenger_type).
+
 %% Allow to switch POC version
 -define(poc_version, poc_version).
 
