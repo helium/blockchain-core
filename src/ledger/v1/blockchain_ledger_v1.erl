@@ -4083,7 +4083,6 @@ diff_aux_rewards_md_(Type, Ledger) ->
 
                       maps:put(Ht, Val, Acc)
               end, #{}, Res1)
-
     end.
 
 -spec tally_fun_v1() -> fun().
