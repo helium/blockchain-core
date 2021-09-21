@@ -633,12 +633,12 @@ submit_receipts(
     Txn0 =
         case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
             {ok, PoCVersion} when PoCVersion >= 10 ->
-                blockchain_txn_poc_receipts_v1:new(
+                blockchain_txn_poc_receipts_v2:new(
                     Challenger,
                     Secret,
                     OnionKeyHash,
-                    BlockHash,
-                    lists:reverse(Path1)
+                    lists:reverse(Path1),
+                    BlockHash
                 );
             _ ->
                 %% hmm we shouldnt really hit here as this all started with poc version 10
