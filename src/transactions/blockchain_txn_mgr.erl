@@ -285,14 +285,21 @@ handle_info(
                 ordsets:add_element(Rejection, Deferred0);
             %% present or recent past:
             Age when (Age >= 0) andalso (Age < MaxRejectionAge) ->
-                case Age > 0 of
-                    true ->
-                        lager:warning(
+                if
+                    Age > 0 andalso Age =< 2 ->
+                        lager:debug(
                             "Received txn rejection from the past. "
                             "From ~b blocks ago. Counting: ~p",
                             [Age, Rejection]
                         );
-                    false ->
+                    Age > 2 ->
+                        lager:warning(
+                            "Received txn rejection from older, "
+                            "but still acceptable past. "
+                            "From ~b blocks ago. Counting: ~p",
+                            [Age, Rejection]
+                        );
+                    true ->
                         ok
                 end,
                 ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
@@ -300,7 +307,7 @@ handle_info(
             %% distant past:
             Age ->
                 lager:warning(
-                    "Received txn rejection from the past. "
+                    "Received txn rejection from ancient, unacceptable past. "
                     "From ~b blocks ago. Ignoring: ~p",
                     [Age, Rejection]
                 ),
