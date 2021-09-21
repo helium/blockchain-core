@@ -21,6 +21,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     sign/2,
     print/1,
@@ -109,6 +111,15 @@ is_valid(Txn, Chain) ->
             {error, not_in_genesis_block}
     end.
 
+-spec is_well_formed(txn_coinbase()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_coinbase(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -165,5 +176,8 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, amount])).
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

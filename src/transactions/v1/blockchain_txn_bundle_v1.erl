@@ -24,6 +24,8 @@
     fee_payer/2,
     txns/1,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     print/1,
     json_type/0,
     to_json/2
@@ -95,6 +97,15 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(txn_bundle()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_bundle(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec print(txn_bundle()) -> iodata().
 print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->

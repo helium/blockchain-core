@@ -29,6 +29,8 @@
     verify_signature/3,
     set_signatures/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -197,6 +199,15 @@ is_valid(Txn, Chain) ->
             {error, E}
     end.
 
+-spec is_well_formed(txn_consensus_group_failure()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_consensus_group_failure(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list
     {ok, L} = blockchain:config(?num_consensus_members, OldLedger),
@@ -292,3 +303,11 @@ to_json(Txn, _Opts) ->
         height => height(Txn),
         delay => delay(Txn)
     }.
+
+%% Tests ======================================================================
+-ifdef(TEST).
+
+validation_test() ->
+    'TODO-validation_test'.
+
+-endif.

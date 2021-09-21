@@ -29,6 +29,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -144,6 +146,15 @@ is_valid(Txn, Chain) ->
         true ->
             do_is_valid_checks(Txn, Chain)
     end.
+
+-spec is_well_formed(txn_state_channel_open()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_state_channel_open(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec absorb(Txn :: txn_state_channel_open(),
              Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -373,5 +384,8 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

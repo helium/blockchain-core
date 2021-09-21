@@ -34,6 +34,8 @@
     is_valid_payer/1,
     is_valid_staking_key/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -364,6 +366,15 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(txn_add_gateway()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_add_gateway(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -556,5 +567,7 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, fee, staking_fee])).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

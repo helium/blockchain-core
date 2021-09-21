@@ -21,6 +21,8 @@
          fee/1,
          fee_payer/2,
          is_valid/2,
+         is_well_formed/1,
+         is_absorbable/2,
          master_key/1,
          multi_keys/1,
          key_proof/1, key_proof/2,
@@ -353,6 +355,15 @@ is_valid(Txn, Chain) ->
         1 ->
             legacy_is_valid(Txn, Chain)
     end.
+
+-spec is_well_formed(txn_vars()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_vars(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 legacy_is_valid(Txn, Chain) ->
@@ -1511,5 +1522,7 @@ to_json_test() ->
                       [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])),
     ?assertEqual(<<"f is for ffffff\0">>, base64:decode(maps:get(f, maps:get(vars, Json)))).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

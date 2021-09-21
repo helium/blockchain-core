@@ -36,6 +36,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     calculate_rewards/3,
     calculate_rewards_metadata/3,
@@ -143,6 +145,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(txn_rewards_v2()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_rewards_v2(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
@@ -2023,5 +2034,8 @@ consensus_epoch_reward_test() ->
              ?assertEqual(30.0,calculate_epoch_reward(1, 1, 50, 60000, 30, 43200, ledger)),
              meck:unload(blockchain_ledger_v1)
      end}.
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

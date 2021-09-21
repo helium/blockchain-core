@@ -36,6 +36,8 @@
     is_valid_location/2,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -308,6 +310,7 @@ is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin,
 %%--------------------------------------------------------------------
 -spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
+    %% TODO break appart in stages
     Ledger = blockchain:ledger(Chain),
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_gateway(Txn),
@@ -370,6 +373,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_assert_location(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -532,6 +544,9 @@ invalid_new() ->
        staking_fee = ?LEGACY_STAKING_FEE,
        fee = ?LEGACY_TXN_FEE
       }.
+
+validation_test() ->
+    'TODO-validation_test'.
 
 missing_payer_signature_new() ->
     #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),

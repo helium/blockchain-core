@@ -36,6 +36,8 @@
     is_valid_location/2,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -323,6 +325,14 @@ is_valid(Txn, Chain) ->
             {error, {invalid_assert_loc_txn_v2, insufficient_assert_loc_txn_version}}
     end.
 
+-spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_assert_location(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec do_is_valid_checks(Txn :: txn_assert_location(),
                          Chain :: blockchain:blockchain()) -> ok | {error, any()}.
@@ -698,5 +708,8 @@ is_valid_gain_test() ->
     ?assert(is_valid_gain(ValidT2, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT3, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT4, MinGain, MaxGain)).
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

@@ -30,6 +30,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -228,6 +230,15 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(txn_state_channel_close()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_state_channel_close(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 check_close_updates(LedgerSC, Txn, Ledger) ->
     %% a close from a participant in the SC, not from the owner
     case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
@@ -422,5 +433,7 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, closer, state_channel])).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

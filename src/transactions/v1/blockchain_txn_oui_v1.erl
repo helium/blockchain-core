@@ -33,6 +33,8 @@
     is_valid_owner/1,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -195,6 +197,15 @@ is_valid(Txn, Chain) ->
         {true, true} ->
             do_oui_validation_checks(Txn, Chain)
     end.
+
+-spec is_well_formed(txn_oui()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_oui(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
@@ -515,5 +526,7 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size, oui])).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

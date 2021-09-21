@@ -23,6 +23,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     calculate_rewards/3,
     print/1,
@@ -128,6 +130,15 @@ is_valid(Txn, Chain) ->
                 true -> ok
             end
     end.
+
+-spec is_well_formed(txn_rewards()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_rewards(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 %%--------------------------------------------------------------------
 %% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)
@@ -1894,6 +1905,8 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, start_epoch, end_epoch, rewards])).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 common_poc_vars() ->
     #{

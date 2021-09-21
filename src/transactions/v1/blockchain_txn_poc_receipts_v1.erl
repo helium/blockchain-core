@@ -28,6 +28,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     create_secret_hash/2,
     connections/1,
@@ -224,6 +226,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(txn_poc_receipts()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_poc_receipts(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec check_is_valid_poc(Txn :: txn_poc_receipts(),
                          Chain :: blockchain:blockchain()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.
@@ -1876,5 +1887,8 @@ eirp_from_closest_freq_test() ->
     FreqEirps = [{915.8, 10}, {915.3, 20}, {914.9, 30}, {915.2, 15}, {915.7, 12}, {916.9, 100}],
     EIRP = eirp_from_closest_freq(915.1, FreqEirps),
     ?assertEqual(15, EIRP).
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

@@ -30,6 +30,8 @@
          sign/2,
          new_owner_sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_absorbable/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -280,6 +282,15 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(txn_transfer_validator_stake()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_transfer_validator_stake(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 -spec absorb(txn_transfer_validator_stake(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -374,5 +385,7 @@ to_json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_transfer_validator_stake_v1_pb))).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

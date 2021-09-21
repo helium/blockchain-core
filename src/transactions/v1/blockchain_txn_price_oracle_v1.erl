@@ -29,6 +29,8 @@
     fee_payer/2,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -186,6 +188,15 @@ is_valid(Txn, Chain) ->
             Error
     end.
 
+-spec is_well_formed(txn_price_oracle()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_price_oracle(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% When this block is absorbed, price entries are stored in the
@@ -276,5 +287,8 @@ price_test() ->
 block_height_test() ->
     Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(2, block_height(Tx)).
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

@@ -33,6 +33,8 @@
          is_valid/2,
          is_valid_seller/1,
          is_valid_buyer/1,
+         is_well_formed/1,
+         is_absorbable/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -194,6 +196,15 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                   {fun() -> buyer_has_enough_hnt(Txn, Ledger) end,
                                           {error, buyer_insufficient_hnt_balance}}],
     blockchain_utils:fold_condition_checks(Conditions).
+
+-spec is_well_formed(txn_transfer_hotspot()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_transfer_hotspot(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -373,5 +384,7 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, seller, buyer, buyer_nonce, amount_to_seller, fee])).
 
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.

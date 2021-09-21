@@ -27,6 +27,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -219,6 +221,15 @@ is_valid(Txn, Chain) ->
         Error -> Error
     end.
 
+-spec is_well_formed(txn_security_exchange()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_security_exchange(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -300,5 +311,8 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).
+
+validation_test() ->
+    'TODO-validation_test'.
 
 -endif.
