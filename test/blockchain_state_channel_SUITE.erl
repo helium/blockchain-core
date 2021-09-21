@@ -1203,8 +1203,8 @@ multi_active_sc_test(Config) ->
     %% HEIGHT MARKER -> 23
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 23),
 
-    %% At this point both the state channels are active, check
-    ?assertEqual(2, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
+    %% At this point both the state channels are open, check
+    ?assertEqual(2, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_all, []))),
 
     %% Sending 1 packet, this should use the previously opened state channel
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -1236,11 +1236,10 @@ multi_active_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 49),
 
     %% Check that it's gone from the sc server
-    ?assertEqual(1, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
-    ?assertEqual([ID2], ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, [])),
+    ?assertEqual([ID2], maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_all, []))),
 
     %% Wait 1 sec before sending more packets
-    ok= timer:sleep(timer:seconds(1)),
+    ok = timer:sleep(timer:seconds(1)),
 
     %% Send more packets, this should use the newly active state channel
     DevNonce2 = crypto:strong_rand_bytes(2),
