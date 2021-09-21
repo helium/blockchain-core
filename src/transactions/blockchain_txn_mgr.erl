@@ -271,7 +271,8 @@ handle_info(
             CurBlockHeight, RejectorHeight
         ]
     ),
-    MaxRejectionAge = 15,  % TODO configurable?
+    MaxRejectionAge =
+        application:get_env(blockchain, txn_mgr_rejection_max_age, 15),
     Deferred1 =
         case CurBlockHeight - RejectorHeight of
             %% future:
