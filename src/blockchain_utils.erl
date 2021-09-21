@@ -99,20 +99,21 @@ do_calculate_dc_amount(PayloadSize, DCPayloadSize)->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc Shuffle a list deterministically using a random binary as the seed.
+%% @doc Shuffle a list deterministically, given a binary seed.
 %% @end
 %%--------------------------------------------------------------------
 -spec shuffle_from_hash(binary(), list()) -> list().
 shuffle_from_hash(Hash, L) ->
     ?MODULE:rand_from_hash(Hash),
-    [X ||{_, X} <- lists:sort([{rand:uniform(), E} || E <- L])].
+    shuffle(L).
 
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list randomly.
 %% @end
 %%--------------------------------------------------------------------
-shuffle(List) ->
-    [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
+-spec shuffle([A]) -> [A].
+shuffle(Xs) ->
+    [X || {_, X} <- lists:sort([{rand:uniform(), X} || X <- Xs])].
 
 %%--------------------------------------------------------------------
 %% @doc

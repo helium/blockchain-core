@@ -19,6 +19,7 @@
     num_consensus_members/0,
     consensus_addrs/0,
     integrate_genesis_block/1,
+    integrate_genesis_block_synchronously/1,
     submit_txn/1, submit_txn/2,
     peer_height/3,
     notify/1,
@@ -204,6 +205,12 @@ is_resyncing() ->
 integrate_genesis_block(Block) ->
     gen_server:cast(?SERVER, {integrate_genesis_block, Block}).
 
+-spec integrate_genesis_block_synchronously(blockchain_block:block()) ->
+    ok | {error, block_not_genesis}. % TODO Other errors?
+integrate_genesis_block_synchronously(Block) ->
+    Msg = {integrate_genesis_block_synchronously, Block},
+    gen_server:call(?SERVER, Msg, infinity).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% submit_txn/1 is deprecated.  use blockchain_txn_mgr:submit_txn/2 instead
@@ -363,9 +370,14 @@ init(Args) ->
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
                 gossip_ref = Ref, mode = Mode, snapshot_info = Info}}.
 
-handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
+handle_call({integrate_genesis_block_synchronously, GenesisBlock}, _From, #state{}=S0) ->
+    {Result, S1} = integrate_genesis_block_(GenesisBlock, S0),
+    {reply, Result, S1};
+handle_call(Msg, _From, #state{blockchain={no_genesis, _}}=State) ->
+    lager:warning("Called when blockchain={no_genesis_}. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
-handle_call(_, _From, #state{blockchain=undefined}=State) ->
+handle_call(Msg, _From, #state{blockchain=undefined}=State) ->
+    lager:warning("Called when blockchain=undefined. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
 handle_call(num_consensus_members, _From, #state{blockchain = Chain} = State) ->
     {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
@@ -509,26 +521,9 @@ handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Mode, Info} = get_sync_mode(Blockchain),
     notify({new_chain, Blockchain}),
     {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info}};
-handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
-                                                            swarm_tid=SwarmTid}=State) ->
-    case blockchain_block:is_genesis(GenesisBlock) of
-        false ->
-            lager:warning("~p is not a genesis block", [GenesisBlock]),
-            {noreply, State};
-        true ->
-            ok = blockchain:integrate_genesis(GenesisBlock, Blockchain),
-            [ConsensusAddrs] = [blockchain_txn_consensus_group_v1:members(T)
-                                || T <- blockchain_block:transactions(GenesisBlock),
-                                   blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
-            lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
-            {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
-            ok = notify({integrate_genesis_block, GenesisHash}),
-            {ok, GossipRef} = add_handlers(SwarmTid, Blockchain),
-            ok = blockchain_txn_mgr:set_chain(Blockchain),
-            true = libp2p_swarm:network_id(SwarmTid, GenesisHash),
-            self() ! maybe_sync,
-            {noreply, State#state{blockchain=Blockchain, gossip_ref = GossipRef}}
-    end;
+handle_cast({integrate_genesis_block, GenesisBlock}, #state{}=S0) ->
+    {_, S1} = integrate_genesis_block_(GenesisBlock, S0),
+    {noreply, S1};
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
@@ -696,6 +691,46 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+integrate_genesis_block_(
+    GenesisBlock,
+    #state{
+        blockchain = {no_genesis, Chain},
+        swarm_tid  = SwarmTid
+    }=S0
+) ->
+    case blockchain_block:is_genesis(GenesisBlock) of
+        false ->
+            lager:warning("~p is not a genesis block", [GenesisBlock]),
+            {{error, block_not_genesis}, S0};
+        true ->
+            ok = blockchain:integrate_genesis(GenesisBlock, Chain),
+            [ConsensusAddrs] =
+                [
+                    blockchain_txn_consensus_group_v1:members(T)
+                ||
+                    T <- blockchain_block:transactions(GenesisBlock),
+                    blockchain_txn:type(T) == blockchain_txn_consensus_group_v1
+                ],
+            lager:info(
+                "blockchain started with ~p, consensus ~p",
+                [lager:pr(Chain, blockchain), ConsensusAddrs]
+            ),
+            {ok, GenesisHash} = blockchain:genesis_hash(Chain),
+            ok = notify({integrate_genesis_block, GenesisHash}),
+            {ok, GossipRef} = add_handlers(SwarmTid, Chain),
+            ok = blockchain_txn_mgr:set_chain(Chain),
+            true = libp2p_swarm:network_id(SwarmTid, GenesisHash),
+            self() ! maybe_sync,
+            S1 =
+                S0#state{
+                    blockchain = Chain,
+                    gossip_ref = GossipRef
+                },
+            {ok, S1}
+    end;
+integrate_genesis_block_(_, #state{}=State0) ->
+    {{error, not_in_no_genesis_state}, State0}.
 
 maybe_sync(#state{mode = normal} = State) ->
     maybe_sync_blocks(State);

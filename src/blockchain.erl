@@ -1588,9 +1588,19 @@ check_recent_blocks(Blockchain) ->
             {error, {missing_block, DelayedLedgerHeight}}
     end.
 
+-type crosscheck_error()
+        :: {ledger_delayed_ledger_lag_too_large, non_neg_integer()}
+        |  {ledger_delayed_ledger_lag_too_small, non_neg_integer()}
+        |  {chain_ledger_height_mismatch, non_neg_integer(), non_neg_integer()}
+        |  {fingerprint_mismatch, [term()]}
+        |  {missing_block, non_neg_integer()}
+        .
+
+-spec crosscheck(blockchain()) -> ok | {error, crosscheck_error()}.
 crosscheck(Blockchain) ->
     crosscheck(Blockchain, true).
 
+-spec crosscheck(blockchain(), boolean()) -> ok | {error, crosscheck_error()}.
 crosscheck(Blockchain, Recalc) ->
     {ok, Height} = height(Blockchain),
     Ledger = ledger(Blockchain),
@@ -1677,6 +1687,7 @@ compare(LedgerA, LedgerB) ->
             ok
     end.
 
+-spec analyze(blockchain()) -> ok | {error, crosscheck_error()}.
 analyze(Blockchain) ->
   case crosscheck(Blockchain) of
       {error, {fingerprint_mismatch, Mismatches}} ->
