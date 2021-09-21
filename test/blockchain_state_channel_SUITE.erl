@@ -1658,11 +1658,13 @@ crash_multi_sc_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
 
+    %% Activate second state channel on channels server
+    ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, get_new_active]),
+    timer:sleep(100),
+
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) andalso
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID1, 0),
+    ok = expect_nonce_for_state_channel(RouterNode, ID2, 0),
 
     %% look at sc server before sending the packet
     {_, _, _} = debug(RouterNode),
@@ -1678,9 +1680,11 @@ crash_multi_sc_test(Config) ->
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        %% one of the state channels must have incremeneted its nonce presumably
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) orelse
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
+        case {get_nonce_for_state_channel(RouterNode, ID1), get_nonce_for_state_channel(RouterNode, ID2)} of
+            {0, 1} -> true;
+            {1, 0} -> true;
+            _Nonce -> {incorrect_nonce, _Nonce}
+        end
     end, 30, timer:seconds(1)),
 
     %% Check stuff before crash =====================================
@@ -1702,6 +1706,11 @@ crash_multi_sc_test(Config) ->
     ct:pal("********** after crash *****************"),
     {_, _, _} = debug(RouterNode),
 
+    %% Make sure we have 2 active state channels. The 2nd won't have opened
+    %% because there was no packets in it.
+    ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, get_new_active]),
+    timer:sleep(100),
+
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
@@ -1710,21 +1719,22 @@ crash_multi_sc_test(Config) ->
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        %% One of these must be true
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) orelse
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
+        case {get_nonce_for_state_channel(RouterNode, ID1), get_nonce_for_state_channel(RouterNode, ID2)} of
+            {_, 2} -> true;
+            {2, _} -> true;
+            _Nonce -> {incorrect_nonce, _Nonce}
+        end
     end, 30, timer:seconds(1)),
+
+    %% Get the Nonce of the state channels before we expire the first, so we can
+    %% use it to determine which close txns we should be expecting.
+    NonceSC1 = get_nonce_for_state_channel(RouterNode, ID1),
+    NonceSC2 = get_nonce_for_state_channel(RouterNode, ID2),
 
     %% Adding 30 fake blocks to get the first state channel to expire
     FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
-
-    %% At this point we know that the first sc open must have expired, however, we do not know whether it's
-    %% responsible for both packets or just one, so, we look at it's nonce and go from there
-
-    {ok, NonceSC1} = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]),
-    {ok, NonceSC2} = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2]),
 
     %% Adding close txn to blockchain
     receive
