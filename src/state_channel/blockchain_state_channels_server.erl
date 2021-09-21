@@ -138,6 +138,9 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
             ok
     end.
 
+get_new_active() ->
+    gen_server:cast(?SERVER, get_new_active).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -298,7 +301,7 @@ handle_offer(Offer, HandlerPid) ->
                     );
                 {error, _Reason} ->
                     lager:debug("count not find any state channel for ~p", [HotspotName]),
-                    ok = gen_server:cast(?SERVER, get_new_active),
+                    ok = get_new_active(),
                     %% TODO: maybe we should not reject here?
                     reject
             end;
@@ -326,7 +329,11 @@ select_best_active(
         SC = blockchain_state_channels_worker:get(Pid),
         case blockchain_state_channel_v1:can_fit(HID, SC, Max) of
             false -> false;
-            true -> {true, Pid};
+            {true, 1} ->
+                ok = get_new_active(),
+                {true, Pid};
+            {true, _Spots} ->
+                {true, Pid};
             %% we don't care about found ones because if process was alive it should have been in ets cache
             found -> {true, Pid}
         end

@@ -135,7 +135,7 @@ update_summary_for(ClientPubkeyBin,
         false ->
             %% Cannot fit this into summaries
             {SC, false};
-        true ->
+        {true, _SpotsLeft} ->
             {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
         found ->
             NewSummaries = lists:keyreplace(ClientPubkeyBin,
@@ -502,18 +502,18 @@ merge(SCA, SCB, MaxActorsAllowed) ->
 
 -spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
               SC :: state_channel(),
-              Max :: pos_integer()) -> boolean() | found.
+              Max :: pos_integer()) -> false | found | {true, SpotsLeft :: non_neg_integer()}.
 can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC, Max) ->
-    case erlang:length(Summaries) < Max of
-        true ->
-            true;
-        false ->
-            case get_summary(ClientPubkeyBin, SC) of
-                {error, not_found} ->
-                    false;
-                {ok, _Summary} ->
-                    found
-            end
+    SpotsLeft = Max - erlang:length(Summaries),
+    HasRoom = SpotsLeft > 0,
+    FoundSummary = ?MODULE:get_summary(ClientPubkeyBin, SC),
+    case {HasRoom, FoundSummary} of
+        {_, {ok, _}} ->
+            found;
+        {true, _} ->
+            {true, SpotsLeft};
+        {false, _} ->
+            false
     end.
 
 -spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
