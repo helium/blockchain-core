@@ -678,7 +678,7 @@ max_actor_test(Config) ->
     ct:pal("MaxActorsAllowed: ~p", [MaxActorsAllowed]),
 
     %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
-    ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+    ActiveSCIDs0 = maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, [])),
     ?assertEqual([ID1], ActiveSCIDs0),
 
     Actors = lists:foldl(
@@ -698,7 +698,7 @@ max_actor_test(Config) ->
                 ),
             Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
             Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
-            ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}]),
+            ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, handle_offer, [Offer1, sc_packet_test_handler, Self]),
             [#{public => PubKey, secret => PrivKey}|Acc]
         end,
         [],
@@ -707,22 +707,25 @@ max_actor_test(Config) ->
 
     %% Checking that new SC ID is not old SC ID
     ok = blockchain_ct_utils:wait_until(fun() ->
-        ActiveSCIDs1 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ActiveSCIDs1 = maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_all, [])),
         ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
-        [ID1, ID2] == ActiveSCIDs1
+        lists:sort([ID1, ID2]) == lists:sort(ActiveSCIDs1)
     end, 30, timer:seconds(1)),
 
 
-    ActiveSCs = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
-    ct:pal("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, ActiveSCs]),
-    ?assertEqual(2, erlang:length(ActiveSCs)),
-    [SCA1, SCB1] = ActiveSCs,
+    ActiveSCIDs = maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_all, [])),
+    ct:pal("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, ActiveSCIDs]),
+    ?assertEqual(2, erlang:length(ActiveSCIDs)),
+    ?assertEqual(lists:sort([ID1, ID2]), lists:sort(ActiveSCIDs)),
 
-    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA1))),
-    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1))),
+    SCA1 = get_active_state_channel(RouterNode, ID1),
+    SCB1 = get_active_state_channel(RouterNode, ID2),
 
-    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCA1)),
-    ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1)),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA1)), "first state channel is full"),
+    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB1)), "second state channel has 1 actor"),
+
+    ?assertEqual(MaxActorsAllowed, blockchain_state_channel_v1:total_packets(SCA1), "first state channel has 1 packet per summary"),
+    ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1), "second state channel has 1 packet"),
 
     % We are resending packets from same actor to make sure they still make it in there and in the right state channel
     lists:foreach(
@@ -741,24 +744,27 @@ max_actor_test(Config) ->
                 ),
             Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
             Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
-            ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, {offer, Offer1, Self}])
+            ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, handle_offer, [Offer1, sc_packet_test_handler, Self])
         end,
         lists:reverse(Actors)
     ),
 
+
+    %% Make sure both state channels are still active
     ok = blockchain_ct_utils:wait_until(fun() ->
-        ActiveSCIDs2 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
+        ActiveSCIDs2 = maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, [])),
         ct:pal("ActiveSCIDs2: ~p", [ActiveSCIDs2]),
-        [ID1, ID2] == ActiveSCIDs2
+        lists:sort([ID1, ID2]) == lists:sort(ActiveSCIDs2)
     end, 30, timer:seconds(1)),
 
-    [SCA2, SCB2] = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_scs, []),
+    SCA2 = get_active_state_channel(RouterNode, ID1),
+    SCB2 = get_active_state_channel(RouterNode, ID2),
 
-    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA2))),
-    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2))),
+    ?assertEqual(MaxActorsAllowed, erlang:length(blockchain_state_channel_v1:summaries(SCA2)), "first state channel is full"),
+    ?assertEqual(1, erlang:length(blockchain_state_channel_v1:summaries(SCB2)), "second state channel has 1 actor"),
 
-    ?assertEqual(MaxActorsAllowed*2, blockchain_state_channel_v1:total_packets(SCA2)),
-    ?assertEqual(2, blockchain_state_channel_v1:total_packets(SCB2)),
+    ?assertEqual(MaxActorsAllowed*2, blockchain_state_channel_v1:total_packets(SCA2), "first state channel has 2 packets for every actor"),
+    ?assertEqual(2, blockchain_state_channel_v1:total_packets(SCB2), "second state channel has 2 packet for 1 actor"),
 
     ok.
 
@@ -2417,6 +2423,9 @@ expect_nonce_for_state_channel(RouterNode, SCID, ExpectedNonce) ->
     end, 30, timer:seconds(1)).
 
 get_nonce_for_state_channel(RouterNode, SCID) ->
-    SCWorkerPid = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [SCID]),
-    SC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]),
+    SC = get_active_state_channel(RouterNode, SCID),
     blockchain_state_channel_v1:nonce(SC).
+
+get_active_state_channel(RouterNode, SCID) ->
+    SCWorkerPid = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [SCID]),
+    ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]).
