@@ -624,6 +624,12 @@ cached_routing_test(Config) ->
     ok.
 
 max_actor_test(Config) ->
+    %% FIXME: This test has a potential race condition. When the
+    %% MaxActorsAllowed + 1 packets are sent, there's a chance a new state
+    %% channel won't be activated before the +1 packet is sent, resulting in it
+    %% being rejected. If the server is told to activate a new state before the
+    %% first one is full, it will start to round robin the actors earlier.
+
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
