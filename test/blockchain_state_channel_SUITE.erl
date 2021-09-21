@@ -694,7 +694,7 @@ max_actor_test(Config) ->
                     915.2,
                     "SF8BW125",
                     -12.0,
-                    {devaddr, 12}
+                    {devaddr, 1207959553}
                 ),
             Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
             Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
@@ -737,7 +737,7 @@ max_actor_test(Config) ->
                     915.2,
                     "SF8BW125",
                     -12.0,
-                    {devaddr, 12}
+                    {devaddr, 1207959553}
                 ),
             Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
             Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
