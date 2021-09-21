@@ -602,14 +602,24 @@ print(Txn, Verbose) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn(), blockchain:blockchain()) ->
+    ok | {error, not_absorbable | any()}.
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
         {value, _} ->
-            try Type:is_valid(Txn, Chain) of
-                Res ->
-                    Res
+            try
+                case Type:is_well_formed(Txn) of
+                    {error, _}=Err ->
+                        Err;
+                    ok ->
+                        case Type:is_absorbable(Txn, Chain) of
+                            false ->
+                                {error, not_absorbable};
+                            true ->
+                                Type:is_valid(Txn, Chain)
+                        end
+                end
             catch
                 What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),
