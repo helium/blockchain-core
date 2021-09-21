@@ -678,10 +678,6 @@ max_actor_test(Config) ->
     ct:pal("MaxActorsAllowed: ~p", [MaxActorsAllowed]),
 
     %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
-    ActiveSCIDsXXX = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
-    ?assertEqual([ID1], ActiveSCIDsXXX),
-
-    %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
     ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_ids, []),
     ?assertEqual([ID1], ActiveSCIDs0),
 
