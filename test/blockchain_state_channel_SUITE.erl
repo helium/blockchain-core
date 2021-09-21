@@ -1910,11 +1910,13 @@ multi_sc_gc_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
 
+    %% Activate second state channel on channels server
+    ok = ct_rpc:call(RouterNode, gen_server, cast, [blockchain_state_channels_server, get_new_active]),
+    timer:sleep(100),
+
     %% Check that the nonce of the sc server is okay
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) andalso
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID1, 0),
+    ok = expect_nonce_for_state_channel(RouterNode, ID2, 0),
 
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
@@ -1923,9 +1925,12 @@ multi_sc_gc_test(Config) ->
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) orelse
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
-    end, 30, timer:seconds(5)),
+        case {get_nonce_for_state_channel(RouterNode, ID1), get_nonce_for_state_channel(RouterNode, ID2)} of
+            {0, 1} -> true;
+            {1, 0} -> true;
+            _Nonce -> {incorrect_nonce, _Nonce}
+        end
+    end, 30, timer:seconds(1)),
 
     %% NOTE: There may be a timing issue in this test, why exactly I'm not sure cuz we check the state channel right above, could be an underlying issue, needs investigation
     timer:sleep(timer:seconds(1)),
@@ -1937,8 +1942,11 @@ multi_sc_gc_test(Config) ->
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) orelse
-        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
+        case {get_nonce_for_state_channel(RouterNode, ID1), get_nonce_for_state_channel(RouterNode, ID2)} of
+            {_, 2} -> true;
+            {2, _} -> true;
+            _Nonce -> {incorrect_nonce, _Nonce}
+        end
     end, 30, timer:seconds(1)),
 
     %% Adding 100 fake blocks to trigger the sc gc for first state channel
