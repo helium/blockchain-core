@@ -13,6 +13,7 @@
     start_height/1, start_height/2,
     secret_hash/1,
     orig_version/1,
+    verify/3,
     serialize/1, deserialize/1,
     rxtx/0, rx/0, tx/0, fail/0
 ]).
@@ -91,6 +92,10 @@ orig_version(PoC) ->
 -spec secret_hash(poc()) -> binary().
 secret_hash(PoC) ->
     PoC#poc_v3.secret_hash.
+
+-spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> {ok, poc()} | {error, any()}.
+verify(PoC, Challenger, BlockHash) ->
+    ?MODULE:challenger(PoC) =:= Challenger andalso ?MODULE:block_hash(PoC) =:= BlockHash.
 
 -spec serialize(poc()) -> binary().
 serialize(PoC) ->

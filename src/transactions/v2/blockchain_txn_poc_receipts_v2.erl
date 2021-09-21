@@ -192,6 +192,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    BlockHash = ?MODULE:block_hash(Txn),
     POCID = ?MODULE:poc_id(Txn),
     StartPre = maybe_start_duration(),
     case blockchain_ledger_v1:find_public_poc(POCOnionKeyHash, Ledger) of
@@ -202,8 +203,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
             Error;
         {ok, PoC} ->
             Secret = ?MODULE:secret(Txn),
-            case ?MODULE:challenger(PoC) =:= Challenger andalso
-                 ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret) of
+            case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
                 false ->
                     {error, invalid_poc};
                 true ->
@@ -242,15 +242,15 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                                             Vars = vars(OldLedger),
                                             Keys = libp2p_crypto:keys_from_bin(Secret),
                                             Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
-                                            {Path, StartP} = get_path(blockchain:config(?poc_version, OldLedger) , Challenger, BlockTime, Keys, Entropy, Vars, OldLedger, Ledger, StartFT),
+                                            {Path, StartP} = get_path(blockchain:config(?poc_version, OldLedger) , Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
                                             N = erlang:length(Path),
                                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
                                             OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
                                             {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
                                                                    {ok, true} ->
-                                                                       blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
+                                                                       blockchain_poc_packet:build(Keys, IV, OnionList, PrePoCBlockHash, OldLedger);
                                                                    _ ->
-                                                                       blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger)
+                                                                       blockchain_poc_packet:build(Keys, IV, OnionList, PrePoCBlockHash, Ledger)
                                                                end,
                                             %% no witness will exist with the first layer hash
                                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
@@ -632,7 +632,7 @@ absorb(Txn, Chain) ->
 absorb(_POCVersion, Txn, Chain) ->
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),
-    Secret = ?MODULE:secret(Txn),
+    BlockHash = ?MODULE:block_hash(Txn),
     Ledger = blockchain:ledger(Chain),
     POCID = ?MODULE:poc_id(Txn),
     try
@@ -644,8 +644,7 @@ absorb(_POCVersion, Txn, Chain) ->
                        lager:warning("potential replay: ~p not found", [OnionKeyHash]),
                        throw(replay)
                end,
-        case ?MODULE:challenger(PoC) =:= Challenger andalso
-             ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret) of
+        case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
             false ->
                 {error, invalid_poc};
             true ->
@@ -1477,37 +1476,37 @@ new_test() ->
         fee = 0,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"challenger">>,  <<"secret">>, <<"onion">>, [])).
+    ?assertEqual(Tx, new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>)).
 
 onion_key_hash_test() ->
-    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual(<<"onion">>, onion_key_hash(Tx)).
 
 challenger_test() ->
-    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual(<<"challenger">>, challenger(Tx)).
 
 secret_test() ->
-    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual(<<"secret">>, secret(Tx)).
 
 path_test() ->
-    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual([], path(Tx)).
 
 fee_test() ->
-    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual(0, fee(Tx)).
 
 signature_test() ->
-    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx0 = new(Challenger,  <<"secret">>, <<"onion">>, []),
+    Tx0 = new(Challenger,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
     EncodedTx1 = blockchain_txn_poc_receipts_v2_pb:encode_msg(Tx1#blockchain_txn_poc_receipts_v2_pb{signature = <<>>}),
@@ -1633,7 +1632,7 @@ to_json_test() ->
     P3 = blockchain_poc_path_element_v1:new(<<"c3">>, Receipt, Witnesses),
     Path = [P1, P2, P3],
 
-    Txn = new(Challenger, Secret, OnionKeyHash, BlockHash, Path),
+    Txn = new(Challenger, Secret, OnionKeyHash, Path, BlockHash),
     Json = to_json(Txn, []),
 
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,

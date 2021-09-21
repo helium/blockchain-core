@@ -456,7 +456,7 @@ initialize_poc(BlockHash, POCStartHeight, Keys, Vars, #state{chain = Chain, pub_
             Path = blockchain_poc_path_v4:build(TargetPubkeybin, TargetRandState, Ledger, Time, Vars),
             lager:info("path created ~p", [Path]),
             N = erlang:length(Path),
-            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(
+            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(
                 Entropy,
                 N + 1
             ),
@@ -645,7 +645,7 @@ submit_receipts(
                 noop
         end,
     Txn1 = blockchain_txn:sign(Txn0, SigFun),
-    lager:info("submitting blockchain_txn_poc_receipts_v1 for onion key hash ~p: ~p", [OnionKeyHash, Txn0]),
+    lager:info("submitting blockchain_txn_poc_receipts_v2 for onion key hash ~p: ~p", [OnionKeyHash, Txn0]),
     case miner_consensus_mgr:in_consensus() of
         false ->
             lager:info("node is not in consensus", []),
@@ -809,10 +809,10 @@ sync_filter(StopBlock, Bloom, Blockchain) ->
     blockchain:fold_chain(
         fun(Blk, _) ->
             blockchain_utils:find_txn(Blk, fun(T) ->
-                case blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1 of
+                case blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2 of
                     true ->
                         %% abuse side effects here for PERFORMANCE
-                        [update_addr_hash(Bloom, E) || E <- blockchain_txn_poc_receipts_v1:path(T)];
+                        [update_addr_hash(Bloom, E) || E <- blockchain_txn_poc_receipts_v2:path(T)];
                     false ->
                         ok
                 end,
