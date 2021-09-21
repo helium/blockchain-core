@@ -233,7 +233,8 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
             ok = pg2:create(?SC_WORKER_GROUP),
             State2 = start_workers(SCsWithSkewed, ActiveSCIDs, State1),
             %% TODO: if empty ActiveSCIDs we should try to get a new active
-            {noreply, State2}
+            StateChannels = maps:map(fun(_, {SC,_}) -> SC end, SCsWithSkewed),
+            {noreply, State2#state{state_channels=StateChannels}}
     end;
 handle_info({blockchain_event, {new_chain, Chain}}, State) ->
     {noreply, State#state{chain=Chain}};
