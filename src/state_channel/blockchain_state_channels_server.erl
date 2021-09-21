@@ -138,8 +138,13 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
             ok
     end.
 
+-spec get_new_active() -> ok.
 get_new_active() ->
     gen_server:cast(?SERVER, get_new_active).
+
+-spec maybe_get_new_active() -> ok.
+maybe_get_new_active() ->
+    gen_server:cast(?SERVER, maybe_get_new_active).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -187,6 +192,17 @@ handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
         SCIDs
     ),
     {noreply, State#state{state_channels=maps:without(SCIDs, SCs)}};
+handle_cast(maybe_get_new_active, State0) ->
+    State1 =
+        case State0#state.actives of
+            [] ->
+                lager:info("no active state channels, getting new one"),
+                get_new_active(State0);
+            _Active ->
+                lager:info("~p active state channels, ignoring", [length(_Active)]),
+                State0
+        end,
+    {noreply, State1};
 handle_cast(get_new_active, State0) ->
     lager:info("get a new active state channel"),
     State1 = get_new_active(State0),
@@ -533,7 +549,8 @@ expire_state_channel(SC, Owner, OwnerSigFun, State) ->
         undefined ->
             lager:warning("failed to find pid for ~p", [Name]);
         Pid ->
-            ok = blockchain_state_channels_worker:shutdown(Pid, expired)
+            ok = blockchain_state_channels_worker:shutdown(Pid, expired),
+            ok = maybe_get_new_active()
     end,
     ok.
 
