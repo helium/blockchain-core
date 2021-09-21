@@ -554,27 +554,29 @@ maybe_export_diff_aux_reward_sums(undefined, _Result, _Ledger) ->
     %% Don't do anything
     ok;
 maybe_export_diff_aux_reward_sums(ExportFname, Result, Ledger) ->
-    Header = ["name,latitude,longitude,h3,color,orig_amt,aux_amt"],
+    Header = ["name,latitude,longitude,h3,color,height,desc"],
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    DiffFun = fun
+                   (O, O) -> 0.0;
+                   (0, A) when A /= 0 -> 1.0;
+                   (_O, 0) -> -1.0;
+                   (O, A) -> (A - O) / O
+               end,
+
 
     ColorFun = fun
-        (_OrigAmt, 0) ->
-            %% aux rewards got zero-ed
-            "red";
-        (OrigAmt, AuxAmt) when (AuxAmt - OrigAmt) >= 1000000000 ->
-            %% aux rewards are more than 10 HNT
-            "green";
-        (OrigAmt, AuxAmt) when (AuxAmt - OrigAmt) >= 100000000 ->
-            %% aux rewards are more than 1 HNT
-            "cyan";
-        (OrigAmt, AuxAmt) when (OrigAmt - AuxAmt) >= 1000000000 ->
-            %% aux rewards reduced by more than 10 HNT
-            "orange";
-        (OrigAmt, AuxAmt) when (OrigAmt - AuxAmt) >= 100000000 ->
-            %% aux rewards reduced by more than 1 HNT
-            "yellow";
-        (_OrigAmt, _AuxAmt) ->
-            "blue"
-    end,
+                   (0.0) -> "yellow";
+                   (-1.0) -> "red";
+                   (1.0) -> "green";
+                   (V) when V >= 0.75 -> "cyan";
+                   (V) when V >= 0.5 -> "blue";
+                   (V) when V >= 0.1 -> "pink";
+                   (V) when V =< -0.75 -> "magenta";
+                   (V) when V =< -0.5 -> "violet";
+                   (V) when V =< -0.1 -> "purple";
+                   (_) -> "brown"
+               end,
 
     Data = maps:fold(
         fun(Key, #{orig_amt := OrigAmt, aux_amt := AuxAmt}, Acc) ->
@@ -585,6 +587,7 @@ maybe_export_diff_aux_reward_sums(ExportFname, Result, Ledger) ->
                     Acc;
                 {ok, H3} ->
                     {Lat, Long} = h3:to_geo(H3),
+                    DiffPercent = DiffFun(OrigAmt, AuxAmt),
                     ToAppend =
                         GwName ++
                             "," ++
@@ -594,11 +597,11 @@ maybe_export_diff_aux_reward_sums(ExportFname, Result, Ledger) ->
                             "," ++
                             integer_to_list(H3) ++
                             "," ++
-                            ColorFun(OrigAmt, AuxAmt) ++
+                            ColorFun(DiffPercent) ++
                             "," ++
-                            integer_to_list(OrigAmt) ++
+                            integer_to_list(Height) ++
                             "," ++
-                            integer_to_list(AuxAmt),
+                            io_lib:format("diff %: ~p", [DiffPercent]),
                     [ToAppend | Acc]
             end
         end,
