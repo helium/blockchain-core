@@ -57,7 +57,19 @@
 -callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+
+%% Check the transaction has the required fields and they're well formed and
+%% in-bounds.  Use blockchain_txn:validate_fields heavily here.
+-callback is_well_formed(txn()) -> ok | {error, any()}.
+
+%% Check the txn has the right causal information (nonce, block height, etc) to
+%% be absorbed.  This should be quick.
+-callback is_absorbable(txn(), blockchain:blockchain()) -> boolean().
+
+%% Final heavy-weight validity checks, including signature verification and
+%% other complex calculations:
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
