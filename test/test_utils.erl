@@ -235,7 +235,6 @@ create_block(ConsensusMembers, Txs, Override, RunValidation) ->
                 {_, []} ->
                     {ok, make_block(Blockchain, ConsensusMembers, STxs, Override)};
                 {_, [_|_]=Invalid} ->
-                    ct:pal("Invalid transactions: ~p", [Invalid]),
                     {error, {invalid_txns, Invalid}}
             end
     end.
