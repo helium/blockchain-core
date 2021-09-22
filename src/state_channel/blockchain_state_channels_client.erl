@@ -108,8 +108,8 @@ gc_state_channels(SCIDs) ->
 %% init, terminate and code_change
 %% ------------------------------------------------------------------
 init(Args) ->
-    lager:info("~p init with ~p", [?SERVER, Args]),
     SCClientTransportHandler = application:get_env(blockchain, sc_client_transport_handler, blockchain_state_channel_handler),
+    lager:info("~p init with ~p  hanlder: ~p", [?SERVER, Args, SCClientTransportHandler]),
     ok = blockchain_event:add_handler(self()),
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
@@ -356,7 +356,8 @@ handle_info(_Msg, State) ->
                     State :: state()) -> state().
 handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm=Swarm,
                                                                       sc_client_transport_handler = SCClientTransportHandler}=State0) ->
-    lager:info("handle_packet ~p to ~p", [lager:pr(Packet, blockchain_helium_packet_v1), print_routes(RoutesOrAddresses)]),
+    
+    lager:info("handle_packet ~p to ~p with handler ~p", [lager:pr(Packet, blockchain_helium_packet_v1), print_routes(RoutesOrAddresses), SCClientTransportHandler]),
     lists:foldl(
         fun(RouteOrAddress, StateAcc) ->
                 StreamKey = case blockchain_ledger_routing_v1:is_routing(RouteOrAddress) of
