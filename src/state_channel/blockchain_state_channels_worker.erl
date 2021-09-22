@@ -243,7 +243,7 @@ offer(
                         Region
                     ),
                     ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
-                    State1 = update_streams(HotspotID, HandlerPid, State0),
+                    State1 = maybe_update_streams(HotspotID, HandlerPid, State0),
                     {noreply, State1#state{state_channel=SignedPurchaseSC}}
             end
     end.
@@ -272,7 +272,7 @@ packet(
     HotspotID = blockchain_state_channel_packet_v1:hotspot(SCPacket),
     case SCVer > 1 andalso bloom:check_and_set(Bloom, Payload) of
         true ->
-            update_streams(HotspotID, HandlerPid, State0);
+            maybe_update_streams(HotspotID, HandlerPid, State0);
         false ->
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC0, Skewed0),
             SC2 = case SCVer of
@@ -294,32 +294,30 @@ packet(
             SignedSC = blockchain_state_channel_v1:sign(SC2, OwnerSigFun),
             ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
             State1 = State0#state{state_channel=SignedSC, skewed=Skewed1},
-            update_streams(HotspotID, HandlerPid, State1)
+            maybe_update_streams(HotspotID, HandlerPid, State1)
     end.
 
--spec update_streams(
+-spec maybe_update_streams(
     HotspotID :: libp2p_crypto:pubkey_bin(),
     Handler :: pid(),
     State :: state()
 ) -> state().
-update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
-    Handlers1 = 
-        maps:update_with(
-            HotspotID,
-            fun({ExistingHandler, Ref}) when ExistingHandler == Handler ->
-                    %% If the handler hasn't changed, don't remonitor
-                    {ExistingHandler, Ref};
-               ({_OldHandler, OldRef}) ->
-                %% we have an existing stream, demonitor it
-                %% and monitor new one
+maybe_update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
+    Handlers1 =
+        case Handlers0 of
+            #{HotspotID := {Handler, _Ref}} = Map ->
+                %% found and still the same
+                Map;
+            #{HotspotID := {_OldHandler, OldRef}} = Map ->
+                %% found and changed
                 erlang:demonitor(OldRef),
+                NewRef = erlang:monitor(process, Handler),
+                Map#{HotspotID := {Handler, NewRef}};
+            Map ->
+                %% new
                 Ref = erlang:monitor(process, Handler),
-                {Handler, Ref}
-            end,
-            %% value if not present
-            {Handler, erlang:monitor(process, Handler)},
-            Handlers0
-        ),
+                Map#{HotspotID => {Handler, Ref}}
+        end,
    State#state{handlers=Handlers1}.
 
 -spec send_offer_rejection(HandlerPid :: pid()) -> ok.
