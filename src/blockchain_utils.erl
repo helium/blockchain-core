@@ -17,7 +17,7 @@
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
     poc_id/1,
-    change_my_name/2,
+    pfind/2,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -172,8 +172,8 @@ poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     Hash = crypto:hash(sha256, PubKeyBin),
     ?BIN_TO_B64(Hash).
 
--spec change_my_name(F :: function(), list(list())) -> boolean() | {true, any()}.
-change_my_name(F, ToDos) ->
+-spec pfind(F :: function(), list(list())) -> boolean() | {true, any()}.
+pfind(F, ToDos) ->
     Opts = [
         {fullsweep_after, 0},
         {priority, high}
@@ -194,20 +194,20 @@ change_my_name(F, ToDos) ->
         [],
         ToDos
     ),
-    Results = change_my_name_rcv(Ref, false, erlang:length(ToDos)),
+    Results = pfind_rcv(Ref, false, erlang:length(ToDos)),
     [erlang:exit(Pid, done) || Pid <- Workers],
     Results.
  
-change_my_name_rcv(_Ref, Result, 0) ->
+pfind_rcv(_Ref, Result, 0) ->
     Result;
-change_my_name_rcv(Ref, Result, Left) ->
+pfind_rcv(Ref, Result, Left) ->
     receive
         {Ref, true} ->
             true;
         {Ref, {true, Data}} ->
             {true, Data};
         {Ref, _} ->
-            change_my_name_rcv(Ref, Result, Left-1)
+            pfind_rcv(Ref, Result, Left-1)
     end.
 
 pmap(F, L) ->
@@ -727,7 +727,7 @@ fold_condition_checks_bad_test() ->
            {fun() -> <<"blort">> == <<"blort">> end, {error, blort_isnt_blort}}],
     ?assertEqual({error, '10_not_greater_than_100'}, fold_condition_checks(Bad)).
 
-change_my_name_test() ->
+pfind_test() ->
     F = fun(I) ->
         case I rem 2 == 0 of
             true -> {true, I};
@@ -735,7 +735,7 @@ change_my_name_test() ->
         end
     end,
     Args = [[I] || I <- lists:seq(1, 6)],
-    ?assertEqual({true, 2}, change_my_name(F, Args)),
+    ?assertEqual({true, 2}, pfind(F, Args)),
     ok.
 
 -endif.
