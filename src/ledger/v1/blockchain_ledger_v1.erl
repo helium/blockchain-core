@@ -20,7 +20,7 @@
     diff_aux_reward_sums/1,
 
     set_aux_rewards_md/4,
-    get_aux_rewards_md/1,
+    get_aux_rewards_md/1, get_aux_rewards_md_for/3,
     diff_aux_rewards_md/2,
     diff_aux_rewards_md_sums/2,
 
@@ -365,7 +365,7 @@
 -type reward_diff() :: {ActualRewards :: blockchain_txn_reward_v1:rewards(), AuxRewards :: blockchain_txn_reward_v1:rewards()}.
 -type reward_md_diff() :: {ActualRewardsMD :: blockchain_txn_reward_v1:rewards_metadata(), AuxRewardsMD :: blockchain_txn_reward_v1:rewards_metadata()}.
 -type reward_diff_map() :: #{Height :: non_neg_integer() => #{Key :: binary() => {#{Orig :: amount => non_neg_integer()}, Aux :: #{amount => non_neg_integer()}}}}.
--type reward_diff_md_sum() :: #{Key :: binary() => #{orig_amt => non_neg_integer(), aux_amt => non_neg_integer()}}.
+-type reward_diff_sum() :: #{Key :: binary() => {#{amount => non_neg_integer()}, #{amount => non_neg_integer()}}}.
 -type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -export_type([ledger/0]).
@@ -3867,13 +3867,18 @@ diff_aux_rewards_for(Key, Ledger) ->
         Diff
     ).
 
+-spec diff_aux_reward_sums(Ledger :: ledger()) -> reward_diff_sum().
 diff_aux_reward_sums(Ledger) ->
+    Diff = diff_aux_rewards(Ledger),
+    diff_aux_reward_sums_(Diff).
+
+diff_aux_reward_sums_(Diff) ->
     maps:fold(fun(_Key, Value, Acc) ->
-                      maps:fold(fun(Gw, {AmountBefore, AmountAfter}, Acc2) ->
-                                        {AB, AF} = maps:get(Gw, Acc, {#{}, #{}}),
-                                        maps:put(Gw, {maps_sum(AB, AmountBefore), maps_sum(AF, AmountAfter)}, Acc2)
+                      maps:fold(fun(PubkeyBin, {AmountBefore, AmountAfter}, Acc2) ->
+                                        {AB, AF} = maps:get(PubkeyBin, Acc, {#{}, #{}}),
+                                        maps:put(PubkeyBin, {maps_sum(AB, AmountBefore), maps_sum(AF, AmountAfter)}, Acc2)
                                 end, Acc, Value)
-              end, #{}, diff_aux_rewards(Ledger)).
+              end, #{}, Diff).
 
 maps_sum(A, B) ->
     Keys = lists:usort(maps:keys(A) ++ maps:keys(B)),
@@ -3920,41 +3925,53 @@ diff_aux_rewards(Ledger) ->
             maps:fold(DiffFun, #{}, OverallAuxRewards)
     end.
 
--spec diff_aux_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_md_sum().
+-spec diff_aux_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_sum().
 diff_aux_rewards_md_sums(witnesses, Ledger) ->
     diff_aux_rewards_md_sums_(witnesses, Ledger);
 diff_aux_rewards_md_sums(challengees, Ledger) ->
     diff_aux_rewards_md_sums_(challengees, Ledger).
 
 -spec diff_aux_rewards_md_sums_(Type :: witnesses | challengees, Ledger :: ledger()) ->
-    reward_diff_md_sum().
+    reward_diff_sum().
 diff_aux_rewards_md_sums_(Type, Ledger) ->
     Diff =
         case Type of
             witnesses -> diff_aux_rewards_md(witnesses, Ledger);
             challengees -> diff_aux_rewards_md(challengees, Ledger)
         end,
+    diff_aux_reward_sums_(Diff).
 
-    lists:foldl(
-        fun(DiffMap, Acc) ->
-            maps:fold(
-                fun(GW, {#{amount := Orig}, #{amount := Aux}}, Acc1) ->
-                    maps:update_with(
-                        GW,
-                        fun(#{orig_amt := O, aux_amt := A}) ->
-                            #{orig_amt => O + Orig, aux_amt => A + Aux}
-                        end,
-                        #{orig_amt => Orig, aux_amt => Aux},
-                        Acc1
-                    )
-                end,
-                Acc,
-                DiffMap
-            )
-        end,
-        #{},
-        maps:values(Diff)
-    ).
+-spec get_aux_rewards_md_for(Type :: witness | challengee,
+                             GwPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                             Ledger :: ledger()) -> #{Ht :: non_neg_integer() => {non_neg_integer(), non_neg_integer()}}.
+get_aux_rewards_md_for(witness, GwPubkeyBin, Ledger) ->
+    MD = get_aux_rewards_md(Ledger),
+
+    maps:fold(fun(Ht, {OrigMD, AuxMD}, Acc) ->
+                      OrigWitMD = maps:get(poc_witness, OrigMD),
+                      AuxWitMD = maps:get(poc_witness, AuxMD),
+
+                      Key = {gateway, poc_witnesses, GwPubkeyBin},
+                      maps:put(Ht,
+                               {maps:get(Key, OrigWitMD, 0),
+                                maps:get(Key, AuxWitMD, 0)},
+                               Acc)
+              end,
+              #{}, MD);
+get_aux_rewards_md_for(challengee, GwPubkeyBin, Ledger) ->
+    MD = get_aux_rewards_md(Ledger),
+
+    maps:fold(fun(Ht, {OrigMD, AuxMD}, Acc) ->
+                      OrigWitMD = maps:get(poc_challengee, OrigMD),
+                      AuxWitMD = maps:get(poc_challengee, AuxMD),
+
+                      Key = {gateway, poc_challengees, GwPubkeyBin},
+                      maps:put(Ht,
+                               {maps:get(Key, OrigWitMD, 0),
+                                maps:get(Key, AuxWitMD, 0)},
+                               Acc)
+              end,
+              #{}, MD).
 
 -spec diff_aux_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards_md(witnesses, Ledger) ->
@@ -3968,65 +3985,51 @@ diff_aux_rewards_md_(Type, Ledger) ->
         false ->
             #{};
         true ->
-            OverallAuxRewardsMD = get_aux_rewards_md(Ledger),
-            {TallyFun, MDRewardKey} =
-                case Type of
-                    witnesses ->
-                        {tally_md_fun(witnesses), poc_witness};
-                    challengees ->
-                        {tally_md_fun(challengees), poc_challengee}
-                end,
+            AuxRewardsMD = get_aux_rewards_md(Ledger),
 
-            DiffFun = fun(Height, {OrigMD, AuxMD}, Acc) ->
-                OrigWitnessMD = maps:fold(TallyFun, #{}, maps:get(MDRewardKey, OrigMD)),
-                AuxWitnessMD = maps:fold(TallyFun, #{}, maps:get(MDRewardKey, AuxMD)),
-                Combined = maps:merge(AuxWitnessMD, OrigWitnessMD),
-                Res = maps:fold(
-                    fun(K, V, Acc2) ->
-                        V2 = maps:get(K, AuxWitnessMD, #{amount => 0}),
-                        case V == V2 of
-                            true ->
-                                %% check this is not missing in actual balances
-                                case maps:is_key(K, OrigWitnessMD) of
-                                    false ->
-                                        maps:put(K, {#{amount => 0}, V}, Acc2);
-                                    true ->
-                                        %% no difference
-                                        Acc2
-                                end;
-                            false ->
-                                maps:put(K, {V, V2}, Acc2)
-                        end
-                    end,
-                    #{},
-                    Combined
-                ),
-                maps:put(Height, Res, Acc)
-            end,
+            MDRewardKey = case Type of
+                              witnesses ->
+                                  poc_witness;
+                              challengees ->
+                                  poc_challengee
+                          end,
 
-            maps:fold(DiffFun, #{}, OverallAuxRewardsMD)
-    end.
+            Heights = maps:keys(AuxRewardsMD),
 
--spec tally_md_fun(witnesses | challengees) -> fun().
-tally_md_fun(witnesses) ->
-    fun({gateway, poc_witnesses, GWPubkeyBin}, Amount, AccIn) ->
-        maps:update_with(
-            %% NOTE: pubkey_bin to animal name for readability when reviewing
-            blockchain_utils:addr2name(GWPubkeyBin),
-            fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
-            #{amount => Amount},
-            AccIn
-        )
-    end;
-tally_md_fun(challengees) ->
-    fun({gateway, poc_challengees, GWPubkeyBin}, Amount, AccIn) ->
-        maps:update_with(
-            %% NOTE: pubkey_bin to animal name for readability when reviewing
-            blockchain_utils:addr2name(GWPubkeyBin),
-            fun(V) -> V#{amount => maps:get(amount, V, 0) + Amount} end,
-            #{amount => Amount},
-            AccIn
-        )
+            %% Temporary result only accumulating specific key type rewards
+            Res1 = lists:foldl(
+                     fun(Ht, Acc) ->
+                             {Orig, Aux} = maps:get(Ht, AuxRewardsMD),
+
+                             OrigRewards = maps:get(MDRewardKey, Orig),
+                             AuxRewards = maps:get(MDRewardKey, Aux),
+
+                             maps:put(Ht, {OrigRewards, AuxRewards}, Acc)
+
+                     end, #{}, Heights),
+
+            maps:fold(
+              fun(Ht, {Orig, Aux}, Acc) ->
+                      Orig1 = maps:fold(
+                                fun({gateway, _, Addr}, Value, Acc1) ->
+                                        maps:put(libp2p_crypto:bin_to_b58(Addr), #{amount => Value}, Acc1)
+                                end, #{}, Orig),
+                      Aux1 = maps:fold(
+                               fun({gateway, _, Addr}, Value, Acc1) ->
+                                        maps:put(libp2p_crypto:bin_to_b58(Addr), #{amount => Value}, Acc1)
+                               end, #{}, Aux),
+
+                      Val = lists:foldl(
+                              fun(Key, Acc2) ->
+                                      maps:put(Key,
+                                               {maps:get(Key, Orig1, #{amount => 0}),
+                                                maps:get(Key, Aux1, #{amount => 0})},
+                                               Acc2)
+                              end, #{}, lists:usort(maps:keys(Orig1) ++ maps:keys(Aux1))),
+
+                      maps:put(Ht, Val, Acc)
+              end, #{}, Res1)
+
     end.
 
 -spec tally_fun_v1() -> fun().
