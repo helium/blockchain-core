@@ -1306,7 +1306,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                                 MinRcvSig = min_rcv_sig(undefined, Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
+                                                 MinRcvSig = min_rcv_sig(blockchain_poc_path_element_v1:receipt(Element), Ledger, SourceLoc, WitnessPubkeyBin, DestinationLoc, Freq),
 
                                                  case RSSI < MinRcvSig of
                                                      false ->
@@ -1679,11 +1679,15 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, POCVersion} when POCVersion >= 11 ->
             %% Get tx_power from attached receipt and use it to calculate min_rcv_sig
-            TxPower = blockchain_poc_receipt_v1:tx_power(Receipt),
-            FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-            case blockchain:config(?fspl_loss, Ledger) of
-                {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
+            case blockchain_poc_receipt_v1:tx_power(Receipt) of
+                undefined ->
+                    min_rcv_sig(undefined, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq);
+                TxPower ->
+                    FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+                    case blockchain:config(?fspl_loss, Ledger) of
+                        {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
+                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
+                    end
             end;
         _ ->
             blockchain_utils:min_rcv_sig(
@@ -1697,7 +1701,7 @@ calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
     %% This is because the packet forwarder will be configured to subtract the antenna
     %% gain and miner will always transmit at region EIRP.
     GT = 0,
-    GR = blockchain_ledger_gateway_v2:gain(DstGW),
+    GR = blockchain_ledger_gateway_v2:gain(DstGW) / 10,
     blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq, GT, GR).
 
 estimated_tx_power(SourceLoc, Freq, Ledger) ->
@@ -1708,7 +1712,7 @@ estimated_tx_power(SourceLoc, Freq, Ledger) ->
                           blockchain_region_param_v1:max_eirp(I)} || I <- Params],
             %% NOTE: Convert src frequency to Hz before checking freq match for EIRP value
             EIRP = eirp_from_closest_freq(Freq * ?MHzToHzMultiplier, FreqEirps),
-            {ok, EIRP};
+            {ok, EIRP / 10};
         {error, _}=E ->
             %% We cannot estimate tx_power because we don't know anything
             %% about this region. We need to investigate and add unsupported
