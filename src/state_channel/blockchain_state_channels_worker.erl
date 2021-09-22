@@ -306,7 +306,10 @@ update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
     Handlers1 = 
         maps:update_with(
             HotspotID,
-            fun({_OldHandler, OldRef}) ->
+            fun({ExistingHandler, Ref}) when ExistingHandler == Handler ->
+                    %% If the handler hasn't changed, don't remonitor
+                    {ExistingHandler, Ref};
+               ({_OldHandler, OldRef}) ->
                 %% we have an existing stream, demonitor it
                 %% and monitor new one
                 erlang:demonitor(OldRef),
