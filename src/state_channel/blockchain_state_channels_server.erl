@@ -40,6 +40,18 @@
 -define(SC_WORKER_GROUP, state_channel_workers_union).
 -define(MAX_ACTORS_CACHE, max_actors_allowed_cache).
 
+-if(?OTP_RELEASE > 22).
+-define(PG_START, pg:start_link(?MODULE)).
+-define(PG_CREATE(_Group), ok).
+-define(PG_JOIN(Group, Pid), pg:join(?MODULE, Group, Pid)).
+-define(PG_GET_MEMBERS(Group), pg:get_members(Group)).
+-else.
+-define(PG_START, ok).
+-define(PG_CREATE(Group), pg2:create(Group)).
+-define(PG_JOIN(Group, Pid), pg2:join(Group, Pid)).
+-define(PG_GET_MEMBERS(Group), pg2:get_members(Group)).
+-endif.
+
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     cf :: rocksdb:cf_handle() | undefined,
@@ -73,7 +85,7 @@ get_active_pid(ID) ->
 
 -spec get_actives_count() -> non_neg_integer().
 get_actives_count() ->
-    erlang:length(pg2:get_members(?SC_WORKER_GROUP)).
+    erlang:length(?PG_GET_MEMBERS(?SC_WORKER_GROUP)).
 
 -spec gc_state_channels([binary()]) -> ok.
 gc_state_channels([]) -> ok;
@@ -112,7 +124,7 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
                     %% REVIEW: Is this okay to do for all SCVer?
                     %% QUESTION: will this cause those providing free packets rewards?
                     MaxActorsAllowed = max_actors_allowed(),
-                    Actives = pg2:get_members(?SC_WORKER_GROUP),
+                    Actives = ?PG_GET_MEMBERS(?SC_WORKER_GROUP),
                     case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
                         {ok, Pid} ->
                             lager:debug("found ~p for ~p without an offer", [Pid, HotspotName]),
@@ -157,6 +169,7 @@ init(Args) ->
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
+    ?PG_START,
     {ok, #state{db=DB, cf=SCF, owner={Owner, OwnerSigFun}}}.
 
 handle_call(get_all, _From, #state{state_channels=SCs}=State) ->
@@ -230,7 +243,7 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
                 sc_version=SCVer
             },
             {SCsWithSkewed, ActiveSCIDs} = load_state_channels(State1),
-            ok = pg2:create(?SC_WORKER_GROUP),
+            ok = ?PG_CREATE(?SC_WORKER_GROUP),
             State2 = start_workers(SCsWithSkewed, ActiveSCIDs, State1),
             %% TODO: if empty ActiveSCIDs we should try to get a new active
             %% ok = maybe_get_new_active(),
@@ -307,7 +320,7 @@ handle_offer(Offer, HandlerPid) ->
         undefined ->
             lager:debug("could not finds hotspot in cache for ~p", [HotspotName]),
             MaxActorsAllowed = max_actors_allowed(),
-            Actives = pg2:get_members(?SC_WORKER_GROUP),
+            Actives = ?PG_GET_MEMBERS(?SC_WORKER_GROUP),
             case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
                 {ok, Pid} ->
                     lager:debug("found ~p for ~p", [Pid, HotspotName]),
@@ -602,7 +615,7 @@ start_worker(SC, Skewed, #state{db=DB, chain=Chain, owner=Owner}) ->
     },
     {ok, Pid} = blockchain_state_channels_worker:start(Args),
     _Ref = erlang:monitor(process, Pid),
-    ok = pg2:join(?SC_WORKER_GROUP, Pid),
+    ok = ?PG_JOIN(?SC_WORKER_GROUP, Pid),
     Pid.
 
 %%--------------------------------------------------------------------
