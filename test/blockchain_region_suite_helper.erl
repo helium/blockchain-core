@@ -108,13 +108,15 @@ fetch(eu433) ->
 %%--------------------------------------------------------------------
 
 make_params(RegionParams) ->
-    lists:foldl(
-        fun(P, Acc) ->
-            Param = construct_param(P),
-            [Param | Acc]
-        end,
-        [],
-        RegionParams
+    lists:reverse(
+        lists:foldl(
+            fun(P, Acc) ->
+                Param = construct_param(P),
+                [Param | Acc]
+            end,
+            [],
+            RegionParams
+        )
     ).
 
 construct_param(P) ->
