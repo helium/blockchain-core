@@ -5444,6 +5444,9 @@ add_gateway_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_test"),
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
+    meck:new(blockchain, [passthrough]),
+    meck:expect(blockchain, config, fun(?election_version, _) -> {ok, 4} end),
+
     ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
     ok = commit_context(Ledger1),
     ?assertMatch(
@@ -5451,6 +5454,7 @@ add_gateway_test() ->
         find_gateway_info(<<"gw_address">>, Ledger)
     ),
     ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)),
+    meck:unload(blockchain),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 add_gateway_location_test() ->
@@ -5658,6 +5662,8 @@ poc_test() ->
                         {ok, 60};
                    (h3_neighbor_res, _) ->
                         {ok, 12};
+                   (election_version, _) ->
+                        {ok, 4};
                     (full_gateway_capabilities_mask, _) ->
                         {ok, ?GW_CAPABILITIES_FULL_GATEWAY_V1}
                 end),

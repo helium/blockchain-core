@@ -812,6 +812,7 @@ score_test() ->
     Gw = new(<<"owner_address">>, 12, full),
     fake_config(),
     ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+    fake_config_cleanup(),
     blockchain_score_cache:stop().
 
 score_decay_test() ->
@@ -821,6 +822,7 @@ score_decay_test() ->
     {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
     ?assertEqual(normalize_float(A), A),
     ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+    fake_config_cleanup(),
     blockchain_score_cache:stop().
 
 score_decay2_test() ->
@@ -831,6 +833,7 @@ score_decay2_test() ->
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
     ?assert(Score < 0.25),
+    fake_config_cleanup(),
     blockchain_score_cache:stop().
 
 last_poc_challenge_test() ->
@@ -864,8 +867,15 @@ fake_config() ->
                    (beta_decay, _) ->
                         {ok, 0.0005};
                    (max_staleness, _) ->
-                        {ok, 100000}
+                        {ok, 100000};
+                   (election_version, _) ->
+                        {ok, 4}
                 end),
     Pid.
+
+fake_config_cleanup() ->
+    meck:unload(blockchain_event),
+    meck:unload(blockchain_worker),
+    meck:unload(blockchain).
 
 -endif.
