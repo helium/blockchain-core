@@ -79,6 +79,9 @@ test_cases() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
+
+%% NOTE: If you're running individual tests 'sc_client_transport_handler` will be unset.
+%% Run with --group=(sc_libp2p | sc_grpc)
 init_per_group(sc_libp2p, Config) ->
     [{sc_client_transport_handler, blockchain_state_channel_handler} | Config];
 init_per_group(sc_grpc, Config) ->
