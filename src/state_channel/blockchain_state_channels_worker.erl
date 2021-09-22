@@ -235,7 +235,7 @@ offer(
                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
-                    ok = blockchain_state_channel_handler:send_purchase(
+                    ok = blockchain_state_channel_common:send_purchase(
                         HandlerPid,
                         SignedPurchaseSC,
                         HotspotID,
@@ -323,7 +323,7 @@ maybe_update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
 -spec send_offer_rejection(HandlerPid :: pid()) -> ok.
 send_offer_rejection(HandlerPid) ->
     RejectionMsg = blockchain_state_channel_rejection_v1:new(),
-    ok = blockchain_state_channel_handler:send_rejection(HandlerPid, RejectionMsg).
+    ok = blockchain_state_channel_common:send_rejection(HandlerPid, RejectionMsg).
 
 -spec try_update_summary(
     SC :: blockchain_state_channel_v1:state_channel(),
