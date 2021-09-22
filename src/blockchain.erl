@@ -17,7 +17,9 @@
     dir/1,
 
     blocks/1,
-    get_block/2, get_block_hash/2, get_block_height/2, get_raw_block/2,
+    get_block/2, get_block_hash/2, get_block_hash/3, get_block_height/2, get_raw_block/2,
+    put_block_height/3,
+    put_block_info/3, get_block_info/2,
     save_block/2,
     has_block/2,
     find_first_block_after/2,
@@ -88,6 +90,7 @@
     default :: rocksdb:cf_handle(),
     blocks :: rocksdb:cf_handle(),
     heights :: rocksdb:cf_handle(),
+    info :: rocksdb:cf_handle(),
     temp_blocks :: rocksdb:cf_handle(),
     plausible_blocks :: rocksdb:cf_handle(),
     snapshots :: rocksdb:cf_handle(),
@@ -113,7 +116,8 @@
                           fun bootstrap_h3dex/1,
                           fun bootstrap_h3dex/1,
                           fun upgrade_gateways_lg/1,
-                          fun clear_witnesses/1]).
+                          fun clear_witnesses/1,
+                          fun upgrade_gateways_score/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -254,6 +258,27 @@ upgrade_gateways_lg(Ledger) ->
       end,
       whatever,
       Ledger).
+
+upgrade_gateways_score(Ledger) ->
+    case blockchain:config(?election_version, Ledger) of
+        %% election v4 removed score from consideration
+        {ok, EV} when EV >= 4 ->
+            blockchain_ledger_v1:cf_fold(
+              active_gateways,
+              fun({Addr, BinGw}, _) ->
+                      Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                      Gw1 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(0.0, 0.0, 0, Gw),
+                      case blockchain_ledger_gateway_v2:serialize(Gw1) of
+                          BinGw -> ok;
+                          _ ->
+                              blockchain_ledger_v1:update_gateway(Gw1, Addr, Ledger)
+                      end
+              end,
+              whatever,
+              Ledger);
+        _ -> ok
+    end.
+
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
 get_upgrades(Ledger) ->
@@ -629,12 +654,22 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
             Error
     end.
 
-get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
+get_block_hash(Height, Chain) ->
+    get_block_hash(Height, Chain, true).
+
+get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF} = Chain, Fallback) ->
     case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
        {ok, Hash} ->
             {ok, Hash};
-        not_found ->
+        not_found when Fallback == false ->
             {error, not_found};
+        not_found when Fallback == true ->
+            case get_block_info(Height, Chain) of
+                {ok, #block_info{hash = Hash}} ->
+                    {ok, Hash};
+                {error, not_found} ->
+                    {error, not_found}
+            end;
         Error ->
             Error
     end.
@@ -642,7 +677,7 @@ get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF}) ->
 -spec get_block_height(Hash :: blockchain_block:hash(), Blockchain :: blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
 get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) ->
     case rocksdb:get(DB, HeightsCF, Hash, []) of
-       {ok, <<Height:64/integer-unsigned-big>>} ->
+        {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
             case rocksdb:get(DB, BlocksCF, Hash, []) of
@@ -658,6 +693,52 @@ get_block_height(Hash, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF}) -
         Error ->
             Error
     end.
+
+put_block_height(Hash, Height, #blockchain{db=DB, heights=HeightsCF}) ->
+    rocksdb:put(DB, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>, []).
+
+-spec put_block_info(Height :: pos_integer(),
+                     Info :: #block_info{},
+                     Blockchain :: blockchain()) ->
+          ok | {error, any()}.
+put_block_info(Height, Info, #blockchain{db=DB, info=InfoCF}) ->
+    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []).
+
+-spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
+          {ok, #block_info{}} | {error, any()}.
+get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
+    case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
+        {ok, BinInfo} ->
+            {ok, binary_to_term(BinInfo)};
+        not_found ->
+            case get_block(Height, Chain) of
+                {ok, Block} ->
+                    Hash = blockchain_block:hash_block(Block),
+                    Info = mk_block_info(Hash, Block),
+                    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []),
+                    {ok, Info};
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
+mk_block_info(Hash, Block) ->
+    PoCs = lists:flatmap(
+             fun(Txn) ->
+                     case blockchain_txn:type(Txn) of
+                         blockchain_txn_poc_request_v1 ->
+                             [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
+                               blockchain_txn_poc_request_v1:block_hash(Txn)}];
+                         _ -> []
+                     end
+             end,
+             blockchain_block:transactions(Block)),
+    #block_info{time = blockchain_block:time(Block),
+                hash = Hash,
+                height = blockchain_block:height(Block),
+                pocs = maps:from_list(PoCs)}.
 
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
@@ -822,12 +903,12 @@ can_add_block(Block, Blockchain) ->
                             lager:debug("Already have this block"),
                             exists;
                         false ->
-                            case ?MODULE:get_block(Hash, Blockchain) of
-                                {ok, Block} ->
+                            case ?MODULE:has_block(Block, Blockchain) of
+                                true ->
                                     %% we already have this, thanks
                                     %% don't error here incase there's more blocks coming that *are* valid
                                     exists;
-                                _ ->
+                                false ->
                                     %% check the block is not contiguous
                                     case Height > (ChainHeight + 1) of
                                         true ->
@@ -840,7 +921,7 @@ can_add_block(Block, Blockchain) ->
                                             end;
                                         false ->
                                             lager:warning("lower block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                                                                        blockchain_block:height(HeadBlock)]),
+                                                                                                                                              blockchain_block:height(HeadBlock)]),
                                             %% if the block height is lower we probably don't care about it
                                             {error, disjoint_chain}
                                     end
@@ -982,10 +1063,11 @@ add_block_(Block, Blockchain, Syncing) ->
 
 process_snapshot(ConsensusHash, MyAddress, Signers,
                  Ledger, Height, Blockchain) ->
-    case lists:member(MyAddress, Signers) of
+    case lists:member(MyAddress, Signers) orelse follow_mode() of
         true ->
             %% signers add the snapshot as when the block is created?
             %% otherwise we have to make it twice?
+            %% also followers get overwhelmed by how big snaps are now, don't waste the space/time
             ok;
         false ->
             %% hash here is *pre*absorb.
@@ -998,7 +1080,8 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                         lager:info("skipping previously failed snapshot at height ~p", [Height]);
                     _ ->
                         Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
-                        case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
+                        Infos = blockchain_ledger_snapshot_v1:get_infos(Blockchain),
+                        case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos) of
                             {ok, Snap} ->
                                 case blockchain_ledger_snapshot_v1:hash(Snap) of
                                     ConsensusHash ->
@@ -1505,9 +1588,19 @@ check_recent_blocks(Blockchain) ->
             {error, {missing_block, DelayedLedgerHeight}}
     end.
 
+-type crosscheck_error()
+        :: {ledger_delayed_ledger_lag_too_large, non_neg_integer()}
+        |  {ledger_delayed_ledger_lag_too_small, non_neg_integer()}
+        |  {chain_ledger_height_mismatch, non_neg_integer(), non_neg_integer()}
+        |  {fingerprint_mismatch, [term()]}
+        |  {missing_block, non_neg_integer()}
+        .
+
+-spec crosscheck(blockchain()) -> ok | {error, crosscheck_error()}.
 crosscheck(Blockchain) ->
     crosscheck(Blockchain, true).
 
+-spec crosscheck(blockchain(), boolean()) -> ok | {error, crosscheck_error()}.
 crosscheck(Blockchain, Recalc) ->
     {ok, Height} = height(Blockchain),
     Ledger = ledger(Blockchain),
@@ -1594,6 +1687,7 @@ compare(LedgerA, LedgerB) ->
             ok
     end.
 
+-spec analyze(blockchain()) -> ok | {error, crosscheck_error()}.
 analyze(Blockchain) ->
   case crosscheck(Blockchain) of
       {error, {fingerprint_mismatch, Mismatches}} ->
@@ -1844,7 +1938,8 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, SnapshotCF, ImplicitBurnsCF]} ->
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF,
+                  SnapshotCF, ImplicitBurnsCF, InfoCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
                 case Mode of
@@ -1873,6 +1968,7 @@ load(Dir, Mode) ->
                 default=DefaultCF,
                 blocks=BlocksCF,
                 heights=HeightsCF,
+                info=InfoCF,
                 temp_blocks=TempBlocksCF,
                 plausible_blocks=PlausibleBlocksCF,
                 implicit_burns=ImplicitBurnsCF,
@@ -2045,7 +2141,8 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", "plausible_blocks", "snapshots", "implicit_burns"],
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks",
+                  "plausible_blocks", "snapshots", "implicit_burns", "info"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -2093,7 +2190,8 @@ save_block(Block, Chain = #blockchain{db=DB}) ->
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 -spec save_block(blockchain_block:block(), rocksdb:batch_handle(), blockchain()) -> ok.
-save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights=HeightsCF}) ->
+save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights=HeightsCF,
+                                     info=InfoCF}) ->
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
     ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
@@ -2101,7 +2199,9 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     ok = rocksdb:batch_put(Batch, DefaultCF, ?LAST_BLOCK_ADD_TIME, <<(erlang:system_time(second)):64/integer-unsigned-little>>),
     %% lexiographic ordering works better with big endian
     ok = rocksdb:batch_put(Batch, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>),
-    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
+    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
+    Info = mk_block_info(Hash, Block),
+    ok = rocksdb:batch_put(Batch, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info)).
 
 save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}=Chain) ->
     Hash = blockchain_block:hash_block(Block),

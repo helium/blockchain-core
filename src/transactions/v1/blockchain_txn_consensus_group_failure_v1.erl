@@ -10,6 +10,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 
+-include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_failure_v1_pb.hrl").
@@ -136,8 +137,7 @@ is_valid(Txn, Chain) ->
 
         %% is the proof reasonable?
         {ok, OldLedger} = blockchain:ledger_at(ReportHeight, Chain),
-        {ok, Block} = blockchain:get_block(ReportHeight, Chain),
-        Hash = blockchain_block:hash_block(Block),
+        {ok, #block_info{hash = Hash}} = blockchain:get_block_info(ReportHeight, Chain),
         case verify_proof(Txn, Hash, OldLedger) of
             ok -> ok;
             {error, VerifyErr} -> throw(VerifyErr)

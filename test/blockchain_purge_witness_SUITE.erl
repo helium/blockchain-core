@@ -385,7 +385,7 @@ purge_witness_test(Config) ->
     ?assertEqual({ok, POC1ReqBlock}, blockchain:get_block(HeadHash3, Chain)),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    {ok, GW1Info} = blockchain_gateway_cache:get(GW1, Ledger),
+    {ok, GW1Info} = blockchain_ledger_v1:find_gateway_info(GW1, Ledger),
     ?assertEqual(CurHeight + 10, blockchain_ledger_gateway_v2:last_poc_challenge(GW1Info)),
     ?assertEqual(POC1OnionKeyHash, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GW1Info)),
     ?assertEqual(0, maps:size(blockchain_ledger_gateway_v2:witnesses(GW1Info))),
@@ -394,7 +394,7 @@ purge_witness_test(Config) ->
     %% Make GW2 the challengee, GW3 a witness
     %%
     %% meck out some stuff which gets in the way of testing
-    {ok, GW2Info} = blockchain_gateway_cache:get(GW2, Ledger),
+    {ok, GW2Info} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
     meck:new(blockchain_poc_path, [passthrough]),
     meck:expect(blockchain_poc_path, target, fun(_, _, _) -> {GW2, GW2Info} end),
     meck:expect(blockchain_poc_path, build, fun(_, _, _, _, _) -> {ok, [GW2]} end),
@@ -442,7 +442,7 @@ purge_witness_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW3
-    {ok, GW2InfoB} = blockchain_gateway_cache:get(GW2, Ledger),
+    {ok, GW2InfoB} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
     GW2WitnessesPOC1 = blockchain_ledger_gateway_v2:witnesses(GW2InfoB),
     ct:pal("GW2WitnessesPOC1: ~p", [GW2WitnessesPOC1]),
     ?assertEqual(1, maps:size(GW2WitnessesPOC1)),
@@ -561,7 +561,7 @@ purge_witness_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 44} =:= blockchain:height(Chain) end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW4
-    {ok, GW2InfoE} = blockchain_gateway_cache:get(GW2, Ledger),
+    {ok, GW2InfoE} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
     %% witnesses/1 is not filtered of stale witnesses, it returns the unfiltered witness list
     %% which due to the new witness being added should now be purged of GW3
     GW2WitnessesPOC2 = blockchain_ledger_gateway_v2:witnesses(GW2InfoE),

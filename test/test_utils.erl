@@ -22,6 +22,7 @@
 
 -define(BASE_TMP_DIR, "./_build/test/tmp").
 -define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
+
 init(BaseDir) ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     init(BaseDir, {PrivKey, PubKey}).
@@ -43,26 +44,35 @@ init(BaseDir, {PrivKey, PubKey}) ->
 init_chain(Balance, Keys) ->
     init_chain(Balance, Keys, true, #{}).
 
-
 init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
     GenesisMembers = init_genesis_members(Keys, InConsensus),
     init_chain(Balance, GenesisMembers, ExtraVars).
 
--spec init_genesis_members({P, S}, boolean()) -> [{binary(), {P, S}}] when
-    P :: libp2p_crypto:pubkey(),
-    S :: libp2p_crypto:privkey().
-init_genesis_members({PrivKey, PubKey}, InConsensus) ->
+-spec init_genesis_members({Pub, Priv}, boolean()) ->
+    [{Addr :: binary(), {Pub, Priv, Sign}}]
+    when
+        Pub  :: libp2p_crypto:pubkey(),
+        Priv :: libp2p_crypto:privkey(),
+        Sign :: fun((binary()) -> binary()).
+init_genesis_members({Priv, Pub}, InConsensus) ->
     % Generate fake blockchains (just the keys)
-    case InConsensus of
-        true ->
-            RandomKeys = test_utils:generate_keys(10),
-            Address = blockchain_swarm:pubkey_bin(),
-            [
-             {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
-            ] ++ RandomKeys;
-        false ->
-            test_utils:generate_keys(11)
-    end.
+    Members0 =
+        case InConsensus of
+            true ->
+                Addr = libp2p_crypto:pubkey_to_bin(Pub),
+                Sign = libp2p_crypto:mk_sig_fun(Priv),
+                ?assertEqual(Addr, blockchain_swarm:pubkey_bin()),
+                [{Addr, {Pub, Priv, Sign}}];
+            false ->
+                []
+        end,
+    MembersNeeded = 11 - length(Members0),
+    Members1 = test_utils:generate_keys(MembersNeeded),
+    Members = Members0 ++ Members1,
+    %% TODO Shuffle. In order to discourage test-writers from relying on order.
+    %% i.e. current node should not be guaranteed to be first.
+    %% Can't do it until all reliance from existing test-cases is fixed.
+    Members.
 
 init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsensus) ->
     init_chain(Balance, Keys, InConsensus, #{});
@@ -72,6 +82,12 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],
+    GenDCsTxs =
+        [
+            blockchain_txn_dc_coinbase_v1:new(Addr, Balance)
+        ||
+            {Addr, _} <- GenesisMembers
+        ],
 
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],
@@ -99,10 +115,11 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
                             [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
     Txs = InitialVars ++
         GenPaymentTxs ++
+        GenDCsTxs ++
         GenSecPaymentTxs ++
         InitialConsensusTxn ++
         [GenConsensusGroupTx],
-    lager:info("initial transactions: ~p", [Txs]),
+    ct:pal("initial transactions: ~p", [Txs]),
 
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
@@ -217,36 +234,40 @@ create_block(ConsensusMembers, Txs, Override, RunValidation) ->
             case blockchain_txn:validate(STxs, Blockchain) of
                 {_, []} ->
                     {ok, make_block(Blockchain, ConsensusMembers, STxs, Override)};
-                {_, Invalid} ->
+                {_, [_|_]=Invalid} ->
+                    ct:pal("Invalid transactions: ~p", [Invalid]),
                     {error, {invalid_txns, Invalid}}
             end
     end.
 
-make_block(Blockchain, ConsensusMembers, STxs, Override) ->
+make_block(Blockchain, ConsensusMembers, STxs, BlockParamsOverride) ->
     {ok, HeadBlock} = blockchain:head_block(Blockchain),
     {ok, PrevHash} = blockchain:head_hash(Blockchain),
     Height = blockchain_block:height(HeadBlock) + 1,
     Time = blockchain_block:time(HeadBlock) + 1,
     lager:info("creating block ~p", [STxs]),
-    Default = #{prev_hash => PrevHash,
-                height => Height,
-                transactions => STxs,
-                signatures => [],
-                time => Time,
-                hbbft_round => 0,
-                election_epoch => 1,
-                epoch_start => 0,
-                seen_votes => [],
-                bba_completion => <<>>
-               },
-    Block0 = blockchain_block_v1:new(maps:merge(Default, Override)),
+    BlockParamsDefault =
+        #{
+            prev_hash => PrevHash,
+            height => Height,
+            transactions => STxs,
+            signatures => [],
+            time => Time,
+            hbbft_round => 0,
+            election_epoch => 1,
+            epoch_start => 0,
+            seen_votes => [],
+            bba_completion => <<>>
+        },
+    BlockParams = maps:merge(BlockParamsDefault, BlockParamsOverride),
+    Block0 = blockchain_block_v1:new(BlockParams),
     BinBlock = blockchain_block:serialize(Block0),
-    Signatures = signatures(ConsensusMembers, BinBlock),
+    Signatures = sign(ConsensusMembers, BinBlock),
     Block1 = blockchain_block:set_signatures(Block0, Signatures),
     lager:info("block ~p", [Block1]),
     Block1.
 
-signatures(ConsensusMembers, BinBlock) ->
+sign(ConsensusMembers, BinBlock) ->
     lists:foldl(
       fun({A, {_, _, F}}, Acc) ->
               Sig = F(BinBlock),
@@ -264,9 +285,11 @@ signatures(ConsensusMembers, BinBlock) ->
 %% generate a tmp directory to be used as a scratch by eunit tests
 %% @end
 %%-------------------------------------------------------------------
+%% TODO Why do we need this on top of the test dirs already given to us by CT?
 tmp_dir() ->
     os:cmd("mkdir -p " ++ ?BASE_TMP_DIR),
     create_tmp_dir(?BASE_TMP_DIR_TEMPLATE).
+
 tmp_dir(SubDir) ->
     Path = filename:join(?BASE_TMP_DIR, SubDir),
     os:cmd("mkdir -p " ++ Path),

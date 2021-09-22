@@ -20,7 +20,6 @@ prop_path_check() ->
     ?FORALL({Hash, PathLimit, ChallengerIndex},
             {gen_hash(), gen_path_limit(), gen_challenger_index()},
             begin
-                {ok, GWCache} = blockchain_gateway_cache:start_link(),
                 Ledger = ledger(poc_v8_vars()),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
@@ -95,12 +94,10 @@ prop_path_check() ->
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
-                gen_server:stop(GWCache),
 
                 ?WHENFAIL(begin
                               blockchain_ledger_v1:close(Ledger),
-                              blockchain_score_cache:stop(),
-                              gen_server:stop(GWCache)
+                              blockchain_score_cache:stop()
                           end,
                           %% TODO: split into multiple verifiers instead of a single consolidated one
                           conjunction([
@@ -118,7 +115,6 @@ prop_path_top_200_witness_check() ->
     ?FORALL({Hash, PathLimit, ChallengerIndex, TargetPubkeyBin},
             {gen_hash(), gen_path_limit(), gen_challenger_index(), gen_big_witness_target()},
             begin
-                {ok, GWCache} = blockchain_gateway_cache:start_link(),
                 Ledger = ledger(poc_v8_vars()),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
@@ -193,12 +189,10 @@ prop_path_top_200_witness_check() ->
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
-                gen_server:stop(GWCache),
 
                 ?WHENFAIL(begin
                               blockchain_ledger_v1:close(Ledger),
-                              blockchain_score_cache:stop(),
-                              gen_server:stop(GWCache)
+                              blockchain_score_cache:stop()
                           end,
                           %% TODO: split into multiple verifiers instead of a single consolidated one
                           conjunction([

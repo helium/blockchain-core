@@ -31,7 +31,16 @@
     <<"h3dex">>,
     <<"h3dex2">>,
     <<"gateway_lg3">>,
-    <<"clear_witnesses">>
+    <<"clear_witnesses">>,
+    <<"clear_scores">>
 ]).
 
 -define(bones(HNT), HNT * 100000000).
+
+-record(block_info,
+        {
+         time,
+         height,
+         hash,
+         pocs
+        }).

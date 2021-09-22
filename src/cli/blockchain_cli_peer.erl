@@ -26,9 +26,9 @@ register_all_usage() ->
                   peer_ping_usage(),
                   peer_book_usage(),
                   peer_gossip_peers_usage(),
-                  peer_gossip_peers_usage(),
                   peer_refresh_usage(),
                   peer_relay_reset_usage(),
+                  peer_sync_usage(),
                   peer_usage()
                  ]).
 
@@ -45,9 +45,9 @@ register_all_cmds() ->
                   peer_ping_cmd(),
                   peer_book_cmd(),
                   peer_gossip_peers_cmd(),
-                  peer_gossip_peers_cmd(),
                   peer_refresh_cmd(),
                   peer_relay_reset_cmd(),
+                  peer_sync_cmd(),
                   peer_cmd()
                  ]).
 %%
@@ -67,6 +67,7 @@ peer_usage() ->
       "  peer gossip_peers      - Display gossip peers of this node.\n"
       "  peer refresh           - Request an updated peerbook for this peer from our gossip peers.\n"
       "  peer relay_reset       - Stop the current libp2p relay swarm and retry.\n"
+      "  peer sync              - Connect to given peer and attempt to sync blocks.\n"
      ]
     ].
 
@@ -367,6 +368,44 @@ peer_relay_reset(["peer", "relay_reset"], [], []) ->
     timer:sleep(500),
     libp2p_relay_server_blockchain_swarm ! retry,
     [clique_status:text("ok")].
+
+
+%%
+%% peer sync
+%%
+
+peer_sync_cmd() ->
+    [
+     [["peer", "sync", '*'], [], [], fun peer_sync/3]
+    ].
+
+peer_sync_usage() ->
+    [["peer", "sync"],
+     ["peer sync <p2p>\n\n",
+      "  Connect to peer and attempt to sync blocks\n\n"
+     ]
+    ].
+
+peer_sync(["peer", "sync", Addr], [], []) ->
+    Chain = blockchain_worker:blockchain(),
+    SwarmTID = blockchain_swarm:tid(),
+    TrimmedAddr = string:trim(Addr),
+    case libp2p_swarm:connect(SwarmTID, TrimmedAddr) of
+        {ok, _} ->
+            Swarm = blockchain_swarm:swarm(),
+            {ok, Pid} = blockchain_sync_handler:dial(Swarm, Chain, TrimmedAddr),
+            {ok, HeadHash} = blockchain:sync_hash(Chain),
+            Pid ! {hash, HeadHash},
+            [clique_status:text("ok")];
+        {error, Reason} ->
+            Text = io_lib:format("Failed to connect to ~p: ~p", [TrimmedAddr, Reason]),
+            [clique_status:alert([clique_status:text(Text)])]
+    end;
+peer_sync([], [], []) ->
+    usage.
+
+
+
 
 %%
 %% internal functions

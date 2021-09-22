@@ -46,6 +46,8 @@ val_hb(#val_v1{heartbeat = HB}) ->
 
 new_group(Ledger, Hash, Size, Delay) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 6 ->
+            new_group_v6(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 5 ->
             new_group_v5(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 4 ->
@@ -206,7 +208,7 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
     {OldGroupDeduped0, Offline, Validators} = val_dedup(OldGroup0, Validators0, Ledger),
     %% random shuffle of all candidate validators, and change format into something idcf can consume
     Validators1 = [{Addr, Prob}
-                  || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
+                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
 
     lager:debug("validators ~p ~p", [min(Replace, length(Validators1)), an2(Validators1)]),
 
@@ -226,6 +228,44 @@ new_group_v5(Ledger, Hash, Size, Delay) ->
                 %% validators in to make up the number on the last round if needed.
                 lists:sublist(lists:sort(Gateways), 1, NewLen)
         end,
+    lager:debug("to rem ~p", [an(ToRem)]),
+    %% shuffle the order to diffuse any ordering effects over time
+    blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
+
+-spec new_group_v6(Ledger :: blockchain_ledger_v1:ledger(),
+                   Hash :: binary(),
+                   Size :: non_neg_integer(),
+                   Delay :: non_neg_integer()) ->
+          [libp2p_crypto:pubkey_bin()].
+new_group_v6(Ledger, Hash, Size, Delay) ->
+    %% deterministically set the random seed
+    blockchain_utils:rand_from_hash(Hash),
+
+    {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
+
+    OldLen = length(OldGroup0),
+    {Remove, Replace} = determine_sizes_v2(Size, OldLen, Delay, Ledger),
+
+    Validators0 = validators_filter_v2(Ledger),
+
+    %% remove dupes, sort, gather offline nodes.
+    {OldGroupDeduped0, Offline, Validators} = val_dedup_v2(OldGroup0, Validators0, Ledger),
+    %% random shuffle of all candidate validators, and change format into something idcf can consume
+    Validators1 = [{Addr, Prob}
+                   || #val_v1{addr = Addr, prob = Prob} <- blockchain_utils:shuffle(Validators)],
+
+    lager:debug("validators ~p ~p", [min(Replace, length(Validators1)), an2(Validators1)]),
+
+    %% select replacement nodes from the candidate pool using iterative icdf
+    New = icdf_select(Validators1, min(Replace, length(Validators1)), []),
+
+    lager:debug("validators new ~p", [an(New)]),
+
+    %% limit the number removed to the number of replacement nodes in the case that we're changing
+    %% size this election and it would end us up with an undersized group
+    NewLen = min(Remove, length(New)),
+    ToRem = select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger),
+
     lager:debug("to rem ~p", [an(ToRem)]),
     %% shuffle the order to diffuse any ordering effects over time
     blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
@@ -606,7 +646,8 @@ gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
                   true ->
                       Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
                       Last = Height - Last0,
@@ -661,7 +702,8 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
       active_gateways,
       fun({Addr, BinGw}, Acc) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_CONSENSUS_GROUP, Ledger) of
                   true ->
                       Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
                       Last = Height - Last0,
@@ -861,6 +903,28 @@ validators_filter(Ledger) ->
       #{},
       Ledger).
 
+%% maps don't have a stable sort order between 23 and 24, use lists
+validators_filter_v2(Ledger) ->
+    {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+    blockchain_ledger_v1:cf_fold(
+      validators,
+      fun({Addr, BinVal}, Acc) ->
+              Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+              Stake = blockchain_ledger_validator_v1:stake(Val),
+              Status = blockchain_ledger_validator_v1:status(Val),
+              Penalty = blockchain_ledger_validator_v1:calculate_penalty_value(Val, Ledger),
+              HB = blockchain_ledger_validator_v1:last_heartbeat(Val),
+              case Stake >= MinStake andalso Status == staked of
+                  true ->
+                      [{Addr, #val_v1{addr = Addr,
+                                      heartbeat = HB,
+                                      prob = Penalty}} | Acc];
+                  _ -> Acc
+              end
+      end,
+      [],
+      Ledger).
+
 val_dedup(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
     {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
@@ -872,6 +936,69 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
     {Group, OfflineGroup, Pool} =
         maps:fold(
           fun(Addr, Val = #val_v1{heartbeat = Last, prob = Prob},
+              {Old, Off, Candidates} = Acc) ->
+                  Offline = (Height - Last) > (HBInterval + HBGrace),
+                  case lists:member(Addr, OldGroup0) of
+                      %% this clause keeps the old group out of the candidate list and additionally
+                      %% marks really bad nodes for removal
+                      true ->
+                          lager:debug("name ~p in off ~p", [blockchain_utils:addr2name(Addr), Offline]),
+                          case Offline of
+                              true ->
+                                  %% try and make sure offline nodes are selected
+                                  {Old, [Val | Off], Candidates};
+                              _ ->
+                                  {[Val | Old], Off, Candidates}
+                          end;
+                      %% this clause handles generating the list of new nodes
+                      %% to potentially add (Candidates)
+                      _ ->
+                          lager:debug("name ~p out off ~p",
+                                      [blockchain_utils:addr2name(Addr), Offline]),
+                          case Offline of
+                              %% don't bother to add to the candidate list
+                              true ->
+                                  Acc;
+                              _ ->
+                                  case PenaltyFilter - Prob of
+                                      %% don't even consider until some of
+                                      %% these failures have aged out
+                                      NewProb when NewProb =< 0.0 -> Acc;
+                                      NewProb -> {Old, Off,
+                                                  [Val#val_v1{prob = NewProb} | Candidates]}
+                                  end
+                          end
+                  end
+          end,
+          {[], [], []},
+          Validators0),
+
+    %% there have been buggy cases where an unstaked validator has somehow made it into the
+    %% group. when this happens, it won't make it into the group, because it has been filtered out
+    %% of the broader pool.  in this case, make a new record for it with an extreme chance of being removed.
+    case length(Group ++ OfflineGroup) < length(OldGroup0) of
+        false -> {Group, OfflineGroup, Pool};
+        true ->
+            Missing = lists:filter(fun(A) ->
+                                           not lists:keymember(A, #val_v1.addr, Group)
+                                   end, OldGroup0),
+            {Group,
+             OfflineGroup ++ [#val_v1{addr = MAddr, prob = 1.0} || MAddr <- Missing],
+             Pool}
+    end.
+
+%% no logic changes here, this version uses lists
+val_dedup_v2(OldGroup0, Validators0, Ledger) ->
+    %% filter liveness here
+    {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
+    {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
+    {ok, PenaltyFilter} = blockchain:config(?validator_penalty_filter, Ledger),
+
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    {Group, OfflineGroup, Pool} =
+        lists:foldl(
+          fun({Addr, Val = #val_v1{heartbeat = Last, prob = Prob}},
               {Old, Off, Candidates} = Acc) ->
                   Offline = (Height - Last) > (HBInterval + HBGrace),
                   case lists:member(Addr, OldGroup0) of

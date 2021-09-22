@@ -292,7 +292,9 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars, Ledger) 
                                 false;
                             true ->
                                 {WitnessGw, _} = maps:get(WitnessPubkeyBin, GatewayScoreMap),
-                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessGw, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                Mode = blockchain_ledger_gateway_v2:mode(WitnessGw),
+
+                                case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_WITNESS, Ledger) of
                                     false -> false;
                                     true ->
                                         WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),

@@ -248,11 +248,11 @@ code_change(_OldVsn, State, _Extra) ->
 -spec initialize_with_chain(#state{}, blockchain:blockchain()) -> #state{}.
 initialize_with_chain(State, Chain)->
     {ok, Height} = blockchain:height(Chain),
-%%    %% process any cached txn from before we had a chain, none of these will have been submitted as yet
-%%    F = fun({Txn, TxnData}) ->
-%%            ok = cache_txn(get_txn_key(), Txn, TxnData)
-%%        end,
-%%    lists:foreach(F, cached_txns()),
+    %% rewrite any cached txn from before we had a chain with the current block height, none of these will have been submitted as yet
+    F = fun({TxnKey, Txn, TxnData}) ->
+            ok = cache_txn(TxnKey, Txn, TxnData#txn_data{recv_block_height = Height})
+        end,
+    lists:foreach(F, cached_txns()),
     State#state{chain=Chain, cur_block_height = Height}.
 
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),

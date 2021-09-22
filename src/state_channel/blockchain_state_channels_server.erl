@@ -702,7 +702,7 @@ load_state_channels(#state{db=DB, chain=Chain}=State0) ->
                     blockchain_state_channel_v1:amount(SC) >
                         (blockchain_state_channel_v1:total_dcs(SC) + Headroom) andalso
                     erlang:length(blockchain_state_channel_v1:summaries(SC)) > 0
-                of 
+                of
                     true ->
                         [ID|Acc];
                     false ->

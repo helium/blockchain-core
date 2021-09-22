@@ -64,8 +64,9 @@ target_v2(Hash, Ledger, Vars) ->
         lists:foldl(
           fun(Addr, Acc) ->
               %% exclude GWs which do not have the required capability
-              {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
-              case blockchain_ledger_gateway_v2:is_valid_capability(Gw, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
+              {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
                   false -> Acc;
                   true ->
                       Score =
@@ -118,13 +119,14 @@ valid(Gateway, ChallengerLoc, Height, Vars, Ledger) ->
             %% No POC challenge, don't include
             false;
         C ->
+            Mode = blockchain_ledger_gateway_v2:mode(Gateway),
             %% Check challenge age is recent depending on the set chain var
             (Height - C) < challenge_age(Vars) andalso
             %% Check the potential target has the required capability
             %% Check that the potential target is far enough from the challenger
             %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
             %% so this should be safe.
-                case blockchain_ledger_gateway_v2:is_valid_capability(Gateway, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
+                case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
                     true ->
                         case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
                             false ->
