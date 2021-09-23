@@ -363,10 +363,7 @@ full_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        SC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]),
-        1 == blockchain_state_channel_v1:nonce(SC)
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
@@ -375,10 +372,7 @@ full_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
-    ok = blockchain_ct_utils:wait_until(fun() ->
-        SC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]),
-        2 == blockchain_state_channel_v1:nonce(SC)
-    end, 30, timer:seconds(1)),
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
     %% Adding 20 fake blocks to get the state channel to expire
     FakeBlocks = 15,
