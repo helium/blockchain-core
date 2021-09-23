@@ -2494,9 +2494,16 @@ expect_nonce_for_state_channel(RouterNode, SCID, ExpectedNonce) ->
     end, 30, timer:seconds(1)).
 
 get_nonce_for_state_channel(RouterNode, SCID) ->
-    SC = get_active_state_channel(RouterNode, SCID),
-    blockchain_state_channel_v1:nonce(SC).
+    case get_active_state_channel(RouterNode, SCID) of
+        worker_not_started -> worker_not_started;
+        {badrpc, _} = Err -> Err;
+        SC -> blockchain_state_channel_v1:nonce(SC)
+    end.
 
 get_active_state_channel(RouterNode, SCID) ->
-    SCWorkerPid = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [SCID]),
-    ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid]).
+    case ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [SCID]) of
+        undefined ->
+            worker_not_started;
+        SCWorkerPid ->
+            ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid])
+    end.
