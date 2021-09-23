@@ -21,11 +21,13 @@
          make_ets_table/0
         ]).
 
-%% Testing backdoors
+%% Testing backdoors for CT
+-ifdef(TEST).
 -export([
     force_process_cached_txns/0,
     get_rejections_deferred/0
 ]).
+-endif.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
