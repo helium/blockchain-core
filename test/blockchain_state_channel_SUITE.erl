@@ -735,29 +735,35 @@ max_actor_test(Config) ->
     ActiveSCIDs0 = maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, [])),
     ?assertEqual([ID1], ActiveSCIDs0),
 
-    Actors = lists:foldl(
-        fun(_I, Acc) ->
-            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-            PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            Packet = blockchain_helium_packet_v1:new(
-                    lorawan,
-                    crypto:strong_rand_bytes(20),
-                    erlang:system_time(millisecond),
-                    -100.0,
-                    915.2,
-                    "SF8BW125",
-                    -12.0,
-                    {devaddr, 1207959553}
-                ),
-            Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
-            Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
-            ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, handle_offer, [Offer1, sc_packet_test_handler, Self]),
-            [#{public => PubKey, secret => PrivKey}|Acc]
-        end,
-        [],
-        lists:seq(1, MaxActorsAllowed + 1)
-    ),
+    SendPacketFun = fun(#{public := PubKey, secret := PrivKey} = _Actor) ->
+        PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+        SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+        Packet = blockchain_helium_packet_v1:new(
+            lorawan,
+            crypto:strong_rand_bytes(20),
+            erlang:system_time(millisecond),
+            -100.0,
+            915.2,
+            "SF8BW125",
+            -12.0,
+            {devaddr, 1207959553}
+        ),
+        Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
+        Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
+        ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, handle_offer, [Offer1, sc_packet_test_handler, Self])
+    end,
+
+    CreateActorAndSendPacketFun = fun(_Idx) ->
+        Actor = libp2p_crypto:generate_keys(ecc_compact),
+        ok = SendPacketFun(Actor),
+        Actor
+    end,
+
+    %% Sending MaxActorsAllowed + 1 packets. Allowing a little time for second
+    %% state channel to be opened after filling the first with actors.
+    Actors0 = lists:map(CreateActorAndSendPacketFun, lists:seq(1, MaxActorsAllowed)),
+    timer:sleep(100),
+    Actors = Actors0 ++ [CreateActorAndSendPacketFun(101)],
 
     %% Checking that new SC ID is not old SC ID
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -782,27 +788,7 @@ max_actor_test(Config) ->
     ?assertEqual(1, blockchain_state_channel_v1:total_packets(SCB1), "second state channel has 1 packet"),
 
     % We are resending packets from same actor to make sure they still make it in there and in the right state channel
-    lists:foreach(
-        fun(#{public := PubKey, secret := PrivKey}) ->
-            PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            Packet = blockchain_helium_packet_v1:new(
-                    lorawan,
-                    crypto:strong_rand_bytes(20),
-                    erlang:system_time(millisecond),
-                    -100.0,
-                    915.2,
-                    "SF8BW125",
-                    -12.0,
-                    {devaddr, 1207959553}
-                ),
-            Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
-            Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
-            ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, handle_offer, [Offer1, sc_packet_test_handler, Self])
-        end,
-        lists:reverse(Actors)
-    ),
-
+    lists:foreach(SendPacketFun, lists:reverse(Actors)),
 
     %% Make sure both state channels are still active
     ok = blockchain_ct_utils:wait_until(fun() ->
