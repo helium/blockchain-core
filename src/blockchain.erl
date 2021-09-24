@@ -738,8 +738,9 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
         not_found ->
             case get_block(Height, Chain) of
                 {ok, Block} ->
+                    Ledger = blockchain:ledger(Chain),
                     Hash = blockchain_block:hash_block(Block),
-                    Info = mk_block_info(Hash, Block),
+                    Info = mk_block_info(Hash, Block, Ledger),
                     ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []),
                     {ok, Info};
                 Error ->
@@ -749,11 +750,27 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             Error
     end.
 
-mk_block_info(Hash, Block) ->
+mk_block_info(Hash, Block, Ledger) ->
+    PoCs =
+        case blockchain:config(?poc_challenger_type, Ledger) of
+            {ok, validator} ->
+                blockchain_block_v1:poc_keys(Block);
+            _ ->
+            lists:flatmap(
+                fun(Txn) ->
+                         case blockchain_txn:type(Txn) of
+                             blockchain_txn_poc_request_v1 ->
+                                 [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
+                                   blockchain_txn_poc_request_v1:block_hash(Txn)}];
+                             _ -> []
+                         end
+                 end,
+             blockchain_block:transactions(Block))
+        end,
     #block_info{time = blockchain_block:time(Block),
                 hash = Hash,
                 height = blockchain_block:height(Block),
-                pocs = blockchain_block_v1:poc_keys(Block)}.
+                pocs = PoCs}.
 
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
@@ -2247,8 +2264,9 @@ save_block(Block, Chain = #blockchain{db=DB}) ->
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 -spec save_block(blockchain_block:block(), rocksdb:batch_handle(), blockchain()) -> ok.
-save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights=HeightsCF,
+save_block(Block, Batch, Chain = #blockchain{default=DefaultCF, blocks=BlocksCF, heights=HeightsCF,
                                      info=InfoCF}) ->
+    Ledger = blockchain:ledger(Chain),
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
     ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
@@ -2257,7 +2275,7 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     %% lexiographic ordering works better with big endian
     ok = rocksdb:batch_put(Batch, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
-    Info = mk_block_info(Hash, Block),
+    Info = mk_block_info(Hash, Block, Ledger),
     ok = rocksdb:batch_put(Batch, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info)).
 
 save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}=Chain) ->
