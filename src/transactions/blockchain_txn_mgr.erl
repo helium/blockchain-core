@@ -27,6 +27,14 @@
     force_process_cached_txns/0,
     get_rejections_deferred/0
 ]).
+
+-spec get_rejections_deferred() -> [rejection()].
+get_rejections_deferred() ->
+    gen_server:call(?MODULE, get_rejections_deferred, infinity).
+
+force_process_cached_txns() ->
+    gen_server:call(?MODULE, force_process_cached_txns, infinity).
+
 -endif.
 
 %% ------------------------------------------------------------------
@@ -103,13 +111,6 @@ submit(Txn, Callback) ->
 -spec submit(Txn :: blockchain_txn:txn(), Key :: txn_key(), Callback :: fun()) -> ok.
 submit(Txn, Key, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, Key, Callback}).
-
--spec get_rejections_deferred() -> [rejection()].
-get_rejections_deferred() ->
-    gen_server:call(?MODULE, get_rejections_deferred, infinity).
-
-force_process_cached_txns() ->
-    gen_server:call(?MODULE, force_process_cached_txns, infinity).
 
 -spec set_chain(blockchain:blockchain()) -> ok.
 set_chain(Chain) ->
