@@ -22,7 +22,7 @@
     set_aux_rewards_md/4,
     get_aux_rewards_md/1, get_aux_rewards_md_for/3,
     diff_aux_rewards_md/2,
-    diff_aux_rewards_md_sums/2,
+    diff_aux_rewards_md_sums/1, diff_aux_rewards_md_sums/2,
 
     check_key/2, mark_key/2, unmark_key/2,
 
@@ -368,6 +368,7 @@
 -type reward_diff_sum() :: #{Key :: binary() => {#{amount => non_neg_integer()}, #{amount => non_neg_integer()}}}.
 -type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
+-type gw_aux_rewards_md() :: #{Ht :: non_neg_integer() => {non_neg_integer(), non_neg_integer()}}.
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -3925,6 +3926,25 @@ diff_aux_rewards(Ledger) ->
             maps:fold(DiffFun, #{}, OverallAuxRewards)
     end.
 
+-spec diff_aux_rewards_md_sums(Ledger :: ledger()) -> reward_diff_sum().
+diff_aux_rewards_md_sums(Ledger) ->
+    WSum = diff_aux_rewards_md_sums(witnesses, Ledger),
+    CSum = diff_aux_rewards_md_sums(challengees, Ledger),
+
+    lists:foldl(
+        fun(Key, Acc) ->
+            {OrigWVal, AuxWVal} = maps:get(Key, WSum, {#{amount => 0}, #{amount => 0}}),
+            {OrigCVal, AuxCVal} = maps:get(Key, CSum, {#{amount => 0}, #{amount => 0}}),
+            Tot = {
+                #{amount => maps:get(amount, OrigWVal, 0) + maps:get(amount, OrigCVal, 0)},
+                #{amount => maps:get(amount, AuxWVal, 0) + maps:get(amount, AuxCVal, 0)}
+            },
+            maps:put(Key, Tot, Acc)
+        end,
+        #{},
+        lists:usort(maps:keys(WSum) ++ maps:keys(CSum))
+    ).
+
 -spec diff_aux_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_sum().
 diff_aux_rewards_md_sums(witnesses, Ledger) ->
     diff_aux_rewards_md_sums_(witnesses, Ledger);
@@ -3941,37 +3961,44 @@ diff_aux_rewards_md_sums_(Type, Ledger) ->
         end,
     diff_aux_reward_sums_(Diff).
 
--spec get_aux_rewards_md_for(Type :: witness | challengee,
-                             GwPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                             Ledger :: ledger()) -> #{Ht :: non_neg_integer() => {non_neg_integer(), non_neg_integer()}}.
+-spec get_aux_rewards_md_for(
+    Type :: witness | challengee,
+    GwPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    Ledger :: ledger()
+) -> gw_aux_rewards_md().
 get_aux_rewards_md_for(witness, GwPubkeyBin, Ledger) ->
     MD = get_aux_rewards_md(Ledger),
-
-    maps:fold(fun(Ht, {OrigMD, AuxMD}, Acc) ->
-                      OrigWitMD = maps:get(poc_witness, OrigMD),
-                      AuxWitMD = maps:get(poc_witness, AuxMD),
-
-                      Key = {gateway, poc_witnesses, GwPubkeyBin},
-                      maps:put(Ht,
-                               {maps:get(Key, OrigWitMD, 0),
-                                maps:get(Key, AuxWitMD, 0)},
-                               Acc)
-              end,
-              #{}, MD);
+    get_aux_rewards_md_for_(poc_witness, GwPubkeyBin, MD);
 get_aux_rewards_md_for(challengee, GwPubkeyBin, Ledger) ->
     MD = get_aux_rewards_md(Ledger),
+    get_aux_rewards_md_for_(poc_challengee, GwPubkeyBin, MD).
 
-    maps:fold(fun(Ht, {OrigMD, AuxMD}, Acc) ->
-                      OrigWitMD = maps:get(poc_challengee, OrigMD),
-                      AuxWitMD = maps:get(poc_challengee, AuxMD),
+-spec get_aux_rewards_md_for_(
+    Type :: poc_witness | poc_challengee,
+    GwPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    MD :: aux_rewards_md()
+) -> gw_aux_rewards_md().
+get_aux_rewards_md_for_(Type, GwPubkeyBin, MD) ->
+    maps:fold(
+        fun(Ht, {OrigMD, AuxMD}, Acc) ->
+            OrigWitMD = maps:get(Type, OrigMD),
+            AuxWitMD = maps:get(Type, AuxMD),
 
-                      Key = {gateway, poc_challengees, GwPubkeyBin},
-                      maps:put(Ht,
-                               {maps:get(Key, OrigWitMD, 0),
-                                maps:get(Key, AuxWitMD, 0)},
-                               Acc)
-              end,
-              #{}, MD).
+            Key =
+                case Type of
+                    poc_challengee -> {gateway, poc_challengees, GwPubkeyBin};
+                    poc_witness -> {gateway, poc_witnesses, GwPubkeyBin}
+                end,
+
+            maps:put(
+                Ht,
+                {maps:get(Key, OrigWitMD, 0), maps:get(Key, AuxWitMD, 0)},
+                Acc
+            )
+        end,
+        #{},
+        MD
+    ).
 
 -spec diff_aux_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
 diff_aux_rewards_md(witnesses, Ledger) ->
