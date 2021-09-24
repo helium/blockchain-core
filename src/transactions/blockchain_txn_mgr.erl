@@ -21,6 +21,14 @@
          make_ets_table/0
         ]).
 
+%% Testing backdoors for CT
+-ifdef(TEST).
+-export([
+    force_process_cached_txns/0,
+    get_rejections_deferred/0
+]).
+-endif.
+
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -33,13 +41,24 @@
          code_change/3
         ]).
 
+-type rejection() ::
+    {
+        %% TODO Complete types
+        Dialer :: dialer(), %% TODO dialer() or pid()?
+        TxnKey :: txn_key(),
+        Txn    :: blockchain_txn:txn(),
+        Member :: libp2p_crypto:pubkey_bin(),
+        Height :: non_neg_integer()
+    }.
+
 -record(state, {
           submit_f :: undefined | integer(),
           reject_f :: undefined | integer(),
           cur_block_height :: undefined | integer(),
           txn_cache :: undefined | ets:tid(),
           chain :: undefined | blockchain:blockchain(),
-          has_been_synced= false :: boolean()
+          has_been_synced= false :: boolean(),
+          rejections_deferred :: [rejection()]
          }).
 
 -record(txn_data,
@@ -85,6 +104,12 @@ submit(Txn, Callback) ->
 submit(Txn, Key, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, Key, Callback}).
 
+-spec get_rejections_deferred() -> [rejection()].
+get_rejections_deferred() ->
+    gen_server:call(?MODULE, get_rejections_deferred, infinity).
+
+force_process_cached_txns() ->
+    gen_server:call(?MODULE, force_process_cached_txns, infinity).
 
 -spec set_chain(blockchain:blockchain()) -> ok.
 set_chain(Chain) ->
@@ -117,7 +142,7 @@ init(Args) ->
                        Tab
                end,
     ok = blockchain_event:add_handler(self()),
-    {ok, #state{txn_cache = TxnCache}}.
+    {ok, #state{txn_cache = TxnCache, rejections_deferred = []}}.
 
 handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
     NewState = initialize_with_chain(State, Chain),
@@ -154,6 +179,22 @@ handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown cast: ~p", [_Msg]),
     {noreply, State}.
 
+handle_call(
+    force_process_cached_txns,
+    _,
+    #state{
+        chain = Chain,
+        cur_block_height = CurBlockHeight,
+        submit_f = SubmitF
+    }=State
+) ->
+    HasBeenSynced = false,
+    IsNewElection = false,
+    NewCGMembers = [],
+    Result = process_cached_txns(Chain, CurBlockHeight, SubmitF, HasBeenSynced, IsNewElection, NewCGMembers),
+    {reply, Result, State};
+handle_call(get_rejections_deferred, _, #state{rejections_deferred=Deferred}=State) ->
+    {reply, Deferred, State};
 handle_call({txn_status, Hash}, _, State) ->
     lists:foreach(fun({_, Txn, TxnData}) ->
                           case blockchain_txn:hash(Txn) == Hash of
@@ -207,11 +248,75 @@ handle_info({accepted, {Dialer, TxnKey, Txn, Member}}, State) ->
     ok = accepted(TxnKey, Txn, Member, Dialer),
     {noreply, State};
 
-handle_info({rejected, {Dialer, TxnKey, Txn, Member}}, #state{  cur_block_height = CurBlockHeight,
-                                                        reject_f = RejectF} = State) ->
-    lager:debug("txn: ~s, rejected_by: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
-    ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
-    {noreply, State};
+handle_info(
+    {rejected, Rejection},
+    #state{
+        cur_block_height = CurBlockHeight,
+        reject_f = RejectF,
+        rejections_deferred = Deferred0
+    } = State0
+) ->
+    {Dialer, TxnKey, Txn, Member, RejectorHeight} =
+        case Rejection of
+            %% v1 - no height
+            {D, K, T, M} ->
+                {D, K, T, M, CurBlockHeight};
+            %% v2 - has height
+            {_, _, _, _, _} ->
+                Rejection
+        end,
+    lager:debug(
+        "txn: ~s, rejected_by: ~p, Dialer: ~p, "
+        "my height: ~p, rejector height: ~p",
+        [
+            blockchain_txn:print(Txn), Member, Dialer,
+            CurBlockHeight, RejectorHeight
+        ]
+    ),
+    MaxRejectionAge =
+        application:get_env(blockchain, txn_mgr_rejection_max_age, 15),
+    Deferred1 =
+        case CurBlockHeight - RejectorHeight of
+            %% future:
+            Age when Age < 0 ->
+                %% TODO Maybe limit how far in the future?
+                lager:warning(
+                    "Received txn rejection from the future. Deferring: ~p",
+                    [Rejection]
+                ),
+                ordsets:add_element(Rejection, Deferred0);
+            %% present or recent past:
+            Age when (Age >= 0) andalso (Age < MaxRejectionAge) ->
+                if
+                    Age > 0 andalso Age =< 2 ->
+                        lager:debug(
+                            "Received txn rejection from the past. "
+                            "From ~b blocks ago. Counting: ~p",
+                            [Age, Rejection]
+                        );
+                    Age > 2 ->
+                        lager:warning(
+                            "Received txn rejection from older, "
+                            "but still acceptable past. "
+                            "From ~b blocks ago. Counting: ~p",
+                            [Age, Rejection]
+                        );
+                    true ->
+                        ok
+                end,
+                ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF),
+                Deferred0;
+            %% distant past:
+            Age ->
+                lager:warning(
+                    "Received txn rejection from ancient, unacceptable past. "
+                    "From ~b blocks ago. Ignoring: ~p",
+                    [Age, Rejection]
+                ),
+                Deferred0
+        end,
+    State1 = State0#state{rejections_deferred = Deferred1},
+    {noreply, State1};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     NewState = initialize_with_chain(State, NC),
@@ -274,11 +379,36 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             %% only update the current block height if its not a sync block
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
-            {noreply, State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced}};
+            State1 = State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced},
+            State2 = process_deferred_rejections(State1),
+            {noreply, State2};
         _ ->
             lager:error("failed to find block with hash: ~p", [BlockHash]),
             {noreply, State}
     end.
+
+process_deferred_rejections(
+    #state{
+        rejections_deferred = Deferred0,
+        reject_f            = RejectF,
+        cur_block_height    = CurBlockHeight
+    }=State
+) ->
+    IsPast    = fun({_, _, _, _, H}) -> H   < CurBlockHeight end,
+    IsCurrent = fun({_, _, _, _, H}) -> H =:= CurBlockHeight end,
+    {Current, Deferred1} = lists:partition(IsCurrent, Deferred0),
+    {[]     , Deferred1} = lists:partition(IsPast   , Deferred1), % Sanity check
+    lager:debug(
+        "Processing deferred rejections. "
+        "Count now current: ~b, count still deferred: ~b",
+        [length(Current), length(Deferred1)]
+    ),
+    Reject =
+        fun ({Dialer, TxnKey, Txn, Member, _}) ->
+            ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF)
+        end,
+    lists:foreach(Reject, Current),
+    State#state{rejections_deferred=Deferred1}.
 
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
@@ -682,5 +812,3 @@ get_txn_key()->
     %% define a unique value to use as they cache key for the received txn, for now its just a mono increasing timestamp.
     %% Timestamp is a poormans key but as txns are serialised via a single txn mgr per node, it satisfies the need here
     erlang:monotonic_time().
-
-
