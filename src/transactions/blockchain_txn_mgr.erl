@@ -186,15 +186,15 @@ handle_call(
         chain = Chain,
         cur_block_height = CurBlockHeight,
         submit_f = SubmitF
-    }=S
+    }=State
 ) ->
     HasBeenSynced = false,
     IsNewElection = false,
     NewCGMembers = [],
     Result = process_cached_txns(Chain, CurBlockHeight, SubmitF, HasBeenSynced, IsNewElection, NewCGMembers),
-    {reply, Result, S};
-handle_call(get_rejections_deferred, _, #state{rejections_deferred=Deferred}=S) ->
-    {reply, Deferred, S};
+    {reply, Result, State};
+handle_call(get_rejections_deferred, _, #state{rejections_deferred=Deferred}=State) ->
+    {reply, Deferred, State};
 handle_call({txn_status, Hash}, _, State) ->
     lists:foreach(fun({_, Txn, TxnData}) ->
                           case blockchain_txn:hash(Txn) == Hash of
@@ -254,7 +254,7 @@ handle_info(
         cur_block_height = CurBlockHeight,
         reject_f = RejectF,
         rejections_deferred = Deferred0
-    } = S0
+    } = State0
 ) ->
     {Dialer, TxnKey, Txn, Member, RejectorHeight} =
         case Rejection of
@@ -315,8 +315,8 @@ handle_info(
                 ),
                 Deferred0
         end,
-    S1 = S0#state{rejections_deferred = Deferred1},
-    {noreply, S1};
+    State1 = State0#state{rejections_deferred = Deferred1},
+    {noreply, State1};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     NewState = initialize_with_chain(State, NC),
@@ -392,7 +392,7 @@ process_deferred_rejections(
         rejections_deferred = Deferred0,
         reject_f            = RejectF,
         cur_block_height    = CurBlockHeight
-    }=S
+    }=State
 ) ->
     IsPast    = fun({_, _, _, _, H}) -> H   < CurBlockHeight end,
     IsCurrent = fun({_, _, _, _, H}) -> H =:= CurBlockHeight end,
@@ -408,7 +408,7 @@ process_deferred_rejections(
             ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF)
         end,
     lists:foreach(Reject, Current),
-    S#state{rejections_deferred=Deferred1}.
+    State#state{rejections_deferred=Deferred1}.
 
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
