@@ -379,7 +379,6 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             %% only update the current block height if its not a sync block
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
-            %% TODO process deferred rejections
             State1 = State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced},
             State2 = process_deferred_rejections(State1),
             {noreply, State2};
