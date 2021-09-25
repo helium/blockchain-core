@@ -22,20 +22,10 @@
         ]).
 
 %% Testing backdoors for CT
--ifdef(TEST).
 -export([
     force_process_cached_txns/0,
     get_rejections_deferred/0
 ]).
-
--spec get_rejections_deferred() -> [rejection()].
-get_rejections_deferred() ->
-    gen_server:call(?MODULE, get_rejections_deferred, infinity).
-
-force_process_cached_txns() ->
-    gen_server:call(?MODULE, force_process_cached_txns, infinity).
-
--endif.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -129,6 +119,13 @@ make_ets_table() ->
             [named_table,
              private,
              {heir, self(), undefined}]).
+
+-spec get_rejections_deferred() -> [rejection()].
+get_rejections_deferred() ->
+    gen_server:call(?MODULE, get_rejections_deferred, infinity).
+
+force_process_cached_txns() ->
+    gen_server:call(?MODULE, force_process_cached_txns, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
