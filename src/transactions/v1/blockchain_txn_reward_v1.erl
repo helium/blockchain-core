@@ -4,6 +4,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_reward_v1).
 
+%%% TODO Q: Why is this not a -behavior(blockchain_txn). ?
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 
