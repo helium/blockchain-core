@@ -39,7 +39,13 @@ init(_RPC, StreamState)->
     Self = self(),
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
-            ActiveSCs = maps:to_list(blockchain_state_channels_server:get_actives()),
+            ActiveSCs =
+                e2qc:cache(
+                    ?MODULE,
+                    active_list,
+                    10,
+                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
+                ),
             case ActiveSCs of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
