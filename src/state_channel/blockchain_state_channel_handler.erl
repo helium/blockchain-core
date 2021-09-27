@@ -39,8 +39,8 @@ client(Connection, Args) ->
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
-dial(Swarm, Peer, Opts) ->
-    libp2p_swarm:dial_framed_stream(Swarm,
+dial(SwarmTID, Peer, Opts) ->
+    libp2p_swarm:dial_framed_stream(SwarmTID,
                                     Peer,
                                     ?STATE_CHANNEL_PROTOCOL_V1,
                                     ?MODULE,
