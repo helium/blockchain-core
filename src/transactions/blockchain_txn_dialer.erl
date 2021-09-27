@@ -113,7 +113,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 -spec dial_(#state{}) -> ok | {error, _}.
 dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Ref}) ->
-    Swarm = blockchain_swarm:swarm(),
+    SwarmTID = blockchain_swarm:tid(),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
     TxnHash = blockchain_txn:hash(Txn),
     (fun
@@ -123,7 +123,7 @@ dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Re
         Dial ([ProtocolVersion | SupportedProtocolVersions]) ->
             case
                 libp2p_swarm:dial_framed_stream(
-                    Swarm,
+                    SwarmTID,
                     P2PAddress,
                     ProtocolVersion,
                     blockchain_txn_handler,

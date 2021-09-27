@@ -40,6 +40,7 @@
     db :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     swarm :: pid(),
+    swarm_tid :: ets:tab(),
     pubkey_bin :: libp2p_crypto:pubkey_bin(),
     sig_fun :: libp2p_crypto:sig_fun(),
     chain = undefined :: undefined | blockchain:blockchain(),
@@ -112,11 +113,12 @@ init(Args) ->
     SCClientTransportHandler = application:get_env(blockchain, sc_client_transport_handler, blockchain_state_channel_handler),
     ok = blockchain_event:add_handler(self()),
     Swarm = maps:get(swarm, Args),
+    SwarmTID = libp2p_swarm:tid(Swarm),
     DB = blockchain_state_channels_db_owner:db(),
     CF = blockchain_state_channels_db_owner:sc_clients_cf(),
     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    State = #state{db=DB, cf=CF, swarm=Swarm, pubkey_bin=PubkeyBin, sig_fun=SigFun, sc_client_transport_handler = SCClientTransportHandler},
+    State = #state{db=DB, cf=CF, swarm=Swarm, swarm_tid=SwarmTID, pubkey_bin=PubkeyBin, sig_fun=SigFun, sc_client_transport_handler = SCClientTransportHandler},
     {ok, State}.
 
 terminate(_Reason, _State) ->
@@ -354,7 +356,7 @@ handle_info(_Msg, State) ->
                     Region :: atom(),
                     ReceivedTime :: non_neg_integer(),
                     State :: state()) -> state().
-handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm=Swarm,
+handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm_tid=SwarmTID,
                                                                       sc_client_transport_handler = SCClientTransportHandler}=State0) ->
     lager:info("handle_packet ~p to ~p", [lager:pr(Packet, blockchain_helium_packet_v1), print_routes(RoutesOrAddresses)]),
     lists:foldl(
@@ -371,7 +373,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm=Swar
                         case find_stream(Address, StateAcc) of
                             undefined ->
                                 lager:debug("stream undef dialing first, address: ~p", [Address]),
-                                ok = dial(SCClientTransportHandler, Swarm, RouteOrAddress),
+                                ok = dial(SCClientTransportHandler, SwarmTID, RouteOrAddress),
                                 add_packet_to_waiting(Address, {Packet, Region, ReceivedTime}, add_stream(Address, dialing, StateAcc));
                             dialing ->
                                 lager:debug("stream is still dialing queueing packet, address: ~p", [Address]),
@@ -388,7 +390,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm=Swar
                         case find_stream(OUI, StateAcc) of
                             undefined ->
                                 lager:debug("stream undef dialing first, oui: ~p", [OUI]),
-                                ok = dial(SCClientTransportHandler, Swarm, RouteOrAddress),
+                                ok = dial(SCClientTransportHandler, SwarmTID, RouteOrAddress),
                                 add_packet_to_waiting(OUI, {Packet, Region, ReceivedTime}, add_stream(OUI, dialing, StateAcc));
                             dialing ->
                                 lager:debug("stream is still dialing queueing packet, oui: ~p", [OUI]),
@@ -574,16 +576,16 @@ find_routing(Packet, Chain) ->
     end.
 
 -spec dial(SCClientTransportHandler :: atom(),
-           Swarm :: pid(),
+           SwarmTID :: ets:tab(),
            Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
-dial(SCClientTransportHandler, Swarm, Address) when is_list(Address) ->
+dial(SCClientTransportHandler, SwarmTID, Address) when is_list(Address) ->
     Self = self(),
     erlang:spawn(
       fun() ->
               {P, R} =
                   erlang:spawn_monitor(
                     fun() ->
-                            case SCClientTransportHandler:dial(Swarm, Address, []) of
+                            case SCClientTransportHandler:dial(SwarmTID, Address, []) of
                                 {error, _Reason} ->
                                     Self ! {dial_fail, Address, _Reason};
                                 {ok, Stream} ->
@@ -602,7 +604,7 @@ dial(SCClientTransportHandler, Swarm, Address) when is_list(Address) ->
               end
       end),
     ok;
-dial(SCClientTransportHandler, Swarm, Route) ->
+dial(SCClientTransportHandler, SwarmTID, Route) ->
     Self = self(),
     erlang:spawn(
       fun() ->
@@ -615,7 +617,7 @@ dial(SCClientTransportHandler, Swarm, Route) ->
                                                Acc;
                                           (PubkeyBin, not_dialed) ->
                                                Address = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
-                                               case SCClientTransportHandler:dial(Swarm, Address, []) of
+                                               case SCClientTransportHandler:dial(SwarmTID, Address, []) of
                                                    {error, _Reason} ->
                                                        lager:error("failed to dial ~p:~p", [Address, _Reason]),
                                                        not_dialed;

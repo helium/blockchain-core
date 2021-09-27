@@ -148,7 +148,7 @@ basic(Version, Sup, {PrivKey, PubKey}, Config) ->
             v1 -> ?FASTFORWARD_PROTOCOL_V1;
             v2 -> ?FASTFORWARD_PROTOCOL_V2
         end,
-    case blockchain_fastforward_handler:dial(blockchain_swarm:swarm(), Chain0, ListenAddr2, ProtocolVersion) of
+    case blockchain_fastforward_handler:dial(blockchain_swarm:tid(), Chain0, ListenAddr2, ProtocolVersion) of
         {ok, _Stream} ->
             ct:pal("got stream ~p~n", [_Stream]),
             ok

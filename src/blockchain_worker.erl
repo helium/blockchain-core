@@ -804,13 +804,13 @@ reset_ledger_to_snap(Hash, Height, State) ->
     State1 = pause_sync(State),
     snapshot_sync(Hash, Height, State1).
 
-start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
+start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
     case get_random_peer(SwarmTID) of
         no_peers ->
             %% try again later when there's peers
             schedule_sync(State);
         RandomPeer ->
-            {Pid, Ref} = start_block_sync(Swarm, Chain, RandomPeer),
+            {Pid, Ref} = start_block_sync(SwarmTID, Chain, RandomPeer),
             lager:info("new block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
                        [Pid, Ref, RandomPeer]),
             State#state{sync_pid = Pid, sync_ref = Ref}
@@ -898,13 +898,15 @@ remove_handlers(SwarmTID) ->
     libp2p_swarm:remove_stream_handler(SwarmTID, ?SNAPSHOT_PROTOCOL),
     libp2p_swarm:remove_stream_handler(SwarmTID, ?STATE_CHANNEL_PROTOCOL_V1).
 
--spec start_block_sync(Swarm::pid(), Chain::blockchain:blockchain(),
-                       Peer::libp2p_crypto:pubkey_bin()) ->
-                              {pid(), reference()} | ok.
-start_block_sync(Swarm, Chain, Peer) ->
+-spec start_block_sync(
+        SwarmTID :: ets:tab(),
+        Chain :: blockchain:blockchain(),
+        Peer :: libp2p_crypto:pubkey_bin()
+) -> {pid(), reference()} | ok.
+start_block_sync(SwarmTID, Chain, Peer) ->
     DialFun =
         fun() ->
-                case blockchain_sync_handler:dial(Swarm, Chain, Peer) of
+                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer) of
                     {ok, Stream} ->
                         {ok, HeadHash} = blockchain:sync_hash(Chain),
                         Stream ! {hash, HeadHash},
@@ -942,7 +944,7 @@ grab_snapshot(Height, Hash) ->
     case get_random_peer(SwarmTID) of
         no_peers -> {error, no_peers};
         Peer ->
-            case libp2p_swarm:dial_framed_stream(Swarm,
+            case libp2p_swarm:dial_framed_stream(SwarmTID,
                                                  Peer,
                                                  ?SNAPSHOT_PROTOCOL,
                                                  blockchain_snapshot_handler,
@@ -972,7 +974,7 @@ grab_snapshot(Height, Hash) ->
     end.
 
 start_snapshot_sync(Hash, Height, Peer,
-                    #state{blockchain=Chain, swarm=Swarm, sync_paused=SyncPaused}) ->
+                    #state{blockchain=Chain, swarm_tid=SwarmTID, sync_paused=SyncPaused}) ->
     spawn_monitor(fun() ->
                           try
                               BaseUrl = application:get_env(blockchain, s3_base_url, undefined),
@@ -1003,13 +1005,20 @@ start_snapshot_sync(Hash, Height, Peer,
                           catch
                               _Type:Error:St ->
                                   lager:error("snapshot download or loading failed because ~p: ~p", [Error, St]),
-                                  attempt_fetch_p2p_snapshot(Hash, Height, Swarm, Chain, Peer)
+                                  attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer)
                           end
                   end).
 
-attempt_fetch_p2p_snapshot(Hash, Height, Swarm, Chain, Peer) ->
+-spec attempt_fetch_p2p_snapshot(
+        Hash :: binary(),
+        Height :: non_neg_integer(),
+        SwarmTID :: ets:tid(),
+        Chain :: blockchain:blockchain(),
+        Peer :: string()
+) -> ok.
+attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer) ->
     lager:info("attempting snapshot sync with ~p", [Peer]),
-    case libp2p_swarm:dial_framed_stream(Swarm, Peer,
+    case libp2p_swarm:dial_framed_stream(SwarmTID, Peer,
                                          ?SNAPSHOT_PROTOCOL,
                                          blockchain_snapshot_handler,
                                          [Hash, Height, Chain]) of

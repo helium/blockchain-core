@@ -50,16 +50,19 @@ server(Connection, _Path, _TID, Args) ->
     %% When spawning a server its handled only in libp2p_framed_stream
     libp2p_framed_stream:server(?MODULE, Connection, [Args]).
 
--spec dial(Swarm::pid(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin())->
-        {ok, pid()} | {error, any()}.
-dial(Swarm, Chain, Peer) ->
+-spec dial(
+        SwarmTID :: ets:tab(),
+        Chain :: blockchain:blockchain(),
+        Peer :: libp2p_crypto:pubkey_bin()
+) -> {ok, pid()} | {error, any()}.
+dial(SwarmTID, Chain, Peer) ->
     DialFun =
         fun
             Dial([])->
                 lager:debug("dialing Sync stream failed, no compatible protocol versions",[]),
                 {error, no_supported_protocols};
             Dial([ProtocolVersion | Rest]) ->
-                case blockchain_sync_handler:dial(Swarm, Chain, Peer, ProtocolVersion) of
+                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer, ProtocolVersion) of
                         {ok, Stream} ->
                             lager:debug("dialing Sync stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
                             {ok, Stream};
@@ -73,10 +76,14 @@ dial(Swarm, Chain, Peer) ->
         end,
     DialFun(?SUPPORTED_SYNC_PROTOCOLS).
 
--spec dial(Swarm::pid(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin(), ProtocolVersino::string())->
-            {ok, pid()} | {error, any()}.
-dial(Swarm, Chain, Peer, ProtocolVersion)->
-    libp2p_swarm:dial_framed_stream(Swarm,
+-spec dial(
+        SwarmTID :: ets:tab(),
+        Chain :: blockchain:blockchain(),
+        Peer :: libp2p_crypto:pubkey_bin(),
+        ProtocolVersion :: string()
+) -> {ok, pid()} | {error, any()}.
+dial(SwarmTID, Chain, Peer, ProtocolVersion)->
+    libp2p_swarm:dial_framed_stream(SwarmTID,
                                     Peer,
                                     ProtocolVersion,
                                     ?MODULE,

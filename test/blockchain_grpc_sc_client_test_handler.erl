@@ -30,7 +30,7 @@ init()->
     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], undefined, undefined, false),
     HandlerState.
 
-dial(_Swarm, Peer, _Opts) ->
+dial(_SwarmTID, Peer, _Opts) ->
     try
         %% get the test specific grpc port for the peer
         %% ( which is going to be the libp2p port + 1000 )

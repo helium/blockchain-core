@@ -392,8 +392,7 @@ peer_sync(["peer", "sync", Addr], [], []) ->
     TrimmedAddr = string:trim(Addr),
     case libp2p_swarm:connect(SwarmTID, TrimmedAddr) of
         {ok, _} ->
-            Swarm = blockchain_swarm:swarm(),
-            {ok, Pid} = blockchain_sync_handler:dial(Swarm, Chain, TrimmedAddr),
+            {ok, Pid} = blockchain_sync_handler:dial(SwarmTID, Chain, TrimmedAddr),
             {ok, HeadHash} = blockchain:sync_hash(Chain),
             Pid ! {hash, HeadHash},
             [clique_status:text("ok")];
