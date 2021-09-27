@@ -72,7 +72,7 @@ sc_active(["sc", "active"], [], []) ->
         undefined ->
             [clique_status:text("none")];
         BinActiveIDs ->
-            R = [format_sc_id(ID) || ID <- BinActiveIDs],
+            R = [blockchain_utils:addr2name(ID) || ID <- BinActiveIDs],
             [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
@@ -107,53 +107,87 @@ sc_list([], [], []) ->
     usage.
 
 format_sc_list(SCs) ->
+    ActiveSCIDs = maps:keys(blockchain_state_channels_server:get_actives()),
     Chain = blockchain_worker:blockchain(),
     {ok, Height} = blockchain:height(Chain),
-    maps:fold(
-        fun(SCID, SC, Acc) ->
-            ID = format_sc_id(SCID),
+    {List, Total} = maps:fold(
+        fun(SCID, SC, {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}) ->
+            ID = blockchain_utils:addr2name(SCID),
             SCNonce = blockchain_state_channel_v1:nonce(SC),
             Amount = blockchain_state_channel_v1:amount(SC),
             RootHash = erlang:binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
             State =  erlang:atom_to_list(blockchain_state_channel_v1:state(SC)),
             {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
             ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
-            IsActive = is_active(SC),
+            IsActive = lists:member(SCID, ActiveSCIDs),
             MAxP = blockchain_ledger_v1:get_sc_max_actors(blockchain:ledger(Chain)),
-            [
+            TActive1 = case IsActive of
+                true -> TActive0 + 1;
+                false -> TActive0
+            end,
+            Expired = ExpireAtBlock =< Height,
+            TExpired1 = case Expired of
+                true -> TExpired0 + 1;
+                false -> TExpired0
+            end,
+            {
                 [
-                    {id, io_lib:format("~p", [ID])},
-                    {nonce, io_lib:format("~p", [SCNonce])},
-                    {state, io_lib:format("~p", [State])},
-                    {is_active, io_lib:format("~p", [IsActive])},
-                    {expire_at, io_lib:format("~p", [ExpireAtBlock])},
-                    {expired, ExpireAtBlock =< Height},
-                    {amount, Amount},
-                    {num_dcs, NumDCs},
-                    {num_packets, NumPackets},
-                    {participants, NumParticipants},
-                    {max_participants, MAxP},
-                    {root_hash, io_lib:format("~p", [RootHash])}
-                ]
-                | Acc
-            ]
+                    [
+                        {id, io_lib:format("~p", [ID])},
+                        {nonce, io_lib:format("~p", [SCNonce])},
+                        {state, io_lib:format("~p", [State])},
+                        {is_active, io_lib:format("~p", [IsActive])},
+                        {expire_at, io_lib:format("~p", [ExpireAtBlock])},
+                        {expired, ExpireAtBlock =< Height},
+                        {amount, Amount},
+                        {num_dcs, NumDCs},
+                        {num_packets, NumPackets},
+                        {participants, NumParticipants},
+                        {max_participants, MAxP},
+                        {root_hash, io_lib:format("~p", [RootHash])}
+                    ]
+                    | Acc
+                ],
+                {
+                    TActive1,
+                    TExpired1,
+                    TAmount0+Amount,
+                    TDCs0+NumDCs,
+                    TPackets0+NumPackets,
+                    TActors0+NumParticipants,
+                    TMax0+MAxP
+                }
+            }
         end,
-        [],
+        {[], {0, 0, 0, 0, 0, 0, 0}},
         SCs
-    ).
+    ),
+    {TActive, TExpired, TAmount, TDCs, TPackets, TActors, TMax} = Total,
+    [
+        [
+            {id, "Total"},
+            {nonce, "X"},
+            {state, "X"},
+            {is_active, TActive},
+            {expire_at, "X"},
+            {expired, TExpired},
+            {amount, TAmount},
+            {num_dcs, TDCs},
+            {num_packets, TPackets},
+            {participants, TActors},
+            {max_participants,TMax},
+            {root_hash, "X"}
+        ]
+        | List
+    ].
 
 summarize(Summaries) ->
-    lists:foldl(fun(Summary, {DCs, Packets, Participants}) ->
-                        NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
-                        NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
-                        {DCs + NumDCs, Packets + NumPackets, Participants+1}
-                end,
-                {0, 0, 0}, Summaries).
-
-is_active(SC) ->
-    ActiveSCIDs = maps:keys(blockchain_state_channels_server:get_actives()),
-    SCID = blockchain_state_channel_v1:id(SC),
-    lists:member(SCID, ActiveSCIDs).
-
-format_sc_id(ID) ->
-    blockchain_utils:addr2name(ID).
+    lists:foldl(
+        fun(Summary, {DCs, Packets, Participants}) ->
+            NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
+            NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
+            {DCs + NumDCs, Packets + NumPackets, Participants+1}
+        end,
+        {0, 0, 0},
+        Summaries
+    ).
