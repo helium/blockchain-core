@@ -54,7 +54,7 @@ basic(Config) ->
     %% check we return the plausible message to the caller
     plausible = blockchain:add_block(LastBlock, Chain),
     %% don't return the plausible message more than once
-    ok = blockchain:add_block(LastBlock, Chain),
+    exists = blockchain:add_block(LastBlock, Chain),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     ?assertEqual({ok, 1}, blockchain:sync_height(Chain)),
     [LastBlock] = blockchain:get_plausible_blocks(Chain),
@@ -198,7 +198,7 @@ ultimately_invalid(Config) ->
     %% check we return the plausible message to the caller
     plausible = blockchain:add_block(LastBlock, Chain),
     %% don't return the plausible message more than once
-    ok = blockchain:add_block(LastBlock, Chain),
+    exists = blockchain:add_block(LastBlock, Chain),
     %% try to add a block that should be invalid right away
     {error, disjoint_chain} = blockchain:add_block(hd(Blocks1), Chain),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -250,7 +250,7 @@ valid(Config) ->
     %% check we return the plausible message to the caller
     plausible = blockchain:add_block(LastBlock, Chain),
     %% don't return the plausible message more than once
-    ok = blockchain:add_block(LastBlock, Chain),
+    exists = blockchain:add_block(LastBlock, Chain),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     ?assertEqual({ok, 1}, blockchain:sync_height(Chain)),
     [LastBlock] = blockchain:get_plausible_blocks(Chain),
@@ -258,6 +258,7 @@ valid(Config) ->
     ok = blockchain:add_block(hd(Blocks), Chain),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, 2}, blockchain:sync_height(Chain)),
+    true = blockchain:has_block(LastBlock, Chain),
     [LastBlock] = blockchain:get_plausible_blocks(Chain),
     %% add all the rest of the blocks (emulate a sync)
     ok = blockchain:add_blocks(Blocks -- [LastBlock], Chain),
