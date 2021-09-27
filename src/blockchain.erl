@@ -2553,9 +2553,14 @@ check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
                                   %% set the sync flag to true as we've already gossiped these blocks on
                                   add_block_(Block, Chain, true),
                                   rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
-                              plausible ->
-                                  %% still plausible, leave it alone
-                                  ok;
+                              exists ->
+                                  case is_block_plausible(Block, Chain) of
+                                      true ->
+                                          %% still plausible, leave it alone
+                                          ok;
+                                      false ->
+                                          rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                                  end;
                               _Error ->
                                   rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
                           end
