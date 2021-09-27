@@ -52,10 +52,9 @@ gateways_for_zone(
     %% Get a list of gateway pubkeys within this hex
     {ok, AddrList0} = blockchain_ledger_v1:get_hex(Hex, Ledger),
     lager:info("gateways for hex ~p: ~p", [Hex, AddrList0]),
-    %% Remove challenger if present and also remove gateways who haven't challenged
+    %% Limit max number of potential targets in the zone %% TODO: do we want this now?
     {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
-    lager:info("after limit gateways for hex ~p: ~p", [Hex, AddrList]),
-    case filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) of
+    case filter(AddrList, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
             lager:info("*** found gateways for hex ~p: ~p", [Hex, FilteredList]),
             {ok, FilteredList};
@@ -176,32 +175,23 @@ target_(
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
-%% - Dont target the challenger gateway itself.
 %% - Dont target GWs which do not have the releveant capability
 -spec filter(
     AddrList :: [libp2p_crypto:pubkey_bin()],
-    ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
     Ledger :: blockchain_ledger_v1:ledger(),
     Height :: non_neg_integer(),
     Vars :: map()
 ) -> [libp2p_crypto:pubkey_bin()].
-filter(AddrList, ChallengerPubkeyBin, Ledger, _Height, _Vars) ->
+filter(AddrList, Ledger, _Height, _Vars) ->
     lists:filter(
         fun(A) ->
             {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
             Mode = blockchain_ledger_gateway_v2:mode(Gateway),
-            Res = A /= ChallengerPubkeyBin andalso
-                blockchain_ledger_gateway_v2:is_valid_capability(
+            blockchain_ledger_gateway_v2:is_valid_capability(
                     Mode,
                     ?GW_CAPABILITY_POC_CHALLENGEE,
                     Ledger
-                ),
-            lager:info("*** filter checks. is self ~p, valid capability: ~p ", [A /= ChallengerPubkeyBin, blockchain_ledger_gateway_v2:is_valid_capability(
-                    Mode,
-                    ?GW_CAPABILITY_POC_CHALLENGEE,
-                    Ledger
-                )]),
-            Res
+                )
         end,
         AddrList
     ).
