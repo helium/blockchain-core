@@ -73,11 +73,21 @@ start_link(Args) ->
 
 -spec get_all() -> state_channels().
 get_all() ->
-    gen_server:call(?SERVER, get_all, infinity).
+    All = gen_server:call(?SERVER, get_all, infinity),
+    Actives = get_actives(),
+    maps:merge(All, Actives).
 
 -spec get_actives() -> state_channels().
 get_actives() ->
-    gen_server:call(?SERVER, get_actives, infinity).
+    maps:from_list(
+        blockchain_utils:pmap(
+            fun({Pid, ID}) ->
+                    SC = blockchain_state_channels_worker:get(Pid),
+                    {ID, SC}
+            end,
+            gen_server:call(?SERVER, get_actives, infinity)
+        )
+    ).
 
 -spec get_active_pid(ID :: blockchain_state_channel_v1:id()) -> pid() | undefined.
 get_active_pid(ID) ->
@@ -174,8 +184,8 @@ init(Args) ->
 
 handle_call(get_all, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
-handle_call(get_actives, _From, #state{state_channels=SCs, actives=ActiveSCs}=State) ->
-    {reply, maps:with([ID || {_, ID} <- ActiveSCs], SCs), State};
+handle_call(get_actives, _From, #state{actives=ActiveSCs}=State) ->
+    {reply, ActiveSCs, State};
 handle_call({get_active_pid, ID}, _From, #state{actives=ActiveSCs}=State) ->
     Reply = 
         case lists:keyfind(ID, 2, ActiveSCs) of

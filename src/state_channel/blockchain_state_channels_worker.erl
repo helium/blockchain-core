@@ -70,7 +70,7 @@ shutdown(Pid, Reason) ->
 
 -spec get(Pid :: pid()) -> blockchain_state_channel_v1:state_channel().
 get(Pid) ->
-    gen_server:call(Pid, get).
+    gen_server:call(Pid, get, infinity).
 
 -spec handle_offer(
     Pid :: pid(),
@@ -122,13 +122,15 @@ init(Args) ->
     MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
     ID = blockchain_state_channel_v1:id(SC),
     ok = refresh_cache(SC),
+    Owner = maps:get(owner, Args),
+    {_, OwnerSigFun} = Owner,
     State = #state{
         id = ID,
-        state_channel = SC,
+        state_channel = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
         skewed = maps:get(skewed, Args),
         bloom = Bloom,
         db = maps:get(db, Args),
-        owner = maps:get(owner, Args),
+        owner = Owner,
         chain = Chain,
         dc_payload_size = DCPayloadSize,
         sc_version = SCVer,
