@@ -102,9 +102,9 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
 is_well_formed(_Txn) ->
     error(not_implemented).
 
--spec is_absorbable(txn_bundle(), blockchain:blockchain()) ->
+-spec is_absorbable(txn_bundle(), blockchain_ledger_v1:ledger()) ->
     boolean().
-is_absorbable(_Txn, _Chain) ->
+is_absorbable(_Txn, _Ledger) ->
     error(not_implemented).
 
 -spec print(txn_bundle()) -> iodata().

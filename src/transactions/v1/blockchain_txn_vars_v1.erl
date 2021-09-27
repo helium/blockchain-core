@@ -360,9 +360,9 @@ is_valid(Txn, Chain) ->
 is_well_formed(_Txn) ->
     error(not_implemented).
 
--spec is_absorbable(txn_vars(), blockchain:blockchain()) ->
+-spec is_absorbable(txn_vars(), blockchain_ledger_v1:ledger()) ->
     boolean().
-is_absorbable(_Txn, _Chain) ->
+is_absorbable(_Txn, _Ledger) ->
     error(not_implemented).
 
 -spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.

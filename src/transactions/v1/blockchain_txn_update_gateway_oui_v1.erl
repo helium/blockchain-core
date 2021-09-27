@@ -184,9 +184,9 @@ is_valid(Txn, Chain) ->
 is_well_formed(_Txn) ->
     error(not_implemented).
 
--spec is_absorbable(txn_update_gateway_oui(), blockchain:blockchain()) ->
+-spec is_absorbable(txn_update_gateway_oui(), blockchain_ledger_v1:ledger()) ->
     boolean().
-is_absorbable(_Txn, _Chain) ->
+is_absorbable(_Txn, _Ledger) ->
     error(not_implemented).
 
 -spec absorb(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

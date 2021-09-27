@@ -64,7 +64,7 @@
 
 %% Check the txn has the right causal information (nonce, block height, etc) to
 %% be absorbed.  This should be quick.
--callback is_absorbable(txn(), blockchain:blockchain()) -> boolean().
+-callback is_absorbable(txn(), blockchain_ledger_v1:ledger()) -> boolean().
 
 %% Final heavy-weight validity checks, including signature verification and
 %% other complex calculations:
