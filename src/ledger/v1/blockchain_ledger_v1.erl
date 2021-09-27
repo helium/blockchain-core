@@ -113,7 +113,7 @@
 
     find_htlc/2,
     add_htlc/8,
-    redeem_htlc/3,
+    redeem_htlc/4,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
@@ -3095,8 +3095,8 @@ add_htlc(Address, Payer, Payee, Amount, Nonce, Hashlock, Timelock, Ledger) ->
             cache_put(Ledger, HTLCsCF, Address, Bin)
     end.
 
--spec redeem_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
-redeem_htlc(Address, Payee, Ledger) ->
+-spec redeem_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger(), blockchain:blockchain()) -> ok | {error, any()}.
+redeem_htlc(Address, Payee, Ledger, Chain) ->
     case ?MODULE:find_htlc(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -3105,6 +3105,28 @@ redeem_htlc(Address, Payee, Ledger) ->
             case ?MODULE:credit_account(Payee, Amount, Ledger) of
                 {error, _}=Error -> Error;
                 ok ->
+                    %% Store receipt if env requries it
+                    case application:get_env(blockchain, store_htlc_receipts, false) of
+                        true when Address =/= undefined, Chain =/= undefined ->
+                            {ok, RedeemedAt} = current_height(Ledger),
+                            Payer = blockchain_ledger_htlc_v1:payer(HTLC),
+                            Hashlock = blockchain_ledger_htlc_v1:hashlock(HTLC),
+                            Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
+                            HTLCReceipt = blockchain_htlc_receipt:new(
+                                Payer,
+                                Payee,
+                                Address,
+                                Amount,
+                                Hashlock,
+                                Timelock,
+                                RedeemedAt
+                            ),
+                            blockchain:add_htlc_receipt(Address, HTLCReceipt, Chain);
+                        false ->
+                            ok
+                    end,    
+
+                    %% Delete redeemed HTLC from DB
                     HTLCsCF = htlcs_cf(Ledger),
                     cache_delete(Ledger, HTLCsCF, Address)
             end
