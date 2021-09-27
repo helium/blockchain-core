@@ -80,7 +80,7 @@
     gateway_count/1,
 
     find_poc/2,
-    request_poc/5,
+    request_poc/6,
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
@@ -2044,23 +2044,24 @@ find_poc(OnionKeyHash, Ledger) ->
                   SecretHash :: binary(),
                   Challenger :: libp2p_crypto:pubkey_bin(),
                   BlockHash :: binary(),
+                  Version :: non_neg_integer(),
                   Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger) ->
+request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger) ->
     case ?MODULE:find_gateway_info(Challenger, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
             case ?MODULE:find_poc(OnionKeyHash, Ledger) of
                 {error, not_found} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, []);
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, []);
                 {error, _} ->
                     {error, fail_getting_poc};
                 {ok, PoCs} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs)
             end
     end.
 
-request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs) ->
+request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs) ->
     case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
             ok;
@@ -2074,7 +2075,8 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-    ok = update_gateway(Gw2, Challenger, Ledger),
+    Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
+    ok = update_gateway(Gw3, Challenger, Ledger),
 
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
@@ -5696,7 +5698,7 @@ poc_test() ->
         fun(L) ->
             ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, full, L),
             ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, full, L),
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, L)
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -5708,7 +5710,7 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, BlockHash, L)
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -5733,7 +5735,7 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, L)
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -5741,7 +5743,7 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, BlockHash, L)
+            ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, BlockHash, 0, L)
         end,
         Ledger
     ),

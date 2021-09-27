@@ -127,7 +127,7 @@ fee_payer(_Txn, _Ledger) ->
 signature(Txn) ->
     Txn#blockchain_txn_poc_request_v1_pb.signature.
 
--spec version(txn_poc_request()) -> any().
+-spec version(txn_poc_request()) -> non_neg_integer().
 version(Txn) ->
     Txn#blockchain_txn_poc_request_v1_pb.version.
 
@@ -222,19 +222,10 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     Version = version(Txn),
-    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-        {ok, Gw} ->
-            Gw1 = blockchain_ledger_gateway_v2:version(Version, Gw),
-            case blockchain_ledger_v1:update_gateway(Gw1, Challenger, Ledger) of
-                ok ->
-                    SecretHash = ?MODULE:secret_hash(Txn),
-                    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-                    BlockHash = ?MODULE:block_hash(Txn),
-                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger)
-            end;
-        {error, _Reason}=Error ->
-            Error
-    end.
+    SecretHash = ?MODULE:secret_hash(Txn),
+    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    BlockHash = ?MODULE:block_hash(Txn),
+    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
