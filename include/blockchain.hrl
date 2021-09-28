@@ -35,7 +35,8 @@
     <<"h3dex2">>,
     <<"gateway_lg3">>,
     <<"clear_witnesses">>,
-    <<"clear_scores">>
+    <<"clear_scores">>,
+    <<"clear_scores2">>
 ]).
 
 -define(bones(HNT), HNT * 100000000).
