@@ -21,6 +21,7 @@
 
     set_aux_rewards_md/4,
     get_aux_rewards_md/1, get_aux_rewards_md_for/3,
+    get_aux_rewards_md_at/2,
     diff_aux_rewards_md/2,
     diff_aux_rewards_md_sums/1, diff_aux_rewards_md_sums/2,
 
@@ -4127,6 +4128,23 @@ get_aux_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
                 Acc
         end,
     get_aux_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+
+-spec get_aux_rewards_md_at(Height :: non_neg_integer(),
+                            Ledger :: ledger()) ->
+    {ok, reward_md_diff()} | {error, any()}.
+get_aux_rewards_md_at(Height, Ledger) ->
+    case has_aux(Ledger) of
+        false -> {error, no_aux_ledger};
+        true ->
+            AuxDB = aux_db(Ledger),
+            AuxHeightsMDCF = aux_heights_cf(Ledger),
+            Key = aux_height_md(Height),
+            case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
+                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
+                not_found -> {error, not_found};
+                Error -> Error
+            end
+    end.
 
 -spec get_aux_rewards_md(Ledger :: ledger()) -> aux_rewards_md().
 get_aux_rewards_md(Ledger) ->
