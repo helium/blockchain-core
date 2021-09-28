@@ -121,6 +121,7 @@
                           fun bootstrap_h3dex/1,
                           fun upgrade_gateways_lg/1,
                           fun clear_witnesses/1,
+                          fun upgrade_gateways_score/1,
                           fun upgrade_gateways_score/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
