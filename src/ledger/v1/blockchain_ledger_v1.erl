@@ -4137,7 +4137,7 @@ get_aux_rewards_md_at(Height, Ledger) ->
         false -> {error, no_aux_ledger};
         true ->
             AuxDB = aux_db(Ledger),
-            AuxHeightsMDCF = aux_heights_cf(Ledger),
+            AuxHeightsMDCF = aux_heights_md_cf(Ledger),
             Key = aux_height_md(Height),
             case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
                 {ok, BinRes} -> {ok, binary_to_term(BinRes)};
