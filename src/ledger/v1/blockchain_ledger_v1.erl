@@ -807,8 +807,14 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
             lager:debug("snapshot @ ~p", [Height]),
             %% because the snapshot was taken as we ingested a block to the leading ledger we need to query it
             %% as an active ledger to get the right information at this desired height
+            NewMode = case mode(Ledger) of
+                          aux ->
+                              aux;
+                          _ ->
+                              active
+                      end,
             {ok, blockchain_ledger_v1:new_context(
-                   blockchain_ledger_v1:mode(active,
+                   blockchain_ledger_v1:mode(NewMode,
                                              Ledger#ledger_v1{snapshot=SnapshotHandle}))
             };
         [{Key, {ledger, SnapLedger}}] ->
