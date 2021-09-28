@@ -115,7 +115,6 @@ format_sc_list(SCs) ->
             ID = blockchain_utils:addr2name(SCID),
             SCNonce = blockchain_state_channel_v1:nonce(SC),
             Amount = blockchain_state_channel_v1:amount(SC),
-            RootHash = erlang:binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
             State =  erlang:atom_to_list(blockchain_state_channel_v1:state(SC)),
             {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
             ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
@@ -137,14 +136,14 @@ format_sc_list(SCs) ->
                         {nonce, io_lib:format("~p", [SCNonce])},
                         {state, io_lib:format("~p", [State])},
                         {is_active, io_lib:format("~p", [IsActive])},
+                        {expire_in, ExpireAtBlock - Height},
                         {expire_at, io_lib:format("~p", [ExpireAtBlock])},
                         {expired, ExpireAtBlock =< Height},
                         {amount, Amount},
                         {num_dcs, NumDCs},
                         {num_packets, NumPackets},
                         {participants, NumParticipants},
-                        {max_participants, MAxP},
-                        {root_hash, io_lib:format("~p", [RootHash])}
+                        {max_participants, MAxP}
                     ]
                     | Acc
                 ],
@@ -163,22 +162,29 @@ format_sc_list(SCs) ->
         SCs
     ),
     {TActive, TExpired, TAmount, TDCs, TPackets, TActors, TMax} = Total,
+    SortedList =
+        lists:sort(
+            fun(A, B) ->
+                proplists:get_value(expire_at, A) < proplists:get_value(expire_at, B)
+            end,
+            List
+        ),
     [
         [
             {id, "Total"},
             {nonce, "X"},
             {state, "X"},
             {is_active, TActive},
+            {expire_in, "X"},
             {expire_at, "X"},
             {expired, TExpired},
             {amount, TAmount},
             {num_dcs, TDCs},
             {num_packets, TPackets},
             {participants, TActors},
-            {max_participants,TMax},
-            {root_hash, "X"}
+            {max_participants, TMax}
         ]
-        | List
+        | SortedList
     ].
 
 summarize(Summaries) ->

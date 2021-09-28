@@ -324,7 +324,6 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%% TODO: function docs
 -spec handle_offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
     HandlerPid :: pid()

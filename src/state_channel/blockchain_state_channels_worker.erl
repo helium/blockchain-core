@@ -211,7 +211,7 @@ offer(
                 [DCAmount, NumDCs, TotalDCs]
             ),
             ok = send_offer_rejection(HandlerPid),
-            %% TODO: turn this off
+            %% TODO: Maybe marked as closed?
             {stop, normal, State0};
         false ->
             Routing = blockchain_state_channel_offer_v1:routing(Offer),
