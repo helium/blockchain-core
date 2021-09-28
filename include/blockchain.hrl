@@ -1,5 +1,7 @@
 % Protocols
 -define(GOSSIP_PROTOCOL_V1, "blockchain_gossip/1.0.0").
+-define(GOSSIP_PROTOCOL_V2, "blockchain_gossip/2.0.0").
+
 -define(SYNC_PROTOCOL_V1, "blockchain_sync/1.1.0").
 -define(FASTFORWARD_PROTOCOL_V1, "blockchain_fastforward/1.0.0").
 
@@ -9,7 +11,7 @@
 -define(TX_PROTOCOL_V1, "blockchain_txn/1.0.0").
 -define(TX_PROTOCOL_V2, "blockchain_txn/2.0.0").
 
--define(SUPPORTED_GOSSIP_PROTOCOLS, [?GOSSIP_PROTOCOL_V1]).
+-define(SUPPORTED_GOSSIP_PROTOCOLS, [?GOSSIP_PROTOCOL_V1, ?GOSSIP_PROTOCOL_V2]).
 -define(SUPPORTED_SYNC_PROTOCOLS, [?SYNC_PROTOCOL_V2, ?SYNC_PROTOCOL_V1]).
 -define(SUPPORTED_FASTFORWARD_PROTOCOLS, [?FASTFORWARD_PROTOCOL_V2, ?FASTFORWARD_PROTOCOL_V1]).
 -define(SUPPORTED_TX_PROTOCOLS, [?TX_PROTOCOL_V2, ?TX_PROTOCOL_V1]).

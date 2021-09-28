@@ -31,6 +31,7 @@
     load/2,
 
     maybe_sync/0,
+    target_sync/1,
     sync/0,
     cancel_sync/0,
     pause_sync/0,
@@ -146,6 +147,9 @@ pause_sync() ->
 
 maybe_sync() ->
     gen_server:cast(?SERVER, maybe_sync).
+
+target_sync(Target) ->
+    gen_server:cast(?SERVER, {target_sync, Target}).
 
 sync_paused() ->
     try
@@ -549,6 +553,8 @@ handle_cast({set_resyncing, _Block, _Blockchain, _Syncing}, State) ->
 
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
+handle_cast({target_sync, Target}, State) ->
+    {noreply, target_sync(Target, State)};
 handle_cast({submit_txn, Txn}, State) ->
     ok = send_txn(Txn),
     {noreply, State};
@@ -755,6 +761,17 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
             reset_sync_timer(State)
     end.
 
+target_sync(_Target, #state{sync_paused = true} = State) ->
+    State;
+target_sync(_Target, #state{sync_pid = Pid} = State) when Pid /= undefined ->
+    State;
+target_sync(Target0, #state{blockchain = Chain, swarm = Swarm} = State) ->
+    Target = libp2p_crypto:pubkey_bin_to_p2p(Target0),
+    {Pid, Ref} = start_block_sync(Swarm, Chain, Target),
+    lager:info("targeted block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
+               [Pid, Ref, Target]),
+    State#state{sync_pid = Pid, sync_ref = Ref}.
+
 maybe_sync_blocks(#state{sync_paused = true} = State) ->
     State;
 maybe_sync_blocks(#state{sync_pid = Pid} = State) when Pid /= undefined ->
@@ -856,8 +873,13 @@ add_handlers(SwarmTID, Blockchain) ->
     GossipPid = libp2p_swarm:gossip_group(SwarmTID),
     Ref = erlang:monitor(process, GossipPid),
     %% add the gossip handler
-    ok = libp2p_group_gossip:add_handler(GossipPid, ?GOSSIP_PROTOCOL_V1,
-                            {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
+    GossipAddFun =
+        fun(ProtocolVersion) ->
+                ok = libp2p_group_gossip:add_handler(
+                       GossipPid, ProtocolVersion,
+                       {blockchain_gossip_handler, [ProtocolVersion, SwarmTID, Blockchain]})
+        end,
+    lists:foreach(GossipAddFun, ?SUPPORTED_GOSSIP_PROTOCOLS),
 
     %% add the sync handlers, sync handlers support multiple versions so we need to add for each
     SyncAddFun = fun(ProtocolVersion) ->

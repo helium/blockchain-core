@@ -19,23 +19,29 @@
 -export([
          init_gossip_data/1,
          handle_gossip_data/3,
-         gossip_data/2
+         gossip_data_v1/2
         ]).
 
 -ifdef(TEST).
 -export([add_block/4]).
 -endif.
 
-init_gossip_data([SwarmTID, Blockchain]) ->
+init_gossip_data([?GOSSIP_PROTOCOL_V1, SwarmTID, Blockchain]) ->
     lager:debug("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
     lager:debug("gossiping block to peers on init"),
-    {send, gossip_data(SwarmTID, Block)};
+    {send, gossip_data_v1(SwarmTID, Block)};
+init_gossip_data([?GOSSIP_PROTOCOL_V2, SwarmTID, Blockchain]) ->
+    lager:debug("gossiping init"),
+    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)),
+    {ok, #block_info{hash = Hash}} = blockchain:get_block_info(Height, Blockchain),
+    lager:debug("gossiping block to peers on init"),
+    {send, gossip_data_v2(SwarmTID, Hash, Height)};
 init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
     {send, <<>>}.
 
-handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
+handle_gossip_data(_StreamPid, Data, [?GOSSIP_PROTOCOL_V1, SwarmTID, Blockchain]) ->
     try
         #blockchain_gossip_block_pb{from=From, block=BinBlock} =
             blockchain_gossip_handler_pb:decode_msg(Data, blockchain_gossip_block_pb),
@@ -61,6 +67,34 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                         end
                 end
         end
+    catch
+        _What:Why:Stack ->
+            lager:notice("gossip handler got bad data: ~p", [Why]),
+            lager:debug("stack: ~p", [Stack])
+    end,
+    noreply;
+handle_gossip_data(_StreamPid, Data, [?GOSSIP_PROTOCOL_V2, _SwarmTID, Blockchain]) ->
+    try
+        #blockchain_gossip_block_pb{from=From, hash=Hash, height=Height} =
+            blockchain_gossip_handler_pb:decode_msg(Data, blockchain_gossip_block_pb),
+
+        %% try to cheaply check if we have the block already
+        case blockchain:get_block_hash(Height, Blockchain) of
+            Hash -> ok;
+            OtherHash when is_binary(OtherHash) ->
+                lager:warning("got non-matching hash ~p for height ~p from ~p",
+                              [Hash, Height, blockchain_utils:addr2name(From)]),
+                ok;
+            {error, not_found} ->
+                %% don't appear to have the block, do we have a plausible block?
+                case blockchain:have_plausible_block(Hash, Blockchain) of
+                    true -> ok;
+                    false ->
+                        %% don't have it in plausible either, try to sync it from the sender.
+                        blockchain_worker:target_sync(From)
+                end
+        end
+
     catch
         _What:Why:Stack ->
             lager:notice("gossip handler got bad data: ~p", [Why]),
@@ -115,16 +149,22 @@ add_block(Block, Chain, Sender, SwarmTID) ->
             end
     end.
 
--spec gossip_data(libp2p_swarm:swarm(), blockchain_block:block()) -> binary().
-gossip_data(SwarmTID, Block) ->
+-spec gossip_data_v1(libp2p_swarm:swarm(), blockchain_block:block()) -> binary().
+gossip_data_v1(SwarmTID, Block) ->
     PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
     BinBlock = blockchain_block:serialize(Block),
     Msg = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
+    blockchain_gossip_handler_pb:encode_msg(Msg).
+
+-spec gossip_data_v2(libp2p_swarm:swarm(), binary(), pos_integer()) -> binary().
+gossip_data_v2(SwarmTID, Hash, Height) ->
+    PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
+    Msg = #blockchain_gossip_block_pb{from=PubKeyBin, hash=Hash, height=Height},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
 regossip_block(Block, SwarmTID) ->
     libp2p_group_gossip:send(
       libp2p_swarm:gossip_group(SwarmTID),
       ?GOSSIP_PROTOCOL_V1,
-      blockchain_gossip_handler:gossip_data(SwarmTID, Block)
+      blockchain_gossip_handler:gossip_data_v1(SwarmTID, Block)
      ).

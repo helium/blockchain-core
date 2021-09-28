@@ -33,6 +33,7 @@
     compact/1,
 
     is_block_plausible/2,
+    have_plausible_block/2,
 
     last_block_add_time/1,
 
@@ -2513,6 +2514,12 @@ save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}
             exists;
         _ ->
             rocksdb:put(DB, PlausibleBlocks, Hash, blockchain_block:serialize(Block), [{sync, true}])
+    end.
+
+have_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
+    case rocksdb:get(DB, CF, Hash, []) of
+        {ok, _} -> true;
+        _ -> false
     end.
 
 check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
