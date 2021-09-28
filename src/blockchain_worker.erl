@@ -31,6 +31,7 @@
     load/2,
 
     maybe_sync/0,
+    target_sync/1, target_sync/2,
     sync/0,
     cancel_sync/0,
     pause_sync/0,
@@ -146,6 +147,12 @@ pause_sync() ->
 
 maybe_sync() ->
     gen_server:cast(?SERVER, maybe_sync).
+
+target_sync(Target) ->
+    target_sync(Target, []).
+
+target_sync(Target, Heights) ->
+    gen_server:cast(?SERVER, {target_sync, Target, Heights}).
 
 sync_paused() ->
     try
@@ -549,6 +556,8 @@ handle_cast({set_resyncing, _Block, _Blockchain, _Syncing}, State) ->
 
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
+handle_cast({target_sync, Target, Heights}, State) ->
+    {noreply, target_sync(Target, Heights, State)};
 handle_cast({submit_txn, Txn}, State) ->
     ok = send_txn(Txn),
     {noreply, State};
@@ -755,6 +764,17 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
             reset_sync_timer(State)
     end.
 
+target_sync(_Target, _Heights, #state{sync_paused = true} = State) ->
+    State;
+target_sync(_Target, _Heights, #state{sync_pid = Pid} = State) when Pid /= undefined ->
+    State;
+target_sync(Target0, Heights, #state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
+    Target = libp2p_crypto:pubkey_bin_to_p2p(Target0),
+    {Pid, Ref} = start_block_sync(SwarmTID, Chain, Target, Heights),
+    lager:info("targeted block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
+               [Pid, Ref, Target]),
+    State#state{sync_pid = Pid, sync_ref = Ref}.
+
 maybe_sync_blocks(#state{sync_paused = true} = State) ->
     State;
 maybe_sync_blocks(#state{sync_pid = Pid} = State) when Pid /= undefined ->
@@ -810,7 +830,7 @@ start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
             %% try again later when there's peers
             schedule_sync(State);
         RandomPeer ->
-            {Pid, Ref} = start_block_sync(SwarmTID, Chain, RandomPeer),
+            {Pid, Ref} = start_block_sync(SwarmTID, Chain, RandomPeer, []),
             lager:info("new block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
                        [Pid, Ref, RandomPeer]),
             State#state{sync_pid = Pid, sync_ref = Ref}
@@ -857,7 +877,7 @@ add_handlers(SwarmTID, Blockchain) ->
     Ref = erlang:monitor(process, GossipPid),
     %% add the gossip handler
     ok = libp2p_group_gossip:add_handler(GossipPid, ?GOSSIP_PROTOCOL_V1,
-                            {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
+                                         {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
 
     %% add the sync handlers, sync handlers support multiple versions so we need to add for each
     SyncAddFun = fun(ProtocolVersion) ->
@@ -901,12 +921,13 @@ remove_handlers(SwarmTID) ->
 -spec start_block_sync(
         SwarmTID :: ets:tab(),
         Chain :: blockchain:blockchain(),
-        Peer :: libp2p_crypto:pubkey_bin()
+        Peer :: libp2p_crypto:pubkey_bin(),
+        Heights :: [pos_integer()]
 ) -> {pid(), reference()} | ok.
-start_block_sync(SwarmTID, Chain, Peer) ->
+start_block_sync(SwarmTID, Chain, Peer, Heights) ->
     DialFun =
         fun() ->
-                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer) of
+                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer, Heights) of
                     {ok, Stream} ->
                         {ok, HeadHash} = blockchain:sync_hash(Chain),
                         Stream ! {hash, HeadHash},
@@ -939,7 +960,7 @@ start_block_sync(SwarmTID, Chain, Peer) ->
 grab_snapshot(Height, Hash) ->
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
-    SwarmTID = libp2p_swarm:tid(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
 
     case get_random_peer(SwarmTID) of
         no_peers -> {error, no_peers};
