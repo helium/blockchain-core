@@ -527,8 +527,12 @@ txn_fees_pay_with_dc(Config) ->
     %% we will burn half our hnt
     %% and this will be used to pay fees all other txns below
 
+    %% We'll use init DC state to decide whether to expect HNT or DC to have burned.
+    PayerHadDC = has_dc(Payer, Ledger),
+
+    BurnAmount = Balance div 2,
     %% base txn
-    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, Balance div 2, 1),
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, BurnAmount, 1),
     %% get the fees for this txn
     BurnTxFee = blockchain_txn_token_burn_v1:calculate_fee(BurnTx0, Chain),
     ct:pal("Token burn txn fee ~p, staking fee ~p, total: ~p", [BurnTxFee, 'NA', BurnTxFee ]),
@@ -566,7 +570,13 @@ txn_fees_pay_with_dc(Config) ->
     %% convert the fee to HNT and confirm HNT balance is as expected
     {ok, BurnTxHNTFee} = blockchain_ledger_v1:dc_to_hnt(BurnTxFee, Ledger),
     ct:pal("token burn DC: ~p converts to ~p HNT", [BurnTxFee, BurnTxHNTFee]),
-    ?assertEqual(PayerPreBurnHNTBal - (Balance div 2 + BurnTxHNTFee), PayerPostBurnHNTBal),
+
+    ExpectedReductionInHNT =
+        case PayerHadDC of
+            true  -> BurnAmount;
+            false -> BurnAmount + BurnTxHNTFee
+        end,
+    ?assertEqual(PayerPreBurnHNTBal - ExpectedReductionInHNT, PayerPostBurnHNTBal),
 
     %% get the payers DC balance post burn, all subsequent DC balances will be derived from this base
     {ok, PayerDCBalEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
@@ -1133,6 +1143,9 @@ txn_fees_pay_with_hnt(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
 
 
+    %% We'll later use it to decide whether HNT or DC fee was charged:
+    PayerHadDC = has_dc(Payer, Ledger),
+
 
     %% NOTE:
     %% we can prob get away with only running a single txn to test the payments with HNT
@@ -1180,16 +1193,20 @@ txn_fees_pay_with_hnt(Config) ->
     %% all the fees are set, so this should work
     {ok, OUIBlock} = test_utils:create_block(ConsensusMembers, [SignedOUITx2]),
     %% add the block
-    blockchain:add_block(OUIBlock, Chain),
+    ok = blockchain:add_block(OUIBlock, Chain),
 
     %% confirm DC balances are debited with correct fee
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
     PayerNewHNTBal =  blockchain_ledger_entry_v1:balance(NewEntry1),
     %% get the fee in HNT
     {ok, HNTFee} = blockchain_ledger_v1:dc_to_hnt((OUITxFee + OUIStFee), Ledger),
-    ?assertEqual(PayerOpenHNTBal - HNTFee, PayerNewHNTBal),
 
-
+    ExpectedReductionInHNT =
+        case PayerHadDC of
+            true  -> 0;
+            false -> HNTFee
+        end,
+    ?assertEqual(PayerOpenHNTBal - ExpectedReductionInHNT, PayerNewHNTBal),
     ok.
 
 
@@ -1589,3 +1606,11 @@ get_prices({ok, Ps}) ->
 
 median(Ps) ->
     blockchain_ledger_v1:median(Ps).
+
+has_dc(Addr, Ledger) ->
+    case blockchain_ledger_v1:find_dc_entry(Addr, Ledger) of
+        {ok, _} ->
+            true;
+        {error, dc_entry_not_found} ->
+            false
+    end.
