@@ -82,12 +82,6 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],
-    GenDCsTxs =
-        [
-            blockchain_txn_dc_coinbase_v1:new(Addr, Balance)
-        ||
-            {Addr, _} <- GenesisMembers
-        ],
 
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],
@@ -115,7 +109,6 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
                             [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
     Txs = InitialVars ++
         GenPaymentTxs ++
-        GenDCsTxs ++
         GenSecPaymentTxs ++
         InitialConsensusTxn ++
         [GenConsensusGroupTx],
