@@ -265,34 +265,40 @@ handle_info({blockchain_event, {new_chain, Chain}}, State) ->
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
     {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain}=State0) ->
-    _ = e2qc:evict(?SERVER, ?MAX_ACTORS_CACHE),
-    case get_state_channel_txns_from_block(Chain, BlockHash, State0) of
-        {_, undefined} ->
-            lager:error("failed to get block ~p", [BlockHash]),
-            {noreply, State0};
-        {[], Block} ->
-            lager:debug("no transactions found in ~p", [blockchain_block:height(Block)]),
-            State1 = check_state_channel_expiration(Block, State0),
-            {noreply, State1};
-        {Txns, Block} ->
-            lager:info("found ~p in ~p", [Txns, blockchain_block:height(Block)]),
-            State1 =
-                lists:foldl(
-                    fun(Txn, State) ->
-                            case blockchain_txn:type(Txn) of
-                                blockchain_txn_state_channel_open_v1 ->
-                                    opened_state_channel(Txn, BlockHash, Block, State);
-                                blockchain_txn_state_channel_close_v1 ->
-                                    closed_state_channel(Txn, State)
-                            end
-                    end,
-                    State0,
-                    Txns
-                ),
-            State2 = check_state_channel_expiration(Block, State1),
-            {noreply, State2}
-    end;
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain}=State) ->
+    Self = self(),
+    erlang:spawn(fun() ->
+        lager:debug("fetching block ~p (syncing=~p)", [BlockHash, _Syncing]),
+        case get_state_channel_txns_from_block(Chain, BlockHash, State) of
+            {_, undefined} ->
+                lager:error("failed to get block ~p", [BlockHash]);
+            {Txns, Block} ->
+                _ = e2qc:evict(?SERVER, ?MAX_ACTORS_CACHE),
+                Self ! {got_block, Block, BlockHash, Txns}
+        end
+    end),
+    {noreply, State};
+handle_info({got_block, Block, _BlockHash, []}, State0) ->
+    lager:debug("no transactions found in ~p", [blockchain_block:height(Block)]),
+    State1 = check_state_channel_expiration(Block, State0),
+    {noreply, State1};
+handle_info({got_block, Block, BlockHash, Txns}, State0) ->
+    lager:info("found ~p in ~p", [Txns, blockchain_block:height(Block)]),
+    State1 =
+        lists:foldl(
+            fun(Txn, State) ->
+                    case blockchain_txn:type(Txn) of
+                        blockchain_txn_state_channel_open_v1 ->
+                            opened_state_channel(Txn, BlockHash, Block, State);
+                        blockchain_txn_state_channel_close_v1 ->
+                            closed_state_channel(Txn, State)
+                    end
+            end,
+            State0,
+            Txns
+        ),
+    State2 = check_state_channel_expiration(Block, State1),
+    {noreply, State2};
 handle_info(
     {'DOWN', _Ref, process, Pid, _Reason},
     #state{state_channels=SCs, actives=Actives}=State0
