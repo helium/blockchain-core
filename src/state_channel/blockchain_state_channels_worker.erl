@@ -170,9 +170,12 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, _State) ->
+terminate(Reason, #state{state_channel=SC, skewed=Skewed, db=DB, owner={_Owner, OwnerSigFun}}=_State) ->
     Deleted = blockchain_state_channels_cache:delete_pids(self()),
-    lager:info("terminate: ~p, deleted ~p from cache", [_Reason, Deleted]),
+    SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
+    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
+    ok = blockchain_state_channels_server:handle_worker_terminate(SignedSC, Reason),
+    lager:info("terminate: ~p, deleted ~p from cache", [Reason, Deleted]),
     ok.
 
 %% ------------------------------------------------------------------
@@ -206,13 +209,12 @@ offer(
     DCAmount = blockchain_state_channel_v1:amount(SC),
     case (TotalDCs + NumDCs) > DCAmount andalso PreventOverSpend of
         true ->
+            ok = send_offer_rejection(HandlerPid),
             lager:warning(
                 "dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                 [DCAmount, NumDCs, TotalDCs]
             ),
-            ok = send_offer_rejection(HandlerPid),
-            %% TODO: Maybe marked as closed?
-            {stop, normal, State0};
+            {stop, {shutdown, overspent}, State0};
         false ->
             Routing = blockchain_state_channel_offer_v1:routing(Offer),
             lager:debug("routing: ~p, hotspot: ~p", [Routing, HotspotName]),

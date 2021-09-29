@@ -21,7 +21,8 @@
     get_actives_count/0,
     gc_state_channels/1,
     handle_offer/4,
-    handle_packet/5
+    handle_packet/5,
+    handle_worker_terminate/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -150,13 +151,9 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, Ledger, HandlerPid) ->
             ok
     end.
 
--spec get_new_active() -> ok.
-get_new_active() ->
-    gen_server:cast(?SERVER, get_new_active).
-
--spec maybe_get_new_active() -> ok.
-maybe_get_new_active() ->
-    gen_server:cast(?SERVER, maybe_get_new_active).
+-spec handle_worker_terminate(SC :: blockchain_state_channel_v1:state_channel(), Reason :: any()) -> ok.
+handle_worker_terminate(SC, Reason) ->
+    gen_server:cast(?SERVER, {handle_worker_terminate, SC, Reason}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -219,6 +216,10 @@ handle_cast(get_new_active, State0) ->
     lager:info("get a new active state channel"),
     State1 = get_new_active(State0),
     {noreply, State1};
+handle_cast({handle_worker_terminate, SC, Reason}, #state{state_channels=SCs}=State) ->
+    ID = blockchain_state_channel_v1:id(SC),
+    lager:info("~p is terminated ~p", [blockchain_utils:addr2name(ID), Reason]),
+    {noreply, State#state{state_channels=maps:put(ID, SC, SCs)}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -286,15 +287,11 @@ handle_info({got_block, Block, BlockHash, Txns}, State0) ->
         ),
     State2 = check_state_channel_expiration(Block, State1),
     {noreply, State2};
-handle_info(
-    {'DOWN', _Ref, process, Pid, _Reason},
-    #state{state_channels=SCs, actives=Actives}=State0
-) ->
+handle_info( {'DOWN', _Ref, process, Pid, _Reason}, #state{actives=Actives}=State0) ->
     {Pid, ID} = lists:keyfind(Pid, 1, Actives),
     lager:info("state channel ~p @ ~p went down: ~p", [blockchain_utils:addr2name(ID), Pid, _Reason]),
     ok = blockchain_state_channels_cache:delete_actives(Pid),
     State1 = State0#state{
-        state_channels=maps:remove(ID, SCs), %% TODO: Maybe marked as closed?
         actives=lists:keydelete(Pid, 1, Actives)
     },
     {noreply, State1};
@@ -389,6 +386,14 @@ get_actives_from_cache() ->
             ok = blockchain_state_channels_cache:overwrite_actives(Actives)
     end,
     Actives.
+
+-spec get_new_active() -> ok.
+get_new_active() ->
+    gen_server:cast(?SERVER, get_new_active).
+
+-spec maybe_get_new_active() -> ok.
+maybe_get_new_active() ->
+    gen_server:cast(?SERVER, maybe_get_new_active).
 
 -spec get_new_active(State :: state()) -> state().
 get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, sc_version=SCVersion}=State0) ->
