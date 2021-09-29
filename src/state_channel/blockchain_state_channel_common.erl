@@ -195,13 +195,13 @@ handle_server_msg(Msg, HandlerState = #handler_state{
             case maps:get(PacketHash, PendingOffers, undefined) of
                 undefined ->
                     lager:debug("sc_handler server got packet: ~p", [Packet]),
-                    blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, self()),
+                    blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()),
                     {ok, HandlerState};
                 {PendingOffer, PendingOfferTime} ->
                     case blockchain_state_channel_packet_v1:validate(Packet, PendingOffer) of
                         {error, packet_offer_mismatch} ->
                             %% might as well try it, it's free
-                            blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()),
                             lager:warning("packet failed to validate ~p against offer ~p", [Packet, PendingOffer]),
                             stop;
                         {error, Reason} ->
@@ -209,7 +209,7 @@ handle_server_msg(Msg, HandlerState = #handler_state{
                             stop;
                         true ->
                             lager:debug("sc_handler server got packet: ~p", [Packet]),
-                            blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, HandlerState#handler_state.handler_mod, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()),
                             handle_next_offer(HandlerState#handler_state{pending_packet_offers=maps:remove(PacketHash, PendingOffers)})
                     end
             end;
@@ -319,7 +319,7 @@ handle_next_offer(HandlerState=#handler_state{offer_queue=[{NextOffer, OfferTime
 handle_offer(Offer, Time, HandlerState) ->
     lager:debug("sc_handler server got offer: ~p", [Offer]),
     MaybeEncodeMsg = HandlerState#handler_state.encode_pb,
-    case blockchain_state_channels_server:handle_offer(Offer, HandlerState#handler_state.handler_mod, self()) of
+    case blockchain_state_channels_server:handle_offer(Offer, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()) of
         ok ->
             %% offer is pending, just block the stream waiting for the purchase or rejection
             receive

@@ -20,8 +20,8 @@
     get_active_pid/1,
     get_actives_count/0,
     gc_state_channels/1,
-    handle_offer/3,
-    handle_packet/4
+    handle_offer/4,
+    handle_packet/5
 ]).
 
 %% ------------------------------------------------------------------
@@ -38,7 +38,6 @@
 
 -define(SERVER, ?MODULE).
 -define(SC_WORKER_GROUP, state_channel_workers_union).
--define(MAX_ACTORS_CACHE, max_actors_allowed_cache).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -93,9 +92,10 @@ gc_state_channels(SCIDs) ->
 -spec handle_offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
     SCPacketHandler :: atom(),
+    Ledger :: blockchain_ledger_v1:ledger(),
     HandlerPid :: pid()
 ) -> ok | reject.
-handle_offer(Offer, SCPacketHandler, HandlerPid) ->
+handle_offer(Offer, SCPacketHandler, Ledger, HandlerPid) ->
     lager:debug("handle_offer ~p from ~p", [Offer, HandlerPid]),
     case blockchain_state_channel_offer_v1:validate(Offer) of
         {error, _Reason} ->
@@ -106,12 +106,18 @@ handle_offer(Offer, SCPacketHandler, HandlerPid) ->
                 {error, _Why} ->
                     reject;
                 ok ->
-                    handle_offer(Offer, HandlerPid)
+                    handle_offer(Offer, Ledger, HandlerPid)
             end
     end.
 
--spec handle_packet(blockchain_state_channel_packet_v1:packet(), pos_integer(), atom(), pid()) -> ok.
-handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
+-spec handle_packet(
+    SCPacket :: blockchain_state_channel_packet_v1:packet(),
+    PacketTime :: pos_integer(),
+    SCPacketHandler :: atom(),
+    Ledger :: blockchain_ledger_v1:ledger(),
+    HandlerPid :: pid()
+) ->ok.
+handle_packet(SCPacket, PacketTime, SCPacketHandler, Ledger, HandlerPid) ->
     lager:debug("handle_packet ~p from ~p (~pms)", [SCPacket, HandlerPid, PacketTime]),
     case SCPacketHandler:handle_packet(SCPacket, PacketTime, HandlerPid) of
         ok ->
@@ -119,9 +125,7 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
             HotspotName = blockchain_utils:addr2name(HotspotID),
             case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
                 undefined ->
-                    %% REVIEW: Is this okay to do for all SCVer?
-                    %% QUESTION: will this cause those providing free packets rewards?
-                    MaxActorsAllowed = max_actors_allowed(),
+                    MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
                     Actives = blockchain_state_channels_cache:lookup_actives(),
                     case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
                         {ok, Pid} ->
@@ -259,7 +263,6 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
             {_, undefined} ->
                 lager:error("failed to get block ~p", [BlockHash]);
             {Txns, Block} ->
-                _ = e2qc:evict(?SERVER, ?MAX_ACTORS_CACHE),
                 Self ! {got_block, Block, BlockHash, Txns}
         end
     end),
@@ -313,15 +316,16 @@ terminate(_Reason, _State) ->
 
 -spec handle_offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
+    Ledger :: blockchain_ledger_v1:ledger(),
     HandlerPid :: pid()
 ) -> ok | reject.
-handle_offer(Offer, HandlerPid) ->
+handle_offer(Offer, Ledger, HandlerPid) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
     HotspotName = blockchain_utils:addr2name(HotspotID),
     case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
         undefined ->
             lager:debug("could not finds hotspot in cache for ~p", [HotspotName]),
-            MaxActorsAllowed = max_actors_allowed(),
+            MaxActorsAllowed =blockchain_ledger_v1:get_sc_max_actors(Ledger),
             Actives = blockchain_state_channels_cache:lookup_actives(),
             case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
                 {ok, Pid} ->
@@ -376,22 +380,6 @@ select_best_active(
         false -> {error, not_found};
         {true, Pid} -> {ok, Pid}
     end.
-
--spec max_actors_allowed() -> non_neg_integer().
-max_actors_allowed() ->
-    e2qc:cache(
-        ?SERVER,
-        ?MAX_ACTORS_CACHE,
-        fun() ->
-            case blockchain_worker:blockchain() of
-                undefined ->
-                    ?SC_MAX_ACTORS;
-                Chain ->
-                    Ledger = blockchain:ledger(Chain),
-                    blockchain_ledger_v1:get_sc_max_actors(Ledger)
-            end
-        end
-    ).
 
 -spec get_new_active(State :: state()) -> state().
 get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, sc_version=SCVersion}=State0) ->
