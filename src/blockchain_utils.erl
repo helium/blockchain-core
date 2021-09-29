@@ -731,8 +731,16 @@ fold_condition_checks_bad_test() ->
 pfind_test() ->
     F = fun(I) ->
         case I rem 2 == 0 of
-            true -> {true, I};
-            false -> false
+            true ->
+                case I == 2 of
+                    true ->
+                        {true, I};
+                    false ->
+                        timer:sleep(10),
+                        {true, I}
+                end;
+            false ->
+                false
         end
     end,
     Args = [[I] || I <- lists:seq(1, 6)],
