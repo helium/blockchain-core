@@ -46,7 +46,7 @@
     owner :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()},
     chain :: blockchain:blockchain(),
     dc_payload_size ::pos_integer(),
-    sc_version :: non_neg_integer(), %% defaulting to 0 instead of undefined
+    sc_version :: non_neg_integer(),
     max_actors_allowed = ?SC_MAX_ACTORS :: pos_integer(),
     prevent_overspend = true,
     bloom :: bloom_nif:bloom(),
