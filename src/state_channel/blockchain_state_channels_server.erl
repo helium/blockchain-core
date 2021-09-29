@@ -82,7 +82,7 @@ get_active_pid(ID) ->
 
 -spec get_actives_count() -> non_neg_integer().
 get_actives_count() ->
-    erlang:length(blockchain_state_channels_cache:lookup_actives()).
+    erlang:length(get_actives_from_cache()).
 
 -spec gc_state_channels([binary()]) -> ok.
 gc_state_channels([]) -> ok;
@@ -125,9 +125,7 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, Ledger, HandlerPid) ->
             HotspotName = blockchain_utils:addr2name(HotspotID),
             case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
                 undefined ->
-                    MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
-                    Actives = blockchain_state_channels_cache:lookup_actives(),
-                    case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
+                    case select_best_active(HotspotID, Ledger) of
                         {ok, Pid} ->
                             lager:debug("found ~p for ~p without an offer", [Pid, HotspotName]),
                             ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
@@ -325,9 +323,7 @@ handle_offer(Offer, Ledger, HandlerPid) ->
     case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
         undefined ->
             lager:debug("could not finds hotspot in cache for ~p", [HotspotName]),
-            MaxActorsAllowed =blockchain_ledger_v1:get_sc_max_actors(Ledger),
-            Actives = blockchain_state_channels_cache:lookup_actives(),
-            case select_best_active(HotspotID, Actives, MaxActorsAllowed) of
+            case select_best_active(HotspotID, Ledger) of
                 {ok, Pid} ->
                     lager:debug("found ~p for ~p", [Pid, HotspotName]),
                     ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
@@ -353,14 +349,10 @@ handle_offer(Offer, Ledger, HandlerPid) ->
 
 -spec select_best_active(
     HotspotID :: libp2p_crypto:pubkey_bin(),
-    Actives :: list(pid()),
-    MaxActorsAllowed :: non_neg_integer()
-)-> {ok, pid()} | {error, not_found}.
-select_best_active(
-    HotspotID,
-    Actives,
-    MaxActorsAllowed
-) ->
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> {ok, pid()} | {error, not_found}.
+select_best_active(HotspotID, Ledger) ->
+    Actives = get_actives_from_cache(),
     Fun = fun(Pid, HID, Max) ->
         %% Only blocking call so far but done in parallel 
         SC = blockchain_state_channels_worker:get(Pid),
@@ -375,11 +367,28 @@ select_best_active(
             found -> {true, Pid}
         end
     end,
+    MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
     Todos = [[Pid, HotspotID, MaxActorsAllowed] || Pid <- Actives],
     case blockchain_utils:pfind(Fun, Todos) of
         false -> {error, not_found};
         {true, Pid} -> {ok, Pid}
     end.
+
+-spec get_actives_from_cache() -> list(pid()).
+get_actives_from_cache() ->
+    {Actives, Dead} =
+        lists:partition(
+            fun erlang:is_process_alive/1,
+            blockchain_state_channels_cache:lookup_actives()
+        ),
+    case Dead of
+        [] ->
+            ok;
+        _ ->
+            lager:warning("we have some dead SC in cache ~p", [Dead]),
+            ok = blockchain_state_channels_cache:overwrite_actives(Actives)
+    end,
+    Actives.
 
 -spec get_new_active(State :: state()) -> state().
 get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, sc_version=SCVersion}=State0) ->

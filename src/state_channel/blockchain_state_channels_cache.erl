@@ -19,7 +19,8 @@
     delete_pids/1,
     lookup_actives/0,
     insert_actives/1,
-    delete_actives/1
+    delete_actives/1,
+    overwrite_actives/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -100,6 +101,11 @@ delete_actives(Pid) ->
             true = ets:insert(?ETS, {?ACTIVES_KEY, lists:delete(Pid, Actives)}),
             ok
     end.
+
+-spec overwrite_actives(Pids :: [pid()]) -> ok.
+overwrite_actives(Pids) ->
+    true = ets:insert(?ETS, {?ACTIVES_KEY, Pids}),
+    ok.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
