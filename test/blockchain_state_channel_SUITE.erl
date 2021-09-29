@@ -374,7 +374,7 @@ full_test(Config) ->
     %% Checking state channel on server/client
     ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
-    %% Adding 20 fake blocks to get the state channel to expire
+    %% Adding 15 fake blocks to get the state channel to expire
     FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),

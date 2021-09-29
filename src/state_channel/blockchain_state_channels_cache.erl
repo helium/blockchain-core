@@ -16,7 +16,10 @@
     start_link/1,
     lookup_hotspot/1,
     insert_hotspot/2,
-    delete_pids/1
+    delete_pids/1,
+    lookup_actives/0,
+    insert_actives/1,
+    delete_actives/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -35,6 +38,7 @@
 -define(ETS, blockchain_state_channels_cache_ets).
 %% ets:fun2ms(fun({_, Pid}) when Pid == Self -> true end).
 -define(SELECT_DELETE_PID(Pid), [{{'_', '$1'}, [{'==', '$1', {const, Pid}}], [true]}]).
+-define(ACTIVES_KEY, active_scs).
 
 -record(state, {}).
 
@@ -67,6 +71,35 @@ insert_hotspot(HotspotID, Pid) ->
 -spec delete_pids(Pid :: pid()) -> integer().
 delete_pids(Pid) ->
     ets:select_delete(?ETS, ?SELECT_DELETE_PID(Pid)).
+
+-spec lookup_actives() -> [pid()].
+lookup_actives() ->
+    case ets:lookup(?ETS, ?ACTIVES_KEY) of
+        [] -> [];
+        [{?ACTIVES_KEY, Pids}] -> Pids
+    end.
+
+-spec insert_actives(Pid :: pid()) -> ok.
+insert_actives(Pid) ->
+    Actives = lookup_actives(),
+    case lists:member(Pid, Actives) of
+        true ->
+            ok;
+        false ->
+            true = ets:insert(?ETS, {?ACTIVES_KEY, [Pid|Actives]}),
+            ok
+    end.
+
+-spec delete_actives(Pid :: pid()) -> ok.
+delete_actives(Pid) ->
+    Actives = lookup_actives(),
+    case lists:member(Pid, Actives) of
+        false ->
+            ok;
+        true ->
+            true = ets:insert(?ETS, {?ACTIVES_KEY, lists:delete(Pid, Actives)}),
+            ok
+    end.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
