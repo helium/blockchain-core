@@ -517,6 +517,10 @@
 %%
 %% Refer to blockchain_region_SUITE for an example
 
-%% transfer hotspot transaction version
-%% Allowed values: 2
--define(transfer_hotspot_txn_version, transfer_hotspot_txn_version).
+%% ------------------------------------------------------------------
+%% This is a general purpose variable. We can use it for any transaction
+%% to specify which version of it we will support on chain.
+%%
+%% As an example, blockchain_txn_transfer_hotspot_v2, will get enabled
+%% when this value is set to >= 2.
+-define(transaction_validity_version, transfer_hotspot_txn_version).    % pos_integer

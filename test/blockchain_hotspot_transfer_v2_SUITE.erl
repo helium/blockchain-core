@@ -10,6 +10,7 @@
     basic_validity_test/1,
     bad_owner_signature_test/1,
     gateway_not_owned_by_owner_test/1,
+    unknown_gateway_test/1,
     buyback_test/1,
     var_not_set_test/1
 ]).
@@ -19,6 +20,7 @@ all() ->
         basic_validity_test,
         bad_owner_signature_test,
         gateway_not_owned_by_owner_test,
+        unknown_gateway_test,
         buyback_test,
         var_not_set_test
     ].
@@ -35,7 +37,7 @@ init_per_testcase(TestCase, Config) ->
     ExtraVars =
         case TestCase of
             var_not_set_test -> #{};
-            _ -> #{?transfer_hotspot_txn_version => 2}
+            _ -> #{?transaction_validity_version => 2}
         end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
@@ -316,3 +318,40 @@ var_not_set_test(Config) ->
 
     ok.
 
+unknown_gateway_test(Config) ->
+    GenesisMembers = ?config(genesis_members, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    %% Get some owner and their gateway
+    [
+        {OwnerPubkeyBin, _},
+        {NewOwnerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+
+    %% Get owner privkey and sigfun
+    {_OwnerPubkey, OwnerPrivKey, _} = proplists:get_value(OwnerPubkeyBin, GenesisMembers),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    ct:pal("Owner: ~p", [OwnerPubkeyBin]),
+    ct:pal("NewOwnerPubkeyBin: ~p", [NewOwnerPubkeyBin]),
+
+    %% Generate some random key to use as gateway pubkey bin
+
+    [{UnknownGwPubkeyBin, {_, _, _}}] = test_utils:generate_keys(1),
+    ct:pal("Gateway: ~p", [UnknownGwPubkeyBin]),
+
+    Txn = blockchain_txn_transfer_hotspot_v2:new(
+        UnknownGwPubkeyBin,
+        OwnerPubkeyBin,
+        NewOwnerPubkeyBin,
+        1
+    ),
+    OwnerSignedTxn = blockchain_txn_transfer_hotspot_v2:sign(Txn, OwnerSigFun),
+    ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
+    ct:pal("IsValidOwner: ~p", [blockchain_txn_transfer_hotspot_v2:is_valid_owner(OwnerSignedTxn)]),
+
+    {error, unknown_gateway} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
+
+    ok.
