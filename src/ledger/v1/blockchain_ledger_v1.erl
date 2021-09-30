@@ -312,7 +312,8 @@
           %% rewards vs aux rewards (for now, but can be extended to show other differences)
           aux_heights :: rocksdb:cf_handle(),
           aux_heights_md :: rocksdb:cf_handle(),
-          aux_heights_diff :: rocksdb:cf_handle()
+          aux_heights_diff :: rocksdb:cf_handle(),
+          aux_heights_diffsum :: rocksdb:cf_handle()
          }).
 
 %% This record is for managing validator stake cooldown information in the
@@ -343,6 +344,7 @@
 -define(aux_height_prefix, "aux_height_").
 -define(aux_height_md_prefix, "aux_height_md_").
 -define(aux_height_diff_prefix, "aux_height_diff_").
+-define(aux_height_diffsum_prefix, "aux_height_diffsum_").
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
@@ -509,13 +511,14 @@ new_aux(Path, Ledger) ->
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     {ok, DB, CFs} = open_db(aux, Path, false, false, GlobalOpts),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, AuxHeightsCF, AuxHeightsMDCF, AuxHeightsDiffCF] = CFs,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, AuxHeightsCF, AuxHeightsMDCF, AuxHeightsDiffCF, AuxHeightsDiffSumCF] = CFs,
     Ledger#ledger_v1{aux=#aux_ledger_v1{
        dir = Path,
        db = DB,
        aux_heights = AuxHeightsCF,
        aux_heights_md = AuxHeightsMDCF,
        aux_heights_diff = AuxHeightsDiffCF,
+       aux_heights_diffsum = AuxHeightsDiffSumCF,
        aux = #sub_ledger_v1{
        default=DefaultCF,
        active_gateways=AGwsCF,
@@ -3808,6 +3811,13 @@ aux_heights_diff_cf(Ledger) ->
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_diff
     end.
 
+-spec aux_heights_diffsum_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_diffsum_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_diffsum
+    end.
+
 -spec aux_db(ledger()) -> undefined | rocksdb:db_handle().
 aux_db(Ledger) ->
     case has_aux(Ledger) of
@@ -3852,8 +3862,10 @@ set_aux_rewards_md(Height, OrigMD, AuxMD, Ledger) ->
             AuxDB = aux_db(Ledger),
             AuxHeightsMDCF = aux_heights_md_cf(Ledger),
             AuxHeightsDiffCF = aux_heights_diff_cf(Ledger),
+            AuxHeightsDiffSumCF = aux_heights_diffsum_cf(Ledger),
             MDKey = aux_height_md(Height),
             DiffKey = aux_height_diff(Height),
+            DiffSumKey = aux_height_diffsum(Height),
             case rocksdb:get(AuxDB, AuxHeightsMDCF, MDKey, []) of
                 {ok, _} ->
                     %% already exists, don't do anything
@@ -3862,12 +3874,22 @@ set_aux_rewards_md(Height, OrigMD, AuxMD, Ledger) ->
                     MDValue = term_to_binary({OrigMD, AuxMD}),
                     %% Doing calculate_reward_diff_map with a single k:v input
                     %% would yield a single element list as value, so we just use head here
-                    WDiffVal = hd(maps:values(calculate_reward_diff_map(witnesses, #{Height => {OrigMD, AuxMD}}))),
-                    CDiffVal = hd(maps:values(calculate_reward_diff_map(challengees, #{Height => {OrigMD, AuxMD}}))),
+                    WDiffMap = calculate_reward_diff_map(witnesses, #{Height => {OrigMD, AuxMD}}),
+                    CDiffMap = calculate_reward_diff_map(challengees, #{Height => {OrigMD, AuxMD}}),
+                    WDiffVal = hd(maps:values(WDiffMap)),
+                    CDiffVal = hd(maps:values(CDiffMap)),
                     DiffValue = term_to_binary(#{witnesses => WDiffVal, challengees => CDiffVal}),
+
+                    %% Also calculate overall MDSum
+                    WSum = diff_aux_reward_sums_(WDiffMap),
+                    CSum = diff_aux_reward_sums_(CDiffMap),
+                    MDSum = overall_diff_aux_rewards_md_sums(WSum, CSum),
+                    MDSumValue = term_to_binary(MDSum),
+
                     {ok, Batch} = rocksdb:batch(),
                     ok = rocksdb:batch_put(Batch, AuxHeightsMDCF, MDKey, MDValue),
                     ok = rocksdb:batch_put(Batch, AuxHeightsDiffCF, DiffKey, DiffValue),
+                    ok = rocksdb:batch_put(Batch, AuxHeightsDiffSumCF, DiffSumKey, MDSumValue),
                     rocksdb:write_batch(AuxDB, Batch, []);
                 Error ->
                     Error
@@ -3951,7 +3973,11 @@ diff_aux_rewards(Ledger) ->
 diff_aux_rewards_md_sums(Ledger) ->
     WSum = diff_aux_rewards_md_sums(witnesses, Ledger),
     CSum = diff_aux_rewards_md_sums(challengees, Ledger),
+    overall_diff_aux_rewards_md_sums(WSum, CSum).
 
+-spec overall_diff_aux_rewards_md_sums(WSum :: reward_diff_sum(),
+                                       CSum :: reward_diff_sum()) -> reward_diff_sum().
+overall_diff_aux_rewards_md_sums(WSum, CSum) ->
     lists:foldl(
         fun(Key, Acc) ->
             {OrigWVal, AuxWVal} = maps:get(Key, WSum, {#{amount => 0}, #{amount => 0}}),
@@ -4438,7 +4464,7 @@ delayed_cfs() ->
 
 -spec aux_cfs() -> list().
 aux_cfs() ->
-    ["aux_heights", "aux_heights_md", "aux_heights_diff"].
+    ["aux_heights", "aux_heights_md", "aux_heights_diff", "aux_heights_diffsum"].
 
 -spec maybe_use_snapshot(ledger(), list()) -> list().
 maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
@@ -4516,6 +4542,9 @@ aux_height_md(Height) ->
 
 aux_height_diff(Height) ->
     <<?aux_height_diff_prefix, (integer_to_binary(Height))/binary>>.
+
+aux_height_diffsum(Height) ->
+    <<?aux_height_diffsum_prefix, (integer_to_binary(Height))/binary>>.
 
 add_to_hex(Hex, Gateway, Ledger) ->
     Hexes = case get_hexes(Ledger) of
