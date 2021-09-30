@@ -2516,6 +2516,7 @@ save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}
             rocksdb:put(DB, PlausibleBlocks, Hash, blockchain_block:serialize(Block), [{sync, true}])
     end.
 
+-spec have_plausible_block(Hash :: blockchain_block:hash(), Chain :: blockchain()) -> boolean().
 have_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
     case rocksdb:get(DB, CF, Hash, []) of
         {ok, _} -> true;
