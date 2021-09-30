@@ -32,6 +32,7 @@
     in865_test/1,
     kr920_test/1,
     australia_test/1,
+    kosovo_test/1,
     au915_test/1,
     cn470_test/1,
     us915_test/1,
@@ -77,6 +78,7 @@ with_h3_data_test_cases() ->
         in865_test,
         kr920_test,
         australia_test,
+        kosovo_test,
         au915_test,
         cn470_test,
         us915_test,
@@ -211,6 +213,15 @@ as923_3_test(Config) ->
     {ok, region_as923_3} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_as923_3, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
+    ok.
+
+kosovo_test(Config) ->
+    %% Check what happens when fetching regions in Kosovo
+    Ledger = ?config(ledger, Config),
+    %% Pristina, Kosovo
+    H3 = h3:from_geo({42.656897613266324, 21.165041809108498}, 12),
+    %% TODO: Figure out what "region" Kosovo belongs to
+    {error, {unknown_region, H3}} = blockchain_region_v1:h3_to_region(H3, Ledger),
     ok.
 
 australia_test(Config) ->
