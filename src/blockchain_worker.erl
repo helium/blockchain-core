@@ -873,13 +873,8 @@ add_handlers(SwarmTID, Blockchain) ->
     GossipPid = libp2p_swarm:gossip_group(SwarmTID),
     Ref = erlang:monitor(process, GossipPid),
     %% add the gossip handler
-    GossipAddFun =
-        fun(ProtocolVersion) ->
-                ok = libp2p_group_gossip:add_handler(
-                       GossipPid, ProtocolVersion,
-                       {blockchain_gossip_handler, [ProtocolVersion, SwarmTID, Blockchain]})
-        end,
-    lists:foreach(GossipAddFun, ?SUPPORTED_GOSSIP_PROTOCOLS),
+    ok = libp2p_group_gossip:add_handler(GossipPid, ?GOSSIP_PROTOCOL_V1,
+                                         {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
 
     %% add the sync handlers, sync handlers support multiple versions so we need to add for each
     SyncAddFun = fun(ProtocolVersion) ->

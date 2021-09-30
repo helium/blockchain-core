@@ -18,7 +18,7 @@
     server/4,
     client/2,
     dial/3,
-    dial/4
+    dial/4, dial/6
 ]).
 
 %% ------------------------------------------------------------------
@@ -36,7 +36,9 @@
     batch_size :: pos_integer(),
     batch_limit :: pos_integer(),
     batches_sent = 0 :: non_neg_integer(),
-    path :: string()
+    path :: string(),
+    blocking = true :: boolean(),
+    requested = [] :: [pos_integer()]
 }).
 
 %% ------------------------------------------------------------------
@@ -73,19 +75,32 @@ dial(Swarm, Chain, Peer) ->
         end,
     DialFun(?SUPPORTED_SYNC_PROTOCOLS).
 
--spec dial(Swarm::pid(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin(), ProtocolVersino::string())->
+-spec dial(Swarm :: pid(),
+           Chain :: blockchain:blockchain(),
+           Peer :: libp2p_crypto:pubkey_bin(),
+           ProtocolVersion :: string())->
             {ok, pid()} | {error, any()}.
-dial(Swarm, Chain, Peer, ProtocolVersion)->
+dial(Swarm, Chain, Peer, ProtocolVersion) ->
+    dial(Swarm, Chain, Peer, ProtocolVersion, false, []).
+
+-spec dial(Swarm :: pid(),
+           Chain :: blockchain:blockchain(),
+           Peer :: libp2p_crypto:pubkey_bin(),
+           ProtocolVersino :: string(),
+           Blocking :: boolean(),
+           Requested :: [pos_integer()]) ->
+          {ok, pid()} | {error, any()}.
+dial(Swarm, Chain, Peer, ProtocolVersion, Blocking, Requested)->
     libp2p_swarm:dial_framed_stream(Swarm,
                                     Peer,
                                     ProtocolVersion,
                                     ?MODULE,
-                                    [ProtocolVersion, Chain]).
+                                    [ProtocolVersion, Blocking, Requested, Chain]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [Path, Blockchain]) ->
+init(client, _Conn, [Path, Blocking, Requested, Blockchain]) ->
     case blockchain_worker:sync_paused() of
         true ->
             {stop, normal};
@@ -93,7 +108,7 @@ init(client, _Conn, [Path, Blockchain]) ->
             BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
             BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
             {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit,
-                        path=Path}}
+                        path=Path, blocking=Blocking, requested=Requested}}
     end;
 init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
     BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
@@ -134,7 +149,8 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                                  batches_sent=Sent, batch_limit=Limit,
                                  path=Path}=State) ->
     case blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_req_pb) of
-        #blockchain_sync_req_pb{msg={hash, #blockchain_sync_hash_pb{hash=Hash}}} ->
+        #blockchain_sync_req_pb{msg={hash, Thing = #blockchain_sync_hash_pb{hash=Hash}}} ->
+            lager:info("XXX thing ~p", [Thing]),
             case blockchain:get_block(Hash, Blockchain) of
                 {ok, StartingBlock} ->
                     case blockchain:build(StartingBlock, Blockchain, BatchSize) of
