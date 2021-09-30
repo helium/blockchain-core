@@ -110,7 +110,7 @@ handle_data(client, Data, HandlerState) ->
                     %% empty banner, ignore
                     ok;
                 BannerSC ->
-                    lager:info("sc_handler client got banner, sc_id: ~p",
+                    lager:debug("sc_handler client got banner, sc_id: ~p",
                                [blockchain_state_channel_v1:id(BannerSC)]),
                     %% either we don't have a ledger or we do and the SC is valid
                     case Ledger == undefined orelse blockchain_state_channel_common:is_active_sc(BannerSC, Ledger) == ok of
@@ -122,7 +122,7 @@ handle_data(client, Data, HandlerState) ->
             end;
         {purchase, Purchase} ->
             PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-            lager:info("sc_handler client got purchase, sc_id: ~p",
+            lager:debug("sc_handler client got purchase, sc_id: ~p",
                        [blockchain_state_channel_v1:id(PurchaseSC)]),
             %% either we don't have a ledger or we do and the SC is valid
             case Ledger == undefined orelse blockchain_state_channel_common:is_active_sc(PurchaseSC, Ledger) == ok of
@@ -132,7 +132,7 @@ handle_data(client, Data, HandlerState) ->
                     ok
             end;
         {reject, Rejection} ->
-            lager:info("sc_handler client got rejection: ~p", [Rejection]),
+            lager:debug("sc_handler client got rejection: ~p", [Rejection]),
             blockchain_state_channels_client:reject(Rejection, self());
         {response, Resp} ->
             lager:debug("sc_handler client got response: ~p", [Resp]),
