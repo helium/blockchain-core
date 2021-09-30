@@ -244,8 +244,6 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
             },
             {SCsWithSkewed, ActiveSCIDs} = load_state_channels(State1),
             State2 = start_workers(SCsWithSkewed, ActiveSCIDs, State1),
-            %% TODO: if empty ActiveSCIDs we should try to get a new active
-            %% ok = maybe_get_new_active(),
             StateChannels = maps:map(fun(_, {SC,_}) -> SC end, SCsWithSkewed),
             {noreply, State2#state{state_channels=StateChannels}}
     end;
@@ -594,6 +592,8 @@ get_worker_pid(ID, #state{actives=Actives}) ->
     ActiveSCIDs :: [blockchain_state_channel_v1:id()],
     State :: state()
 ) -> state().
+start_workers(_SCsWithSkewed, [], State) ->
+    get_new_active(State);
 start_workers(SCsWithSkewed, ActiveSCIDs, State0) ->
     lists:foldl(
         fun(ID, #state{actives=Actives}=State) ->
@@ -672,7 +672,6 @@ load_state_channels(#state{db=DB, chain=Chain}=State0) ->
             fun(ID, Acc) ->
                     case blockchain_state_channel_v1:fetch(DB, ID) of
                         {error, _Reason} ->
-                            % TODO: Maybe cleanup not_found state channels from list
                             lager:warning("could not get state channel ~p: ~p",
                                           [blockchain_utils:addr2name(ID), _Reason]),
                             Acc;
