@@ -387,13 +387,14 @@ get_actives_from_cache() ->
     end,
     Actives.
 
--spec get_new_active() -> ok.
-get_new_active() ->
-    gen_server:cast(?SERVER, get_new_active).
-
 -spec maybe_get_new_active() -> ok.
 maybe_get_new_active() ->
     gen_server:cast(?SERVER, maybe_get_new_active).
+
+
+-spec get_new_active() -> ok.
+get_new_active() ->
+    gen_server:cast(?SERVER, get_new_active).
 
 -spec get_new_active(State :: state()) -> state().
 get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, sc_version=SCVersion}=State0) ->
@@ -663,32 +664,42 @@ get_state_channel_txns_from_block(Chain, BlockHash, #state{owner={Owner, _}}) ->
      [blockchain_state_channel_v1:id()]}.
 load_state_channels(#state{db=DB, chain=Chain}=State0) ->
     LedgerSCs = get_state_channels_from_ledger(State0),
-    lager:info("state channels rehydrated from ledger: ~p", [LedgerSCs]),
     LedgerSCKeys = maps:keys(LedgerSCs),
-    DBSCs = lists:foldl(
-              fun(ID, Acc) ->
-                      case blockchain_state_channel_v1:fetch(DB, ID) of
-                          {error, _Reason} ->
-                              % TODO: Maybe cleanup not_found state channels from list
-                              lager:warning("could not get state channel ~p: ~p",
-                                            [blockchain_utils:addr2name(ID), _Reason]),
-                              Acc;
-                          {ok, {SC, Skewed}} ->
-                              lager:info("updating state from scdb ID: ~p ~p",
-                                         [blockchain_utils:addr2name(ID), SC]),
-                              maps:put(ID, {SC, Skewed}, Acc)
-                      end
-              end,
-              #{}, LedgerSCKeys),
-    lager:info("fetched state channels from database writes: ~p", [DBSCs]),
-    %% Merge DBSCs with LedgerSCs with only matching IDs
-    SCs = maps:merge(LedgerSCs, maps:with(LedgerSCKeys, DBSCs)),
-    lager:info("scs after merge: ~p", [SCs]),
+    lager:info("state channels rehydrated from ledger: ~p", [[blockchain_utils:addr2name(ID)|| ID <- LedgerSCKeys]]),
+   
+    DBSCs = 
+        lists:foldl(
+            fun(ID, Acc) ->
+                    case blockchain_state_channel_v1:fetch(DB, ID) of
+                        {error, _Reason} ->
+                            % TODO: Maybe cleanup not_found state channels from list
+                            lager:warning("could not get state channel ~p: ~p",
+                                          [blockchain_utils:addr2name(ID), _Reason]),
+                            Acc;
+                        {ok, {SC, Skewed}} ->
+                            lager:info("updating state from scdb ID: ~p ~p",
+                                        [blockchain_utils:addr2name(ID), SC]),
+                            maps:put(ID, {SC, Skewed}, Acc)
+                    end
+            end,
+            #{},
+            LedgerSCKeys
+        ),
+    
+    DBSCKeys = maps:keys(DBSCs),
+    lager:info("fetched state channels from database writes: ~p", [[blockchain_utils:addr2name(ID)|| ID <- DBSCKeys]]),
 
-    %% These don't exist in the ledger but we have them in the sc db,
-    %% presumably these have been closed
-    ClosedSCIDs = maps:keys(maps:without(LedgerSCKeys, DBSCs)),
-    lager:info("presumably closed sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- ClosedSCIDs]]),
+    %% These don't exist in the db but we have them in the ledger, to avoid any conflict we will ignore them
+    NotInDBKeys = LedgerSCKeys -- DBSCKeys,
+    lager:warning("not in db sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- NotInDBKeys]]),
+
+    %% Merge DBSCs with LedgerSCs with only matching IDs and remove not in DB state channels 
+    SCs = maps:without(NotInDBKeys, maps:merge(LedgerSCs, maps:with(LedgerSCKeys, DBSCs))),
+    lager:info("scs after merge: ~p", [[blockchain_utils:addr2name(ID)|| ID <- maps:keys(SCs)]]),
+
+    %% These don't exist in the ledger but we have them in the sc db, presumably these have been closed
+    ClosedSCIDs = DBSCKeys -- LedgerSCKeys,
+    lager:warning("presumably closed sc ids: ~p", [[blockchain_utils:addr2name(I) || I <- ClosedSCIDs]]),
 
     {ok, BlockHeight} = blockchain:height(Chain),
     Headroom =
@@ -728,7 +739,8 @@ load_state_channels(#state{db=DB, chain=Chain}=State0) ->
         ),
     {SCs, SortedActiveSCIDs}.
 
--spec get_state_channels_from_ledger(State :: state()) -> state_channels().
+-spec get_state_channels_from_ledger(State :: state()) ->
+    #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(), skewed:skewed()}}.
 get_state_channels_from_ledger(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerSCs} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
@@ -740,8 +752,10 @@ get_state_channels_from_ledger(#state{chain=Chain, owner={Owner, OwnerSigFun}}) 
             ExpireAt = SCMod:expire_at_block(LedgerStateChannel),
             Amount =
                 case SCMod of
-                    blockchain_ledger_state_channel_v2 -> SCMod:original(LedgerStateChannel);
-                    _ -> 0
+                    blockchain_ledger_state_channel_v2 ->
+                        SCMod:original(LedgerStateChannel);
+                    _ ->
+                        0
                 end,
             SC0 = blockchain_state_channel_v1:new(ID, Owner, Amount),
             Nonce = SCMod:nonce(LedgerStateChannel),
