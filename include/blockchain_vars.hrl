@@ -516,3 +516,7 @@
 %% they do, we will re-evaluate accordingly.
 %%
 %% Refer to blockchain_region_SUITE for an example
+
+%% transfer hotspot transaction version
+%% Allowed values: 2
+-define(transfer_hotspot_txn_version, transfer_hotspot_txn_version).

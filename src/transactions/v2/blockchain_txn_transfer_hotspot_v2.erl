@@ -13,9 +13,10 @@
 -endif.
 
 -export([
-    new/3,
+    new/4,
     gateway/1,
     owner/1,
+    nonce/1, nonce/2,
     owner_signature/1,
     new_owner/1,
     fee/2, fee/1,
@@ -37,15 +38,17 @@
 -spec new(
     Gateway :: libp2p_crypto:pubkey_bin(),
     Owner :: libp2p_crypto:pubkey_bin(),
-    NewOwner :: libp2p_crypto:pubkey_bin()
+    NewOwner :: libp2p_crypto:pubkey_bin(),
+    GwNonce :: non_neg_integer()
 ) -> txn_transfer_hotspot_v2().
-new(Gateway, Owner, NewOwner) ->
+new(Gateway, Owner, NewOwner, GwNonce) ->
     #blockchain_txn_transfer_hotspot_v2_pb{
         gateway = Gateway,
         owner = Owner,
         new_owner = NewOwner,
         owner_signature = <<>>,
-        fee = 0
+        fee = 0,
+        nonce=GwNonce
     }.
 
 -spec hash(txn_transfer_hotspot_v2()) -> blockchain_txn:hash().
@@ -61,6 +64,14 @@ gateway(Txn) ->
 -spec owner(txn_transfer_hotspot_v2()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_transfer_hotspot_v2_pb.owner.
+
+-spec nonce(txn_transfer_hotspot_v2()) -> non_neg_integer().
+nonce(Txn) ->
+    Txn#blockchain_txn_transfer_hotspot_v2_pb.nonce.
+
+-spec nonce(txn_transfer_hotspot_v2(), non_neg_integer()) -> txn_transfer_hotspot_v2().
+nonce(Txn, Nonce) ->
+    Txn#blockchain_txn_transfer_hotspot_v2_pb{nonce = Nonce}.
 
 -spec owner_signature(txn_transfer_hotspot_v2()) -> binary().
 owner_signature(Txn) ->
@@ -131,22 +142,15 @@ is_valid_owner(
     libp2p_crypto:verify(EncodedTxn, OwnerSig, Pubkey).
 
 -spec is_valid(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(
-    #blockchain_txn_transfer_hotspot_v2_pb{
-        owner = Owner,
-        new_owner = NewOwner
-    } = Txn,
-    Chain
-) ->
+is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    Conditions = [
-        {fun() -> Owner /= NewOwner end, {error, owner_is_buyer}},
-        {fun() -> ?MODULE:is_valid_owner(Txn) end, {error, bad_owner_signature}},
-        {fun() -> owner_owns_gateway(Txn, Ledger) end, {error, gateway_not_owned_by_owner}},
-        {fun() -> txn_fee_valid(Txn, Chain, AreFeesEnabled) end, {error, wrong_txn_fee}}
-    ],
-    blockchain_utils:fold_condition_checks(Conditions).
+
+    case blockchain:config(?transfer_hotspot_txn_version, Ledger) of
+        {ok, 2} ->
+            is_valid_conditions(Txn, Ledger, Chain);
+        _ ->
+            {error, transfer_hotspot_txn_version_not_set}
+    end.
 
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -154,6 +158,7 @@ absorb(Txn, Chain) ->
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Gateway = ?MODULE:gateway(Txn),
     NewOwner = ?MODULE:new_owner(Txn),
+    Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
 
@@ -163,8 +168,9 @@ absorb(Txn, Chain) ->
         {error, _Reason} = Error ->
             Error;
         ok ->
-            NewGWInfo = blockchain_ledger_gateway_v2:owner_address(NewOwner, GWInfo),
-            ok = blockchain_ledger_v1:update_gateway(NewGWInfo, Gateway, Ledger)
+            NewGWInfo0 = blockchain_ledger_gateway_v2:owner_address(NewOwner, GWInfo),
+            NewGWInfo1 = blockchain_ledger_gateway_v2:nonce(Nonce, NewGWInfo0),
+            ok = blockchain_ledger_v1:update_gateway(NewGWInfo1, Gateway, Ledger)
     end.
 
 -spec print(txn_transfer_hotspot_v2()) -> iodata().
@@ -175,11 +181,12 @@ print(#blockchain_txn_transfer_hotspot_v2_pb{
     owner = Owner,
     new_owner = NewOwner,
     owner_signature = OS,
-    fee = Fee
+    fee = Fee,
+    nonce = Nonce
 }) ->
     io_lib:format(
-        "type=transfer_hotspot_v2, gateway=~p, owner=~p, new_owner=~p, owner_signature=~p, fee=~p (dc)",
-        [?TO_ANIMAL_NAME(GW), ?TO_B58(Owner), ?TO_B58(NewOwner), OS, Fee]
+        "type=transfer_hotspot_v2, gateway=~p, owner=~p, new_owner=~p, owner_signature=~p, fee=~p (dc), nonce=~p",
+        [?TO_ANIMAL_NAME(GW), ?TO_B58(Owner), ?TO_B58(NewOwner), OS, Fee, Nonce]
     ).
 
 json_type() ->
@@ -194,10 +201,12 @@ to_json(Txn, _Opts) ->
         gateway => ?BIN_TO_B58(gateway(Txn)),
         owner => ?BIN_TO_B58(owner(Txn)),
         new_owner => ?BIN_TO_B58(new_owner(Txn)),
-        fee => fee(Txn)
+        fee => fee(Txn),
+        nonce => nonce(Txn)
     }.
 
-%% private functions
+%% Helper Functions
+
 -spec owner_owns_gateway(txn_transfer_hotspot_v2(), blockchain_ledger_v1:ledger()) -> boolean().
 owner_owns_gateway(
     #blockchain_txn_transfer_hotspot_v2_pb{gateway = GW, owner = Owner},
@@ -216,6 +225,37 @@ txn_fee_valid(#blockchain_txn_transfer_hotspot_v2_pb{fee = Fee} = Txn, Chain, Ar
     ExpectedTxnFee = calculate_fee(Txn, Chain),
     ExpectedTxnFee =< Fee orelse not AreFeesEnabled.
 
+-spec is_valid_nonce(Txn :: txn_transfer_hotspot_v2(),
+                     Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_valid_nonce(#blockchain_txn_transfer_hotspot_v2_pb{gateway=GWPubkeyBin, nonce=Nonce}, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_info(GWPubkeyBin, Ledger) of
+        {ok, Gw} ->
+            GwNonce = blockchain_ledger_gateway_v2:nonce(Gw),
+            Nonce == GwNonce + 1;
+        _ ->
+            false
+    end.
+
+-spec is_valid_conditions(Txn :: txn_transfer_hotspot_v2(),
+                          Ledger :: blockchain_ledger_v1:ledger(),
+                          Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+is_valid_conditions(#blockchain_txn_transfer_hotspot_v2_pb{
+                       owner = Owner,
+                       new_owner = NewOwner,
+                       nonce = Nonce
+                      } = Txn,
+                    Ledger, Chain) ->
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    Conditions = [
+        {fun() -> is_valid_nonce(Txn, Ledger) end, {error, {invalid_nonce, Nonce}}},
+        {fun() -> Owner /= NewOwner end, {error, owner_is_buyer}},
+        {fun() -> ?MODULE:is_valid_owner(Txn) end, {error, bad_owner_signature}},
+        {fun() -> owner_owns_gateway(Txn, Ledger) end, {error, gateway_not_owned_by_owner}},
+        {fun() -> txn_fee_valid(Txn, Chain, AreFeesEnabled) end, {error, wrong_txn_fee}}
+    ],
+    blockchain_utils:fold_condition_checks(Conditions).
+
+
 -ifdef(TEST).
 new_test() ->
     Tx = #blockchain_txn_transfer_hotspot_v2_pb{
@@ -223,40 +263,49 @@ new_test() ->
         owner = <<"owner">>,
         owner_signature = <<>>,
         new_owner = <<"new_owner">>,
-        fee = 0
+        fee = 0,
+        nonce = 1
     },
-    ?assertEqual(Tx, new(<<"gateway">>, <<"owner">>, <<"new_owner">>)).
+    ?assertEqual(Tx, new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1)).
 
 gateway_test() ->
-    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>),
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
     ?assertEqual(<<"gateway">>, gateway(Tx)).
 
 owner_test() ->
-    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>),
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 owner_signature_test() ->
-    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>),
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 fee_test() ->
-    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>),
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
     ?assertEqual(20, fee(fee(Tx, 20))).
+
+nonce_test() ->
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
+    ?assertEqual(1, nonce(Tx)).
+
+nonce_set_test() ->
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
+    ?assertEqual(2, nonce(nonce(Tx, 2))).
 
 sign_owner_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx = new(<<"gateway">>, libp2p_crypto:pubkey_to_bin(PubKey), <<"new_owner">>),
+    Tx = new(<<"gateway">>, libp2p_crypto:pubkey_to_bin(PubKey), <<"new_owner">>, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = sign(Tx, SigFun),
     ?assert(is_valid_owner(Tx0)).
 
 to_json_test() ->
-    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>),
+    Tx = new(<<"gateway">>, <<"owner">>, <<"new_owner">>, 1),
     Json = to_json(Tx, []),
     ?assert(
         lists:all(
             fun(K) -> maps:is_key(K, Json) end,
-            [type, hash, gateway, owner, new_owner, fee]
+            [type, hash, gateway, owner, new_owner, fee, nonce]
         )
     ).
 

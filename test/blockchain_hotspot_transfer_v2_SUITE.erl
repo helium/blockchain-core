@@ -9,14 +9,18 @@
 -export([
     basic_validity_test/1,
     bad_owner_signature_test/1,
-    gateway_not_owned_by_owner_test/1
+    gateway_not_owned_by_owner_test/1,
+    buyback_test/1,
+    var_not_set_test/1
 ]).
 
 all() ->
     [
         basic_validity_test,
         bad_owner_signature_test,
-        gateway_not_owned_by_owner_test
+        gateway_not_owned_by_owner_test,
+        buyback_test,
+        var_not_set_test
     ].
 
 %%--------------------------------------------------------------------
@@ -30,9 +34,8 @@ init_per_testcase(TestCase, Config) ->
 
     ExtraVars =
         case TestCase of
-            %% default is 0
-            gateway_stale_test -> #{};
-            _ -> #{?transfer_hotspot_stale_poc_blocks => 10}
+            var_not_set_test -> #{};
+            _ -> #{?transfer_hotspot_txn_version => 2}
         end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
@@ -114,7 +117,8 @@ basic_validity_test(Config) ->
     Txn = blockchain_txn_transfer_hotspot_v2:new(
         OwnerPubkeyBin,
         OwnerPubkeyBin,
-        NewOwnerPubkeyBin
+        NewOwnerPubkeyBin,
+        1
     ),
     OwnerSignedTxn = blockchain_txn_transfer_hotspot_v2:sign(Txn, OwnerSigFun),
     ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
@@ -154,7 +158,8 @@ bad_owner_signature_test(Config) ->
     Txn = blockchain_txn_transfer_hotspot_v2:new(
         OwnerPubkeyBin,
         OwnerPubkeyBin,
-        NewOwnerPubkeyBin
+        NewOwnerPubkeyBin,
+        1
     ),
 
     %% this is not owner's signature
@@ -193,7 +198,8 @@ gateway_not_owned_by_owner_test(Config) ->
     Txn = blockchain_txn_transfer_hotspot_v2:new(
         NewOwnerPubkeyBin,
         OwnerPubkeyBin,
-        NewOwnerPubkeyBin
+        NewOwnerPubkeyBin,
+        1
     ),
     OwnerSignedTxn = blockchain_txn_transfer_hotspot_v2:sign(Txn, OwnerSigFun),
     ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
@@ -202,3 +208,111 @@ gateway_not_owned_by_owner_test(Config) ->
     {error, gateway_not_owned_by_owner} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
 
     ok.
+
+buyback_test(Config) ->
+    %% Txn1: Seller -> Buyer
+    %% Txn2: Buyer -> Seller
+    GenesisMembers = ?config(genesis_members, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+    {ok, Ht} = blockchain:height(Chain),
+
+    %% In the test, SellerPubkeyBin = GatewayPubkeyBin
+
+    %% Get some owner and their gateway
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+
+    GatewayPubkeyBin = SellerPubkeyBin,
+
+    %% Get seller privkey and sigfun
+    {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
+    SellerSigFun = libp2p_crypto:mk_sig_fun(SellerPrivKey),
+
+    %% Get buyer privkey and sigfun, for buyback transaction later
+    {_BuyerPubkey, BuyerPrivKey, _} = proplists:get_value(BuyerPubkeyBin, GenesisMembers),
+    BuyerSigFun = libp2p_crypto:mk_sig_fun(BuyerPrivKey),
+
+    ct:pal("Owner: ~p", [SellerPubkeyBin]),
+    ct:pal("Gateway: ~p", [Gateway]),
+    ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
+
+    Txn1 = blockchain_txn_transfer_hotspot_v2:new(
+        GatewayPubkeyBin,
+        SellerPubkeyBin,
+        BuyerPubkeyBin,
+        1
+    ),
+    STxn1 = blockchain_txn_transfer_hotspot_v2:sign(Txn1, SellerSigFun),
+    ct:pal("SignedTxn: ~p", [STxn1]),
+    ct:pal("IsValidOwner: ~p", [blockchain_txn_transfer_hotspot_v2:is_valid_owner(STxn1)]),
+
+    ok = blockchain_txn:is_valid(STxn1, Chain),
+
+    {ok, B1} = test_utils:create_block(ConsensusMembers, [STxn1]),
+    _ = blockchain_gossip_handler:add_block(B1, Chain, self(), blockchain_swarm:swarm()),
+
+    ok = test_utils:wait_until(fun() -> {ok, Ht + 1} =:= blockchain:height(Chain) end),
+
+    Txn2 = blockchain_txn_transfer_hotspot_v2:new(
+        GatewayPubkeyBin,
+        BuyerPubkeyBin,
+        SellerPubkeyBin,
+        2
+    ),
+    STxn2 = blockchain_txn_transfer_hotspot_v2:sign(Txn2, BuyerSigFun),
+    ct:pal("SignedTxn: ~p", [STxn2]),
+    ct:pal("IsValidOwner: ~p", [blockchain_txn_transfer_hotspot_v2:is_valid_owner(STxn2)]),
+
+    ok = blockchain_txn:is_valid(STxn2, Chain),
+
+    {ok, B2} = test_utils:create_block(ConsensusMembers, [STxn2]),
+    _ = blockchain_gossip_handler:add_block(B2, Chain, self(), blockchain_swarm:swarm()),
+
+    ok = test_utils:wait_until(fun() -> {ok, Ht + 1 + 1} =:= blockchain:height(Chain) end),
+
+    %% Check: Txn1 should be invalid if resubmitted after Txn2
+    {error, {invalid_nonce, _}} = blockchain_txn:is_valid(STxn1, Chain),
+
+    ok.
+
+var_not_set_test(Config) ->
+    GenesisMembers = ?config(genesis_members, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    %% In the test, OwnerPubkeyBin = GatewayPubkeyBin
+
+    %% Get some owner and their gateway
+    [
+        {OwnerPubkeyBin, Gateway},
+        {NewOwnerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+
+    %% Get owner privkey and sigfun
+    {_OwnerPubkey, OwnerPrivKey, _} = proplists:get_value(OwnerPubkeyBin, GenesisMembers),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    ct:pal("Owner: ~p", [OwnerPubkeyBin]),
+    ct:pal("Gateway: ~p", [Gateway]),
+    ct:pal("NewOwnerPubkeyBin: ~p", [NewOwnerPubkeyBin]),
+
+    Txn = blockchain_txn_transfer_hotspot_v2:new(
+        OwnerPubkeyBin,
+        OwnerPubkeyBin,
+        NewOwnerPubkeyBin,
+        1
+    ),
+    OwnerSignedTxn = blockchain_txn_transfer_hotspot_v2:sign(Txn, OwnerSigFun),
+    ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
+    ct:pal("IsValidOwner: ~p", [blockchain_txn_transfer_hotspot_v2:is_valid_owner(OwnerSignedTxn)]),
+
+    {error, transfer_hotspot_txn_version_not_set} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
+
+    ok.
+
