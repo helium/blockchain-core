@@ -44,6 +44,7 @@
     db :: rocksdb:db_handle() | undefined,
     cf :: rocksdb:cf_handle() | undefined,
     chain = undefined :: blockchain:blockchain() | undefined,
+    height :: non_neg_integer() | undefined,
     owner = undefined :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
     state_channels = #{} :: state_channels(),
     actives = [] :: [{pid(), blockchain_state_channel_v1:id()}],
@@ -230,6 +231,7 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State0};
         Chain ->
+            {ok, BlockHeight} = blockchain:height(Chain),
             Ledger = blockchain:ledger(Chain),
             SCVer =
                 case blockchain_ledger_v1:config(?sc_version, Ledger) of
@@ -245,7 +247,7 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
             {SCsWithSkewed, ActiveSCIDs} = load_state_channels(State1),
             State2 = start_workers(SCsWithSkewed, ActiveSCIDs, State1),
             StateChannels = maps:map(fun(_, {SC,_}) -> SC end, SCsWithSkewed),
-            {noreply, State2#state{state_channels=StateChannels}}
+            {noreply, State2#state{height=BlockHeight, state_channels=StateChannels}}
     end;
 handle_info({blockchain_event, {new_chain, Chain}}, State) ->
     {noreply, State#state{chain=Chain}};
@@ -265,11 +267,13 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
     end),
     {noreply, State};
 handle_info({got_block, Block, _BlockHash, []}, State0) ->
-    lager:debug("no transactions found in ~p", [blockchain_block:height(Block)]),
+    Height = blockchain_block:height(Block),
+    lager:debug("no transactions found in ~p", [Height]),
     State1 = check_state_channel_expiration(Block, State0),
-    {noreply, State1};
+    {noreply, State1#state{height=Height}};
 handle_info({got_block, Block, BlockHash, Txns}, State0) ->
-    lager:info("found ~p in ~p", [Txns, blockchain_block:height(Block)]),
+    Height = blockchain_block:height(Block),
+    lager:info("found ~p in ~p", [Txns, Height]),
     State1 =
         lists:foldl(
             fun(Txn, State) ->
@@ -284,7 +288,7 @@ handle_info({got_block, Block, BlockHash, Txns}, State0) ->
             Txns
         ),
     State2 = check_state_channel_expiration(Block, State1),
-    {noreply, State2};
+    {noreply, State2#state{height=Height}};
 handle_info( {'DOWN', _Ref, process, Pid, _Reason}, #state{actives=Actives}=State0) ->
     {Pid, ID} = lists:keyfind(Pid, 1, Actives),
     lager:info("state channel ~p @ ~p went down: ~p", [blockchain_utils:addr2name(ID), Pid, _Reason]),
@@ -395,8 +399,15 @@ get_new_active() ->
     gen_server:cast(?SERVER, get_new_active).
 
 -spec get_new_active(State :: state()) -> state().
-get_new_active(#state{db=DB, chain=Chain, state_channels=SCs, actives=Actives, sc_version=SCVersion}=State0) ->
-    {ok, BlockHeight} = blockchain:height(Chain),
+get_new_active(
+    #state{
+        db=DB,
+        height=BlockHeight,
+        state_channels=SCs,
+        actives=Actives,
+        sc_version=SCVersion
+    }=State0
+) ->
     case maps:to_list(maps:without([ID || {_, ID} <- Actives], SCs)) of
         [] ->
             lager:warning("don't have any state channel left unused"),
