@@ -166,7 +166,12 @@ init(Args) ->
     SCF = blockchain_state_channels_db_owner:sc_servers_cf(),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    erlang:send_after(500, self(), post_init),
+    %% This is cleanup just in case of restart
+    Actives = blockchain_state_channels_cache:lookup_actives(),
+    _ = [blockchain_state_channels_worker:shutdown(Pid, cleanup) || Pid <- Actives],
+    ok = blockchain_state_channels_cache:overwrite_actives([]),
+    %%
+    _ = erlang:send_after(500, self(), post_init),
     {ok, #state{db=DB, cf=SCF, owner={Owner, OwnerSigFun}}}.
 
 handle_call(get_all, _From, #state{state_channels=SCs}=State) ->
@@ -421,17 +426,23 @@ get_new_active(
                     X -> X
                 end,
             FilterFun =
-                fun({_, SC}) ->
-                        case SCVersion of
-                            2 ->
-                                ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-                                ExpireAt > BlockHeight andalso
-                                blockchain_state_channel_v1:state(SC) == open andalso
-                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom);
-                            _ ->
-                                %% We are not on sc_version=2, just set this to true to include any state channel
-                                true
-                        end
+                fun({ID, SC}) ->
+                    case SCVersion of
+                        2 ->
+                            case blockchain_state_channel_v1:fetch(DB, ID) of
+                                {ok, _} ->
+                                    ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+                                    ExpireAt > BlockHeight andalso
+                                    blockchain_state_channel_v1:state(SC) == open andalso
+                                    blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom);
+                                _Error ->
+                                    lager:error("failed to fetch ~p", [blockchain_utils:addr2name(ID), _Error]),
+                                    false
+                            end;
+                        _ ->
+                            %% We are not on sc_version=2, just set this to true to include any state channel
+                            true
+                    end
                 end,
             SCSortFun1 =
                 fun({_ID1, SC1}, {_ID2, SC2}) ->
