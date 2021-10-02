@@ -48,7 +48,10 @@
 
     verify_multisig/3,
     count_votes/3,
-    poc_per_hop_max_witnesses/1
+    poc_per_hop_max_witnesses/1,
+
+    get_vars/1, get_var/2
+
 ]).
 
 -ifdef(TEST).
@@ -61,6 +64,11 @@
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
+
+%% key: {has_aux, vars_nonce, var_name}
+-define(VAR_CACHE, var_cache).
+%% key: {has_aux, vars_nonce}.
+-define(ALL_VAR_CACHE, all_var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
@@ -583,6 +591,42 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 
 majority(N) ->
     (N div 2) + 1.
+
+-spec get_vars(Ledger :: blockchain_ledger_v1:ledger()) ->
+    {ok, #{atom() => any()}} | {error, any()}.
+get_vars(Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    e2qc:cache(
+        ?ALL_VAR_CACHE,
+        {HasAux, VarsNonce},
+        fun() ->
+            get_vars_(Ledger)
+        end
+    ).
+
+-spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) ->
+    {ok, any()} | {error, any()}.
+get_var(VarName, Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    e2qc:cache(
+        ?VAR_CACHE,
+        {HasAux, VarsNonce, VarName},
+        fun() ->
+            get_var_(VarName, Ledger)
+        end
+    ).
+
+get_vars_(Ledger) ->
+    VarList = blockchain_ledger_v1:snapshot_vars(Ledger),
+    lists:foldl(fun({VarName, Value}, Acc) ->
+                        maps:put(binary_to_atom(VarName), Value, Acc)
+                end, #{}, VarList).
+
+get_var_(VarName, Ledger) ->
+    VarMap = get_vars_(Ledger),
+    maps:get(VarName, VarMap, undefined).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
