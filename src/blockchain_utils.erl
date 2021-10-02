@@ -50,7 +50,8 @@
     count_votes/3,
     poc_per_hop_max_witnesses/1,
 
-    get_vars/1, get_var/2
+    get_vars/1, get_vars/2,
+    get_var/2
 
 ]).
 
@@ -592,8 +593,7 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 majority(N) ->
     (N div 2) + 1.
 
--spec get_vars(Ledger :: blockchain_ledger_v1:ledger()) ->
-    {ok, #{atom() => any()}} | {error, any()}.
+-spec get_vars(Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
@@ -605,8 +605,14 @@ get_vars(Ledger) ->
         end
     ).
 
--spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) ->
-    {ok, any()} | {error, any()}.
+-spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
+get_vars(VarList, Ledger) ->
+    lists:foldl(
+      fun(VarName, Acc) ->
+              maps:put(VarName, get_var(VarName, Ledger), Acc)
+      end, #{}, VarList).
+
+-spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
 get_var(VarName, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
