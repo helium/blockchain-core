@@ -65,7 +65,7 @@
 -define(MAX_ANTENNA_GAIN, 6).
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
 
-%% key: {ledger_mode, vars_nonce, var_name}
+%% key: {has_aux, vars_nonce, var_name}
 -define(VAR_CACHE, var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
@@ -593,20 +593,20 @@ majority(N) ->
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    Mode = blockchain_ledger_v1:mode(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
     lists:foldl(
       fun(VarName, Acc) ->
-              maps:put(VarName, get_var_(VarName, Mode, VarsNonce, Ledger), Acc)
+              maps:put(VarName, get_var_(VarName, HasAux, VarsNonce, Ledger), Acc)
       end, #{}, VarList).
 
 -spec get_var_(VarName :: atom(),
-               Mode :: aux | delayed | active,
+               HasAux :: boolean(),
                VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> any().
-get_var_(VarName, Mode, VarsNonce, Ledger) ->
+get_var_(VarName, HasAux, VarsNonce, Ledger) ->
     e2qc:cache(
         ?VAR_CACHE,
-        {Mode, VarsNonce, VarName},
+        {HasAux, VarsNonce, VarName},
         fun() ->
             get_var_(VarName, Ledger)
         end
@@ -615,10 +615,10 @@ get_var_(VarName, Mode, VarsNonce, Ledger) ->
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
 get_var(VarName, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    Mode = blockchain_ledger_v1:mode(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
     e2qc:cache(
         ?VAR_CACHE,
-        {Mode, VarsNonce, VarName},
+        {HasAux, VarsNonce, VarName},
         fun() ->
             get_var_(VarName, Ledger)
         end
@@ -626,7 +626,7 @@ get_var(VarName, Ledger) ->
 
 -spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
 get_var_(VarName, Ledger) ->
-    {ok, Value} = blockchain:config(atom_to_binary(VarName), Ledger),
+    {ok, Value} = blockchain_ledger_v1:config(atom_to_binary(VarName), Ledger),
     Value.
 
 %% ------------------------------------------------------------------
