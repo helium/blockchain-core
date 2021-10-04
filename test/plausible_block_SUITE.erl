@@ -177,7 +177,8 @@ ultimately_invalid(Config) ->
 
     %% boot an entirely disjoint chain
     {ok, _Sup1, {PrivKey, PubKey}, _Opts1} = test_utils:init(BaseDir++"extra", {PrivKey, PubKey}),
-    {ok, _GenesisMembers, _GenesisBlock2, ConsensusMembers, _} = test_utils:init_chain(Balance, GenesisMembers, #{}),
+    {ok, _GenesisMembers, _GenesisBlock2, ConsensusMembers, _} =
+        test_utils:init_chain_with_opts(#{genesis_members => GenesisMembers}),
     Chain1 = blockchain_worker:blockchain(),
 
     % Add some blocks

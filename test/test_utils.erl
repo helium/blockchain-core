@@ -84,15 +84,18 @@ init_genesis_members({Priv, Pub}, InConsensus) ->
 init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsensus) ->
     init_chain(Balance, Keys, InConsensus, #{}).
 
-init_chain_with_opts(
-    #{
-        balance := Balance,
-        keys := SelfKeyPair,
-        in_consensus := InConsensus,
-        extra_vars := ExtraVars
-     }=Opts
-) ->
-    GenesisMembers = init_genesis_members(SelfKeyPair, InConsensus),
+init_chain_with_opts(Opts) when is_map(Opts) ->
+    Balance = maps:get(balance, Opts, 5000),
+    ExtraVars = maps:get(extra_vars, Opts, #{}),
+    GenesisMembers =
+        case maps:find(genesis_members, Opts) of
+            {ok, ConsensusMembers0} ->
+                ConsensusMembers0;
+            error ->
+                SelfKeyPair = maps:get(keys, Opts),
+                InConsensus = maps:get(in_consensus, Opts, true),
+                init_genesis_members(SelfKeyPair, InConsensus)
+        end,
 
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
