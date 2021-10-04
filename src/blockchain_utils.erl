@@ -50,8 +50,7 @@
     count_votes/3,
     poc_per_hop_max_witnesses/1,
 
-    get_vars/1, get_vars/2,
-    get_var/2
+    get_vars/2, get_var/2
 
 ]).
 
@@ -68,8 +67,6 @@
 
 %% key: {ledger_mode, vars_nonce, var_name}
 -define(VAR_CACHE, var_cache).
-%% key: {ledger_mode, vars_nonce}.
--define(ALL_VAR_CACHE, all_var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
@@ -593,18 +590,6 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 majority(N) ->
     (N div 2) + 1.
 
--spec get_vars(Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
-get_vars(Ledger) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    Mode = blockchain_ledger_v1:mode(Ledger),
-    e2qc:cache(
-        ?ALL_VAR_CACHE,
-        {Mode, VarsNonce},
-        fun() ->
-            get_vars_(Ledger)
-        end
-    ).
-
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
     lists:foldl(
@@ -624,15 +609,9 @@ get_var(VarName, Ledger) ->
         end
     ).
 
-get_vars_(Ledger) ->
-    VarList = blockchain_ledger_v1:snapshot_vars(Ledger),
-    lists:foldl(fun({VarName, Value}, Acc) ->
-                        maps:put(binary_to_atom(VarName), Value, Acc)
-                end, #{}, VarList).
-
+-spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
 get_var_(VarName, Ledger) ->
-    VarMap = get_vars_(Ledger),
-    maps:get(VarName, VarMap, undefined).
+    blockchain:config(atom_to_binary(VarName), Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
