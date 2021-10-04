@@ -596,13 +596,20 @@ get_vars(VarList, Ledger) ->
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     lists:foldl(
       fun(VarName, Acc) ->
-              maps:put(VarName, get_var_(VarName, HasAux, VarsNonce, Ledger), Acc)
+              %% NOTE: This isn't ideal but in order for get_var/2 to
+              %% correspond with blockchain:config/2, it returns {ok, ..} | {error, ..}
+              %% So we just put undefined for any error lookups here.
+              %% The callee must handle those situations.
+              case get_var_(VarName, HasAux, VarsNonce, Ledger) of
+                  {ok, VarValue} -> maps:put(VarName, VarValue, Acc);
+                  _ -> maps:put(VarName, undefined, Acc)
+              end
       end, #{}, VarList).
 
 -spec get_var_(VarName :: atom(),
                HasAux :: boolean(),
                VarsNonce :: non_neg_integer(),
-               Ledger :: blockchain_ledger_v1:ledger()) -> any().
+               Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, HasAux, VarsNonce, Ledger) ->
     e2qc:cache(
         ?VAR_CACHE,
@@ -612,7 +619,7 @@ get_var_(VarName, HasAux, VarsNonce, Ledger) ->
         end
     ).
 
--spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
+-spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
@@ -624,10 +631,9 @@ get_var(VarName, Ledger) ->
         end
     ).
 
--spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
+-spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, Ledger) ->
-    {ok, Value} = blockchain_ledger_v1:config(atom_to_binary(VarName), Ledger),
-    Value.
+    blockchain_ledger_v1:config(atom_to_binary(VarName), Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
