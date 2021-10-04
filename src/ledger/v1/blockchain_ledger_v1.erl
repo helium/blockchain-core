@@ -1476,6 +1476,7 @@ set_aux_vars(AuxVars, #ledger_v1{mode=aux}=AuxLedger) ->
     Ctx = new_context(AuxLedger),
     ok = vars(AuxVars, [], Ctx),
     ok = commit_context(Ctx),
+    ok = blockchain_utils:teardown_var_cache(),
     ok;
 set_aux_vars(_ExtraVars, _Ledger) ->
     error(cannot_set_vars_not_aux_ledger).
