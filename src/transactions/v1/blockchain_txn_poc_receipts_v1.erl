@@ -54,26 +54,29 @@
 -export_type([txn_poc_receipts/0]).
 
 -define(poc_vars, [
-    ?poc_centrality_wt,
-    ?poc_good_bucket_high,
-    ?poc_good_bucket_low,
-    ?poc_max_hop_cells,
-    ?poc_v4_exclusion_cells,
-    ?poc_v4_parent_res,
-    ?poc_v4_prob_bad_rssi,
-    ?poc_v4_prob_count_wt,
-    ?poc_v4_prob_good_rssi,
-    ?poc_v4_prob_no_rssi,
+    ?poc_version,
+    ?poc_v4_target_challenge_age,
+    ?poc_v5_target_prob_randomness_wt,
+    ?poc_witness_consideration_limit,
     ?poc_v4_prob_rssi_wt,
     ?poc_v4_prob_time_wt,
+    ?poc_v4_prob_count_wt,
+    ?poc_v4_prob_no_rssi,
+    ?poc_v4_prob_good_rssi,
+    ?poc_v4_prob_bad_rssi,
+    ?poc_v4_parent_res,
+    ?poc_v4_exclusion_cells,
     ?poc_v4_randomness_wt,
-    ?poc_v4_target_challenge_age,
-    ?poc_v4_target_exclusion_cells,
-    ?poc_v4_target_prob_edge_wt,
+    ?poc_centrality_wt,
+    ?poc_good_bucket_low,
+    ?poc_good_bucket_high,
+    ?poc_max_hop_cells,
     ?poc_v4_target_prob_score_wt,
-    ?poc_v4_target_score_curve,
+    ?poc_v4_target_prob_edge_wt,
     ?poc_v5_target_prob_randomness_wt,
-    ?poc_version
+    ?poc_v4_target_score_curve,
+    ?poc_v4_target_exclusion_cells,
+    ?poc_path_limit
 ]).
 
 %%--------------------------------------------------------------------
