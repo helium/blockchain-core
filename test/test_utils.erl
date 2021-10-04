@@ -90,7 +90,7 @@ init_chain_with_opts(
         keys := SelfKeyPair,
         in_consensus := InConsensus,
         extra_vars := ExtraVars
-     }
+     }=Opts
 ) ->
     GenesisMembers = init_genesis_members(SelfKeyPair, InConsensus),
 
@@ -103,7 +103,8 @@ init_chain_with_opts(
         [
             blockchain_txn_dc_coinbase_v1:new(Addr, Balance)
         ||
-            {Addr, _} <- GenesisMembers
+            {Addr, _} <- GenesisMembers,
+            maps:get(have_init_dc, Opts, false)
         ],
 
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)

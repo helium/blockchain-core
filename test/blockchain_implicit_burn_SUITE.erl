@@ -37,6 +37,7 @@ init_per_testcase(TestCase, Config) ->
                 balance => Balance,
                 keys => {PrivKey, PubKey},
                 in_consensus => true,
+                have_init_dc => false,  % 0 init DC triggers implicit burn
                 extra_vars => ExtraVars
             }
         ),
