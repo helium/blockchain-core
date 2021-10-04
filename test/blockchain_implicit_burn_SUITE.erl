@@ -32,7 +32,14 @@ init_per_testcase(TestCase, Config) ->
     ExtraVars = extra_vars(TestCase),
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
-        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
+        test_utils:init_chain_with_opts(
+            #{
+                balance => Balance,
+                keys => {PrivKey, PubKey},
+                in_consensus => true,
+                extra_vars => ExtraVars
+            }
+        ),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
