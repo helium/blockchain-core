@@ -135,17 +135,14 @@ update_summary_for(ClientPubkeyBin,
         false ->
             %% Cannot fit this into summaries
             {SC, false};
-        true ->
-            case get_summary(ClientPubkeyBin, SC) of
-                {error, not_found} ->
-                    {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
-                {ok, _Summary} ->
-                    NewSummaries = lists:keyreplace(ClientPubkeyBin,
-                                                    #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
-                                                    Summaries,
-                                                    NewSummary),
-                    {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
-            end
+        {true, _SpotsLeft} ->
+            {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
+        found ->
+            NewSummaries = lists:keyreplace(ClientPubkeyBin,
+                                            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                                            Summaries,
+                                            NewSummary),
+            {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
     end.
 
 -spec get_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -505,21 +502,18 @@ merge(SCA, SCB, MaxActorsAllowed) ->
 
 -spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
               SC :: state_channel(),
-              Max :: pos_integer()) -> boolean().
-can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}, Max) ->
-    Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
-    CanFit = length(Clients) < Max,
-    IsKnownClient = lists:member(ClientPubkeyBin, Clients),
-    case {CanFit, IsKnownClient} of
-        {false, false} ->
-            %% Cannot fit, do not have this client either
-            false;
-        {false, true} ->
-            %% Cannot fit any new ones, but know about this client
-            true;
+              Max :: pos_integer()) -> false | found | {true, SpotsLeft :: non_neg_integer()}.
+can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC, Max) ->
+    SpotsLeft = Max - erlang:length(Summaries),
+    HasRoom = SpotsLeft > 0,
+    FoundSummary = ?MODULE:get_summary(ClientPubkeyBin, SC),
+    case {HasRoom, FoundSummary} of
+        {_, {ok, _}} ->
+            found;
         {true, _} ->
-            %% Can fit, doesn't matter if we don't know this client
-            true
+            {true, SpotsLeft};
+        {false, _} ->
+            false
     end.
 
 -spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().

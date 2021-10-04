@@ -7,6 +7,8 @@
 
 -behavior(libp2p_framed_stream).
 
+% TODO
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -61,7 +63,14 @@ init(server, _Conn, [_Path, Blockchain]) ->
     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
-            case blockchain_state_channels_server:active_scs() of
+            ActiveSCs =
+                e2qc:cache(
+                    ?MODULE,
+                    active_list,
+                    10,
+                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
+                ),
+            case ActiveSCs of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:info("sc_handler, empty banner: ~p", [SCBanner]),
@@ -69,16 +78,16 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     {ok, HandlerState,
                      blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSCs ->
-                    [ActiveSC|_] = ActiveSCs,
+                    [{SCID, ActiveSC}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    SCID = blockchain_state_channel_v1:id(ActiveSC),
                     lager:info("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
                     EncodedSCBanner =
                         e2qc:cache(
-                            blockchain_state_channel_handler,
+                            ?MODULE,
                             SCID,
-                            fun() -> blockchain_state_channel_message_v1:encode(SCBanner) end),
+                            fun() -> blockchain_state_channel_message_v1:encode(SCBanner) end
+                        ),
                     {ok, HandlerState, EncodedSCBanner}
             end;
         _ ->
@@ -157,19 +166,20 @@ handle_data(server, Data, HandlerState) ->
             NewHandlerState = blockchain_state_channel_common:offer_queue(CurOfferQueue ++ [{Offer, Time}], HandlerState),
             {noreply, NewHandlerState};
         {packet, Packet} ->
+            Ledger = blockchain_state_channel_common:ledger(HandlerState),
             PacketHash = blockchain_helium_packet_v1:packet_hash(blockchain_state_channel_packet_v1:packet(Packet)),
             case maps:get(PacketHash, PendingOffers, undefined) of
                 undefined ->
                     lager:info("sc_handler server got packet: ~p", [Packet]),
                     HandlerMod = blockchain_state_channel_common:handler_mod(HandlerState),
-                    blockchain_state_channels_server:packet(Packet, Time, HandlerMod, self()),
+                    blockchain_state_channels_server:handle_packet(Packet, Time, HandlerMod, Ledger, self()),
                     {noreply, HandlerState};
                 {PendingOffer, PendingOfferTime} ->
                     case blockchain_state_channel_packet_v1:validate(Packet, PendingOffer) of
                         {error, packet_offer_mismatch} ->
                             %% might as well try it, it's free
                             HandlerMod = blockchain_state_channel_common:handler_mod(HandlerState),
-                            blockchain_state_channels_server:packet(Packet, Time, HandlerMod, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, Time, HandlerMod, Ledger, self()),
                             lager:warning("packet failed to validate ~p against offer ~p", [Packet, PendingOffer]),
                             {stop, normal};
                         {error, Reason} ->
@@ -178,7 +188,7 @@ handle_data(server, Data, HandlerState) ->
                         true ->
                             lager:info("sc_handler server got packet: ~p", [Packet]),
                             HandlerMod = blockchain_state_channel_common:handler_mod(HandlerState),
-                            blockchain_state_channels_server:packet(Packet, PendingOfferTime, HandlerMod, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, HandlerMod, Ledger, self()),
                             NewHandlerState = blockchain_state_channel_common:pending_packet_offers(maps:remove(PacketHash, PendingOffers), HandlerState),
                             case blockchain_state_channel_common:handle_next_offer(NewHandlerState) of
                                 {ok, State} -> {noreply, State};

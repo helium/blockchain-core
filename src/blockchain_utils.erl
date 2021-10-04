@@ -17,6 +17,7 @@
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
     poc_id/1,
+    pfind/2,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -171,6 +172,44 @@ hex_to_bin(Hex) ->
 poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     Hash = crypto:hash(sha256, PubKeyBin),
     ?BIN_TO_B64(Hash).
+
+-spec pfind(F :: function(), list(list())) -> boolean() | {true, any()}.
+pfind(F, ToDos) ->
+    Opts = [
+        {fullsweep_after, 0},
+        {priority, high}
+    ],
+    Parent = self(),
+    Ref = erlang:make_ref(),
+    Workers = lists:foldl(
+        fun(Args, Acc) ->
+            Pid = erlang:spawn_opt(
+                fun() ->
+                    Result = erlang:apply(F, Args),
+                    Parent ! {Ref, Result}
+                end,
+                Opts
+            ),
+            [Pid|Acc]
+        end,
+        [],
+        ToDos
+    ),
+    Results = pfind_rcv(Ref, false, erlang:length(ToDos)),
+    [erlang:exit(Pid, done) || Pid <- Workers],
+    Results.
+ 
+pfind_rcv(_Ref, Result, 0) ->
+    Result;
+pfind_rcv(Ref, Result, Left) ->
+    receive
+        {Ref, true} ->
+            true;
+        {Ref, {true, Data}} ->
+            {true, Data};
+        {Ref, _} ->
+            pfind_rcv(Ref, Result, Left-1)
+    end.
 
 pmap(F, L) ->
     Width = validation_width(),
@@ -688,5 +727,24 @@ fold_condition_checks_bad_test() ->
            {fun() -> 10 > 100 end, {error, '10_not_greater_than_100'}},
            {fun() -> <<"blort">> == <<"blort">> end, {error, blort_isnt_blort}}],
     ?assertEqual({error, '10_not_greater_than_100'}, fold_condition_checks(Bad)).
+
+pfind_test() ->
+    F = fun(I) ->
+        case I rem 2 == 0 of
+            true ->
+                case I == 2 of
+                    true ->
+                        {true, I};
+                    false ->
+                        timer:sleep(10),
+                        {true, I}
+                end;
+            false ->
+                false
+        end
+    end,
+    Args = [[I] || I <- lists:seq(1, 6)],
+    ?assertEqual({true, 2}, pfind(F, Args)),
+    ok.
 
 -endif.

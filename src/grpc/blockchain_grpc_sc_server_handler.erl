@@ -39,15 +39,21 @@ init(_RPC, StreamState)->
     Self = self(),
     case blockchain:config(?sc_version, Ledger) of
         {ok, N} when N > 1 ->
-            case blockchain_state_channels_server:active_scs() of
+            ActiveSCs =
+                e2qc:cache(
+                    ?MODULE,
+                    active_list,
+                    10,
+                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
+                ),
+            case ActiveSCs of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:debug("blockchain_grpc_sc_server_handler, empty banner: ~p", [SCBanner]),
                     Self ! {send_banner, SCBanner};
                 ActiveSCs ->
-                    [ActiveSC|_] = ActiveSCs,
+                    [{SCID, ActiveSC}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    SCID = blockchain_state_channel_v1:id(ActiveSC),
                     lager:debug("blockchain_grpc_sc_server_handler, sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     Self ! {send_banner, SCBanner}
             end;
