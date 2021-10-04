@@ -592,10 +592,25 @@ majority(N) ->
 
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    Mode = blockchain_ledger_v1:mode(Ledger),
     lists:foldl(
       fun(VarName, Acc) ->
-              maps:put(VarName, get_var(VarName, Ledger), Acc)
+              maps:put(VarName, get_var_(VarName, Mode, VarsNonce, Ledger), Acc)
       end, #{}, VarList).
+
+-spec get_var_(VarName :: atom(),
+               Mode :: aux | delayed | active,
+               VarsNonce :: non_neg_integer(),
+               Ledger :: blockchain_ledger_v1:ledger()) -> any().
+get_var_(VarName, Mode, VarsNonce, Ledger) ->
+    e2qc:cache(
+        ?VAR_CACHE,
+        {Mode, VarsNonce, VarName},
+        fun() ->
+            get_var_(VarName, Ledger)
+        end
+    ).
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
 get_var(VarName, Ledger) ->
