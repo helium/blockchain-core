@@ -66,9 +66,9 @@
 -define(MAX_ANTENNA_GAIN, 6).
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
 
-%% key: {has_aux, vars_nonce, var_name}
+%% key: {ledger_mode, vars_nonce, var_name}
 -define(VAR_CACHE, var_cache).
-%% key: {has_aux, vars_nonce}.
+%% key: {ledger_mode, vars_nonce}.
 -define(ALL_VAR_CACHE, all_var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
@@ -596,10 +596,10 @@ majority(N) ->
 -spec get_vars(Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    Mode = blockchain_ledger_v1:mode(Ledger),
     e2qc:cache(
         ?ALL_VAR_CACHE,
-        {HasAux, VarsNonce},
+        {Mode, VarsNonce},
         fun() ->
             get_vars_(Ledger)
         end
@@ -615,10 +615,10 @@ get_vars(VarList, Ledger) ->
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> any().
 get_var(VarName, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    Mode = blockchain_ledger_v1:mode(Ledger),
     e2qc:cache(
         ?VAR_CACHE,
-        {HasAux, VarsNonce, VarName},
+        {Mode, VarsNonce, VarName},
         fun() ->
             get_var_(VarName, Ledger)
         end

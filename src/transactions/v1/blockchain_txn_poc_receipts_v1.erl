@@ -273,7 +273,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             StartLA = maybe_log_duration(prelude, StartPre),
                                             {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
                                             StartFT = maybe_log_duration(ledger_at, StartLA),
-                                            Vars = vars(OldLedger),
+                                            Vars = blockchain_utils:get_vars(OldLedger),
                                             Path = case blockchain:config(?poc_version, OldLedger) of
                                                        {ok, V} when V >= 8 ->
                                                            %% Targeting phase
@@ -1161,10 +1161,6 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
 -spec poc_id(txn_poc_receipts()) -> binary().
 poc_id(Txn) ->
     ?BIN_TO_B64(?MODULE:onion_key_hash(Txn)).
-
-vars(Ledger) ->
-    blockchain_utils:vars_binary_keys_to_atoms(
-      maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
 
 -spec valid_receipt(PreviousElement :: undefined | blockchain_poc_path_element_v1:poc_element(),
                     Element :: blockchain_poc_path_element_v1:poc_element(),
