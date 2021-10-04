@@ -621,7 +621,14 @@ get_var_(VarName, HasAux, VarsNonce, Ledger) ->
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    %% NOTE: Special casing vars_nonce if it is not_found.
+    %% This may happen if miner is booted without a genesis block (mostly in testing).
+    VarsNonce =
+    case blockchain_ledger_v1:vars_nonce(Ledger) of
+        {ok, VN} -> VN;
+        {error, not_found} -> 0
+    end,
+
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     e2qc:cache(
         ?VAR_CACHE,
