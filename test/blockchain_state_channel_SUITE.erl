@@ -629,7 +629,7 @@ cached_routing_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 3),
 
     Stats1 = ct_rpc:call(GatewayNode1, e2qc, stats, [sc_client_routing]),
-    ?assert(proplists:get_value(q1size, Stats1) == 0),
+    ?assertEqual(0, proplists:get_value(q1size, Stats1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
