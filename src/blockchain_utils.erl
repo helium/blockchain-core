@@ -633,7 +633,7 @@ get_var(VarName, Ledger) ->
 
 -spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, Ledger) ->
-    blockchain_ledger_v1:config(atom_to_binary(VarName), Ledger).
+    blockchain_ledger_v1:config(VarName, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
