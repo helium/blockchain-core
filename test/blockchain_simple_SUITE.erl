@@ -172,10 +172,20 @@ init_per_testcase(TestCase, Config) ->
                 end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
-        test_utils:init_chain(Balance,
-                              {PrivKey, PubKey},
-                              not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
-                              ExtraVars),
+        test_utils:init_chain_with_opts(
+            #{
+                balance =>
+                    Balance,
+                keys =>
+                    {PrivKey, PubKey},
+                in_consensus =>
+                    not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
+                have_init_dc =>
+                    true,
+                extra_vars =>
+                    ExtraVars
+            }
+        ),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
