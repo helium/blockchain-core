@@ -13,7 +13,8 @@
 
 -export([
     version_change_test/1,
-    master_key_test/1
+    master_key_test/1,
+    cache_test/1
 ]).
 
 %% Setup ----------------------------------------------------------------------
@@ -21,7 +22,8 @@
 all() ->
     [
         version_change_test,
-        master_key_test
+        master_key_test,
+        cache_test
     ].
 
 init_per_testcase(_TestCase, Cfg) ->
@@ -263,6 +265,46 @@ master_key_test(Cfg) ->
     ),
     ?assertMatch({ok, lets_all_hate_on_sheep}, var_get(Key, Chain)),
     ok.
+
+cache_test(Config) ->
+    Chain = ?config(chain, Config),
+    BaseDir = ?config(base_dir, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    Hits0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    {ok, EV} = blockchain:config(?election_version, Ledger),
+    Hits1 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    ?assertEqual(1, Hits1 - Hits0),
+
+    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+        filename:join([BaseDir, "cache_test.db"]),
+        Ledger
+    ),
+    AuxLedger = blockchain_ledger_v1:mode(aux, AuxLedger0),
+
+    AuxEV = 100,
+    AuxVars = #{election_version => AuxEV},
+
+    %% This resets the cache
+    ok = blockchain_ledger_v1:set_aux_vars(AuxVars, AuxLedger),
+    %% This should be zero now
+    0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+
+    %% Main ledger should have the same election_version
+    {ok, EV} = blockchain:config(?election_version, Ledger),
+
+    %% aux ledger should have election_version=100
+    {ok, AuxEV} = blockchain:config(?election_version, AuxLedger),
+
+    #{election_version := EV} = blockchain_utils:get_vars([?election_version], Ledger),
+    #{election_version := AuxEV} = blockchain_utils:get_vars([?election_version], AuxLedger),
+
+    %% There should be some hits to cache by now
+    Hits2 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    true = Hits2 > 0,
+
+    ok.
+
 
 %% Helpers --------------------------------------------------------------------
 

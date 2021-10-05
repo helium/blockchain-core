@@ -51,6 +51,7 @@
     poc_per_hop_max_witnesses/1,
 
     get_vars/2, get_var/2,
+    var_cache_stats/0,
     teardown_var_cache/0
 
 ]).
@@ -642,6 +643,10 @@ get_var(VarName, Ledger) ->
 -spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, Ledger) ->
     blockchain_ledger_v1:config(VarName, Ledger).
+
+-spec var_cache_stats() -> list().
+var_cache_stats() ->
+    e2qc:stats(?VAR_CACHE).
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
