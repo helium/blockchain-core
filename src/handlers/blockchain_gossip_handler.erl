@@ -20,7 +20,8 @@
          init_gossip_data/1,
          handle_gossip_data/3,
          gossip_data_v1/2,
-         gossip_data_v2/3
+         gossip_data_v2/3,
+         regossip_block/2, regossip_block/4
         ]).
 
 -ifdef(TEST).
@@ -99,8 +100,8 @@ add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:has_block(Block, Chain) == false andalso blockchain:is_block_plausible(Block, Chain) of
         true ->
-            %% eagerly re-gossip plausible blocks we don't have
-            regossip_block(Block, SwarmTID);
+            %% eagerly re-gossip plausible blocks we don't have 
+            ok = regossip_block(Block, SwarmTID);
         false ->
             ok
     end,
@@ -156,8 +157,26 @@ gossip_data_v2(SwarmTID, Hash, Height) ->
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
 regossip_block(Block, SwarmTID) ->
+        case application:get_env(blockchain, gossip_version, 1) of
+            1 ->
+                %% this is awful but safe
+                regossip_block(Block, height, hash, SwarmTID);
+            2 ->
+                %% should be impossible to hit this?
+                {error, bad_gossip_version}
+        end.
+
+regossip_block(Block, Height, Hash, SwarmTID) ->
+    Data =
+        case application:get_env(blockchain, gossip_version, 1) of
+            1 ->
+                gossip_data_v1(SwarmTID, Block);
+            2 ->
+                gossip_data_v2(SwarmTID, Hash, Height)
+        end,
     libp2p_group_gossip:send(
       libp2p_swarm:gossip_group(SwarmTID),
       ?GOSSIP_PROTOCOL_V1,
-      blockchain_gossip_handler:gossip_data_v1(SwarmTID, Block)
-     ).
+      Data
+     ),
+    ok.

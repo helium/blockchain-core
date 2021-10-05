@@ -990,6 +990,8 @@ get_key_or_keys(Ledger) ->
     end.
 
 add_block_(Block, Blockchain, Syncing) ->
+    %% TODO: we know that swarm calls can block, it would be nice if we had all the pubkey bin and
+    %% tid calls threaded through from the top
     Ledger = blockchain:ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, BlockchainHeight} = blockchain:height(Blockchain),
@@ -1002,6 +1004,8 @@ add_block_(Block, Blockchain, Syncing) ->
                     Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
                     MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
+                    Swarm = blockchain_swarm:swarm(),
+                    SwarmTID = libp2p_swarm:tid(Swarm),
                     BeforeCommit = fun(FChain, FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
@@ -1037,10 +1041,17 @@ add_block_(Block, Blockchain, Syncing) ->
                             end,
                             Error;
                         ok ->
+                            blockchain_gossip_handler:regossip_block(Block, Height, Hash, SwarmTID),
                             run_absorb_block_hooks(Syncing, Hash, Blockchain)
                     end;
                 plausible ->
-                    case save_plausible_block(Block, Blockchain) of
+                    %% regossip plausible blocks
+                    Height = blockchain_block:height(Block),
+                    Hash = blockchain_block:hash_block(Block),
+                    Swarm = blockchain_swarm:swarm(),
+                    SwarmTID = libp2p_swarm:tid(Swarm),
+                    blockchain_gossip_handler:regossip_block(Block, Height, Hash, SwarmTID),
+                    case save_plausible_block(Block, Hash, Blockchain) of
                         exists -> ok; %% already have it
                         ok -> plausible %% tell the gossip handler
                     end;
@@ -2505,9 +2516,8 @@ is_block_plausible(Block, Chain) ->
     end.
 
 
-save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
+save_plausible_block(Block, Hash, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
     true = blockchain_lock:check(), %% we need the lock for this
-    Hash = blockchain_block:hash_block(Block),
     case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
         {ok, _} ->
             %% already got it, thanks

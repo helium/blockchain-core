@@ -149,24 +149,46 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                                  batches_sent=Sent, batch_limit=Limit,
                                  path=Path}=State) ->
     case blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_req_pb) of
-        #blockchain_sync_req_pb{msg={hash, Thing = #blockchain_sync_hash_pb{hash=Hash}}} ->
-            lager:info("XXX thing ~p", [Thing]),
-            case blockchain:get_block(Hash, Blockchain) of
-                {ok, StartingBlock} ->
-                    case blockchain:build(StartingBlock, Blockchain, BatchSize) of
-                        [] ->
-                            {stop, normal, State};
-                        Blocks ->
-                            Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
-                            Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
-                            Msg = case Path of
-                                      ?SYNC_PROTOCOL_V1 -> Msg0;
-                                      ?SYNC_PROTOCOL_V2 -> zlib:compress(Msg0)
-                                  end,
-                            {noreply, State#state{batches_sent=Sent+1, block=lists:last(Blocks)}, Msg}
-                    end;
-                {error, _Reason} ->
-                    {stop, normal, State}
+        #blockchain_sync_req_pb{msg={hash,
+                                     #blockchain_sync_hash_pb{hash = Hash,
+                                                              heights = Requested}}} ->
+            Blocks =
+                case Requested of
+                    [] ->
+                        case blockchain:get_block(Hash, Blockchain) of
+                            {ok, StartingBlock} ->
+                                blockchain:build(StartingBlock, Blockchain, BatchSize);
+                            {error, _Reason} ->
+                                []
+                        end;
+                    R when is_list(R) ->
+                        %% just send these.  if there are more of them than the batch size, then just
+                        %% send the batch and remove them from the list
+                        R2 = case length(Requested) > BatchSize of
+                                 true -> lists:sublist(Requested, BatchSize);
+                                 false -> Requested
+                             end,
+                        lists:flatmap(
+                          fun(Hsh) ->
+                                  case blockchain:get_block(Hsh, Blockchain) of
+                                      {ok, B} -> [B];
+                                      _ -> []
+                                  end
+                          end,
+                          R2)
+                end,
+            Requested1 = Requested -- Blocks,
+            case Blocks of
+                [] ->
+                    {stop, normal, State};
+                [_|_] ->
+                    Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+                    Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
+                    Msg = case Path of
+                              ?SYNC_PROTOCOL_V1 -> Msg0;
+                              ?SYNC_PROTOCOL_V2 -> zlib:compress(Msg0)
+                          end,
+                    {noreply, State#state{batches_sent=Sent+1, block=lists:last(Blocks), requested = Requested1}, Msg}
             end;
         #blockchain_sync_req_pb{msg={response, true}} when Sent < Limit, State#state.block /= undefined ->
             StartingBlock = State#state.block,
