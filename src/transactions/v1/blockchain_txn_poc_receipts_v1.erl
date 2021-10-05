@@ -258,7 +258,7 @@ check_is_valid_poc(Txn, Chain) ->
                                          time = BlockTime,
                                          pocs = BlockPoCs}} ->
                             PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                            case LastChallenge + PoCInterval >= Height of
+                            case LastChallenge + PoCInterval >= Height orelse Height - BlockHeight < 50 of
                                 false ->
                                     lager:info("challenge too old ~p ~p", [Challenger, LastChallenge]),
                                     {error, challenge_too_old};
