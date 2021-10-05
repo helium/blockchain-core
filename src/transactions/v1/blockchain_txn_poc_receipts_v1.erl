@@ -1473,7 +1473,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                                         Desc = lists:flatten(
                                                                                                  io_lib:format(
                                                                                                    "--witness_ok--src_name:~s--witness_name:~s--reject_ht:~p--witchan:~p--channel:~p--rssi:~p--min_rcv_sig:~p--snr:~p--rx_freq:~p--wit_freq:~p",
-                                                                                                   [SrcName, WitName, RejectHt, WitChan, Channel, RSSI, MinRcvSig, SNR, ReceiptFreq, WitFreq])),
+                                                                                                   [SrcName, WitName, RejectHt, WitChan, Channel, RSSI, MinRcvSig, SNR, ReceiptFreq, Freq])),
                                                                                         [{true, list_to_binary(Desc), Witness} | Acc];
                                                                                     false ->
                                                                                         lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",

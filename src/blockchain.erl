@@ -538,7 +538,14 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                         {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
                         _ when Mode == aux ->
-                            {error, cannot_interpolate_aux_ledger};
+                            %% Try to interpolate aux ledger
+                            case fold_blocks(Chain0, DelayedHeight, Ledger, Height, ForceRecalc) of
+                                {ok, Chain1} ->
+                                    Ledger1 = ?MODULE:ledger(Chain1),
+                                    {ok, Ledger1};
+                                Error ->
+                                    Error
+                            end;
                         R ->
                             %% remove a context if we created one we don't need
                             case R of
