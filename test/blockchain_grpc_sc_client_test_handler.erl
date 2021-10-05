@@ -38,7 +38,7 @@ dial(_SwarmTID, Peer, _Opts) ->
         {ok, PeerGrpcPort} = p2p_port_to_grpc_port(Peer),
         lager:info("connecting over grpc to peer ~p on port ~p", [Peer, PeerGrpcPort]),
         {ok, Connection} = grpc_client:connect(tcp, "127.0.0.1", PeerGrpcPort),
-        grpc_client_stream_custom:new(
+        grpc_client_stream_test:new(
             Connection,
             'helium.state_channel',
             msg,
@@ -68,12 +68,12 @@ handle_msg({data, #blockchain_state_channel_message_v1_pb{msg = Msg}}, StreamSta
 handle_info({send_offer, Offer}, StreamState) ->
     lager:info("sending offer over grpc: ~p", [Offer]),
     Msg = blockchain_state_channel_message_v1:wrap_msg(Offer),
-    NewStreamState = grpc_client_stream_custom:send_msg(StreamState, Msg, false),
+    NewStreamState = grpc_client_stream_test:send_msg(StreamState, Msg, false),
     NewStreamState;
 handle_info({send_packet, Packet}, StreamState) ->
     lager:info("sending packet over grpc: ~p", [Packet]),
     Msg = blockchain_state_channel_message_v1:wrap_msg(Packet),
-    NewStreamState = grpc_client_stream_custom:send_msg(StreamState, Msg, false),
+    NewStreamState = grpc_client_stream_test:send_msg(StreamState, Msg, false),
     NewStreamState;
 handle_info(_Msg, StreamState) ->
     lager:warning("grpc client unhandled msg: ~p", [_Msg]),
