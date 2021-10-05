@@ -48,7 +48,12 @@
 
     verify_multisig/3,
     count_votes/3,
-    poc_per_hop_max_witnesses/1
+    poc_per_hop_max_witnesses/1,
+
+    get_vars/2, get_var/2,
+    var_cache_stats/0,
+    teardown_var_cache/0
+
 ]).
 
 -ifdef(TEST).
@@ -61,6 +66,9 @@
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
+
+%% key: {is_aux, vars_nonce, var_name}
+-define(VAR_CACHE, var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
@@ -583,6 +591,66 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 
 majority(N) ->
     (N div 2) + 1.
+
+-spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
+get_vars(VarList, Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    IsAux = blockchain_ledger_v1:is_aux(Ledger),
+    lists:foldl(
+      fun(VarName, Acc) ->
+              %% NOTE: This isn't ideal but in order for get_var/2 to
+              %% correspond with blockchain:config/2, it returns {ok, ..} | {error, ..}
+              %% So we just put undefined for any error lookups here.
+              %% The callee must handle those situations.
+              case get_var_(VarName, IsAux, VarsNonce, Ledger) of
+                  {ok, VarValue} -> maps:put(VarName, VarValue, Acc);
+                  _ -> maps:put(VarName, undefined, Acc)
+              end
+      end, #{}, VarList).
+
+-spec get_var_(VarName :: atom(),
+               HasAux :: boolean(),
+               VarsNonce :: non_neg_integer(),
+               Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
+get_var_(VarName, HasAux, VarsNonce, Ledger) ->
+    e2qc:cache(
+        ?VAR_CACHE,
+        {HasAux, VarsNonce, VarName},
+        fun() ->
+            get_var_(VarName, Ledger)
+        end
+    ).
+
+-spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
+get_var(VarName, Ledger) ->
+    %% NOTE: Special casing vars_nonce if it is not_found.
+    %% This may happen if miner is booted without a genesis block (mostly in testing).
+    VarsNonce =
+    case blockchain_ledger_v1:vars_nonce(Ledger) of
+        {ok, VN} -> VN;
+        {error, not_found} -> 0
+    end,
+
+    IsAux = blockchain_ledger_v1:is_aux(Ledger),
+    e2qc:cache(
+        ?VAR_CACHE,
+        {IsAux, VarsNonce, VarName},
+        fun() ->
+            get_var_(VarName, Ledger)
+        end
+    ).
+
+-spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
+get_var_(VarName, Ledger) ->
+    blockchain_ledger_v1:config(VarName, Ledger).
+
+-spec var_cache_stats() -> list().
+var_cache_stats() ->
+    e2qc:stats(?VAR_CACHE).
+
+-spec teardown_var_cache() -> ok.
+teardown_var_cache() ->
+    e2qc:teardown(?VAR_CACHE).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

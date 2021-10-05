@@ -1256,8 +1256,9 @@ delete_block(Block, #blockchain{db=DB, default=DefaultCF,
     ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
+-spec config(ConfigName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 config(ConfigName, Ledger) ->
-    blockchain_ledger_v1:config(ConfigName, Ledger). % ignore using "?"
+    blockchain_utils:get_var(ConfigName, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
