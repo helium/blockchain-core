@@ -66,7 +66,7 @@
 -define(MAX_ANTENNA_GAIN, 6).
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
 
-%% key: {has_aux, vars_nonce, var_name}
+%% key: {is_aux, vars_nonce, var_name}
 -define(VAR_CACHE, var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
@@ -594,14 +594,14 @@ majority(N) ->
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    IsAux = blockchain_ledger_v1:is_aux(Ledger),
     lists:foldl(
       fun(VarName, Acc) ->
               %% NOTE: This isn't ideal but in order for get_var/2 to
               %% correspond with blockchain:config/2, it returns {ok, ..} | {error, ..}
               %% So we just put undefined for any error lookups here.
               %% The callee must handle those situations.
-              case get_var_(VarName, HasAux, VarsNonce, Ledger) of
+              case get_var_(VarName, IsAux, VarsNonce, Ledger) of
                   {ok, VarValue} -> maps:put(VarName, VarValue, Acc);
                   _ -> maps:put(VarName, undefined, Acc)
               end
@@ -630,10 +630,10 @@ get_var(VarName, Ledger) ->
         {error, not_found} -> 0
     end,
 
-    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    IsAux = blockchain_ledger_v1:is_aux(Ledger),
     e2qc:cache(
         ?VAR_CACHE,
-        {HasAux, VarsNonce, VarName},
+        {IsAux, VarsNonce, VarName},
         fun() ->
             get_var_(VarName, Ledger)
         end

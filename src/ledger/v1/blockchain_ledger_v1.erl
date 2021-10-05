@@ -9,7 +9,7 @@
     new_aux/1,
     bootstrap_aux/2,
     mode/1, mode/2,
-    has_aux/1,
+    has_aux/1, is_aux/1,
     dir/1,
     maybe_load_aux/1,
 
@@ -567,6 +567,12 @@ mode(Ledger) ->
 -spec has_aux(ledger()) -> boolean().
 has_aux(Ledger) ->
     Ledger#ledger_v1.aux /= undefined.
+
+-spec is_aux(ledger()) -> boolean().
+is_aux(#ledger_v1{mode=aux}) ->
+    true;
+is_aux(_) ->
+    false.
 
 -spec mode(mode(), ledger()) -> ledger().
 mode(aux, #ledger_v1{aux=undefined}) ->
