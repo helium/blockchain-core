@@ -1223,6 +1223,11 @@ validate_var(?density_tgt_res, Value) ->
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
 
+validate_var(?transaction_validity_version, Value) ->
+    case Value of
+        2 -> ok;
+        _ -> throw({error, {invalid_transaction_validity_version, Value}})
+    end;
 validate_var(?assert_loc_txn_version, Value) ->
     case Value of
         N when is_integer(N), N >= 1, N =< 2 -> ok;
