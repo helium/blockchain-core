@@ -154,7 +154,7 @@ basic(Version, Sup, {PrivKey, PubKey}, Config) ->
             ok
     end,
 
-    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end, 100, 1000),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
     gen:stop(Sup),
     ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),

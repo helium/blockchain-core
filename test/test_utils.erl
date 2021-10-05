@@ -8,6 +8,7 @@
 -export([
     init/1, init/2,
     init_chain/2, init_chain/3, init_chain/4,
+    init_chain_with_opts/1,
     init_chain_with_fixed_locations/4,
     generate_plain_keys/2,
     generate_keys/1, generate_keys/2,
@@ -45,8 +46,14 @@ init_chain(Balance, Keys) ->
     init_chain(Balance, Keys, true, #{}).
 
 init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
-    GenesisMembers = init_genesis_members(Keys, InConsensus),
-    init_chain(Balance, GenesisMembers, ExtraVars).
+    Opts =
+        #{
+            balance => Balance,
+            keys => Keys,
+            in_consensus => InConsensus,
+            extra_vars => ExtraVars
+        },
+    init_chain_with_opts(Opts).
 
 -spec init_genesis_members({Pub, Priv}, boolean()) ->
     [{Addr :: binary(), {Pub, Priv, Sign}}]
@@ -75,8 +82,21 @@ init_genesis_members({Priv, Pub}, InConsensus) ->
     Members.
 
 init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsensus) ->
-    init_chain(Balance, Keys, InConsensus, #{});
-init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_map(ExtraVars) ->
+    init_chain(Balance, Keys, InConsensus, #{}).
+
+init_chain_with_opts(Opts) when is_map(Opts) ->
+    Balance = maps:get(balance, Opts, 5000),
+    ExtraVars = maps:get(extra_vars, Opts, #{}),
+    GenesisMembers =
+        case maps:find(genesis_members, Opts) of
+            {ok, ConsensusMembers0} ->
+                ConsensusMembers0;
+            error ->
+                SelfKeyPair = maps:get(keys, Opts),
+                InConsensus = maps:get(in_consensus, Opts, true),
+                init_genesis_members(SelfKeyPair, InConsensus)
+        end,
+
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
@@ -86,7 +106,8 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
         [
             blockchain_txn_dc_coinbase_v1:new(Addr, Balance)
         ||
-            {Addr, _} <- GenesisMembers
+            {Addr, _} <- GenesisMembers,
+            maps:get(have_init_dc, Opts, false)
         ],
 
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)

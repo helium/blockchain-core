@@ -172,10 +172,20 @@ init_per_testcase(TestCase, Config) ->
                 end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
-        test_utils:init_chain(Balance,
-                              {PrivKey, PubKey},
-                              not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
-                              ExtraVars),
+        test_utils:init_chain_with_opts(
+            #{
+                balance =>
+                    Balance,
+                keys =>
+                    {PrivKey, PubKey},
+                in_consensus =>
+                    not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
+                have_init_dc =>
+                    true,
+                extra_vars =>
+                    ExtraVars
+            }
+        ),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -548,6 +558,9 @@ poc_request_test(Config) ->
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
     meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
 
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
+
     %% NOTE: the token burn exchange rate block is not required for most of this test to run
     %% it should be removed but the POC is using it atm - needs refactored
     Vars = #{token_burn_exchange_rate => Rate},
@@ -583,8 +596,9 @@ poc_request_test(Config) ->
     ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
-    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
-    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance1 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry1),
+    ?assertEqual(10 * OP + DCBalance0, DCBalance1),
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -775,6 +789,9 @@ export_test(Config) ->
     Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
 
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
+
     % Step 2: Token burn txn should pass now
     BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
@@ -787,8 +804,9 @@ export_test(Config) ->
     ?assertEqual({ok, Block22}, blockchain:get_block(22, Chain)),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
-    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
-    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance1 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry1),
+    ?assertEqual(10 * OP + DCBalance0, DCBalance1),
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -836,9 +854,10 @@ export_test(Config) ->
     ct:pal("gateways ~p", [Gateways]),
 
     %% check DC balance for Payer1
-    [[{address, A}, {dc_balance, DCBalance}]] = DCs,
-    ?assertEqual(A, libp2p_crypto:bin_to_b58(Payer1)),
-    ?assertEqual(DCBalance, OP*10-2),
+    Payer1Addr = libp2p_crypto:bin_to_b58(Payer1),
+    [[{address, _}, {dc_balance, Payer1DCBalance0}]] =
+        [DC || [{address, Addr}, {dc_balance, _}]=DC <- DCs, Addr =:= Payer1Addr],
+    ?assertEqual(Payer1DCBalance0, DCBalance0 + (OP * 10 - 2)),
 
     %% we added this after we add all of the existing gateways in the
     %% genesis block with nonce 0.  we filter those out to make sure
@@ -2501,6 +2520,12 @@ token_burn_test(Config) ->
     Recipient = blockchain_swarm:pubkey_bin(),
     Ledger = blockchain:ledger(Chain),
 
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
+
+    %% Sanity check
+    ?assertEqual(Balance, DCBalance0, "The same init balance is used for DC and HNT."),
+
     % Step 1: Simple payment txn with no fees
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
@@ -2526,7 +2551,6 @@ token_burn_test(Config) ->
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
-    ?assertEqual({error, dc_entry_not_found}, blockchain_ledger_v1:find_dc_entry(Payer, Ledger)),
     ?assertEqual({error, not_found}, blockchain_ledger_v1:token_burn_exchange_rate(Ledger)),
 
     % Step 3: fake an oracle price and a burn price, these figures are not representative
@@ -2556,8 +2580,9 @@ token_burn_test(Config) ->
     ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10, blockchain_ledger_entry_v1:balance(NewEntry2)),
-    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
-    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    DCBalance1 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry1),
+    ?assertEqual(10 * OP + DCBalance0, DCBalance1),
 
     % Step 5: Try payment txn with fee this time
     Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, 3),
@@ -2573,9 +2598,10 @@ token_burn_test(Config) ->
     ?assertEqual(Balance + 2500 + 500, blockchain_ledger_entry_v1:balance(NewEntry3)),
     {ok, NewEntry4} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10 - 500, blockchain_ledger_entry_v1:balance(NewEntry4)),
-    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     TxnFee = 0, %% default fee will be zero
-    ?assertEqual((10*OP)-TxnFee, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    DCBalance2 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry2),
+    ?assertEqual((10 * OP + DCBalance0) - TxnFee, DCBalance2),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
 
@@ -2591,6 +2617,12 @@ payer_test(Config) ->
     PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
     Ledger = blockchain:ledger(Chain),
+
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
+
+    %% Sanity check
+    ?assertEqual(Balance, DCBalance0, "The same init balance is used for DC and HNT."),
 
     % Step 3: fake an oracle price and a burn price, these figures are not representative
     % TODO: setup actual onchain oracle prices, get rid of these mecks
@@ -2624,8 +2656,8 @@ payer_test(Config) ->
     ?assertEqual({ok, Block22}, blockchain:get_block(22, Chain)),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
-    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
-    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    ?assertEqual(10*OP + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     OUI1 = 1,
@@ -2657,8 +2689,8 @@ payer_test(Config) ->
     ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 23}, blockchain:height(Chain)),
     ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
-    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
-    ?assertEqual(10*OP-((DefaultTxnFee + DefaultStakingFee )*3), blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    ?assertEqual((10*OP-((DefaultTxnFee + DefaultStakingFee)*3) + DCBalance0), blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)),
 
 
     Routing = blockchain_ledger_routing_v1:new(1, Owner, Addresses0, Filter, <<0,0,0,127,255,254>>, 0),
@@ -2675,8 +2707,8 @@ payer_test(Config) ->
     ?assertEqual({ok, Block23}, blockchain:head_block(NewChain)),
     ?assertEqual({ok, 23}, blockchain:height(NewChain)),
     ?assertEqual({ok, Block23}, blockchain:get_block(23, NewChain)),
-    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewChain)),
-    ?assertEqual(10*OP-((DefaultTxnFee + DefaultStakingFee )*3), blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewChain)),
+    ?assertEqual((10*OP-((DefaultTxnFee + DefaultStakingFee )*3)) + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)),
 
     blockchain:delete_block(Block22, NewChain),
 
@@ -2695,8 +2727,8 @@ payer_test(Config) ->
     ?assertEqual({ok, Block23}, blockchain:head_block(NewerChain)),
     ?assertEqual({ok, 23}, blockchain:height(NewerChain)),
     ?assertEqual({ok, Block23}, blockchain:get_block(23, NewerChain)),
-    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
-    ?assertEqual(10*OP-((DefaultTxnFee + DefaultStakingFee )*3), blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
+    ?assertEqual((10*OP-((DefaultTxnFee + DefaultStakingFee )*3)) + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
@@ -2711,6 +2743,12 @@ poc_sync_interval_test(Config) ->
     Balance = ?config(balance, Config),
     Ledger = blockchain:ledger(Chain),
     {Priv, _} = ?config(master_key, Config),
+
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
+
+    %% Sanity check
+    ?assertEqual(Balance, DCBalance0, "The same init balance is used for DC and HNT."),
 
     % Step 3: fake an oracle price and a burn price, these figures are not representative
     % TODO: setup actual onchain oracle prices, get rid of these mecks
@@ -2736,8 +2774,9 @@ poc_sync_interval_test(Config) ->
     ?assertEqual({ok, Block22}, blockchain:get_block(22, Chain)),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
-    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
-    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance1 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry1),
+    ?assertEqual(10 * OP + DCBalance0, DCBalance1),
 
     %% Get gateways before adding a new gateway
     ActiveGateways0 = blockchain_ledger_v1:active_gateways(blockchain:ledger(Chain)),
@@ -3142,6 +3181,12 @@ failed_txn_error_handling(Config) ->
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
     meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
 
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
+
+    %% Sanity check
+    ?assertEqual(Balance, DCBalance0, "The same init balance is used for DC and HNT."),
+
     %% NOTE: the token burn exchange rate block is not required for most of this test to run
     %% it should be removed but the POC is using it atm - needs refactored
     Vars = #{token_burn_exchange_rate => Rate},
@@ -3177,8 +3222,9 @@ failed_txn_error_handling(Config) ->
     ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
-    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
-    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    DCBalance1 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry1),
+    ?assertEqual(10 * OP + DCBalance0, DCBalance1),
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
