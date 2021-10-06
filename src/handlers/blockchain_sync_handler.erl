@@ -82,15 +82,15 @@ dial(SwarmTID, Chain, Peer, Heights) ->
         end,
     DialFun(?SUPPORTED_SYNC_PROTOCOLS).
 
--spec dial(Swarm :: pid(),
+-spec dial(SwarmTID :: ets:tab(),
            Chain :: blockchain:blockchain(),
            Peer :: libp2p_crypto:pubkey_bin(),
            ProtocolVersion :: string(),
            Requested :: [pos_integer()]) ->
           {ok, pid()} | {error, any()}.
-dial(Swarm, Chain, Peer, ProtocolVersion, Requested)->
+dial(SwarmTID, Chain, Peer, ProtocolVersion, Requested)->
     libp2p_swarm:dial_framed_stream(
-      Swarm,
+      SwarmTID,
       Peer,
       ProtocolVersion,
       ?MODULE,
