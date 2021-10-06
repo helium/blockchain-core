@@ -38,7 +38,7 @@ init_gossip_data([SwarmTID, Blockchain]) ->
         2 ->
             {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)),
             {ok, #block_info{hash = Hash}} = blockchain:get_block_info(Height, Blockchain),
-            lager:debug("gossiping block to peers on init"),
+            lager:debug("gossiping block @ ht: ~p to peers on init", [Height]),
             {send, gossip_data_v2(SwarmTID, Hash, Height)}
     end;
 init_gossip_data(WAT) ->
@@ -102,6 +102,7 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
     noreply.
 
 
+-spec find_missing_blocks(Hash :: blockchain_block:hash(), Chain :: blockchain:blockchain()) -> [pos_integer()].
 find_missing_blocks(Hash, Chain) ->
     {ok, Block} = blockchain:get_plausible_block(Hash, Chain),
     find_missing_blocks(blockchain_block:prev_hash(Block), blockchain_block:height(Block), Chain).
