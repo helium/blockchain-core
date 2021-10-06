@@ -959,7 +959,6 @@ start_block_sync(SwarmTID, Chain, Peer, Heights) ->
 
 grab_snapshot(Height, Hash) ->
     Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
     SwarmTID = blockchain_swarm:tid(),
 
     case get_random_peer(SwarmTID) of
