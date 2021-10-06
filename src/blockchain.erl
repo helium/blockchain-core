@@ -1004,8 +1004,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
                     MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
-                    Swarm = blockchain_swarm:swarm(),
-                    SwarmTID = libp2p_swarm:tid(Swarm),
+                    SwarmTID = blockchain_swarm:tid(),
                     BeforeCommit = fun(FChain, FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
@@ -1048,8 +1047,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     %% regossip plausible blocks
                     Height = blockchain_block:height(Block),
                     Hash = blockchain_block:hash_block(Block),
-                    Swarm = blockchain_swarm:swarm(),
-                    SwarmTID = libp2p_swarm:tid(Swarm),
+                    SwarmTID = blockchain_swarm:tid(),
                     blockchain_gossip_handler:regossip_block(Block, Height, Hash, SwarmTID),
                     case save_plausible_block(Block, Hash, Blockchain) of
                         exists -> ok; %% already have it

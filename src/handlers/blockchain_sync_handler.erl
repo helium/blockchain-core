@@ -18,7 +18,7 @@
     server/4,
     client/2,
     dial/3,
-    dial/4, dial/6
+    dial/4, dial/5
 ]).
 
 %% ------------------------------------------------------------------
@@ -55,13 +55,21 @@ server(Connection, _Path, _TID, Args) ->
 -spec dial(Swarm::pid(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin())->
         {ok, pid()} | {error, any()}.
 dial(Swarm, Chain, Peer) ->
+    dial(Swarm, Chain, Peer, []).
+
+-spec dial(Swarm::pid(),
+           Chain::blockchain:blockchain(),
+           Peer::libp2p_crypto:pubkey_bin(),
+           Heights::[pos_integer()])->
+        {ok, pid()} | {error, any()}.
+dial(Swarm, Chain, Peer, Heights) ->
     DialFun =
         fun
             Dial([])->
                 lager:debug("dialing Sync stream failed, no compatible protocol versions",[]),
                 {error, no_supported_protocols};
             Dial([ProtocolVersion | Rest]) ->
-                case blockchain_sync_handler:dial(Swarm, Chain, Peer, ProtocolVersion) of
+                case blockchain_sync_handler:dial(Swarm, Chain, Peer, ProtocolVersion, Heights) of
                         {ok, Stream} ->
                             lager:debug("dialing Sync stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
                             {ok, Stream};
@@ -78,24 +86,16 @@ dial(Swarm, Chain, Peer) ->
 -spec dial(Swarm :: pid(),
            Chain :: blockchain:blockchain(),
            Peer :: libp2p_crypto:pubkey_bin(),
-           ProtocolVersion :: string())->
-            {ok, pid()} | {error, any()}.
-dial(Swarm, Chain, Peer, ProtocolVersion) ->
-    dial(Swarm, Chain, Peer, ProtocolVersion, false, []).
-
--spec dial(Swarm :: pid(),
-           Chain :: blockchain:blockchain(),
-           Peer :: libp2p_crypto:pubkey_bin(),
-           ProtocolVersino :: string(),
-           Blocking :: boolean(),
+           ProtocolVersion :: string(),
            Requested :: [pos_integer()]) ->
           {ok, pid()} | {error, any()}.
-dial(Swarm, Chain, Peer, ProtocolVersion, Blocking, Requested)->
-    libp2p_swarm:dial_framed_stream(Swarm,
-                                    Peer,
-                                    ProtocolVersion,
-                                    ?MODULE,
-                                    [ProtocolVersion, Blocking, Requested, Chain]).
+dial(Swarm, Chain, Peer, ProtocolVersion, Requested)->
+    libp2p_swarm:dial_framed_stream(
+      Swarm,
+      Peer,
+      ProtocolVersion,
+      ?MODULE,
+      [ProtocolVersion, false, Requested, Chain]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
@@ -147,70 +147,89 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
     end;
 handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                                  batches_sent=Sent, batch_limit=Limit,
-                                 path=Path}=State) ->
+                                 path=Path, requested=StRequested}=State) ->
     case blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_req_pb) of
         #blockchain_sync_req_pb{msg={hash,
                                      #blockchain_sync_hash_pb{hash = Hash,
                                                               heights = Requested}}} ->
-            Blocks =
-                case Requested of
-                    [] ->
-                        case blockchain:get_block(Hash, Blockchain) of
-                            {ok, StartingBlock} ->
-                                blockchain:build(StartingBlock, Blockchain, BatchSize);
-                            {error, _Reason} ->
-                                []
-                        end;
-                    R when is_list(R) ->
-                        %% just send these.  if there are more of them than the batch size, then just
-                        %% send the batch and remove them from the list
-                        R2 = case length(Requested) > BatchSize of
-                                 true -> lists:sublist(Requested, BatchSize);
-                                 false -> Requested
-                             end,
-                        lists:flatmap(
-                          fun(Hsh) ->
-                                  case blockchain:get_block(Hsh, Blockchain) of
-                                      {ok, B} -> [B];
-                                      _ -> []
-                                  end
-                          end,
-                          R2)
-                end,
-            Requested1 = Requested -- Blocks,
+            %% for resuming partial requests, remaining blocks saved in the state override what
+            %% happens in the request
+            {Blocks, Requested1} =
+                build_blocks(Requested, Hash, Blockchain, BatchSize),
             case Blocks of
                 [] ->
                     {stop, normal, State};
                 [_|_] ->
-                    Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
-                    Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
-                    Msg = case Path of
-                              ?SYNC_PROTOCOL_V1 -> Msg0;
-                              ?SYNC_PROTOCOL_V2 -> zlib:compress(Msg0)
-                          end,
-                    {noreply, State#state{batches_sent=Sent+1, block=lists:last(Blocks), requested = Requested1}, Msg}
+                    Msg = mk_msg(Blocks, Path),
+                    case Requested1 == [] andalso Requested /= [] of
+                        true ->
+                            {stop, normal, State, Msg};
+                        _ ->
+                            {noreply, State#state{batches_sent=Sent+1,
+                                                  block=lists:last(Blocks),
+                                                  requested = Requested1},
+                             Msg}
+                    end
             end;
         #blockchain_sync_req_pb{msg={response, true}} when Sent < Limit, State#state.block /= undefined ->
             StartingBlock = State#state.block,
-            case blockchain:build(StartingBlock, Blockchain, BatchSize) of
+            {Blocks, Requested1} =
+                build_blocks(StRequested, StartingBlock, Blockchain, BatchSize),
+            case Blocks of
                 [] ->
                     {stop, normal, State};
-                Blocks ->
-                    Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
-                    Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
-                    Msg = case Path of
-                              ?SYNC_PROTOCOL_V1 -> Msg0;
-                              ?SYNC_PROTOCOL_V2 -> zlib:compress(Msg0)
-                          end,
-                    {noreply, State#state{batches_sent=Sent+1, block=lists:last(Blocks)}, Msg}
+                _ ->
+                    Msg = mk_msg(Blocks, Path),
+                    case Requested1 == [] andalso StRequested /= [] of
+                        true ->
+                            {stop, normal, State, Msg};
+                        _ ->
+                            {noreply, State#state{batches_sent=Sent+1,
+                                                  block=lists:last(Blocks),
+                                                  requested = Requested1},
+                             Msg}
+                    end
             end;
         _ ->
             %% ack was false, block was undefined, limit was hit or the message was not understood
             {stop, normal, State}
     end.
 
-handle_info(client, {hash, Hash}, State) ->
-    Msg = #blockchain_sync_req_pb{msg={hash, #blockchain_sync_hash_pb{hash=Hash}}},
+handle_info(client, {hash, Hash}, #state{requested = Requested} = State) ->
+    Msg = #blockchain_sync_req_pb{msg={hash, #blockchain_sync_hash_pb{hash = Hash,
+                                                                      heights = Requested}}},
     {noreply, State, blockchain_sync_handler_pb:encode_msg(Msg)};
 handle_info(_Type, _Msg, State) ->
     {noreply, State}.
+
+build_blocks([], Hash, Blockchain, BatchSize) when is_binary(Hash) ->
+    case blockchain:get_block(Hash, Blockchain) of
+        {ok, StartingBlock} ->
+            {blockchain:build(StartingBlock, Blockchain, BatchSize), []};
+        {error, _Reason} ->
+            {[], []}
+    end;
+build_blocks([], StartingBlock, Blockchain, BatchSize) when is_tuple(StartingBlock) ->
+    {blockchain:build(StartingBlock, Blockchain, BatchSize), []};
+build_blocks(R, _Hash, Blockchain, BatchSize) when is_list(R) ->
+    %% just send these.  if there are more of them than the batch size, then just
+    %% send the batch and remove them from the list
+    R2 = lists:sublist(R, BatchSize),
+    {lists:flatmap(
+       fun(Height) ->
+               case blockchain:get_block(Height, Blockchain) of
+                   {ok, B} -> [B];
+                   _ -> []
+               end
+       end,
+       R2),
+     R -- R2}.
+
+mk_msg(Blocks, Path) ->
+    Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+    Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
+    Msg = case Path of
+              ?SYNC_PROTOCOL_V1 -> Msg0;
+              ?SYNC_PROTOCOL_V2 -> zlib:compress(Msg0)
+          end,
+    Msg.

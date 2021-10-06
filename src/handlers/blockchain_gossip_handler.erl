@@ -59,7 +59,13 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                     {error, not_found} ->
                         %% don't appear to have the block, do we have a plausible block?
                         case blockchain:have_plausible_block(Hash, Blockchain) of
-                            true -> ok;
+                            true ->
+                                case find_missing_block(Height, Blockchain) of
+                                    {ok, Missing} ->
+                                        blockchain_worker:target_sync(From, Missing);
+                                    _Err ->
+                                        ok
+                                end;
                             false ->
                                 %% don't have it in plausible either, try to sync it from the sender.
                                 blockchain_worker:target_sync(From)
@@ -96,11 +102,35 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
     end,
     noreply.
 
+find_missing_block(Hash, Chain) ->
+    Limit = application:get_env(blockchain, backcheck_limit, 25),
+    {ok, Height} = blockchain:get_block_height(Hash, Chain),
+    find_missing_block(Limit, Height - 1, Chain, []).
+
+find_missing_block(0, _Ht, _Chain, Acc) ->
+    %% don't need to traverse since we're going in reverse order
+    {ok, Acc};
+find_missing_block(Limit, Ht, Chain, Acc) ->
+    %% do we have this block?
+    case blockchain:get_block_hash(Ht, Chain) of
+        %% if so, return what we have so far
+        {ok, _Hash} ->
+            {ok, Acc};
+        %% if not, check if it's in plausible
+        {error, not_found} ->
+            case blockchain:have_plausible_block(Ht, Chain) of
+                true ->
+                    find_missing_block(Limit - 1, Ht - 1, Chain, Acc);
+                false ->
+                    find_missing_block(Limit - 1, Ht - 1, Chain, [Ht | Acc])
+            end
+    end.
+
 add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:has_block(Block, Chain) == false andalso blockchain:is_block_plausible(Block, Chain) of
         true ->
-            %% eagerly re-gossip plausible blocks we don't have 
+            %% eagerly re-gossip plausible blocks we don't have
             ok = regossip_block(Block, SwarmTID);
         false ->
             ok
