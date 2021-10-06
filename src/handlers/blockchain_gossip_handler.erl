@@ -60,11 +60,10 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                         %% don't appear to have the block, do we have a plausible block?
                         case blockchain:have_plausible_block(Hash, Blockchain) of
                             true ->
-                                case find_missing_block(Height, Blockchain) of
-                                    {ok, Missing} ->
-                                        blockchain_worker:target_sync(From, Missing);
-                                    _Err ->
-                                        ok
+                                case find_missing_blocks(Hash, Blockchain) of
+                                    [] -> ok;
+                                    Missing ->
+                                        blockchain_worker:target_sync(From, Missing)
                                 end;
                             false ->
                                 %% don't have it in plausible either, try to sync it from the sender.
@@ -102,28 +101,29 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
     end,
     noreply.
 
-find_missing_block(Hash, Chain) ->
-    Limit = application:get_env(blockchain, backcheck_limit, 25),
-    {ok, Height} = blockchain:get_block_height(Hash, Chain),
-    find_missing_block(Limit, Height - 1, Chain, []).
 
-find_missing_block(0, _Ht, _Chain, Acc) ->
-    %% don't need to traverse since we're going in reverse order
-    {ok, Acc};
-find_missing_block(Limit, Ht, Chain, Acc) ->
-    %% do we have this block?
-    case blockchain:get_block_hash(Ht, Chain) of
-        %% if so, return what we have so far
-        {ok, _Hash} ->
-            {ok, Acc};
-        %% if not, check if it's in plausible
-        {error, not_found} ->
-            case blockchain:have_plausible_block(Ht, Chain) of
-                true ->
-                    find_missing_block(Limit - 1, Ht - 1, Chain, Acc);
+find_missing_blocks(Hash, Chain) ->
+    {ok, Block} = blockchain:get_plausible_block(Hash, Chain),
+    find_missing_blocks(blockchain_block:prev_hash(Block), blockchain_block:height(Block), Chain).
+
+
+find_missing_blocks(Hash, LastHeight, Chain) ->
+    case blockchain:get_plausible_block(Hash, Chain) of
+        {ok, Block} ->
+            BlockHeight = blockchain_block:height(Block),
+            case BlockHeight == LastHeight - 1 of
+                 true ->
+                    find_missing_blocks(blockchain_block:prev_hash(Block), BlockHeight, Chain);
                 false ->
-                    find_missing_block(Limit - 1, Ht - 1, Chain, [Ht | Acc])
-            end
+                    %% some kind of wacky chain break, ignore the plausible block that does not fit
+                    {ok, ChainHeight} = blockchain:height(Chain),
+                    lists:seq(ChainHeight+1, LastHeight - 1)
+            end;
+        _ ->
+            %% found a break in the plausible chain, so now we know we need any
+            %% missing heights between this block and the chain's HEAD block
+            {ok, ChainHeight} = blockchain:height(Chain),
+            lists:seq(ChainHeight+1, LastHeight - 1)
     end.
 
 add_block(Block, Chain, Sender, SwarmTID) ->

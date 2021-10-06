@@ -33,6 +33,7 @@
     compact/1,
 
     is_block_plausible/2,
+    get_plausible_block/2,
     have_plausible_block/2,
 
     last_block_add_time/1,
@@ -2530,6 +2531,16 @@ have_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
         {ok, _} -> true;
         _ -> false
     end.
+
+-spec get_plausible_block(Hash :: blockchain_block:hash(), Chain :: blockchain()) -> {ok, blockchain_block:block()} | {error, term()}.
+get_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
+    case rocksdb:get(DB, CF, Hash, []) of
+        {ok, BinBlock} ->
+            Block = blockchain_block:deserialize(BinBlock),
+            {ok, Block};
+        Error -> Error
+    end.
+
 
 check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
     true = blockchain_lock:check(), %% we need the lock for this
