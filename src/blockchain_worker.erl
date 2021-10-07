@@ -841,8 +841,13 @@ get_random_peer(SwarmTID) ->
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     %% limit peers to random connections with public addresses
     F = fun(Peer) ->
-                lists:any(fun libp2p_transport_tcp:is_public/1,
-                          libp2p_peer:listen_addrs(Peer))
+                case application:get_env(blockchain, testing, false) of
+                    false ->
+                        lists:any(fun libp2p_transport_tcp:is_public/1,
+                                  libp2p_peer:listen_addrs(Peer));
+                    true ->
+                        true
+                end
         end,
     case libp2p_peerbook:random(Peerbook, [], F, 100) of
         false -> no_peers;

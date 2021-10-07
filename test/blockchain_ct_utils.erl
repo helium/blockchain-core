@@ -182,6 +182,7 @@ init_per_testcase(TestCase, Config) ->
     BaseDir = ?config(base_dir, Config),
     LogDir = ?config(log_dir, Config),
     SCClientTransportHandler = ?config(sc_client_transport_handler, Config),
+    application:set_env(blockchain, testing, true),
 
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
@@ -222,6 +223,7 @@ init_per_testcase(TestCase, Config) ->
                                 #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
                                 BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                                ct_rpc:call(Node, application, set_env, [blockchain, testing, true]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, enable_nat, false]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BlockchainBaseDir]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
