@@ -204,6 +204,9 @@ compute_ivs(InitialIV, KeysAndData) ->
                 end, [InitialIV], lists:reverse(KeysAndData)).
 
 
+%% TODO - make this better
+block_key(SecretKey, _BlockHash, <<"ignore_ledger">>) ->
+    SecretKey;
 block_key(SecretKey, BlockHash, Ledger) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V >= 2 ->
