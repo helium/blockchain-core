@@ -45,8 +45,8 @@
              | blockchain_txn_stake_validator_v1:txn_stake_validator()
              | blockchain_txn_transfer_validator_stake_v1:txn_transfer_validator_stake()
              | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
-             | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat(),
-             | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2(),
+             | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat()
+             | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2()
              | blockchain_txn_poc_receipts_v2:txn_poc_receipts_v2().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
