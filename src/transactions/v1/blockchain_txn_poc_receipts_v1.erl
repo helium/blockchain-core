@@ -13,7 +13,6 @@
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
--include_lib("public_key/include/public_key.hrl").
 
 -export([
     new/4,
@@ -201,161 +200,34 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            ChallengerType =  blockchain:config(?poc_challenger_type, Ledger),
-            is_valid(ChallengerType, Txn, Ledger, Chain)
-    end.
-
--spec is_valid(atom(), txn_poc_receipts(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(ChallengerType, Txn, Ledger, Chain) when ChallengerType == validator ->
-    Challenger = ?MODULE:challenger(Txn),
-    %% check the challenger is actually a validator and it exists
-    case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
-        {error, _Reason}=Error ->
-            lager:info("poc_receipts: validator not found for challenger ~p",[Challenger]),
-            Error;
-        {ok, _ChallengerInfo} ->
-            case ?MODULE:path(Txn) =:= [] of
-                true ->
-                    {error, empty_path};
-                false ->
-                    case check_is_valid_poc(ChallengerType, Txn, Chain) of
-                        ok -> ok;
-                        {ok, Channels} ->
-                            lager:debug("POCID: ~p, validated ok with reported channels: ~p",
-                                        [poc_id(Txn), Channels]),
-                            ok;
-                        Error -> Error
-                    end
-            end
-    end;
-is_valid(ChallengerType, Txn, Ledger, Chain)->
-    Challenger = ?MODULE:challenger(Txn),
-    case blockchain_ledger_v1:find_gateway_mode(Challenger, Ledger) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, ChallengerGWMode} ->
-            %% check the challenger is allowed to issue POCs
-            case blockchain_ledger_gateway_v2:is_valid_capability(ChallengerGWMode, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
-                false -> {error, {challenger_not_allowed, ChallengerGWMode}};
-                true ->
-                    case ?MODULE:path(Txn) =:= [] of
+            case blockchain_ledger_v1:find_gateway_mode(Challenger, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, ChallengerGWMode} ->
+                    %% check the challenger is allowed to issue POCs
+                    case blockchain_ledger_gateway_v2:is_valid_capability(ChallengerGWMode, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
+                        false -> {error, {challenger_not_allowed, ChallengerGWMode}};
                         true ->
-                            {error, empty_path};
-                        false ->
-                            case check_is_valid_poc(ChallengerType, Txn, Chain) of
-                                ok -> ok;
-                                {ok, Channels} ->
-                                    lager:debug("POCID: ~p, validated ok with reported channels: ~p",
-                                                [poc_id(Txn), Channels]),
-                                    ok;
-                                Error -> Error
+                            case ?MODULE:path(Txn) =:= [] of
+                                true ->
+                                    {error, empty_path};
+                                false ->
+                                    case check_is_valid_poc(Txn, Chain) of
+                                        ok -> ok;
+                                        {ok, Channels} ->
+                                            lager:debug("POCID: ~p, validated ok with reported channels: ~p",
+                                                        [poc_id(Txn), Channels]),
+                                            ok;
+                                        Error -> Error
+                                    end
                             end
                     end
             end
     end.
 
--spec check_is_valid_poc(ChallengerType :: atom(),
-                         Txn :: txn_poc_receipts(),
+-spec check_is_valid_poc(Txn :: txn_poc_receipts(),
                          Chain :: blockchain:blockchain()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.
-check_is_valid_poc(ChallengerType, Txn, Chain) when ChallengerType == validator ->
-    Ledger = blockchain:ledger(Chain),
-    Challenger = ?MODULE:challenger(Txn),
-    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    POCID = ?MODULE:poc_id(Txn),
-    StartPre = maybe_start_duration(),
-    case blockchain_ledger_v1:find_public_poc(POCOnionKeyHash, Ledger) of
-        {error, Reason}=Error ->
-            lager:warning([{poc_id, POCID}],
-                          "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
-                          [POCOnionKeyHash, Reason]),
-            Error;
-        {ok, PoC} ->
-            Secret = ?MODULE:secret(Txn),
-            case ?MODULE:challenger(PoC) =:= Challenger andalso
-                 ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret) of
-                false ->
-                    {error, invalid_poc};
-                true ->
-                    PrePocBlockHeight = blockchain_ledger_poc_v3:start_height(PoC),
-                    case blockchain:get_block_info(PrePocBlockHeight, Chain) of
-                        {error, Reason}=Error ->
-                            lager:warning([{poc_id, POCID}],
-                                          "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                          [PrePocBlockHeight, Reason]),
-                            Error;
-                        {ok, #block_info{height = BlockHeight,
-                                         time = BlockTime,
-                                         pocs = BlockPoCs}} ->
-                                %% check the onion key is in the block
-
-                                    case lists:member({Challenger, POCOnionKeyHash}, BlockPoCs) of
-                                        false ->
-                                            {error, onion_key_hash_mismatch};
-                                        true ->
-                                            %% Note there are 2 block hashes here; one is the block hash encoded into the original
-                                            %% PoC request used to establish a lower bound on when that PoC request was made,
-                                            %% and one is the block hash at which the PoC was absorbed onto the chain.
-                                            %%
-                                            %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
-                                            %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
-                                            %% with the chain.
-                                            %%
-                                            %% The second of these is combined with the PoC secret to produce the combined entropy
-                                            %% from both the chain and from the PoC requester.
-                                            %%
-                                            %% Keeping these distinct and using them for their intended purpose is important.
-                                            PrePoCBlockHash = blockchain_ledger_poc_v3:block_hash(PoC),
-                                            StartLA = maybe_log_duration(prelude, StartPre),
-                                            {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
-                                            StartFT = maybe_log_duration(ledger_at, StartLA),
-                                            Vars = vars(OldLedger),
-                                            Keys = libp2p_crypto:keys_from_bin(Secret),
-                                            Path = case blockchain:config(?poc_version, OldLedger) of
-                                                       {ok, V} when V >= 11 ->
-                                                           %% Targeting phase
-                                                           %% Find the original target
-                                                           Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
-                                                           #{public := _OnionCompactKey, secret := {ecc_compact, POCPrivKey}} = Keys,
-                                                           #'ECPrivateKey'{privateKey = PrivKeyBin} = POCPrivKey,
-                                                           POCPrivKeyHash = crypto:hash(sha256, PrivKeyBin),
-                                                           ZoneRandState = blockchain_utils:rand_state(Entropy),
-                                                           InitTargetRandState = blockchain_utils:rand_state(POCPrivKeyHash),
-                                                           {ok, {Target, TargetRandState}} =  blockchain_poc_target_v4:target(Challenger, InitTargetRandState, ZoneRandState, Ledger, Vars),
-                                                           %% Path building phase
-                                                           StartB = maybe_log_duration(target, StartFT),
-                                                           RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
-                                                           StartP = maybe_log_duration(build, StartB),
-                                                           RetB
-                                                   end,
-                                            N = erlang:length(Path),
-                                            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                            {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
-                                                                   {ok, true} ->
-                                                                       blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
-                                                                   _ ->
-                                                                       blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger)
-                                                               end,
-                                            %% no witness will exist with the first layer hash
-                                            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                            StartV = maybe_log_duration(packet_construction, StartP),
-                                            case blockchain:config(?poc_version, OldLedger) of
-                                                {ok, POCVer} when POCVer >= 11 ->
-                                                    Channels = get_channels_(OldLedger, Path, LayerData),
-                                                    %% %% run validations
-                                                    Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
-                                                    maybe_log_duration(receipt_validation, StartV),
-                                                    case Ret of
-                                                        ok ->
-                                                            {ok, Channels};
-                                                        {error, _}=E -> E
-                                                    end
-                                            end
-                                    end
-                    end
-            end
-    end;
-check_is_valid_poc(_ChallengerType, Txn, Chain) ->
+check_is_valid_poc(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -907,82 +779,6 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
 %%--------------------------------------------------------------------
  -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    ChallengerType =  blockchain:config(?poc_challenger_type, Ledger),
-    absorb(ChallengerType, Txn, Chain).
-
- -spec absorb(atom(), txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-absorb(validator, Txn, Chain) ->
-    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    Challenger = ?MODULE:challenger(Txn),
-    Secret = ?MODULE:secret(Txn),
-    Ledger = blockchain:ledger(Chain),
-    POCID = ?MODULE:poc_id(Txn),
-    try
-        %% get these to make sure we're not replaying.
-        PoC = case blockchain_ledger_v1:find_public_poc(OnionKeyHash, Ledger) of
-                   {ok, Ps} ->
-                       Ps;
-                   {error, not_found} ->
-                       lager:warning("potential replay: ~p not found", [OnionKeyHash]),
-                       throw(replay)
-               end,
-        case ?MODULE:challenger(PoC) =:= Challenger andalso
-             ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret) of
-            false ->
-                {error, invalid_poc};
-            true ->
-                case blockchain:config(?poc_version, Ledger) of
-                    {error, not_found} ->
-                        %% Older poc version, don't add witnesses
-                        ok;
-                    {ok, POCVersion} when POCVersion >= 11 ->
-                        %% get rid of this for the time being, we will need to restore it later when
-                        %% the clean witness restore thing lands
-
-                        %% %% Add filtered witnesses with poc-v9
-                        %% ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
-                        %%                                       Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                        %%                                       case FilteredReceipt of
-                        %%                                           undefined ->
-                        %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                        %%                                           FR ->
-                        %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                        %%                                       end
-                        %%                               end, ok, Txn, Ledger, Chain);
-                        ok;
-                    {ok, _POCVersion} ->
-                        ok
-                end,
-
-                case blockchain:config(?poc_version, Ledger) of
-                    {ok, V} when V >= 11 ->
-                        %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
-                        %% as new calculate_delta calls back into check_is_valid_poc
-                        case blockchain:config(?election_version, Ledger) of
-                            %% election v4 removed score from consideration
-                            {ok, EV} when EV >= 4 ->
-                                ok;
-                            _ ->
-                                lists:foreach(fun({Gateway, Delta}) ->
-                                                      blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
-                                              end,
-                                              ?MODULE:deltas(Txn, Chain))
-                        end,
-                        ok = blockchain_ledger_v1:delete_public_poc(OnionKeyHash, Ledger);
-                    _ ->
-                        ok
-                end
-
-        end
-    catch throw:Reason ->
-            {error, Reason};
-          What:Why:Stacktrace ->
-            lager:error([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p",
-                        [What, Why, Stacktrace]),
-            {error, state_missing}
-    end;
-absorb(_NonValidatorChallengeType, Txn, Chain) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),
     Secret = ?MODULE:secret(Txn),
@@ -1090,7 +886,6 @@ absorb(_NonValidatorChallengeType, Txn, Chain) ->
                         [What, Why, Stacktrace]),
             {error, state_missing}
     end.
-
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),
                                  OnionKeyHash :: binary(),
