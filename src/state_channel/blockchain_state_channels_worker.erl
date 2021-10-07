@@ -218,7 +218,7 @@ offer(
     DCAmount = blockchain_state_channel_v1:amount(SC),
     case (TotalDCs + NumDCs) > DCAmount andalso PreventOverSpend of
         true ->
-            ok = send_offer_rejection(HandlerPid),
+            ok = send_offer_rejection(HandlerPid, Offer),
             lager:warning(
                 "dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                 [DCAmount, NumDCs, TotalDCs]
@@ -241,7 +241,7 @@ offer(
                         "dropping this packet because: ~p ~p",
                         [_Reason, lager:pr(SC, blockchain_state_channel_v1)]
                     ),
-                    ok = send_offer_rejection(HandlerPid),
+                    ok = send_offer_rejection(HandlerPid, Offer),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
                     lager:debug("purchasing offer from ~p ~p", [HotspotName, PurchaseSC]),
@@ -333,9 +333,10 @@ maybe_update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
         end,
    State#state{handlers=Handlers1}.
 
--spec send_offer_rejection(HandlerPid :: pid()) -> ok.
-send_offer_rejection(HandlerPid) ->
-    RejectionMsg = blockchain_state_channel_rejection_v1:new(),
+-spec send_offer_rejection(HandlerPid :: pid(), Offer :: blockchain_state_channel_offer_v1:offer()) -> ok.
+send_offer_rejection(HandlerPid, Offer) ->
+    PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
+    RejectionMsg = blockchain_state_channel_rejection_v1:new(PacketHash),
     ok = blockchain_state_channel_common:send_rejection(HandlerPid, RejectionMsg).
 
 -spec try_update_summary(
