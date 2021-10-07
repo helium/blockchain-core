@@ -37,6 +37,10 @@
     to_json/2
 ]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -type txn_consensus_group_failure() :: #blockchain_txn_consensus_group_failure_v1_pb{}.
 -export_type([txn_consensus_group_failure/0]).
 
