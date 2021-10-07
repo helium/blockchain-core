@@ -2737,6 +2737,9 @@ blocks_test_() ->
                                                                crypto:strong_rand_bytes(33)
                                                        end),
 
+             meck:new(blockchain_gossip_handler),
+             meck:expect(blockchain_gossip_handler, regossip_block, fun(_Block, _Height, _Hash, _SwarmTID) -> ok end),
+
              {ok, Pid} = blockchain_lock:start_link(),
 
              #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
@@ -2782,6 +2785,7 @@ blocks_test_() ->
              meck:unload(blockchain_election),
              ?assert(meck:validate(blockchain_swarm)),
              meck:unload(blockchain_swarm),
+             meck:unload(blockchain_gossip_handler),
              test_utils:cleanup_tmp_dir(TmpDir)
      end}.
 
@@ -2811,6 +2815,8 @@ get_block_test_() ->
              meck:expect(blockchain_swarm, pubkey_bin, fun() ->
                                                                crypto:strong_rand_bytes(33)
                                                        end),
+             meck:new(blockchain_gossip_handler),
+             meck:expect(blockchain_gossip_handler, regossip_block, fun(_Block, _Height, _Hash, _SwarmTID) -> ok end),
 
              {ok, Pid} = blockchain_lock:start_link(),
 
@@ -2853,6 +2859,7 @@ get_block_test_() ->
              meck:unload(blockchain_election),
              ?assert(meck:validate(blockchain_swarm)),
              meck:unload(blockchain_swarm),
+             meck:unload(blockchain_gossip_handler),
              test_utils:cleanup_tmp_dir(TmpDir)
      end
     }.
