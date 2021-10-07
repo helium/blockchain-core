@@ -694,6 +694,13 @@ get_reward_vars(Start, End, Ledger) ->
                                  _ -> undefined
                              end,
 
+    WitnessRewardDecayExclusion =
+        case blockchain:config(?witness_reward_decay_exclusion, Ledger) of
+            {ok, Exc} -> Exc;
+            _ -> undefined
+        end,
+
+
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -716,7 +723,8 @@ get_reward_vars(Start, End, Ledger) ->
         election_interval => ElectionInterval,
         election_restart_interval => ElectionRestartInterval,
         block_time => BlockTime,
-        witness_reward_decay_rate => WitnessRewardDecayRate
+        witness_reward_decay_rate => WitnessRewardDecayRate,
+        witness_reward_decay_exclusion => WitnessRewardDecayExclusion
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -1484,9 +1492,18 @@ witness_decay(Count, Vars) ->
         {ok, undefined} ->
             1;
         {ok, DecayRate} ->
-            Scale = math:exp(Count * -1 * DecayRate),
-            lager:info("scaling witness reward by ~p", [Scale]),
-            Scale;
+            Exclusion = case maps:find(witness_reward_decay_exclusion, Vars) of
+                            {ok, undefined} -> 0;
+                            {ok, ExclusionValue} -> ExclusionValue
+                        end,
+            case Count < Exclusion of
+                true ->
+                    1;
+                false ->
+                    Scale = math:exp((Count - Exclusion) * -1 * DecayRate),
+                    lager:debug("scaling witness reward by ~p", [Scale]),
+                    Scale
+            end;
         _ ->
             1
     end.
