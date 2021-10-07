@@ -338,7 +338,8 @@ handle_offer(Offer, Time, HandlerState) ->
             end;
         reject ->
             %% we were able to reject out of hand
-            Rejection = blockchain_state_channel_rejection_v1:new(),
+            PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
+            Rejection = blockchain_state_channel_rejection_v1:new(PacketHash),
             Msg = maybe_encode_msg(MaybeEncodeMsg, Rejection),
             {ok, HandlerState, Msg}
     end.
