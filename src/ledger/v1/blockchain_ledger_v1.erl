@@ -405,6 +405,7 @@ new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, Options) ->
     Ledger.
 
 new(Dir, ReadOnly, Options) ->
+    blockchain_utils:teardown_var_cache(),
     {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly, Options),
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
