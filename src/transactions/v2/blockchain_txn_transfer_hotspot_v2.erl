@@ -26,6 +26,8 @@
     sign/2,
     is_valid/2,
     is_valid_owner/1,
+    is_well_formed/1,
+    is_absorbable/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -151,6 +153,15 @@ is_valid(Txn, Chain) ->
         _ ->
             {error, transaction_validity_version_not_set}
     end.
+
+-spec is_well_formed(txn_transfer_hotspot_v2()) -> ok | {error, _}.
+is_well_formed(_Txn) ->
+    error(not_implemented).
+
+-spec is_absorbable(txn_transfer_hotspot_v2(), blockchain_ledger_v1:ledger()) ->
+    boolean().
+is_absorbable(_Txn, _Chain) ->
+    error(not_implemented).
 
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
