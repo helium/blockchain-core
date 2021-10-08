@@ -595,7 +595,24 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, fee, staking_fee])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    [
+        ?_assertEqual(
+            {error,{invalid_address,owner}},
+            is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
+        ),
+        ?_assertEqual(
+            ok,
+            (fun() ->
+                #{public := PubKey, secret := _} =
+                    libp2p_crypto:generate_keys(ecc_compact),
+                Addr = libp2p_crypto:pubkey_to_bin(PubKey),
+                %% All that is_well_formed cares about is syntactic validity of
+                %% _independent_ fields. No semantic nuances or field
+                %% interdependencies are expected to be checked.
+                is_well_formed(new(Addr, Addr))
+            end)()
+        )
+    ].
 
 -endif.
