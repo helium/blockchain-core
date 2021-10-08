@@ -50,7 +50,18 @@
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
--export_type([hash/0, txn/0, txns/0]).
+
+-type field_validation_spec() ::
+    {
+        {FieldName :: atom(), FieldValue :: iodata() | undefined},
+        FieldType ::
+              {binary, pos_integer()}
+            | {binary, pos_integer(), pos_integer()}
+            | {is_integer, non_neg_integer()}
+            | {member, list()}
+            | {address, libp2p}
+    }.
+-export_type([hash/0, txn/0, txns/0, field_validation_spec/0]).
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
@@ -716,12 +727,8 @@ type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
 type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
     blockchain_txn_transfer_hotspot_v2.
 
--spec validate_fields([{{atom(), iodata() | undefined},
-                        {binary, pos_integer()} |
-                        {binary, pos_integer(), pos_integer()} |
-                        {is_integer, non_neg_integer()} |
-                        {member, list()} |
-                        {address, libp2p}}]) -> ok | {error, any()}.
+-spec validate_fields([field_validation_spec()]) ->
+    ok | {error, any()}.
 validate_fields([]) ->
     ok;
 validate_fields([{{Name, Field}, {binary, Length}}|Tail]) when is_binary(Field) ->
