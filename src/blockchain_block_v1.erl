@@ -377,8 +377,8 @@ to_json(Block, _Opts) ->
       hash => ?BIN_TO_B64(hash_block(Block)),
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
       transactions => [
-        #{ 
-            hash => ?BIN_TO_B64(blockchain_txn:hash(T)), 
+        #{
+            hash => ?BIN_TO_B64(blockchain_txn:hash(T)),
             type => blockchain_txn:json_type(T)
         } || T <- transactions(Block)]
      }.
@@ -426,13 +426,13 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
--spec wrap_poc_key({binary(), binary()}) -> #blockchain_poc_key_pb{}.
-wrap_poc_key({MinerAddr, Key}) ->
-    #blockchain_poc_key_pb{addr = MinerAddr, key = Key}.
+-spec wrap_poc_key({integer(), binary()}) -> #blockchain_poc_key_pb{}.
+wrap_poc_key({PosInCG, Key}) ->
+    #blockchain_poc_key_pb{pos = PosInCG, key = Key}.
 
--spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {binary(), binary()}.
-unwrap_poc_key(#blockchain_poc_key_pb{addr = MinerAddr, key = Key}) ->
-    {MinerAddr, Key}.
+-spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {integer(), binary()}.
+unwrap_poc_key(#blockchain_poc_key_pb{pos = PosInCG, key = Key}) ->
+    {PosInCG, Key}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
