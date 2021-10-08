@@ -295,7 +295,7 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
                         fun(T) ->
                                 Start = erlang:monotonic_time(millisecond),
                                 Type = ?MODULE:type(T),
-                                Ret = (catch Type:is_valid(T, Chain)),
+                                Ret = is_valid(T, Chain),
                                 maybe_log_duration(Type, Start),
                                 {T, Ret}
                         end, lists:reverse(PBuf)),
@@ -314,7 +314,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             Start = erlang:monotonic_time(millisecond),
-            case catch Type:is_valid(Txn, Chain) of
+            case is_valid(Txn, Chain)of
                 ok ->
                     case ?MODULE:absorb(Txn, Chain) of
                         ok ->
@@ -355,7 +355,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     fun(T) ->
                             Start = erlang:monotonic_time(millisecond),
                             Ty = ?MODULE:type(T),
-                            Ret = (catch Ty:is_valid(T, Chain)),
+                            Ret = is_valid(T, Chain),
                             maybe_log_duration(Ty, Start),
                             {T, Ret}
                     end, lists:reverse(PBuf)),
