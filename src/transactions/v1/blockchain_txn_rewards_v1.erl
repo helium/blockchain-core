@@ -1906,7 +1906,7 @@ to_json_test() ->
                       [type, start_epoch, end_epoch, rewards])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 common_poc_vars() ->
     #{

@@ -201,6 +201,6 @@ to_json_test() ->
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

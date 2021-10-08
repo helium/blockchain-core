@@ -1889,6 +1889,6 @@ eirp_from_closest_freq_test() ->
     ?assertEqual(15, EIRP).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

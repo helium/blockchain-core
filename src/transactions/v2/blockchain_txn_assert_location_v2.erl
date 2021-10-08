@@ -710,6 +710,6 @@ is_valid_gain_test() ->
     ?assert(is_valid_gain(ValidT4, MinGain, MaxGain)).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

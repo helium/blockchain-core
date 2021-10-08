@@ -385,6 +385,6 @@ to_json_test() ->
                       [type, hash, members, proof, height, delay])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

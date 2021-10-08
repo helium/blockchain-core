@@ -300,7 +300,7 @@ to_json_test() ->
                       [type, hash, payer, payee, amount, fee, nonce])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 is_valid_with_extended_validation_test() ->
     {timeout, 30000,

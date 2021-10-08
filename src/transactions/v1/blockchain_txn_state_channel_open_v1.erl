@@ -386,6 +386,6 @@ to_json_test() ->
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

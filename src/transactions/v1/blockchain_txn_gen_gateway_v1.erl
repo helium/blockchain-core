@@ -227,6 +227,6 @@ json_test() ->
                       [type, hash, gateway, owner, location, nonce])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

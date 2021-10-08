@@ -2036,6 +2036,6 @@ consensus_epoch_reward_test() ->
      end}.
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

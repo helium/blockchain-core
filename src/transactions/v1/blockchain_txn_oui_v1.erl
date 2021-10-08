@@ -527,6 +527,6 @@ to_json_test() ->
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size, oui])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

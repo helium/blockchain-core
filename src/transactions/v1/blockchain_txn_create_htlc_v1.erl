@@ -414,6 +414,6 @@ is_valid_with_extended_validation_test() ->
      end}.
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

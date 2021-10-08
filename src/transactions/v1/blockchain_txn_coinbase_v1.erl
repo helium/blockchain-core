@@ -178,6 +178,6 @@ to_json_test() ->
                       [type, hash, payee, amount])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

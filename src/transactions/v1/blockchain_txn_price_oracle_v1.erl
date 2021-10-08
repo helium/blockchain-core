@@ -289,6 +289,6 @@ block_height_test() ->
     ?assertEqual(2, block_height(Tx)).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

@@ -312,6 +312,6 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

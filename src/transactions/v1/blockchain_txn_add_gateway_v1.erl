@@ -596,6 +596,6 @@ to_json_test() ->
                       [type, hash, gateway, owner, payer, fee, staking_fee])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

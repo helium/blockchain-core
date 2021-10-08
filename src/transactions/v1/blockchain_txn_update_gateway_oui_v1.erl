@@ -330,6 +330,6 @@ to_json_test() ->
                       [type, hash, gateway, oui, fee, nonce])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

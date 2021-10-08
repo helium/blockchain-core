@@ -385,6 +385,6 @@ to_json_test() ->
                       [type, hash, gateway, seller, buyer, buyer_nonce, amount_to_seller, fee])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

@@ -346,6 +346,6 @@ to_json_test() ->
                       [type, hash, challenger, secret_hash, onion_key_hash, block_hash, version, fee])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

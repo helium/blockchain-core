@@ -434,6 +434,6 @@ to_json_test() ->
                       [type, hash, closer, state_channel])).
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 -endif.

@@ -546,7 +546,7 @@ invalid_new() ->
       }.
 
 validation_test() ->
-    'TODO-validation_test'.
+    error('TODO-validation_test').
 
 missing_payer_signature_new() ->
     #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
