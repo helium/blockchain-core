@@ -320,24 +320,25 @@ is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_add_gateway(), blockchain:blockchain()) ->
+    ok | {error, Reason} when
+    Reason :: atom() | {atom(), any()}. % TODO Spec reason more-precisely
 is_valid(Txn, Chain) ->
+    %% TODO Can we take Ledger instead of Chain?
     Ledger = blockchain:ledger(Chain),
-    case {?MODULE:is_valid_owner(Txn),
-          ?MODULE:is_valid_gateway(Txn),
-          ?MODULE:is_valid_payer(Txn),
-          ?MODULE:is_valid_staking_key(Txn, Ledger)}
-        of
-        {false, _, _, _} ->
-            {error, bad_owner_signature};
-        {_, false, _, _} ->
-            {error, bad_gateway_signature};
-        {_, _, false, _} ->
-            {error, bad_payer_signature};
-        {_, _, _, false} ->
-            {error, payer_invalid_staking_key};
-        {true, true, true, true} ->
 
+    M = ?MODULE,
+    Steps =
+        [
+            fun ({}) -> result_of_bool(M:is_valid_owner(Txn), {}, bad_owner_signature) end,
+            fun ({}) -> result_of_bool(M:is_valid_gateway(Txn), {}, bad_gateway_signature) end,
+            fun ({}) -> result_of_bool(M:is_valid_payer(Txn), {}, bad_payer_signature) end,
+            fun ({}) -> result_of_bool(M:is_valid_staking_key(Txn, Ledger), {}, payer_invalid_staking_key) end
+        ],
+    case result_pipe(Steps, {}) of
+        {error, _}=Error ->
+            Error;
+        {ok, {}} ->
             %% check this is not also a validator
             case blockchain_ledger_v1:get_validator(gateway(Txn), Ledger) of
                 {ok, _} ->
@@ -352,6 +353,7 @@ is_valid(Txn, Chain) ->
                                       false -> Payer
                                   end,
                     StakingFee = ?MODULE:staking_fee(Txn),
+                    %% TODO replace Chain param with Ledger
                     ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
                     TxnFee = ?MODULE:fee(Txn),
                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
@@ -367,13 +369,25 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_add_gateway()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(Txn) ->
+    TypeAddr = {address, libp2p},
+    Owner    = {{owner  , owner(Txn)  }, TypeAddr},
+    Gateway  = {{gateway, gateway(Txn)}, TypeAddr},
+    Payer    = {{payer  , payer(Txn)  }, TypeAddr},
+    IsPayer  = byte_size(payer(Txn)) > 0,
+    blockchain_txn:validate_fields([Owner, Gateway | [Payer || IsPayer]]).
 
 -spec is_absorbable(txn_add_gateway(), blockchain_ledger_v1:ledger()) ->
     boolean().
-is_absorbable(_Txn, _Ledger) ->
-    error(not_implemented).
+is_absorbable(Txn, Ledger) ->
+    Gateway = gateway(Txn),
+    %% Only new gateways allowed:
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {ok, _} ->
+            false;
+        {error, _} ->
+            true
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -447,6 +461,20 @@ staking_fee_for_gw_mode(light, Ledger)->
 staking_fee_for_gw_mode(full, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
 
+result_of_bool(true, Ok, _) -> {ok, Ok};
+result_of_bool(false, _, Error) -> {error, Error}.
+
+%% TODO Move result_pipe to a re-usable module
+-spec result_pipe([fun((A) -> {ok, B} | {error, C})], A) -> {ok, B} | {error, C}.
+result_pipe([], X) ->
+    {ok, X};
+result_pipe([F | Fs], X) ->
+    case F(X) of
+        {error, _}=Error ->
+            Error;
+        {ok, Y} ->
+            result_pipe(Fs, Y)
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
