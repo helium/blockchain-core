@@ -38,7 +38,7 @@ decode(BinaryRejection) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    Rejection = new(),
+    Rejection = new(<<"packet_hash">>),
     ?assertEqual(Rejection, decode(encode(Rejection))).
 
 -endif.
