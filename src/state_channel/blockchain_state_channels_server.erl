@@ -213,7 +213,7 @@ handle_cast({update_state_channel, UpdatedSC}, #state{state_channels=SCs0}=State
             lager:warning("~p sent update_state_channel, but we don't know about it", [Name]),
             {noreply, State};
         {_OldSC, SCState, Pid} ->
-            lager:warning("~p sent update_state_channel", [Name]),
+            lager:info("~p sent update_state_channel", [Name]),
             SCs1 = maps:put(ID, {UpdatedSC, SCState, Pid}, SCs0),
             {noreply, State#state{state_channels=SCs1}}
     end;
@@ -332,6 +332,14 @@ terminate(_Reason, _State) ->
     HandlerPid :: pid()
 ) -> ok | reject.
 handle_offer(Offer, Ledger, HandlerPid) ->
+    handle_offer_(Offer, Ledger, HandlerPid, 2).
+
+handle_offer_(Offer, _Ledger, _HandlerPid, 0) ->
+    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    HotspotName = blockchain_utils:addr2name(HotspotID),
+    lager:debug("could not handle offer too may retries for ~p", [HotspotName]),
+    reject;
+handle_offer_(Offer, Ledger, HandlerPid, Retry) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
     HotspotName = blockchain_utils:addr2name(HotspotID),
     case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
@@ -350,7 +358,7 @@ handle_offer(Offer, Ledger, HandlerPid) ->
                     lager:debug("count not find any state channel for ~p", [HotspotName]),
                     ok = get_new_active(),
                     ok = timer:sleep(100),
-                    handle_offer(Offer, Ledger, HandlerPid)
+                    handle_offer_(Offer, Ledger, HandlerPid, Retry-1)
             end;
         Pid ->
             lager:debug("found ~p for ~p", [Pid, HotspotName]),
