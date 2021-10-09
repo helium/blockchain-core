@@ -78,7 +78,7 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     {ok, HandlerState,
                      blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSCs ->
-                    [{SCID, ActiveSC}|_] = ActiveSCs,
+                    [{SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     lager:info("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
