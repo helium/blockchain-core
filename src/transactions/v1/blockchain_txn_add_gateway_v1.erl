@@ -370,12 +370,15 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(txn_add_gateway()) -> ok | {error, _}.
 is_well_formed(Txn) ->
-    TypeAddr = {address, libp2p},
-    Owner    = {{owner  , owner(Txn)  }, TypeAddr},
-    Gateway  = {{gateway, gateway(Txn)}, TypeAddr},
-    Payer    = {{payer  , payer(Txn)  }, TypeAddr},
-    IsPayer  = byte_size(payer(Txn)) > 0,
-    blockchain_txn:validate_fields([Owner, Gateway | [Payer || IsPayer]]).
+    Payer = payer(Txn),
+    blockchain_txn:validate_fields(
+        [
+            {{owner, owner(Txn)}, {address, libp2p}},
+            {{gateway, gateway(Txn)}, {address, libp2p}}
+        |
+            [{{payer, Payer}, {address, libp2p}} || byte_size(Payer) > 0]
+        ]
+    ).
 
 -spec is_absorbable(txn_add_gateway(), blockchain_ledger_v1:ledger()) ->
     boolean().
