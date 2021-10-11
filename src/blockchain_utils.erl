@@ -819,7 +819,7 @@ pfind_test() ->
     ?assertEqual({true, 2}, pfind(F, Args)),
     receive
         _ ->
-            ?assert(fasle)
+            ?assert(false)
     after 100 ->
         ok
     end,
