@@ -218,11 +218,10 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                                          time = BlockTime,
                                          pocs = BlockPoCs}} ->
                                     %% check the onion key is in the block
-
-                                    case lists:member({Challenger, POCOnionKeyHash}, BlockPoCs) of
+                                    case lists:keyfind(POCOnionKeyHash, 2, BlockPoCs) of
                                         false ->
                                             {error, onion_key_hash_mismatch};
-                                        true ->
+                                        _ ->
                                             %% Note there are 2 block hashes here; one is the block hash encoded into the original
                                             %% PoC request used to establish a lower bound on when that PoC request was made,
                                             %% and one is the block hash at which the PoC was absorbed onto the chain.
