@@ -11,7 +11,6 @@
     challenger/1, challenger/2,
     block_hash/1, block_hash/2,
     start_height/1, start_height/2,
-    secret_hash/1,
     orig_version/1,
     verify/3,
     serialize/1, deserialize/1,
@@ -28,8 +27,7 @@
     challenger :: libp2p_crypto:pubkey_bin(),
     block_hash :: binary(),
     start_height :: pos_integer(),
-    orig_version :: pos_integer(),
-    secret_hash :: binary() | undefined %% TODO, carried over from v2 for backwards compatibility...maybe remove
+    orig_version :: pos_integer()
 }).
 
 -define(RXTX, rxtx).
@@ -88,10 +86,6 @@ start_height(Height, PoC) ->
 -spec orig_version(poc()) -> binary().
 orig_version(PoC) ->
     PoC#poc_v3.orig_version.
-
--spec secret_hash(poc()) -> binary().
-secret_hash(PoC) ->
-    PoC#poc_v3.secret_hash.
 
 -spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> {ok, poc()} | {error, any()}.
 verify(PoC, Challenger, BlockHash) ->
@@ -159,25 +153,23 @@ fail() ->
     block_hash :: binary()
 }).
 
-convert(#poc_v1{secret_hash=SecretHash,
+convert(#poc_v1{
                 onion_key_hash=OnionKeyHash,
                 challenger=Challenger
                }) ->
     #poc_v3{
-        secret_hash=SecretHash,
         onion_key_hash=OnionKeyHash,
         challenger=Challenger,
         block_hash= <<>>,
         start_height=1,
         orig_version=1
     };
-convert(#poc_v2{secret_hash=SecretHash,
+convert(#poc_v2{
                 onion_key_hash=OnionKeyHash,
                 challenger=Challenger,
                 block_hash=BlockHash
                }) ->
     #poc_v3{
-        secret_hash=SecretHash,
         onion_key_hash=OnionKeyHash,
         challenger=Challenger,
         block_hash= BlockHash,
@@ -195,14 +187,9 @@ new_test() ->
         challenger = <<"address">>,
         block_hash = <<"block_hash">>,
         start_height = 120000,
-        orig_version = 3,
-        secret_hash = undefined
+        orig_version = 3
     },
     ?assertEqual(PoC, new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000)).
-
-secret_hash_test() ->
-    PoC = new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000),
-    ?assertEqual(undefined, secret_hash(PoC)).
 
 onion_key_hash_test() ->
     PoC = new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000),

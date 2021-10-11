@@ -1,9 +1,9 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc blockchain_poc_target_v3 implementation.
+%%% @doc blockchain_poc_target_v4 implementation.
 %%%
 %%% The targeting mechanism is based on the following conditions:
-%%% - Filter hotspots which haven't done a poc request for a long time
-%%% - Target selection is entirely random
+%%% - Deterministically i dentify a target region based on public key
+%%% - Deterministically select a challengee from target region based on private key
 %%%
 %%%-----------------------------------------------------------------------------
 -module(blockchain_poc_target_v4).
@@ -52,7 +52,7 @@ gateways_for_zone(
     %% Get a list of gateway pubkeys within this hex
     {ok, AddrList0} = blockchain_ledger_v1:get_hex(Hex, Ledger),
     lager:info("gateways for hex ~p: ~p", [Hex, AddrList0]),
-    %% Limit max number of potential targets in the zone %% TODO: do we want this now?
+    %% Limit max number of potential targets in the zone
     {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
     case filter(AddrList, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
@@ -71,37 +71,6 @@ gateways_for_zone(
 
 
     end.
-
-%%target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail]=_Attempted) ->
-%%    %% Get a list of gateway pubkeys within this hex
-%%    {ok, AddrList0} = blockchain_ledger_v1:get_hex(Hex, Ledger),
-%%    %% Remove challenger if present and also remove gateways who haven't challenged
-%%    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-%%
-%%    {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
-%%
-%%    case filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) of
-%%        FilteredList when length(FilteredList) >= 1 ->
-%%            %% Assign probabilities to each of these gateways
-%%            ProbTargetMap = lists:foldl(fun(A, Acc) ->
-%%                                                Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
-%%                                                maps:put(A, Prob, Acc)
-%%                                        end,
-%%                                        #{},
-%%                                        FilteredList),
-%%            %% Sort the scaled probabilities in default order by gateway pubkey_bin
-%%            %% make sure that we carry the rand_state through for determinism
-%%            {RandVal, TargetRandState} = rand:uniform_s(HexRandState),
-%%            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
-%%            {ok, {TargetPubkeybin, TargetRandState}};
-%%        _ ->
-%%            %% no eligible target in this zone
-%%            %% find a new zone
-%%            {ok, New} = choose_zone(HexRandState, HexList),
-%%            %% remove Hex from attemped, add New to attempted and retry
-%%            target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [New | Tail])
-%%    end.
-
 
 -spec target(
     ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -174,8 +143,7 @@ target_(
     {ok, {TargetPubkeybin, TargetRandState}}.
 
 %% @doc Filter gateways based on these conditions:
-%% - Inactive gateways (those which haven't challenged in a long time).
-%% - Dont target GWs which do not have the releveant capability
+%% - gateways which do not have the relevant capability
 -spec filter(
     AddrList :: [libp2p_crypto:pubkey_bin()],
     Ledger :: blockchain_ledger_v1:ledger(),
@@ -196,34 +164,9 @@ filter(AddrList, Ledger, _Height, _Vars) ->
         AddrList
     ).
 
-%%-spec is_active(
-%%    Gateway :: blockchain_ledger_gateway_v2:gateway(),
-%%    Height :: non_neg_integer(),
-%%    Vars :: map()
-%%) -> boolean().
-%%is_active(Gateway, Height, Vars) ->
-%%    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-%%        undefined ->
-%%            %% No POC challenge, don't include
-%%            false;
-%%        C ->
-%%            case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
-%%                true ->
-%%                    %% Likely disabled for testing
-%%                    true;
-%%                false ->
-%%                    %% Check challenge age is recent depending on the set chain var
-%%                    (Height - C) < challenge_age(Vars)
-%%            end
-%%    end.
-
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
-%%-spec challenge_age(Vars :: map()) -> pos_integer().
-%%challenge_age(Vars) ->
-%%    maps:get(poc_v4_target_challenge_age, Vars).
-
 -spec prob_randomness_wt(Vars :: map()) -> float().
 prob_randomness_wt(Vars) ->
     maps:get(poc_v5_target_prob_randomness_wt, Vars).

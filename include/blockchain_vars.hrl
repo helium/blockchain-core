@@ -135,10 +135,10 @@
 %% Number of blocks to wait before a hotspot can submit a poc challenge request
 -define(poc_challenge_interval, poc_challenge_interval).
 
-%% Number of challenges per block
+%% Number of challenges per block: integer
 -define(poc_challenge_rate, poc_challenge_rate).
 
-%% Actor type of the challenger
+%% Actor type of the challenger: not set or 'validator'
 -define(poc_challenger_type, poc_challenger_type).
 
 %% Allow to switch POC version
