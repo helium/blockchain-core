@@ -337,7 +337,7 @@ handle_offer(Offer, Ledger, HandlerPid) ->
 handle_offer_(Offer, _Ledger, _HandlerPid, 0) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
     HotspotName = blockchain_utils:addr2name(HotspotID),
-    lager:debug("could not handle offer too may retries for ~p", [HotspotName]),
+    lager:debug("could not handle offer too many retries for ~p", [HotspotName]),
     reject;
 handle_offer_(Offer, Ledger, HandlerPid, Retry) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
