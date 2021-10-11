@@ -267,7 +267,7 @@ handle_info({got_block, Block, _BlockHash, []}, State0) ->
     State1 = State0#state{height=Height},
     lager:debug("no transactions found in ~p", [Height]),
     ok = check_state_channel_expiration(Block, State1),
-    {noreply, State0};
+    {noreply, State1};
 handle_info({got_block, Block, BlockHash, Txns}, State0) ->
     Height = blockchain_block:height(Block),
     State1 = State0#state{height=Height},
