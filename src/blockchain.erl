@@ -756,16 +756,18 @@ mk_block_info(Hash, Block, Ledger) ->
             {ok, validator} ->
                 blockchain_block_v1:poc_keys(Block);
             _ ->
-            lists:flatmap(
-                fun(Txn) ->
-                         case blockchain_txn:type(Txn) of
-                             blockchain_txn_poc_request_v1 ->
-                                 [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
-                                   blockchain_txn_poc_request_v1:block_hash(Txn)}];
-                             _ -> []
-                         end
-                 end,
-             blockchain_block:transactions(Block))
+                maps:from_list(
+                    lists:flatmap(
+                        fun(Txn) ->
+                                 case blockchain_txn:type(Txn) of
+                                     blockchain_txn_poc_request_v1 ->
+                                         [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
+                                           blockchain_txn_poc_request_v1:block_hash(Txn)}];
+                                     _ -> []
+                                 end
+                         end,
+                     blockchain_block:transactions(Block))
+                )
         end,
     #block_info{time = blockchain_block:time(Block),
                 hash = Hash,
@@ -2011,7 +2013,7 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, 
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF,
                   SnapshotCF, ImplicitBurnsCF, InfoCF, HTLCReceiptsCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
@@ -2215,7 +2217,7 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", 
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks",
                   "plausible_blocks", "snapshots", "implicit_burns", "info", "htlc_receipts"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
