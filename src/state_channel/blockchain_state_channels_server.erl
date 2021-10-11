@@ -456,11 +456,11 @@ get_new_active(
                     end
                 end,
             SCSortFun1 =
-                fun({_ID1, {SC1, _SCState, _Pid}}, {_ID2, {SC2, _SCState, _Pid}}) ->
+                fun({_ID1, {SC1, _SC1State, _SC1Pid}}, {_ID2, {SC2, _SC2State, _SC2Pid}}) ->
                     blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
                 end,
             SCSortFun2 =
-                fun({_ID1, {SC1, _SCState, _Pid}}, {_ID2, {SC2, _SCState, _Pid}}) ->
+                fun({_ID1, {SC1, _SC1tate, _SC1Pid}}, {_ID2, {SC2, _SC2State, _SC2Pid}}) ->
                     blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
                 end,
             case lists:sort(SCSortFun2, lists:sort(SCSortFun1, lists:filter(FilterFun, PassiveSCs))) of
