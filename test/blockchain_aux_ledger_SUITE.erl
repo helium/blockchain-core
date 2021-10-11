@@ -94,7 +94,7 @@ end_per_testcase(_, Config) ->
 bootstrap_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Ledger = ?config(ledger, Config),
-    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+    AuxLedger0 = blockchain_aux_ledger_v1:bootstrap(
         filename:join([BaseDir, "bootstrap_test.db"]),
         Ledger
     ),
@@ -113,7 +113,7 @@ bootstrap_test(Config) ->
 alter_var_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Ledger = ?config(ledger, Config),
-    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+    AuxLedger0 = blockchain_aux_ledger_v1:bootstrap(
         filename:join([BaseDir, "alter_var_test.db"]),
         Ledger
     ),
@@ -133,7 +133,7 @@ alter_var_test(Config) ->
 
     AlterVars = #{<<"monthly_reward">> => AlteredMonthlyReward},
 
-    ok = blockchain_ledger_v1:set_aux_vars(AlterVars, AuxLedger),
+    ok = blockchain_aux_ledger_v1:set_vars(AlterVars, AuxLedger),
 
     {ok, AuxMonthlyReward} = blockchain_ledger_v1:config(?monthly_reward, AuxLedger),
 
@@ -144,7 +144,7 @@ alter_var_test(Config) ->
 aux_rewards_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Ledger = ?config(ledger, Config),
-    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+    AuxLedger0 = blockchain_aux_ledger_v1:bootstrap(
         filename:join([BaseDir, "bootstrap_test.db"]),
         Ledger
     ),
@@ -178,18 +178,18 @@ aux_rewards_test(Config) ->
     ],
 
     %% set both sets of rewards for aux ledger
-    ok = blockchain_ledger_v1:set_aux_rewards(Height, Rewards, AuxRewards, AuxLedger),
+    ok = blockchain_aux_ledger_v1:set_rewards(Height, Rewards, AuxRewards, AuxLedger),
 
     %% check that we get the correct sets of rewards
-    {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards_at(Height, AuxLedger),
+    {ok, {Rewards, AuxRewards}} = blockchain_aux_ledger_v1:get_rewards_at(Height, AuxLedger),
 
     %% check that all the aux rewards are as expected
     ExpectedAuxRewards = #{Height => {Rewards, AuxRewards}},
-    AllAuxRewards = blockchain_ledger_v1:get_aux_rewards(AuxLedger),
+    AllAuxRewards = blockchain_aux_ledger_v1:get_rewards(AuxLedger),
     true = lists:sort(maps:to_list(ExpectedAuxRewards)) == lists:sort(maps:to_list(AllAuxRewards)),
 
     %% check that the diff has the right account rewards
-    Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
+    Diff = blockchain_aux_ledger_v1:diff_rewards(AuxLedger),
     ct:pal("Diff: ~p", [Diff]),
 
     true = check_bal_diff(Owner, AuxMultiplier, Height, Diff),
@@ -201,7 +201,7 @@ aux_rewards_test(Config) ->
 aux_rewards_v2_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Ledger = ?config(ledger, Config),
-    AuxLedger0 = blockchain_ledger_v1:bootstrap_aux(
+    AuxLedger0 = blockchain_aux_ledger_v1:bootstrap(
         filename:join([BaseDir, "bootstrap_test.db"]),
         Ledger
     ),
@@ -231,14 +231,14 @@ aux_rewards_v2_test(Config) ->
     ],
 
     %% set both sets of rewards for aux ledger
-    ok = blockchain_ledger_v1:set_aux_rewards(Height, Rewards, AuxRewards, AuxLedger),
+    ok = blockchain_aux_ledger_v1:set_rewards(Height, Rewards, AuxRewards, AuxLedger),
 
     %% check that we get the correct sets of rewards
-    {ok, {Rewards, AuxRewards}} = blockchain_ledger_v1:get_aux_rewards_at(Height, AuxLedger),
+    {ok, {Rewards, AuxRewards}} = blockchain_aux_ledger_v1:get_rewards_at(Height, AuxLedger),
 
     %% check that all the aux rewards are as expected
     ExpectedAuxRewards = #{Height => {Rewards, AuxRewards}},
-    AllAuxRewards = blockchain_ledger_v1:get_aux_rewards(AuxLedger),
+    AllAuxRewards = blockchain_aux_ledger_v1:get_rewards(AuxLedger),
 
     ct:pal("ExpectedAuxRewards: ~p", [ExpectedAuxRewards]),
     ct:pal("AllAuxRewards: ~p", [AllAuxRewards]),
@@ -246,7 +246,7 @@ aux_rewards_v2_test(Config) ->
     true = lists:sort(maps:to_list(ExpectedAuxRewards)) == lists:sort(maps:to_list(AllAuxRewards)),
 
     %% check that the diff has the right account rewards
-    Diff = blockchain_ledger_v1:diff_aux_rewards(AuxLedger),
+    Diff = blockchain_aux_ledger_v1:diff_rewards(AuxLedger),
     ct:pal("Diff: ~p", [Diff]),
 
     true = check_bal_diff(O1, AuxMultiplier, Height, Diff),
