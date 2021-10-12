@@ -221,11 +221,11 @@ aux_absorb(Txn, AuxLedger, Chain) ->
             %% set auxiliary rewards in the aux ledger also
             lager:info("are aux rewards equal?: ~p", [lists:sort(TxnRewards) == lists:sort(AuxRewards)]),
             %% rewards appear in (End + 1) block
-            blockchain_ledger_v1:set_aux_rewards(End + 1, TxnRewards, AuxRewards, AuxLedger),
+            blockchain_aux_ledger_v1:set_rewards(End + 1, TxnRewards, AuxRewards, AuxLedger),
             case calculate_rewards_(Start, End, blockchain_ledger_v1:mode(active, AuxLedger), Chain, true) of
                 {error, _}=E -> E;
                 {ok, _, OrigMD} ->
-                    blockchain_ledger_v1:set_aux_rewards_md(End + 1, OrigMD, AuxMD, AuxLedger)
+                    blockchain_aux_ledger_v1:set_rewards_md(End + 1, OrigMD, AuxMD, AuxLedger)
             end
     end.
 
