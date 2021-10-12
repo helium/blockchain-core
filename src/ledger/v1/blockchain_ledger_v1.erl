@@ -16,9 +16,10 @@
 
     aux_heights_cf/1,
     aux_heights_md_cf/1,
+    aux_heights_diff_cf/1,
+    aux_heights_diffsum_cf/1,
+
     aux_db/1,
-    aux_height/1,
-    aux_height_md/1,
 
     check_key/2, mark_key/2, unmark_key/2,
 
@@ -3636,12 +3637,27 @@ aux_heights_md_cf(Ledger) ->
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_md
     end.
 
+-spec aux_heights_diff_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_diff_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_diff
+    end.
+
+-spec aux_heights_diffsum_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_diffsum_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_diffsum
+    end.
+
 -spec aux_db(ledger()) -> undefined | rocksdb:db_handle().
 aux_db(Ledger) ->
     case has_aux(Ledger) of
         false -> undefined;
         true -> Ledger#ledger_v1.aux#aux_ledger_v1.db
     end.
+
 -spec validators_cf(ledger()) -> rocksdb:cf_handle().
 validators_cf(Ledger) ->
     SL = subledger(Ledger),
@@ -3861,7 +3877,7 @@ delayed_cfs() ->
 
 -spec aux_cfs() -> list().
 aux_cfs() ->
-    ["aux_heights", "aux_heights_md"].
+    ["aux_heights", "aux_heights_md", "aux_heights_diff", "aux_heights_diffsum"].
 
 -spec maybe_use_snapshot(ledger(), list()) -> list().
 maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
@@ -3931,11 +3947,6 @@ delete_hex(Hex, Ledger) ->
 hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
 
-aux_height(Height) ->
-    <<?aux_height_prefix, (integer_to_binary(Height))/binary>>.
-
-aux_height_md(Height) ->
-    <<?aux_height_md_prefix, (integer_to_binary(Height))/binary>>.
 
 add_to_hex(Hex, Gateway, Ledger) ->
     Hexes = case get_hexes(Ledger) of
