@@ -20,13 +20,17 @@
     get_rewards_md_sums/1,
     get_rewards_md_sums_at/2,
 
-    diff_rewards_md/2,
-    diff_rewards_md_sums/1, diff_rewards_md_sums/2
+    get_rewards_md_diff/1,
+    get_rewards_md_diff_at/2
 ]).
 
 -include("blockchain_vars.hrl").
 -include("blockchain_ledger_v1.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
+
+%% ==================================================================
+%% Type definitions
+%% ==================================================================
 
 -type reward_diff() :: {
     ActualRewards :: blockchain_txn_reward_v1:rewards(),
@@ -53,7 +57,9 @@
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -type gw_rewards_md() :: #{Ht :: non_neg_integer() => {non_neg_integer(), non_neg_integer()}}.
 
+%% ==================================================================
 %% aux ledger key prefixes
+%% ==================================================================
 
 aux_height(Height) ->
     <<?aux_height_prefix, (integer_to_binary(Height))/binary>>.
@@ -66,6 +72,10 @@ aux_height_diff(Height) ->
 
 aux_height_diffsum(Height) ->
     <<?aux_height_diffsum_prefix, (integer_to_binary(Height))/binary>>.
+
+%% ==================================================================
+%% API
+%% ==================================================================
 
 new(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
@@ -206,35 +216,6 @@ set_rewards(Height, Rewards, AuxRewards, Ledger) ->
                     Error
             end
     end.
-
-get_rewards_(Ledger) ->
-    {ok, Itr} = rocksdb:iterator(
-        blockchain_ledger_v1:aux_db(Ledger),
-        blockchain_ledger_v1:aux_heights_cf(Ledger),
-        []
-    ),
-    Res = get_rewards_(Itr, rocksdb:iterator_move(Itr, first), #{}),
-    catch rocksdb:iterator_close(Itr),
-    Res.
-
-get_rewards_(_Itr, {error, _}, Acc) ->
-    Acc;
-get_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
-    NewAcc =
-        try binary_to_term(BinRes) of
-            {R1, R2} ->
-                <<"aux_height_", Height/binary>> = Key,
-                maps:put(binary_to_integer(Height), {R1, R2}, Acc)
-        catch
-            What:Why ->
-                lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
-                    Key,
-                    What,
-                    Why
-                ]),
-                Acc
-        end,
-    get_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
 %% @doc Get aux reward diff for Account | Gateway (Key)
 -spec diff_rewards_for(
@@ -396,7 +377,7 @@ get_rewards_md_at(Height, Ledger) ->
             end
     end.
 
--spec get_rewards_md_sums(Ledger :: ledger()) -> aux_rewards_md().
+-spec get_rewards_md_sums(Ledger :: ledger()) -> #{Height :: pos_integer() => reward_diff_sum()}.
 get_rewards_md_sums(Ledger) ->
     case blockchain_ledger_v1:has_aux(Ledger) of
         false -> #{};
@@ -406,7 +387,7 @@ get_rewards_md_sums(Ledger) ->
 -spec get_rewards_md_sums_at(
     Height :: pos_integer(),
     Ledger :: ledger()
-) -> aux_rewards_md().
+) -> reward_diff_sum().
 get_rewards_md_sums_at(Height, Ledger) ->
     case blockchain_ledger_v1:has_aux(Ledger) of
         false ->
@@ -422,28 +403,31 @@ get_rewards_md_sums_at(Height, Ledger) ->
             end
     end.
 
--spec diff_rewards_md_sums(Ledger :: ledger()) -> reward_diff_sum().
-diff_rewards_md_sums(Ledger) ->
-    WSum = diff_rewards_md_sums(witnesses, Ledger),
-    CSum = diff_rewards_md_sums(challengees, Ledger),
-    overall_diff_aux_rewards_md_sums(WSum, CSum).
+-spec get_rewards_md_diff(Ledger :: ledger()) -> #{Height :: pos_integer() => reward_diff_map()}.
+get_rewards_md_diff(Ledger) ->
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        false -> #{};
+        true -> get_rewards_md_diff_(Ledger)
+    end.
 
--spec diff_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) ->
-    reward_diff_sum().
-diff_rewards_md_sums(witnesses, Ledger) ->
-    diff_rewards_md_sums_(witnesses, Ledger);
-diff_rewards_md_sums(challengees, Ledger) ->
-    diff_rewards_md_sums_(challengees, Ledger).
-
--spec diff_rewards_md_sums_(Type :: witnesses | challengees, Ledger :: ledger()) ->
-    reward_diff_sum().
-diff_rewards_md_sums_(Type, Ledger) ->
-    Diff =
-        case Type of
-            witnesses -> diff_rewards_md(witnesses, Ledger);
-            challengees -> diff_rewards_md(challengees, Ledger)
-        end,
-    diff_reward_sums_(Diff).
+-spec get_rewards_md_diff_at(
+    Height :: pos_integer(),
+    Ledger :: ledger()
+) -> reward_diff_map().
+get_rewards_md_diff_at(Height, Ledger) ->
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        false ->
+            {error, no_aux_ledger};
+        true ->
+            AuxDB = blockchain_ledger_v1:aux_db(Ledger),
+            AuxHeightsMDDiffCF = blockchain_ledger_v1:aux_heights_diff_cf(Ledger),
+            Key = aux_height_diff(Height),
+            case rocksdb:get(AuxDB, AuxHeightsMDDiffCF, Key, []) of
+                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
+                not_found -> {error, not_found};
+                Error -> Error
+            end
+    end.
 
 -spec get_rewards_md_for(
     Type :: witness | challengee,
@@ -484,23 +468,9 @@ get_rewards_md_for_(Type, GwPubkeyBin, MD) ->
         MD
     ).
 
--spec diff_rewards_md(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
-diff_rewards_md(witnesses, Ledger) ->
-    diff_rewards_md_(witnesses, Ledger);
-diff_rewards_md(challengees, Ledger) ->
-    diff_rewards_md_(challengees, Ledger).
-
--spec diff_rewards_md_(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
-diff_rewards_md_(Type, Ledger) ->
-    case blockchain_ledger_v1:has_aux(Ledger) of
-        false ->
-            #{};
-        true ->
-            AuxRewardsMD = get_rewards_md(Ledger),
-            calculate_reward_diff_map(Type, AuxRewardsMD)
-    end.
-
-%% helper functions
+%% ==================================================================
+%% Helper Functions
+%% ==================================================================
 
 get_rewards_md_(Ledger) ->
     {ok, Itr} = rocksdb:iterator(
@@ -559,6 +529,35 @@ get_aux_rewards_md_sums_(Itr, {ok, Key, BinRes}, Acc) ->
                 Acc
         end,
     get_aux_rewards_md_sums_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+
+get_rewards_md_diff_(Ledger) ->
+    {ok, Itr} = rocksdb:iterator(
+        blockchain_ledger_v1:aux_db(Ledger),
+        blockchain_ledger_v1:aux_heights_diff_cf(Ledger),
+        []
+    ),
+    Res = get_aux_rewards_md_diff_(Itr, rocksdb:iterator_move(Itr, first), #{}),
+    catch rocksdb:iterator_close(Itr),
+    Res.
+
+get_aux_rewards_md_diff_(_Itr, {error, _}, Acc) ->
+    Acc;
+get_aux_rewards_md_diff_(Itr, {ok, Key, BinRes}, Acc) ->
+    NewAcc =
+        try binary_to_term(BinRes) of
+            MDSum ->
+                <<"aux_height_diff_", Height/binary>> = Key,
+                maps:put(binary_to_integer(Height), MDSum, Acc)
+        catch
+            What:Why ->
+                lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
+                    Key,
+                    What,
+                    Why
+                ]),
+                Acc
+        end,
+    get_aux_rewards_md_diff_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
 -spec tally_fun_v1() -> fun().
 tally_fun_v1() ->
@@ -696,3 +695,32 @@ overall_diff_aux_rewards_md_sums(WSum, CSum) ->
         #{},
         lists:usort(maps:keys(WSum) ++ maps:keys(CSum))
     ).
+
+get_rewards_(Ledger) ->
+    {ok, Itr} = rocksdb:iterator(
+        blockchain_ledger_v1:aux_db(Ledger),
+        blockchain_ledger_v1:aux_heights_cf(Ledger),
+        []
+    ),
+    Res = get_rewards_(Itr, rocksdb:iterator_move(Itr, first), #{}),
+    catch rocksdb:iterator_close(Itr),
+    Res.
+
+get_rewards_(_Itr, {error, _}, Acc) ->
+    Acc;
+get_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
+    NewAcc =
+        try binary_to_term(BinRes) of
+            {R1, R2} ->
+                <<"aux_height_", Height/binary>> = Key,
+                maps:put(binary_to_integer(Height), {R1, R2}, Acc)
+        catch
+            What:Why ->
+                lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
+                    Key,
+                    What,
+                    Why
+                ]),
+                Acc
+        end,
+    get_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
