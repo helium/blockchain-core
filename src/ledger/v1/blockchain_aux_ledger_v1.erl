@@ -16,6 +16,10 @@
     get_rewards_md/1,
     get_rewards_md_for/3,
     get_rewards_md_at/2,
+
+    get_rewards_md_sums/1,
+    get_rewards_md_sums_at/2,
+
     diff_rewards_md/2,
     diff_rewards_md_sums/1, diff_rewards_md_sums/2
 ]).
@@ -372,6 +376,52 @@ get_rewards_md(Ledger) ->
         true -> get_rewards_md_(Ledger)
     end.
 
+-spec get_rewards_md_at(
+    Height :: non_neg_integer(),
+    Ledger :: ledger()
+) ->
+    {ok, reward_md_diff()} | {error, any()}.
+get_rewards_md_at(Height, Ledger) ->
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        false ->
+            {error, no_aux_ledger};
+        true ->
+            AuxDB = blockchain_ledger_v1:aux_db(Ledger),
+            AuxHeightsMDCF = blockchain_ledger_v1:aux_heights_md_cf(Ledger),
+            Key = aux_height_md(Height),
+            case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
+                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
+                not_found -> {error, not_found};
+                Error -> Error
+            end
+    end.
+
+-spec get_rewards_md_sums(Ledger :: ledger()) -> aux_rewards_md().
+get_rewards_md_sums(Ledger) ->
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        false -> #{};
+        true -> get_rewards_md_sums_(Ledger)
+    end.
+
+-spec get_rewards_md_sums_at(
+    Height :: pos_integer(),
+    Ledger :: ledger()
+) -> aux_rewards_md().
+get_rewards_md_sums_at(Height, Ledger) ->
+    case blockchain_ledger_v1:has_aux(Ledger) of
+        false ->
+            {error, no_aux_ledger};
+        true ->
+            AuxDB = blockchain_ledger_v1:aux_db(Ledger),
+            AuxHeightsMDDiffSumCF = blockchain_ledger_v1:aux_heights_diffsum_cf(Ledger),
+            Key = aux_height_diffsum(Height),
+            case rocksdb:get(AuxDB, AuxHeightsMDDiffSumCF, Key, []) of
+                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
+                not_found -> {error, not_found};
+                Error -> Error
+            end
+    end.
+
 -spec diff_rewards_md_sums(Ledger :: ledger()) -> reward_diff_sum().
 diff_rewards_md_sums(Ledger) ->
     WSum = diff_rewards_md_sums(witnesses, Ledger),
@@ -450,25 +500,7 @@ diff_rewards_md_(Type, Ledger) ->
             calculate_reward_diff_map(Type, AuxRewardsMD)
     end.
 
--spec get_rewards_md_at(
-    Height :: non_neg_integer(),
-    Ledger :: ledger()
-) ->
-    {ok, reward_md_diff()} | {error, any()}.
-get_rewards_md_at(Height, Ledger) ->
-    case blockchain_ledger_v1:has_aux(Ledger) of
-        false ->
-            {error, no_aux_ledger};
-        true ->
-            AuxDB = blockchain_ledger_v1:aux_db(Ledger),
-            AuxHeightsMDCF = blockchain_ledger_v1:aux_heights_md_cf(Ledger),
-            Key = aux_height_md(Height),
-            case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
-                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
-                not_found -> {error, not_found};
-                Error -> Error
-            end
-    end.
+%% helper functions
 
 get_rewards_md_(Ledger) ->
     {ok, Itr} = rocksdb:iterator(
@@ -499,7 +531,34 @@ get_aux_rewards_md_(Itr, {ok, Key, BinRes}, Acc) ->
         end,
     get_aux_rewards_md_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
-%% helper functions
+get_rewards_md_sums_(Ledger) ->
+    {ok, Itr} = rocksdb:iterator(
+        blockchain_ledger_v1:aux_db(Ledger),
+        blockchain_ledger_v1:aux_heights_diffsum_cf(Ledger),
+        []
+    ),
+    Res = get_aux_rewards_md_sums_(Itr, rocksdb:iterator_move(Itr, first), #{}),
+    catch rocksdb:iterator_close(Itr),
+    Res.
+
+get_aux_rewards_md_sums_(_Itr, {error, _}, Acc) ->
+    Acc;
+get_aux_rewards_md_sums_(Itr, {ok, Key, BinRes}, Acc) ->
+    NewAcc =
+        try binary_to_term(BinRes) of
+            MDSum ->
+                <<"aux_height_diffsum_", Height/binary>> = Key,
+                maps:put(binary_to_integer(Height), MDSum, Acc)
+        catch
+            What:Why ->
+                lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
+                    Key,
+                    What,
+                    Why
+                ]),
+                Acc
+        end,
+    get_aux_rewards_md_sums_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
 -spec tally_fun_v1() -> fun().
 tally_fun_v1() ->
