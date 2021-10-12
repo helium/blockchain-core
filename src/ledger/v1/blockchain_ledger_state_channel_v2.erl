@@ -142,8 +142,9 @@ close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf, MaxActor
                     SCEntry;
                 true when ExplicitConflict == true; Overpaid == true ->
                     %% we've never gotten a close request for this before, so...
-                    lager:info("dispute filed for open sc id: ~p, closer: ~p",
+                    lager:info("dispute filed for open sc id: ~p, owner: ~p, closer: ~p",
                                [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)),
+                                libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC)),
                                 libp2p_crypto:bin_to_b58(Closer)]),
                     SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=dispute};
                 true ->
@@ -160,16 +161,18 @@ close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf, MaxActor
                     %% dispute it
                     case maybe_dispute(state_channel(SCEntry), SC, ConsiderEffectOf, MaxActorsAllowed) of
                         {closed, NewSC} when ExplicitConflict == true; Overpaid == true ->
-                            lager:info("dispute filed for closed sc id: ~p, closer: ~p",
+                            lager:info("dispute filed for closed sc id: ~p, owner: ~p, closer: ~p",
                                        [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(NewSC)),
+                                        libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(NewSC)),
                                         libp2p_crypto:bin_to_b58(Closer)]),
                             SCEntry#ledger_state_channel_v2{closer=Closer, sc=NewSC, close_state=dispute};
                         {closed, NewSC} ->
                             SCEntry#ledger_state_channel_v2{closer=Closer, sc=NewSC, close_state=closed};
                         {dispute, NewSC} ->
                             %% store the "latest" (as judged by nonce)
-                            lager:info("newer dispute filed for disputed sc id: ~p, closer: ~p",
+                            lager:info("newer dispute filed for disputed sc id: ~p, owner: ~p, closer: ~p",
                                        [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(NewSC)),
+                                        libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(NewSC)),
                                         libp2p_crypto:bin_to_b58(Closer)]),
                             SCEntry#ledger_state_channel_v2{sc=NewSC, close_state=dispute}
                     end
