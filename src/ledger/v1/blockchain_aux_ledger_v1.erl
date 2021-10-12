@@ -49,6 +49,20 @@
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -type gw_rewards_md() :: #{Ht :: non_neg_integer() => {non_neg_integer(), non_neg_integer()}}.
 
+%% aux ledger key prefixes
+
+aux_height(Height) ->
+    <<?aux_height_prefix, (integer_to_binary(Height))/binary>>.
+
+aux_height_md(Height) ->
+    <<?aux_height_md_prefix, (integer_to_binary(Height))/binary>>.
+
+aux_height_diff(Height) ->
+    <<?aux_height_diff_prefix, (integer_to_binary(Height))/binary>>.
+
+aux_height_diffsum(Height) ->
+    <<?aux_height_diffsum_prefix, (integer_to_binary(Height))/binary>>.
+
 new(Ledger) ->
     case application:get_env(blockchain, aux_ledger_dir, undefined) of
         undefined ->
@@ -75,7 +89,9 @@ new(Path, Ledger) ->
         GwDenormCF,
         ValidatorsCF,
         AuxHeightsCF,
-        AuxHeightsMDCF
+        AuxHeightsMDCF,
+        AuxHeightsDiffCF,
+        AuxHeightsDiffSumCF
     ] = CFs,
     Ledger#ledger_v1{
         aux = #aux_ledger_v1{
@@ -83,6 +99,8 @@ new(Path, Ledger) ->
             db = DB,
             aux_heights = AuxHeightsCF,
             aux_heights_md = AuxHeightsMDCF,
+            aux_heights_diff = AuxHeightsDiffCF,
+            aux_heights_diffsum = AuxHeightsDiffSumCF,
             aux = #sub_ledger_v1{
                 default = DefaultCF,
                 active_gateways = AGwsCF,
@@ -144,7 +162,7 @@ get_rewards_at(Height, Ledger) ->
         true ->
             AuxDB = blockchain_ledger_v1:aux_db(Ledger),
             AuxHeightsCF = blockchain_ledger_v1:aux_heights_cf(Ledger),
-            Key = blockchain_ledger_v1:aux_height(Height),
+            Key = aux_height(Height),
             case rocksdb:get(AuxDB, AuxHeightsCF, Key, []) of
                 {ok, BinRes} -> {ok, binary_to_term(BinRes)};
                 not_found -> {error, not_found};
@@ -172,7 +190,7 @@ set_rewards(Height, Rewards, AuxRewards, Ledger) ->
         true ->
             AuxDB = blockchain_ledger_v1:aux_db(Ledger),
             AuxHeightsCF = blockchain_ledger_v1:aux_heights_cf(Ledger),
-            Key = blockchain_ledger_v1:aux_height(Height),
+            Key = aux_height(Height),
             case rocksdb:get(AuxDB, AuxHeightsCF, Key, []) of
                 {ok, _} ->
                     %% already exists, don't do anything
@@ -312,14 +330,36 @@ set_rewards_md(Height, OrigMD, AuxMD, Ledger) ->
         true ->
             AuxDB = blockchain_ledger_v1:aux_db(Ledger),
             AuxHeightsMDCF = blockchain_ledger_v1:aux_heights_md_cf(Ledger),
-            Key = blockchain_ledger_v1:aux_height_md(Height),
-            case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
+            AuxHeightsDiffCF = blockchain_ledger_v1:aux_heights_diff_cf(Ledger),
+            AuxHeightsDiffSumCF = blockchain_ledger_v1:aux_heights_diffsum_cf(Ledger),
+            MDKey = aux_height_md(Height),
+            DiffKey = aux_height_diff(Height),
+            DiffSumKey = aux_height_diffsum(Height),
+            case rocksdb:get(AuxDB, AuxHeightsMDCF, MDKey, []) of
                 {ok, _} ->
                     %% already exists, don't do anything
                     ok;
                 not_found ->
-                    Value = term_to_binary({OrigMD, AuxMD}),
-                    rocksdb:put(AuxDB, AuxHeightsMDCF, Key, Value, []);
+                    MDValue = term_to_binary({OrigMD, AuxMD}),
+                    %% Doing calculate_reward_diff_map with a single k:v input
+                    %% would yield a single element list as value, so we just use head here
+                    WDiffMap = calculate_reward_diff_map(witnesses, #{Height => {OrigMD, AuxMD}}),
+                    CDiffMap = calculate_reward_diff_map(challengees, #{Height => {OrigMD, AuxMD}}),
+                    WDiffVal = hd(maps:values(WDiffMap)),
+                    CDiffVal = hd(maps:values(CDiffMap)),
+                    DiffValue = term_to_binary(#{witnesses => WDiffVal, challengees => CDiffVal}),
+
+                    %% Also calculate overall MDSum
+                    WSum = diff_reward_sums_(WDiffMap),
+                    CSum = diff_reward_sums_(CDiffMap),
+                    MDSum = overall_diff_aux_rewards_md_sums(WSum, CSum),
+                    MDSumValue = term_to_binary(MDSum),
+
+                    {ok, Batch} = rocksdb:batch(),
+                    ok = rocksdb:batch_put(Batch, AuxHeightsMDCF, MDKey, MDValue),
+                    ok = rocksdb:batch_put(Batch, AuxHeightsDiffCF, DiffKey, DiffValue),
+                    ok = rocksdb:batch_put(Batch, AuxHeightsDiffSumCF, DiffSumKey, MDSumValue),
+                    rocksdb:write_batch(AuxDB, Batch, []);
                 Error ->
                     Error
             end
@@ -336,20 +376,7 @@ get_rewards_md(Ledger) ->
 diff_rewards_md_sums(Ledger) ->
     WSum = diff_rewards_md_sums(witnesses, Ledger),
     CSum = diff_rewards_md_sums(challengees, Ledger),
-
-    lists:foldl(
-        fun(Key, Acc) ->
-            {OrigWVal, AuxWVal} = maps:get(Key, WSum, {#{amount => 0}, #{amount => 0}}),
-            {OrigCVal, AuxCVal} = maps:get(Key, CSum, {#{amount => 0}, #{amount => 0}}),
-            Tot = {
-                #{amount => maps:get(amount, OrigWVal, 0) + maps:get(amount, OrigCVal, 0)},
-                #{amount => maps:get(amount, AuxWVal, 0) + maps:get(amount, AuxCVal, 0)}
-            },
-            maps:put(Key, Tot, Acc)
-        end,
-        #{},
-        lists:usort(maps:keys(WSum) ++ maps:keys(CSum))
-    ).
+    overall_diff_aux_rewards_md_sums(WSum, CSum).
 
 -spec diff_rewards_md_sums(Type :: witnesses | challengees, Ledger :: ledger()) ->
     reward_diff_sum().
@@ -413,76 +440,14 @@ diff_rewards_md(witnesses, Ledger) ->
 diff_rewards_md(challengees, Ledger) ->
     diff_rewards_md_(challengees, Ledger).
 
--spec diff_rewards_md_(Type :: witnesses | challengees, Ledger :: ledger()) ->
-    reward_diff_map().
+-spec diff_rewards_md_(Type :: witnesses | challengees, Ledger :: ledger()) -> reward_diff_map().
 diff_rewards_md_(Type, Ledger) ->
     case blockchain_ledger_v1:has_aux(Ledger) of
         false ->
             #{};
         true ->
             AuxRewardsMD = get_rewards_md(Ledger),
-
-            MDRewardKey =
-                case Type of
-                    witnesses ->
-                        poc_witness;
-                    challengees ->
-                        poc_challengee
-                end,
-
-            Heights = maps:keys(AuxRewardsMD),
-
-            %% Temporary result only accumulating specific key type rewards
-            Res1 = lists:foldl(
-                fun(Ht, Acc) ->
-                    {Orig, Aux} = maps:get(Ht, AuxRewardsMD),
-
-                    OrigRewards = maps:get(MDRewardKey, Orig),
-                    AuxRewards = maps:get(MDRewardKey, Aux),
-
-                    maps:put(Ht, {OrigRewards, AuxRewards}, Acc)
-                end,
-                #{},
-                Heights
-            ),
-
-            maps:fold(
-                fun(Ht, {Orig, Aux}, Acc) ->
-                    Orig1 = maps:fold(
-                        fun({gateway, _, Addr}, Value, Acc1) ->
-                            maps:put(libp2p_crypto:bin_to_b58(Addr), #{amount => Value}, Acc1)
-                        end,
-                        #{},
-                        Orig
-                    ),
-                    Aux1 = maps:fold(
-                        fun({gateway, _, Addr}, Value, Acc1) ->
-                            maps:put(libp2p_crypto:bin_to_b58(Addr), #{amount => Value}, Acc1)
-                        end,
-                        #{},
-                        Aux
-                    ),
-
-                    Val = lists:foldl(
-                        fun(Key, Acc2) ->
-                            maps:put(
-                                Key,
-                                {
-                                    maps:get(Key, Orig1, #{amount => 0}),
-                                    maps:get(Key, Aux1, #{amount => 0})
-                                },
-                                Acc2
-                            )
-                        end,
-                        #{},
-                        lists:usort(maps:keys(Orig1) ++ maps:keys(Aux1))
-                    ),
-
-                    maps:put(Ht, Val, Acc)
-                end,
-                #{},
-                Res1
-            )
+            calculate_reward_diff_map(Type, AuxRewardsMD)
     end.
 
 -spec get_rewards_md_at(
@@ -497,7 +462,7 @@ get_rewards_md_at(Height, Ledger) ->
         true ->
             AuxDB = blockchain_ledger_v1:aux_db(Ledger),
             AuxHeightsMDCF = blockchain_ledger_v1:aux_heights_md_cf(Ledger),
-            Key = blockchain_ledger_v1:aux_height_md(Height),
+            Key = aux_height_md(Height),
             case rocksdb:get(AuxDB, AuxHeightsMDCF, Key, []) of
                 {ok, BinRes} -> {ok, binary_to_term(BinRes)};
                 not_found -> {error, not_found};
@@ -588,4 +553,87 @@ maps_sum(A, B) ->
         end,
         #{},
         Keys
+    ).
+
+-spec calculate_reward_diff_map(
+    Type :: witnesses | challengees,
+    MD :: aux_rewards_md()
+) -> reward_diff_map().
+calculate_reward_diff_map(Type, MD) ->
+    MDRewardKey =
+        case Type of
+            witnesses ->
+                poc_witness;
+            challengees ->
+                poc_challengee
+        end,
+
+    Heights = maps:keys(MD),
+
+    %% Temporary result only accumulating specific key type rewards
+    Res1 = lists:foldl(
+        fun(Ht, Acc) ->
+            {Orig, Aux} = maps:get(Ht, MD),
+
+            OrigRewards = maps:get(MDRewardKey, Orig),
+            AuxRewards = maps:get(MDRewardKey, Aux),
+
+            maps:put(Ht, {OrigRewards, AuxRewards}, Acc)
+        end,
+        #{},
+        Heights
+    ),
+
+    maps:fold(
+        fun(Ht, {Orig, Aux}, Acc) ->
+            Orig1 = maps:fold(
+                fun({gateway, _, Addr}, Value, Acc1) ->
+                    maps:put(libp2p_crypto:bin_to_b58(Addr), #{amount => Value}, Acc1)
+                end,
+                #{},
+                Orig
+            ),
+            Aux1 = maps:fold(
+                fun({gateway, _, Addr}, Value, Acc1) ->
+                    maps:put(libp2p_crypto:bin_to_b58(Addr), #{amount => Value}, Acc1)
+                end,
+                #{},
+                Aux
+            ),
+
+            Val = lists:foldl(
+                fun(Key, Acc2) ->
+                    maps:put(
+                        Key,
+                        {maps:get(Key, Orig1, #{amount => 0}), maps:get(Key, Aux1, #{amount => 0})},
+                        Acc2
+                    )
+                end,
+                #{},
+                lists:usort(maps:keys(Orig1) ++ maps:keys(Aux1))
+            ),
+
+            maps:put(Ht, Val, Acc)
+        end,
+        #{},
+        Res1
+    ).
+
+-spec overall_diff_aux_rewards_md_sums(
+    WSum :: reward_diff_sum(),
+    CSum :: reward_diff_sum()
+) -> reward_diff_sum().
+overall_diff_aux_rewards_md_sums(WSum, CSum) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            {OrigWVal, AuxWVal} = maps:get(Key, WSum, {#{amount => 0}, #{amount => 0}}),
+            {OrigCVal, AuxCVal} = maps:get(Key, CSum, {#{amount => 0}, #{amount => 0}}),
+            Tot = {
+                #{amount => maps:get(amount, OrigWVal, 0) + maps:get(amount, OrigCVal, 0)},
+                #{amount => maps:get(amount, AuxWVal, 0) + maps:get(amount, AuxCVal, 0)}
+            },
+            maps:put(Key, Tot, Acc)
+        end,
+        #{},
+        lists:usort(maps:keys(WSum) ++ maps:keys(CSum))
     ).
