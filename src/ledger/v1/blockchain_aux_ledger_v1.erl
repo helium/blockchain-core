@@ -21,7 +21,9 @@
     get_rewards_md_sums_at/2,
 
     get_rewards_md_diff/1,
-    get_rewards_md_diff_at/2
+    get_rewards_md_diff_at/2,
+
+    diff_rewards_md_sums/1
 ]).
 
 -include("blockchain_vars.hrl").
@@ -40,19 +42,11 @@
     ActualRewardsMD :: blockchain_txn_reward_v1:rewards_metadata(),
     AuxRewardsMD :: blockchain_txn_reward_v1:rewards_metadata()
 }.
--type reward_diff_map() :: #{
-    Height ::
-        non_neg_integer() => #{
-            Key ::
-                binary() => {
-                    #{Orig :: amount => non_neg_integer()},
-                    Aux :: #{amount => non_neg_integer()}
-                }
-        }
-}.
 -type reward_diff_sum() :: #{
-    Key :: binary() => {#{amount => non_neg_integer()}, #{amount => non_neg_integer()}}
+    Key ::
+        binary() => {Orig :: #{amount => non_neg_integer()}, Aux :: #{amount => non_neg_integer()}}
 }.
+-type reward_diff_map() :: #{Height :: non_neg_integer() => reward_diff_sum()}.
 -type aux_rewards() :: #{Height :: non_neg_integer() => reward_diff()}.
 -type aux_rewards_md() :: #{Height :: non_neg_integer() => reward_md_diff()}.
 -type gw_rewards_md() :: #{Ht :: non_neg_integer() => {non_neg_integer(), non_neg_integer()}}.
@@ -282,26 +276,6 @@ diff_reward_sums(Ledger) ->
     Diff = diff_rewards(Ledger),
     diff_reward_sums_(Diff).
 
-diff_reward_sums_(Diff) ->
-    maps:fold(
-        fun(_Key, Value, Acc) ->
-            maps:fold(
-                fun(PubkeyBin, {AmountBefore, AmountAfter}, Acc2) ->
-                    {AB, AF} = maps:get(PubkeyBin, Acc, {#{}, #{}}),
-                    maps:put(
-                        PubkeyBin,
-                        {maps_sum(AB, AmountBefore), maps_sum(AF, AmountAfter)},
-                        Acc2
-                    )
-                end,
-                Acc,
-                Value
-            )
-        end,
-        #{},
-        Diff
-    ).
-
 -spec set_rewards_md(
     Height :: non_neg_integer(),
     OrigMD :: blockchain_txn_rewards_v2:rewards_metadata(),
@@ -377,7 +351,7 @@ get_rewards_md_at(Height, Ledger) ->
             end
     end.
 
--spec get_rewards_md_sums(Ledger :: ledger()) -> #{Height :: pos_integer() => reward_diff_sum()}.
+-spec get_rewards_md_sums(Ledger :: ledger()) -> reward_diff_map().
 get_rewards_md_sums(Ledger) ->
     case blockchain_ledger_v1:has_aux(Ledger) of
         false -> #{};
@@ -467,6 +441,11 @@ get_rewards_md_for_(Type, GwPubkeyBin, MD) ->
         #{},
         MD
     ).
+
+-spec diff_rewards_md_sums(Ledger :: blockchain_ledger_v1:ledger()) -> reward_diff_sum().
+diff_rewards_md_sums(Ledger) ->
+    Diff = get_rewards_md_sums(Ledger),
+    diff_reward_sums_(Diff).
 
 %% ==================================================================
 %% Helper Functions
@@ -724,3 +703,24 @@ get_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
                 Acc
         end,
     get_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+
+-spec diff_reward_sums_(Diff :: reward_diff_map()) -> reward_diff_sum().
+diff_reward_sums_(Diff) ->
+    maps:fold(
+        fun(_Key, Value, Acc) ->
+            maps:fold(
+                fun(PubkeyBin, {AmountBefore, AmountAfter}, Acc2) ->
+                    {AB, AF} = maps:get(PubkeyBin, Acc, {#{}, #{}}),
+                    maps:put(
+                        PubkeyBin,
+                        {maps_sum(AB, AmountBefore), maps_sum(AF, AmountAfter)},
+                        Acc2
+                    )
+                end,
+                Acc,
+                Value
+            )
+        end,
+        #{},
+        Diff
+    ).
