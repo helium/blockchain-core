@@ -18,7 +18,7 @@
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
     poc_id/1,
-    pfind/2,
+    pfind/2, pfind/3,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -176,8 +176,13 @@ poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     Hash = crypto:hash(sha256, PubKeyBin),
     ?BIN_TO_B64(Hash).
 
+
 -spec pfind(F :: function(), list(list())) -> boolean() | {true, any()}.
 pfind(F, ToDos) ->
+    pfind(F, ToDos, infinity).
+
+-spec pfind(F :: function(), list(list()), infinity | pos_integer()) -> boolean() | {true, any()}.
+pfind(F, ToDos, Timeout) ->
     Opts = [
         {fullsweep_after, 0},
         {priority, high}
@@ -194,7 +199,7 @@ pfind(F, ToDos) ->
                             Result = erlang:apply(F, Args),
                             Parent ! {Ref, Result}
                         end,
-                        [link|Opts]
+                        [monitor|Opts]
                     )
                 end,
                 ToDos
@@ -207,12 +212,16 @@ pfind(F, ToDos) ->
     receive
         {Ref, Results} ->
             Results
+    after Timeout ->
+        false
     end.
  
 pfind_rcv(_Ref, Result, 0) ->
     Result;
 pfind_rcv(Ref, Result, Left) ->
     receive
+        {'DOWN', _Ref, process, _Pid, _Info} ->
+            pfind_rcv(Ref, Result, Left);
         {Ref, true} ->
             true;
         {Ref, {true, Data}} ->
