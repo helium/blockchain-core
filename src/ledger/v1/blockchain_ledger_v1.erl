@@ -761,7 +761,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
                                 NewLedger = case mode(Ledger) of
                                     aux ->
-                                        new_aux(CheckpointDir, Ledger);
+                                        blockchain_aux_ledger_v1:new(CheckpointDir, Ledger);
                                     _ ->
                                         %% new/2 wants to add on the ledger.db part itself
                                         NewLedger0 = new(filename:dirname(CheckpointDir), true, []),
