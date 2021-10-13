@@ -23,7 +23,8 @@
     get_rewards_md_diff/1,
     get_rewards_md_diff_at/2,
 
-    diff_rewards_md_sums/1
+    diff_rewards_md_sums/1,
+    overall_diff_rewards_md_sums/1
 ]).
 
 -include("blockchain_vars.hrl").
@@ -274,7 +275,7 @@ diff_rewards(Ledger) ->
 -spec diff_reward_sums(Ledger :: ledger()) -> reward_diff_sum().
 diff_reward_sums(Ledger) ->
     Diff = diff_rewards(Ledger),
-    diff_reward_sums_(Diff).
+    acc_diff_reward_sums_(maps:values(Diff)).
 
 -spec set_rewards_md(
     Height :: non_neg_integer(),
@@ -309,10 +310,14 @@ set_rewards_md(Height, OrigMD, AuxMD, Ledger) ->
                     DiffValue = term_to_binary(#{witnesses => WDiffVal, challengees => CDiffVal}),
 
                     %% Also calculate overall MDSum
-                    WSum = diff_reward_sums_(WDiffMap),
-                    CSum = diff_reward_sums_(CDiffMap),
+                    WSum = acc_diff_reward_sums_(maps:values(WDiffMap)),
+                    CSum = acc_diff_reward_sums_(maps:values(CDiffMap)),
                     MDSum = overall_diff_aux_rewards_md_sums(WSum, CSum),
-                    MDSumValue = term_to_binary(MDSum),
+
+                    %% Also keep track of ALL tallied MD sums
+                    OverallMDSum = diff_rewards_md_sums(Ledger),
+                    NewOverallMDSum = acc_diff_reward_sums_([MDSum, OverallMDSum]),
+                    MDSumValue = term_to_binary(#{mdsum => MDSum, overall => NewOverallMDSum}),
 
                     {ok, Batch} = rocksdb:batch(),
                     ok = rocksdb:batch_put(Batch, AuxHeightsMDCF, MDKey, MDValue),
@@ -397,7 +402,9 @@ get_rewards_md_diff_at(Height, Ledger) ->
             AuxHeightsMDDiffCF = blockchain_ledger_v1:aux_heights_diff_cf(Ledger),
             Key = aux_height_diff(Height),
             case rocksdb:get(AuxDB, AuxHeightsMDDiffCF, Key, []) of
-                {ok, BinRes} -> {ok, binary_to_term(BinRes)};
+                {ok, BinRes} ->
+                    %% NOTE: This should return #{mdsum : MDSum, overall : OverallMDSum}
+                    {ok, binary_to_term(BinRes)};
                 not_found -> {error, not_found};
                 Error -> Error
             end
@@ -444,8 +451,19 @@ get_rewards_md_for_(Type, GwPubkeyBin, MD) ->
 
 -spec diff_rewards_md_sums(Ledger :: blockchain_ledger_v1:ledger()) -> reward_diff_sum().
 diff_rewards_md_sums(Ledger) ->
-    Diff = get_rewards_md_sums(Ledger),
-    diff_reward_sums_(Diff).
+    DiffSums = get_rewards_md_sums(Ledger),
+    acc_diff_reward_sums_(maps:values(DiffSums)).
+
+-spec overall_diff_rewards_md_sums(Ledger :: blockchain_ledger_v1:ledger()) -> reward_diff_sum().
+overall_diff_rewards_md_sums(Ledger) ->
+    {ok, Itr} = rocksdb:iterator(
+        blockchain_ledger_v1:aux_db(Ledger),
+        blockchain_ledger_v1:aux_heights_diffsum_cf(Ledger),
+        []
+    ),
+    Res = overall_diff_rewards_md_sums_(rocksdb:iterator_move(Itr, last), #{}),
+    catch rocksdb:iterator_close(Itr),
+    Res.
 
 %% ==================================================================
 %% Helper Functions
@@ -495,7 +513,7 @@ get_aux_rewards_md_sums_(_Itr, {error, _}, Acc) ->
 get_aux_rewards_md_sums_(Itr, {ok, Key, BinRes}, Acc) ->
     NewAcc =
         try binary_to_term(BinRes) of
-            MDSum ->
+            #{mdsum := MDSum} ->
                 <<"aux_height_diffsum_", Height/binary>> = Key,
                 maps:put(binary_to_integer(Height), MDSum, Acc)
         catch
@@ -704,10 +722,10 @@ get_rewards_(Itr, {ok, Key, BinRes}, Acc) ->
         end,
     get_rewards_(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
--spec diff_reward_sums_(Diff :: reward_diff_map()) -> reward_diff_sum().
-diff_reward_sums_(Diff) ->
-    maps:fold(
-        fun(_Key, Value, Acc) ->
+-spec acc_diff_reward_sums_(DiffSumList :: [reward_diff_sum()]) -> reward_diff_sum().
+acc_diff_reward_sums_(DiffSumList) ->
+    lists:foldl(
+        fun(Value, Acc) ->
             maps:fold(
                 fun(PubkeyBin, {AmountBefore, AmountAfter}, Acc2) ->
                     {AB, AF} = maps:get(PubkeyBin, Acc, {#{}, #{}}),
@@ -722,5 +740,21 @@ diff_reward_sums_(Diff) ->
             )
         end,
         #{},
-        Diff
+        DiffSumList
     ).
+
+overall_diff_rewards_md_sums_({error, _}, Default) ->
+    Default;
+overall_diff_rewards_md_sums_({ok, Key, BinRes}, Default) ->
+    try binary_to_term(BinRes) of
+        #{overall := OverallMDSum} ->
+            OverallMDSum
+    catch
+        What:Why ->
+            lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
+                                                                                        Key,
+                                                                                        What,
+                                                                                        Why
+                                                                                       ]),
+            Default
+    end.
