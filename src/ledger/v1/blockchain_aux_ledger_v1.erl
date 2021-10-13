@@ -1,7 +1,7 @@
 -module(blockchain_aux_ledger_v1).
 
 -export([
-    new/1,
+    new/1, new/2,
     bootstrap/2,
 
     set_vars/2,
