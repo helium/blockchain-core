@@ -220,8 +220,10 @@ pfind_rcv(_Ref, Result, 0) ->
     Result;
 pfind_rcv(Ref, Result, Left) ->
     receive
-        {'DOWN', _Ref, process, _Pid, _Info} ->
+        {'DOWN', _Ref, process, _Pid, normal} ->
             pfind_rcv(Ref, Result, Left);
+        {'DOWN', _Ref, process, _Pid, _Info} ->
+            pfind_rcv(Ref, Result, Left-1);
         {Ref, true} ->
             true;
         {Ref, {true, Data}} ->
