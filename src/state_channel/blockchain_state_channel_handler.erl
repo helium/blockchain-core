@@ -80,7 +80,6 @@ init(server, _Conn, [_Path, Blockchain]) ->
                 ActiveSCs ->
                     [{SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    lager:debug("sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
                     EncodedSCBanner =
                         e2qc:cache(
