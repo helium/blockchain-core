@@ -381,10 +381,10 @@ handle_call({integrate_genesis_block_synchronously, GenesisBlock}, _From, #state
     {Result, S1} = integrate_genesis_block_(GenesisBlock, S0),
     {reply, Result, S1};
 handle_call(Msg, _From, #state{blockchain={no_genesis, _}}=State) ->
-    lager:warning("Called when blockchain={no_genesis_}. Returning undefined. Msg: ~p", [Msg]),
+    lager:debug("Called when blockchain={no_genesis_}. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
 handle_call(Msg, _From, #state{blockchain=undefined}=State) ->
-    lager:warning("Called when blockchain=undefined. Returning undefined. Msg: ~p", [Msg]),
+    lager:debug("Called when blockchain=undefined. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
 handle_call(num_consensus_members, _From, #state{blockchain = Chain} = State) ->
     {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
