@@ -315,7 +315,7 @@ set_rewards_md(Height, OrigMD, AuxMD, Ledger) ->
                     MDSum = overall_diff_aux_rewards_md_sums(WSum, CSum),
 
                     %% Also keep track of ALL tallied MD sums
-                    OverallMDSum = diff_rewards_md_sums(Ledger),
+                    OverallMDSum = overall_diff_rewards_md_sums(Ledger),
                     NewOverallMDSum = acc_diff_reward_sums_([MDSum, OverallMDSum]),
                     MDSumValue = term_to_binary(#{mdsum => MDSum, overall => NewOverallMDSum}),
 
