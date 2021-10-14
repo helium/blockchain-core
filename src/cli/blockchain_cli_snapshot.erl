@@ -140,7 +140,8 @@ snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], []) ->
         Height = list_to_integer(HeightStr),
         Hash = hex_to_binary(HashStr),
         {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash),
-        file:write_file(Filename, Snapshot)
+        %% NOTE: grab_snapshot returns a deserialized snapshot
+        file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot))
     catch
         _Type:Error ->
             [clique_status:text(io_lib:format("failed: ~p", [Error]))]
