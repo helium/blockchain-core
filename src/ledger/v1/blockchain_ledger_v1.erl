@@ -759,7 +759,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                                    end,
                             try
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
-                                NewLedger = case mode(Ledger) of
+                                NewLedger = case Mode of
                                     aux ->
                                         blockchain_aux_ledger_v1:new(CheckpointDir, Ledger);
                                     _ ->
@@ -3824,13 +3824,13 @@ process_fun(ToProcess, Cache, CF,
               Dir :: file:filename_all(),
               HasDelayed :: boolean(), ReadOnly :: boolean(), Options :: rocksdb:cf_options()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
 open_db(active, Dir, true, ReadOnly, Options) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
+    DBDir = blockchain_utils:dedup_path(filename:join(Dir, ?DB_FILE)),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}])),
     DefaultCFs = default_cfs() ++ delayed_cfs(),
     open_db_(DBDir, DBOptions, DefaultCFs, Options, ReadOnly, false);
 open_db(aux, Dir, false, ReadOnly, Options) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
+    DBDir = blockchain_utils:dedup_path(filename:join(Dir, ?DB_FILE)),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}])),
     DefaultCFs = default_cfs() ++ aux_cfs(),
