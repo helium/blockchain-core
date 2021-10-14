@@ -368,7 +368,8 @@ is_valid(Txn, Chain) ->
             end
     end.
 
--spec is_well_formed(txn_add_gateway()) -> ok | {error, _}.
+-spec is_well_formed(txn_add_gateway()) ->
+    ok | {error, blockchain_txn:field_validation_error()}.
 is_well_formed(Txn) ->
     Payer = payer(Txn),
     blockchain_txn:validate_fields(
@@ -601,7 +602,7 @@ to_json_test() ->
 is_well_formed_test_() ->
     [
         ?_assertEqual(
-            {error,{invalid_address,owner}},
+            {error, {invalid_address, owner}},
             is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
         ),
         ?_assertEqual(
