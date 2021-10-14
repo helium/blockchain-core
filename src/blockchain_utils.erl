@@ -7,6 +7,7 @@
 
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     shuffle_from_hash/2,
@@ -17,7 +18,7 @@
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
     poc_id/1,
-    pfind/2,
+    pfind/2, pfind/3,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -55,12 +56,6 @@
     teardown_var_cache/0
 
 ]).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
--include("blockchain_vars.hrl").
 
 -define(FREQUENCY, 915).
 -define(TRANSMIT_POWER, 28).
@@ -181,36 +176,54 @@ poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     Hash = crypto:hash(sha256, PubKeyBin),
     ?BIN_TO_B64(Hash).
 
+
 -spec pfind(F :: function(), list(list())) -> boolean() | {true, any()}.
 pfind(F, ToDos) ->
+    pfind(F, ToDos, infinity).
+
+-spec pfind(F :: function(), list(list()), infinity | pos_integer()) -> boolean() | {true, any()}.
+pfind(F, ToDos, Timeout) ->
     Opts = [
         {fullsweep_after, 0},
         {priority, high}
     ],
-    Parent = self(),
+    Master = self(),
     Ref = erlang:make_ref(),
-    Workers = lists:foldl(
-        fun(Args, Acc) ->
-            Pid = erlang:spawn_opt(
-                fun() ->
-                    Result = erlang:apply(F, Args),
-                    Parent ! {Ref, Result}
+    erlang:spawn_opt(
+        fun() ->
+            Parent = self(),
+            lists:foreach(
+                fun(Args) ->
+                    erlang:spawn_opt(
+                        fun() ->
+                            Result = erlang:apply(F, Args),
+                            Parent ! {Ref, Result}
+                        end,
+                        [monitor|Opts]
+                    )
                 end,
-                Opts
+                ToDos
             ),
-            [Pid|Acc]
+            Results = pfind_rcv(Ref, false, erlang:length(ToDos)),
+            Master ! {Ref, Results}
         end,
-        [],
-        ToDos
+        Opts
     ),
-    Results = pfind_rcv(Ref, false, erlang:length(ToDos)),
-    [erlang:exit(Pid, done) || Pid <- Workers],
-    Results.
+    receive
+        {Ref, Results} ->
+            Results
+    after Timeout ->
+        false
+    end.
  
 pfind_rcv(_Ref, Result, 0) ->
     Result;
 pfind_rcv(Ref, Result, Left) ->
     receive
+        {'DOWN', _Ref, process, _Pid, normal} ->
+            pfind_rcv(Ref, Result, Left);
+        {'DOWN', _Ref, process, _Pid, _Info} ->
+            pfind_rcv(Ref, Result, Left-1);
         {Ref, true} ->
             true;
         {Ref, {true, Data}} ->
@@ -657,6 +670,8 @@ teardown_var_cache() ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-include_lib("eunit/include/eunit.hrl").
+
 serialize_deserialize_test() ->
     Hash = <<"123abc">>,
     ?assertEqual(Hash, deserialize_hash(serialize_hash(Hash))).
@@ -813,6 +828,12 @@ pfind_test() ->
     end,
     Args = [[I] || I <- lists:seq(1, 6)],
     ?assertEqual({true, 2}, pfind(F, Args)),
+    receive
+        _ ->
+            ?assert(false)
+    after 100 ->
+        ok
+    end,
     ok.
 
 -endif.

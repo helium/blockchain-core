@@ -71,8 +71,8 @@ sc_active(["sc", "active"], [], []) ->
             [clique_status:text("timeout")];
         undefined ->
             [clique_status:text("none")];
-        BinActiveIDs ->
-            R = [blockchain_utils:addr2name(ID) || ID <- BinActiveIDs],
+        Actives ->
+            R = [blockchain_utils:addr2name(ID) || ID <- maps:keys(Actives)],
             [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
@@ -107,18 +107,17 @@ sc_list([], [], []) ->
     usage.
 
 format_sc_list(SCs) ->
-    ActiveSCIDs = maps:keys(blockchain_state_channels_server:get_actives()),
     Chain = blockchain_worker:blockchain(),
     {ok, Height} = blockchain:height(Chain),
     {List, Total} = maps:fold(
-        fun(SCID, SC, {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}) ->
+        fun(SCID, {SC, SCState, Pid}, {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}) ->
             ID = blockchain_utils:addr2name(SCID),
             SCNonce = blockchain_state_channel_v1:nonce(SC),
             Amount = blockchain_state_channel_v1:amount(SC),
-            State =  erlang:atom_to_list(blockchain_state_channel_v1:state(SC)),
+            State =  erlang:atom_to_list(SCState),
             {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
             ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
-            IsActive = lists:member(SCID, ActiveSCIDs),
+            IsActive = SCState == active,
             MAxP = blockchain_ledger_v1:get_sc_max_actors(blockchain:ledger(Chain)),
             TActive1 = case IsActive of
                 true -> TActive0 + 1;
@@ -143,7 +142,8 @@ format_sc_list(SCs) ->
                         {num_dcs, NumDCs},
                         {num_packets, NumPackets},
                         {participants, NumParticipants},
-                        {max_participants, MAxP}
+                        {max_participants, MAxP},
+                        {pid, io_lib:format("~p", [Pid])}
                     ]
                     | Acc
                 ],
@@ -182,7 +182,8 @@ format_sc_list(SCs) ->
             {num_dcs, TDCs},
             {num_packets, TPackets},
             {participants, TActors},
-            {max_participants, TMax}
+            {max_participants, TMax},
+            {pid, "X"}
         ]
         | SortedList
     ].

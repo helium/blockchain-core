@@ -52,9 +52,8 @@ init(_RPC, StreamState)->
                     lager:debug("blockchain_grpc_sc_server_handler, empty banner: ~p", [SCBanner]),
                     Self ! {send_banner, SCBanner};
                 ActiveSCs ->
-                    [{SCID, ActiveSC}|_] = ActiveSCs,
+                    [{_SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    lager:debug("blockchain_grpc_sc_server_handler, sending banner for sc ~p", [blockchain_utils:addr2name(SCID)]),
                     Self ! {send_banner, SCBanner}
             end;
         _ ->
