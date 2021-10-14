@@ -6,8 +6,8 @@
 -module(blockchain_txn_assert_location_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
@@ -375,8 +375,36 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(
+    #blockchain_txn_assert_location_v1_pb{
+        gateway           = <<_/binary>>,
+        owner             = <<_/binary>>,
+        payer             = <<_/binary>>,
+        gateway_signature = <<_/binary>>,
+        owner_signature   = <<_/binary>>,
+        payer_signature   = <<_/binary>>,
+        location          = Location,
+        nonce             = Nonce,
+        staking_fee       = StakingFee,
+        fee               = Fee
+    }=Txn
+) when
+    is_list(Location),
+    (is_integer(Nonce) andalso Nonce >= 0),
+    (is_integer(StakingFee) andalso StakingFee >= 0),
+    (is_integer(Fee) andalso Fee >= 0)
+->
+    Payer = payer(Txn),
+    blockchain_txn:validate_fields(
+        [
+            {{owner, owner(Txn)}, {address, libp2p}},
+            {{gateway, gateway(Txn)}, {address, libp2p}}
+        |
+            [{{payer, Payer}, {address, libp2p}} || byte_size(Payer) > 0]
+        ]
+    );
+is_well_formed(#blockchain_txn_assert_location_v1_pb{}) ->
+    {error, invalid}.
 
 -spec is_absorbable(txn_assert_location(), blockchain_ledger_v1:ledger()) ->
     boolean().
@@ -545,8 +573,79 @@ invalid_new() ->
        fee = ?LEGACY_TXN_FEE
       }.
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    %% All that is_well_formed cares about is syntactic validity of
+    %% _independent_ fields. No semantic nuances or field interdependencies are
+    %% expected to be checked.
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end),
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    Loc = ?TEST_LOCATION,
+    T =
+        #blockchain_txn_assert_location_v1_pb{
+            gateway           = Addr1,
+            owner             = Addr2,
+            payer             = Addr3,
+            gateway_signature = <<>>,
+            owner_signature   = <<>>,
+            location          = h3:to_string(Loc),
+            nonce             = 1,
+            staking_fee       = ?LEGACY_STAKING_FEE,
+            fee               = ?LEGACY_TXN_FEE
+        },
+    AssertAll =
+        fun(Expected, Txs) ->
+            [?_assertEqual(Expected, is_well_formed(Tx)) || Tx <- Txs]
+        end,
+    Valid =
+        [
+            T,
+            T#blockchain_txn_assert_location_v1_pb{payer = <<>>},
+            T#blockchain_txn_assert_location_v1_pb{
+                gateway = Addr1,
+                owner   = Addr1,
+                payer   = Addr1
+            }
+        ],
+    Invalid =
+        [
+            T#blockchain_txn_assert_location_v1_pb{gateway           = undefined},
+            T#blockchain_txn_assert_location_v1_pb{owner             = undefined},
+            T#blockchain_txn_assert_location_v1_pb{payer             = undefined},
+            T#blockchain_txn_assert_location_v1_pb{gateway_signature = undefined},
+            T#blockchain_txn_assert_location_v1_pb{owner_signature   = undefined},
+            T#blockchain_txn_assert_location_v1_pb{payer_signature   = undefined},
+            T#blockchain_txn_assert_location_v1_pb{location          = undefined},
+            T#blockchain_txn_assert_location_v1_pb{location          = <<>>},
+            T#blockchain_txn_assert_location_v1_pb{location          = <<"foo">>},
+            T#blockchain_txn_assert_location_v1_pb{nonce             = undefined},
+            T#blockchain_txn_assert_location_v1_pb{nonce             = -1},
+            T#blockchain_txn_assert_location_v1_pb{staking_fee       = undefined},
+            T#blockchain_txn_assert_location_v1_pb{staking_fee       = -1},
+            T#blockchain_txn_assert_location_v1_pb{fee               = undefined},
+            T#blockchain_txn_assert_location_v1_pb{fee               = -1}
+        ],
+    InvalidAddress =
+        [
+            ?_assertEqual({error, {invalid_address, Field}}, is_well_formed(Tx))
+        ||
+            {Field, Tx} <- [
+                {owner, T#blockchain_txn_assert_location_v1_pb{owner = <<"invalid_addr">>}},
+                {gateway, T#blockchain_txn_assert_location_v1_pb{gateway = <<"invalid_addr">>}},
+                {payer, T#blockchain_txn_assert_location_v1_pb{payer = <<"invalid_addr">>}}
+            ]
+        ],
+    [
+        AssertAll(ok, Valid),
+        AssertAll({error, invalid}, Invalid),
+        InvalidAddress
+    ].
 
 missing_payer_signature_new() ->
     #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
