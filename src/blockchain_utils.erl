@@ -54,8 +54,9 @@
     get_vars/2, get_var/2,
     var_cache_stats/0,
     teardown_var_cache/0,
-    init_var_cache/0
 
+    init_var_cache/0,
+    dedup_path/1
 ]).
 
 -define(FREQUENCY, 915).
@@ -669,6 +670,21 @@ teardown_var_cache() ->
 init_var_cache() ->
     %% TODO could pull cache settings from app env here
     e2qc:setup(?VAR_CACHE, []).
+
+-spec dedup_path(Path :: file:filename_all()) -> file:filename_all().
+dedup_path(Path) ->
+    dedup_path(filename:split(Path), []).
+
+dedup_path([], Acc) ->
+    %% Maintain path ordering
+    filename:join(lists:reverse(Acc));
+dedup_path([ Head | Tail ], Acc) ->
+    case lists:member(Head, Acc) of
+        false ->
+            dedup_path(Tail, [Head | Acc]);
+        true ->
+            dedup_path(Tail, [Acc])
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
