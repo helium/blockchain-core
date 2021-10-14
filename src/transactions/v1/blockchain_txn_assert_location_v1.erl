@@ -407,8 +407,16 @@ is_well_formed(#blockchain_txn_assert_location_v1_pb{}) ->
 
 -spec is_absorbable(txn_assert_location(), blockchain_ledger_v1:ledger()) ->
     boolean().
-is_absorbable(_Txn, _Ledger) ->
-    error(not_implemented).
+is_absorbable(T, Ledger) ->
+    Addr = gateway(T),
+    case blockchain_gateway_cache:get(Addr, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Gateway} ->
+            owner(T) == blockchain_ledger_gateway_v2:owner_address(Gateway)
+            andalso
+            nonce(T) == 1 + blockchain_ledger_gateway_v2:nonce(Gateway)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
