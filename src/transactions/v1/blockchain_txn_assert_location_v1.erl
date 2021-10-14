@@ -377,9 +377,9 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
 is_well_formed(
     #blockchain_txn_assert_location_v1_pb{
-        gateway           = <<_/binary>>,
-        owner             = <<_/binary>>,
-        payer             = <<_/binary>>,
+        gateway           = <<Gateway/binary>>,
+        owner             = <<Owner/binary>>,
+        payer             = <<Payer/binary>>,
         gateway_signature = <<_/binary>>,
         owner_signature   = <<_/binary>>,
         payer_signature   = <<_/binary>>,
@@ -387,18 +387,17 @@ is_well_formed(
         nonce             = Nonce,
         staking_fee       = StakingFee,
         fee               = Fee
-    }=Txn
+    }
 ) when
     is_list(Location),
     (is_integer(Nonce) andalso Nonce >= 0),
     (is_integer(StakingFee) andalso StakingFee >= 0),
     (is_integer(Fee) andalso Fee >= 0)
 ->
-    Payer = payer(Txn),
     blockchain_txn:validate_fields(
         [
-            {{owner, owner(Txn)}, {address, libp2p}},
-            {{gateway, gateway(Txn)}, {address, libp2p}}
+            {{owner, Owner}, {address, libp2p}},
+            {{gateway, Gateway}, {address, libp2p}}
         |
             [{{payer, Payer}, {address, libp2p}} || byte_size(Payer) > 0]
         ]
