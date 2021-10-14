@@ -147,7 +147,7 @@ terminate(_Reason, #state{db=DB,
                                       {error, any()}.
 open_db(Dir, CFNames) ->
     ok = filelib:ensure_dir(Dir),
-    DBDir = filename:join(Dir, ?DB_FILE),
+    DBDir = blockchain_utils:dedup_path(filename:join(Dir, ?DB_FILE)),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     ExistingCFs =

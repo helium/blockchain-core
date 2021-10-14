@@ -52,7 +52,9 @@
 
     get_vars/2, get_var/2,
     var_cache_stats/0,
-    teardown_var_cache/0
+    teardown_var_cache/0,
+
+    dedup_path/1
 
 ]).
 
@@ -652,6 +654,21 @@ var_cache_stats() ->
 teardown_var_cache() ->
     e2qc:teardown(?VAR_CACHE).
 
+-spec dedup_path(Path :: file:filename_all()) -> file:filename_all().
+dedup_path(Path) ->
+    dedup_path(filename:split(Path), []).
+
+dedup_path([ ], Acc) ->
+    %% Maintain original path order
+    filename:join(lists:reverse(Acc));
+dedup_path([ Head | Tail ], Acc) ->
+    case lists:member(Head, Acc) of
+        false ->
+            dedup_path(Tail, [ Head | Acc ]);
+        true ->
+            dedup_path(Tail, Acc)
+    end.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -813,6 +830,22 @@ pfind_test() ->
     end,
     Args = [[I] || I <- lists:seq(1, 6)],
     ?assertEqual({true, 2}, pfind(F, Args)),
+    ok.
+
+dedup_path_test() ->
+    P1 = "/foo/bar/baz/ledger.db",
+    P2 = "/foo/bar/baz/ledger.db/ledger.db",
+    P3 = "/foo/bar/baz/sc.db",
+    P4 = "/foo/bar/baz/sc.db/sc.db",
+    P5 = "/foo/bar/bar/baz/sc.db/sc.db",
+    P6 = "/foo/bar/baz/baz/sc.db/sc.db",
+
+    ?assertEqual(P1, dedup_path(P1)),
+    ?assertEqual(P1, dedup_path(P2)),
+    ?assertEqual(P3, dedup_path(P3)),
+    ?assertEqual(P3, dedup_path(P4)),
+    ?assertEqual(P3, dedup_path(P5)),
+    ?assertEqual(P3, dedup_path(P6)),
     ok.
 
 -endif.

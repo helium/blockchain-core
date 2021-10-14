@@ -2165,7 +2165,7 @@ assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce) ->
 %%--------------------------------------------------------------------
 -spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
 open_db(Dir) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
+    DBDir = blockchain_utils:dedup_path(filename:join(Dir, ?DB_FILE)),
     ok = filelib:ensure_dir(DBDir),
 
     case filelib:is_file(filename:join(Dir, "blockchain-open-failed")) andalso follow_mode() of
@@ -2181,7 +2181,7 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", 
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks",
                   "plausible_blocks", "snapshots", "implicit_burns", "info", "htlc_receipts"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
