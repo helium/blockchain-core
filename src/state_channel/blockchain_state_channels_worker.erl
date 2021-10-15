@@ -124,6 +124,7 @@ init(Args) ->
     ok = refresh_cache(SC),
     Owner = maps:get(owner, Args),
     {_, OwnerSigFun} = Owner,
+    ok = blockchain_event:add_handler(self()),
     lager:info("started ~p", [blockchain_utils:addr2name(ID)]),
     State = #state{
         id = ID,
@@ -167,6 +168,11 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info({blockchain_event, {new_chain, Chain}}, State) ->
+    {noreply, State#state{chain=Chain}};
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, State) ->
+    ok = check_expiration(self(), BlockHash, State),
+    {noreply, State};
 handle_info(?OVERSPENT, State) ->
     lager:info("state channel overspent shuting down"),
     {stop, {shutdown, ?OVERSPENT}, State};
@@ -197,6 +203,28 @@ terminate(Reason, #state{id=ID, state_channel=SC, skewed=Skewed, db=DB, owner={_
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec check_expiration(WorkerPid :: pid(), BlockHash :: blockchain_block:hash(), State :: state()) -> ok.
+check_expiration(WorkerPid, BlockHash, #state{id=ID, state_channel=SC, chain=Chain}) ->
+    erlang:spawn(fun() ->
+        Name = blockchain_utils:addr2name(ID),
+        lager:debug("fetching block ~p for ~p", [BlockHash, Name]),
+        case blockchain:get_block(BlockHash, Chain) of
+            {error, _Reason} ->
+                lager:error("failed to get block:~p ~p for ~p", [BlockHash, _Reason, Name]);
+            {ok, Block} ->
+                Height = blockchain_block:height(Block),
+                ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+                lager:debug("got block ~p for ~p expires at ~p", [Height, Name, ExpireAt]),
+                case ExpireAt =< Height of
+                    false ->
+                        ok;
+                    true ->
+                        blockchain_state_channels_worker:expire(WorkerPid)
+                end
+        end
+    end),
+    ok.
 
 -spec offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
