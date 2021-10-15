@@ -78,6 +78,8 @@ init(Args) ->
         end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
 
+    blockchain_utils:init_var_cache(),
+
     %% allow the parent app to change this if it needs to.
     MetadataFun = application:get_env(blockchain, metadata_fun,
                                       fun blockchain_worker:signed_metadata_fun/0),
