@@ -157,7 +157,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v2_pb:encode_msg(BaseTxn),
-    POCVersion = blockchain:config(?poc_version, Ledger),
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
@@ -173,7 +173,6 @@ is_valid(Txn, Chain) ->
                             {error, empty_path};
                         false ->
                             case check_is_valid_poc(POCVersion, Txn, Chain) of
-                                ok -> ok;
                                 {ok, Channels} ->
                                     lager:debug("POCID: ~p, validated ok with reported channels: ~p",
                                                 [poc_id(Txn), Channels]),
@@ -187,7 +186,7 @@ is_valid(Txn, Chain) ->
 
 -spec check_is_valid_poc(POCVersion :: pos_integer(),
                          Txn :: txn_poc_receipts(),
-                         Chain :: blockchain:blockchain()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.
+                         Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer(), ...]} | {error, any()}.
 check_is_valid_poc(POCVersion, Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
@@ -241,7 +240,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                                             Vars = vars(OldLedger),
                                             Keys = libp2p_crypto:keys_from_bin(Secret),
                                             Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
-                                            {Path, StartP} = get_path(blockchain:config(?poc_version, OldLedger) , Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
+                                            {Path, StartP} = get_path(POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
                                             N = erlang:length(Path),
                                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
                                             OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
@@ -365,18 +364,18 @@ deltas(Txn) ->
              Chain :: blockchain:blockchain()) -> deltas().
 deltas(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    deltas(blockchain:config(?poc_version, Ledger), Txn, Chain).
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    deltas(POCVersion, Txn, Chain).
 
 -spec deltas(POCVersion :: pos_integer(),
              Txn :: txn_poc_receipts(),
              Chain :: blockchain:blockchain()) -> deltas().
 deltas(_POCVersion, Txn, Chain) ->
-    calculate_delta(Txn, Chain, true).
+    calculate_delta(Txn, Chain).
 
 -spec calculate_delta(Txn :: txn_poc_receipts(),
-                      Chain :: blockchain:blockchain(),
-                      CalcFreq :: boolean()) -> deltas().
-calculate_delta(Txn, Chain, true) ->
+                      Chain :: blockchain:blockchain()) -> deltas().
+calculate_delta(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Path = blockchain_txn_poc_receipts_v2:path(Txn),
     Length = length(Path),
@@ -407,22 +406,7 @@ calculate_delta(Txn, Chain, true) ->
     catch
         _:_ ->
             []
-    end;
-calculate_delta(Txn, Chain, false) ->
-    Ledger = blockchain:ledger(Chain),
-    Path = blockchain_txn_poc_receipts_v2:path(Txn),
-    Length = length(Path),
-    lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
-                                                 Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                 NextElements = lists:sublist(Path, ElementPos+1, Length),
-                                                 HasContinued = check_path_continuation(NextElements),
-                                                 {Val, Continue} = calculate_alpha_beta(HasContinued, Element, Ledger),
-                                                 {set_deltas(Challengee, Val, Acc), Continue};
-                              (_, Acc) ->
-                                   Acc
-                           end,
-                           {[], true},
-                           lists:zip(lists:seq(1, Length), Path)))).
+    end.
 
 -spec check_path_continuation(Elements :: [blockchain_poc_path_element_v1:poc_element()]) -> boolean().
 check_path_continuation(Elements) ->
@@ -478,17 +462,9 @@ calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, Wit
     Witnesses = valid_witnesses(Element, WitnessChannel, Ledger),
     allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger).
 
--spec calculate_alpha_beta(HasContinued :: boolean(),
-                           Element :: blockchain_poc_path_element_v1:poc_element(),
-                           Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
-calculate_alpha_beta(HasContinued, Element, Ledger) ->
-    Receipt = blockchain_poc_path_element_v1:receipt(Element),
-    Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-    allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger).
-
 -spec allocate_alpha_beta(HasContinued :: boolean(),
                           Element :: blockchain_poc_path_element_v1:poc_element(),
-                          Receipt :: blockchain_poc_receipt_v1:poc_receipt(),
+                          Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
                           Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
                           Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
 allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger) ->
@@ -496,7 +472,7 @@ allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger) ->
         {true, undefined, _} ->
             %% path continued, no receipt, don't care about witnesses
             {{0.8, 0}, true};
-        {true, Receipt, _} when Receipt /= undefined ->
+        {true, Receipt, _} ->
             %% path continued, receipt, don't care about witnesses
             {{1, 0}, true};
         {false, undefined, Wxs} when length(Wxs) > 0 ->
@@ -559,7 +535,8 @@ set_deltas(Challengee, {A, B}, Deltas) ->
 -spec good_quality_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
                              Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v1:poc_witness()].
 good_quality_witnesses(Element, Ledger) ->
-    good_quality_witnesses(blockchain:config(?poc_version, Ledger), Element, Ledger).
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    good_quality_witnesses(POCVersion, Element, Ledger).
 
 -spec good_quality_witnesses(POCVersion :: pos_integer(),
                              Element :: blockchain_poc_path_element_v1:poc_element(),
@@ -625,7 +602,8 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
  -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    absorb(blockchain:config(?poc_version, Ledger), Txn, Chain).
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    absorb(POCVersion, Txn, Chain).
 
  -spec absorb(pos_integer(), txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(_POCVersion, Txn, Chain) ->
@@ -1006,27 +984,17 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                                 true ->
                                                     case blockchain:config(?data_aggregation_version, Ledger) of
                                                         {ok, DataAggVsn} when DataAggVsn > 1 ->
-                                                            case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                            case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
                                                                 true ->
-                                                                    case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
-                                                                        true ->
-                                                                            lager:debug("receipt ok"),
-                                                                            Receipt;
-                                                                        false ->
-                                                                            lager:debug("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
-                                                                                        ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                        blockchain_poc_receipt_v1:channel(Receipt), Channel,
-                                                                                        RSSI, SNR]),
-                                                                            undefined
-                                                                    end;
-                                                                {false, LowerBound} ->
-                                                                    lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                                    lager:debug("receipt ok"),
+                                                                    Receipt;
+                                                                false ->
+                                                                    lager:debug("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                                 [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                                                                 ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                                 element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                RSSI, LowerBound, SNR]),
+                                                                                blockchain_poc_receipt_v1:channel(Receipt), Channel,
+                                                                                RSSI, SNR]),
                                                                     undefined
                                                             end;
                                                         _ ->
@@ -1104,27 +1072,17 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                              true ->
                                                                  case blockchain:config(?data_aggregation_version, Ledger) of
                                                                      {ok, DataAggVsn} when DataAggVsn > 1 ->
-                                                                         case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                                         case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                                              true ->
-                                                                                 case blockchain_poc_witness_v1:channel(Witness) == Channel of
-                                                                                     true ->
-                                                                                         lager:debug("witness ok"),
-                                                                                         true;
-                                                                                     false ->
-                                                                                         lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                                                     [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                                      ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                                      element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                                      blockchain_poc_witness_v1:channel(Witness), Channel,
-                                                                                                      RSSI, SNR]),
-                                                                                         false
-                                                                                 end;
-                                                                             {false, LowerBound} ->
-                                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                                                 lager:debug("witness ok"),
+                                                                                 true;
+                                                                             false ->
+                                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                                              [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                                               ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                                               element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                              RSSI, LowerBound, SNR]),
+                                                                                              blockchain_poc_witness_v1:channel(Witness), Channel,
+                                                                                              RSSI, SNR]),
                                                                                  false
                                                                          end;
                                                                      _ ->
@@ -1164,7 +1122,8 @@ is_too_far(Ledger, SrcLoc, DstLoc) ->
                             Frequency :: float(),
                             Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
 check_valid_frequency(Location, Frequency, Ledger) ->
-    check_valid_frequency(blockchain:config(?poc_version, Ledger), Location, Frequency, Ledger).
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    check_valid_frequency(POCVersion, Location, Frequency, Ledger).
 
 -spec check_valid_frequency(POCVersion :: pos_integer(),
                             Location :: h3:h3_index(),
@@ -1187,7 +1146,8 @@ check_valid_frequency(_POCVersion, Location, Frequency, Ledger) ->
     DstLoc :: h3:h3_index()
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
-    is_same_region(blockchain:config(?poc_version, Ledger), Ledger, SourceLoc, DstLoc).
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    is_same_region(POCVersion, Ledger, SourceLoc, DstLoc).
 
 -spec is_same_region(
     POCVersion :: pos_integer(),
@@ -1275,28 +1235,18 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                              true ->
                                                                 case blockchain:config(?data_aggregation_version, Ledger) of
                                                                     {ok, DataAggVsn} when DataAggVsn > 1 ->
-                                                                        case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                                        case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                                             true ->
-                                                                                case blockchain_poc_witness_v1:channel(Witness) == Channel of
-                                                                                    true ->
-                                                                                        lager:debug("witness ok"),
-                                                                                        [{true, <<"ok">>, Witness} | Acc];
-                                                                                    false ->
-                                                                                        lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
-                                                                                                    [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
-                                                                                                        ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
-                                                                                                        element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                                        blockchain_poc_witness_v1:channel(Witness), Channel,
-                                                                                                        RSSI, SNR]),
-                                                                                        [{false, <<"witness_on_incorrect_channel">>, Witness} | Acc]
-                                                                                end;
-                                                                            {false, LowerBound} ->
-                                                                                lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                                                lager:debug("witness ok"),
+                                                                                [{true, <<"ok">>, Witness} | Acc];
+                                                                            false ->
+                                                                                lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                                             [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                                                 ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                                                 element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                                RSSI, LowerBound, SNR]),
-                                                                                [{false, <<"witness_rssi_below_lower_bound">>, Witness} | Acc]
+                                                                                                blockchain_poc_witness_v1:channel(Witness), Channel,
+                                                                                                RSSI, SNR]),
+                                                                                [{false, <<"witness_on_incorrect_channel">>, Witness} | Acc]
                                                                         end;
                                                                     _ ->
                                                                         %% SNR+Freq+Channels not collected, nothing else we can check
@@ -1318,18 +1268,12 @@ tagged_witnesses(Element, Channel, Ledger) ->
                         end
                  end, [], Witnesses).
 
-check_rssi_snr(Ledger, RSSI, SNR) ->
-    check_rssi_snr(blockchain:config(?poc_version, Ledger), Ledger, RSSI, SNR).
-
-check_rssi_snr(_POCVersion, _Ledger, _RSSI, _SNR) ->
-    %% no checks
-    true.
-
 -spec get_channels(Txn :: txn_poc_receipts(),
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
 get_channels(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    get_channels(blockchain:config(?poc_version, Ledger), Txn, Chain).
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    get_channels(POCVersion, Txn, Chain).
 
 -spec get_channels(POCVersion :: pos_integer(),
                    Txn :: txn_poc_receipts(),
@@ -1356,7 +1300,7 @@ get_channels(POCVersion, Txn, Chain) ->
 -spec get_channels_(POCVersion :: pos_integer(),
                     Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
-                    LayerData :: [binary()]) -> [non_neg_integer()].
+                    LayerData :: [binary()]) -> [non_neg_integer()] | {error, any()}.
 get_channels_(_POCVersion, Ledger, Path, LayerData) ->
     Challengee = hd(Path),
     ChannelCount =
@@ -1366,7 +1310,7 @@ get_channels_(_POCVersion, Ledger, Path, LayerData) ->
             %% will be in the same region
             case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
                 {error, _}=E ->
-                    E;
+                    throw(E);
                 {ok, ChallengeeLoc} ->
                     case blockchain_region_v1:h3_to_region(ChallengeeLoc, Ledger) of
                         {error, _}=E ->
@@ -1387,8 +1331,9 @@ get_channels_(_POCVersion, Ledger, Path, LayerData) ->
                   DstPubkeyBin :: libp2p_crypto:pubkey_bin(),
                   DestinationLoc :: h3:h3_index(),
                   Freq :: float()) -> float().
-min_rcv_sig(undefined, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
-    min_rcv_sig(blockchain:config(?poc_version, Ledger), undefined, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq).
+min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
+    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    min_rcv_sig(POCVersion, Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq).
 
 -spec min_rcv_sig(POCVersion :: pos_integer(),
                   Receipt :: undefined | blockchain_poc_receipt_v1:receipt(),

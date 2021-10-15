@@ -21,7 +21,7 @@
 -spec target_zone(
     RandState :: rand:state(),
     Ledger :: blockchain_ledger_v1:ledger()
-) -> {ok, {[h3:h3_index()], h3:h3_index(), rand:state()}}.
+) -> {ok, {[h3:h3_index()], h3:h3_index(), rand:state()}} | {error, any()}.
 target_zone(RandState, Ledger) ->
     %% Get all hexes once
     HexList = sorted_hex_list(Ledger),
@@ -40,7 +40,7 @@ target_zone(RandState, Ledger) ->
     Vars :: map(),
     HexList :: [h3:h3_index()],
     Attempted :: [{h3:h3_index(), rand:state()}]
-) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
+) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
 gateways_for_zone(
     ChallengerPubkeyBin,
     Ledger,
@@ -78,7 +78,7 @@ gateways_for_zone(
     ZoneRandState :: rand:state(),
     Ledger :: blockchain_ledger_v1:ledger(),
     Vars :: map()
-) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
+) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}} | {error, any()}.
 target(ChallengerPubkeyBin, InitTargetRandState, ZoneRandState, Ledger, Vars) ->
     %% Get all hexes once
     HexList = sorted_hex_list(Ledger),
@@ -180,7 +180,7 @@ sorted_hex_list(Ledger) ->
 -spec choose_zone(
     RandState :: rand:state(),
     HexList :: [h3:h3_index()]
-) -> {ok, {h3:h3_index(), rand:state()}}.
+) -> {ok, {h3:h3_index(), rand:state()}} | {error, empty_hex_list}.
 choose_zone(_RandState, [] = _HexList) ->
     {error, empty_hex_list};
 choose_zone(RandState, HexList) ->

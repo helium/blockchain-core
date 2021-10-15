@@ -75,7 +75,7 @@ block_hash(PoC) ->
 block_hash(Challenger, PoC) ->
     PoC#poc_v3{block_hash=Challenger}.
 
--spec start_height(poc()) -> binary().
+-spec start_height(poc()) -> pos_integer().
 start_height(PoC) ->
     PoC#poc_v3.start_height.
 
@@ -83,11 +83,11 @@ start_height(PoC) ->
 start_height(Height, PoC) ->
     PoC#poc_v3{start_height=Height}.
 
--spec orig_version(poc()) -> binary().
+-spec orig_version(poc()) -> pos_integer().
 orig_version(PoC) ->
     PoC#poc_v3.orig_version.
 
--spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> {ok, poc()} | {error, any()}.
+-spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> boolean().
 verify(PoC, Challenger, BlockHash) ->
     ?MODULE:challenger(PoC) =:= Challenger andalso ?MODULE:block_hash(PoC) =:= BlockHash.
 
