@@ -52,7 +52,8 @@
 
     get_vars/2, get_var/2,
     var_cache_stats/0,
-    teardown_var_cache/0
+    teardown_var_cache/0,
+    init_var_cache/0
 
 ]).
 
@@ -651,6 +652,10 @@ var_cache_stats() ->
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
     e2qc:teardown(?VAR_CACHE).
+
+init_var_cache() ->
+    %% TODO could pull cache settings from app env here
+    e2qc:setup(?VAR_CACHE, []).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
