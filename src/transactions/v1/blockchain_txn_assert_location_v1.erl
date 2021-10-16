@@ -310,18 +310,19 @@ is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin,
 %%--------------------------------------------------------------------
 -spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
-    %% TODO break appart in stages
+    %% TODO Can we take Ledger instead of Chain?
     Ledger = blockchain:ledger(Chain),
-    case {?MODULE:is_valid_owner(Txn),
-          ?MODULE:is_valid_gateway(Txn),
-          ?MODULE:is_valid_payer(Txn)} of
-        {false, _, _} ->
-            {error, bad_owner_signature};
-        {_, false, _} ->
-            {error, bad_gateway_signature};
-        {_, _, false} ->
-            {error, bad_payer_signature};
-        {true, true, true} ->
+    M = ?MODULE,
+    Steps =
+        [
+            fun ({}) -> result:of_bool(M:is_valid_owner(Txn), {}, bad_owner_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_gateway(Txn), {}, bad_gateway_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_payer(Txn), {}, bad_payer_signature) end
+        ],
+    case result:pipe(Steps, {}) of
+        {error, _}=Error ->
+            Error;
+        {ok, {}} ->
             Owner = ?MODULE:owner(Txn),
             Nonce = ?MODULE:nonce(Txn),
             Payer = ?MODULE:payer(Txn),
