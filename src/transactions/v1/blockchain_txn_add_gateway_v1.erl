@@ -321,8 +321,9 @@ is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_add_gateway(), blockchain:blockchain()) ->
-    ok | {error, Reason} when
-    Reason :: atom() | {atom(), any()}. % TODO Spec reason more-precisely
+    ok | {error, Reason}
+    when
+        Reason :: atom() | {atom(), any()}. % TODO Spec reason more-precisely
 is_valid(Txn, Chain) ->
     %% TODO Can we take Ledger instead of Chain?
     Ledger = blockchain:ledger(Chain),
@@ -330,12 +331,12 @@ is_valid(Txn, Chain) ->
     M = ?MODULE,
     Steps =
         [
-            fun ({}) -> result_of_bool(M:is_valid_owner(Txn), {}, bad_owner_signature) end,
-            fun ({}) -> result_of_bool(M:is_valid_gateway(Txn), {}, bad_gateway_signature) end,
-            fun ({}) -> result_of_bool(M:is_valid_payer(Txn), {}, bad_payer_signature) end,
-            fun ({}) -> result_of_bool(M:is_valid_staking_key(Txn, Ledger), {}, payer_invalid_staking_key) end
+            fun ({}) -> result:of_bool(M:is_valid_owner(Txn), {}, bad_owner_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_gateway(Txn), {}, bad_gateway_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_payer(Txn), {}, bad_payer_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_staking_key(Txn, Ledger), {}, payer_invalid_staking_key) end
         ],
-    case result_pipe(Steps, {}) of
+    case result:pipe(Steps, {}) of
         {error, _}=Error ->
             Error;
         {ok, {}} ->
@@ -464,21 +465,6 @@ staking_fee_for_gw_mode(light, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_light_gateway_v1(Ledger);
 staking_fee_for_gw_mode(full, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
-
-result_of_bool(true, Ok, _) -> {ok, Ok};
-result_of_bool(false, _, Error) -> {error, Error}.
-
-%% TODO Move result_pipe to a re-usable module
--spec result_pipe([fun((A) -> {ok, B} | {error, C})], A) -> {ok, B} | {error, C}.
-result_pipe([], X) ->
-    {ok, X};
-result_pipe([F | Fs], X) ->
-    case F(X) of
-        {error, _}=Error ->
-            Error;
-        {ok, Y} ->
-            result_pipe(Fs, Y)
-    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
