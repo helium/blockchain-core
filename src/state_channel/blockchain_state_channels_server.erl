@@ -577,6 +577,7 @@ start_workers(SCsWithSkewed, ActiveSCIDs, State0) ->
 ) -> pid().
 start_worker(SC, Skewed, #state{db=DB, chain=Chain, owner=Owner}) ->
     Args = #{
+        parent => self(),
         state_channel => SC,
         chain => Chain,
         skewed => Skewed,

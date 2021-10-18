@@ -39,6 +39,7 @@
 -define(OVERSPENT, overspent).
 
 -record(state, {
+    parent :: pid(),
     id :: blockchain_state_channel_v1:id(),
     state_channel :: blockchain_state_channel_v1:state_channel(),
     skewed :: skewed:skewed(),
@@ -66,7 +67,6 @@ start(Args) ->
 -spec get(Pid :: pid()) -> blockchain_state_channel_v1:state_channel().
 get(Pid) ->
     gen_server:call(Pid, get, infinity).
-
 
 -spec handle_offer(
     Pid :: pid(),
@@ -99,6 +99,7 @@ handle_packet(Pid, SCPacket, HandlerPid) ->
 %% ------------------------------------------------------------------
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
+    Parent = maps:get(parent, Args),
     SC = maps:get(state_channel, Args),
     Amount = blockchain_state_channel_v1:amount(SC),
     {ok, Bloom} = bloom:new_optimal(max(Amount, 1), ?FP_RATE),
@@ -122,6 +123,7 @@ init(Args) ->
     ok = blockchain_event:add_handler(self()),
     lager:info("started ~p", [blockchain_utils:addr2name(ID)]),
     State = #state{
+        parent = Parent,
         id = ID,
         state_channel = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
         skewed = maps:get(skewed, Args),
@@ -175,6 +177,8 @@ handle_info(
 handle_info(?OVERSPENT, State) ->
     lager:info("state channel overspent shuting down"),
     {stop, {shutdown, ?OVERSPENT}, State};
+handle_info({'DOWN', _Ref, process, Parent, _}, #state{parent=Parent}=State) ->
+    {stop, {shutdown, parent_down}, State};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{handlers=Handlers}=State) ->
     FilteredHandlers =
         maps:filter(
