@@ -984,7 +984,8 @@ grab_snapshot(Height, Hash) ->
                             {error, not_found};
                         cancel ->
                             lager:info("snapshot sync cancelled"),
-                            libp2p_framed_stream:close(Stream);
+                            _ = libp2p_framed_stream:close(Stream),
+                            {error, snap_sync_cancel};
                         {'DOWN', Ref1, process, Stream, normal} ->
                             {error, down};
                         {'DOWN', Ref1, process, Stream, Reason} ->
