@@ -378,33 +378,35 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
 is_well_formed(
     #blockchain_txn_assert_location_v1_pb{
-        gateway           = <<Gateway/binary>>,
-        owner             = <<Owner/binary>>,
-        payer             = <<Payer/binary>>,
-        gateway_signature = <<_/binary>>,
-        owner_signature   = <<_/binary>>,
-        payer_signature   = <<_/binary>>,
+        gateway           = Gateway,
+        gateway_signature = GatewaySig,
+        owner             = Owner,
+        owner_signature   = OwnerSig,
+        payer             = Payer,
+        payer_signature   = PayerSig,
         location          = Location,
         nonce             = Nonce,
         staking_fee       = StakingFee,
         fee               = Fee
     }
-) when
-    is_list(Location),
-    (is_integer(Nonce) andalso Nonce >= 0),
-    (is_integer(StakingFee) andalso StakingFee >= 0),
-    (is_integer(Fee) andalso Fee >= 0)
-->
-    blockchain_txn:validate_fields(
+) ->
+    %% TODO Are sig size specs correct?
+    blockchain_val:validate_all_defined(
         [
-            {{owner, Owner}, {address, libp2p}},
-            {{gateway, Gateway}, {address, libp2p}}
-        |
-            [{{payer, Payer}, {address, libp2p}} || byte_size(Payer) > 0]
+            {owner            , Owner     , {address, libp2p}},
+            {gateway          , Gateway   , {address, libp2p}},
+            {payer            , Payer     , {either, [{binary, {exact, 0}}, {address, libp2p}]}},
+
+            {owner_signature  , OwnerSig  , {either, [{binary, {exact, 0}}, {binary, {exact, 512}}]}},
+            {gateway_signature, GatewaySig, {either, [{binary, {exact, 0}}, {binary, {exact, 512}}]}},
+            {payer_signature  , PayerSig  , {either, [{binary, {exact, 0}}, {binary, {exact, 512}}]}},
+
+            {nonce            , Nonce     , {integer, {min, 1}}},
+            {staking_fee      , StakingFee, {integer, {min, 0}}},
+            {fee              , Fee       , {integer, {min, 0}}},
+            {location         , Location  , h3_string}
         ]
-    );
-is_well_formed(#blockchain_txn_assert_location_v1_pb{}) ->
-    {error, invalid}.
+    ).
 
 -spec is_absorbable(txn_assert_location(), blockchain_ledger_v1:ledger()) ->
     boolean().
@@ -554,6 +556,7 @@ staking_fee_for_gw_mode(_, Ledger)->
 -ifdef(TEST).
 
 -define(TEST_LOCATION, 631210968840687103).
+-define(T_SET(T, K, V), T#blockchain_txn_assert_location_v1_pb{K = V}).
 
 new() ->
     #blockchain_txn_assert_location_v1_pb{
@@ -598,61 +601,39 @@ is_well_formed_test_() ->
     T =
         #blockchain_txn_assert_location_v1_pb{
             gateway           = Addr1,
-            owner             = Addr2,
-            payer             = Addr3,
             gateway_signature = <<>>,
+            owner             = Addr2,
             owner_signature   = <<>>,
+            payer             = Addr3,
+            payer_signature   = <<>>,
             location          = h3:to_string(Loc),
             nonce             = 1,
             staking_fee       = ?LEGACY_STAKING_FEE,
             fee               = ?LEGACY_TXN_FEE
         },
-    AssertAll =
-        fun(Expected, Txs) ->
-            [?_assertEqual(Expected, is_well_formed(Tx)) || Tx <- Txs]
-        end,
-    Valid =
-        [
-            T,
-            T#blockchain_txn_assert_location_v1_pb{payer = <<>>},
-            T#blockchain_txn_assert_location_v1_pb{
-                gateway = Addr1,
-                owner   = Addr1,
-                payer   = Addr1
-            }
-        ],
-    Invalid =
-        [
-            T#blockchain_txn_assert_location_v1_pb{gateway           = undefined},
-            T#blockchain_txn_assert_location_v1_pb{owner             = undefined},
-            T#blockchain_txn_assert_location_v1_pb{payer             = undefined},
-            T#blockchain_txn_assert_location_v1_pb{gateway_signature = undefined},
-            T#blockchain_txn_assert_location_v1_pb{owner_signature   = undefined},
-            T#blockchain_txn_assert_location_v1_pb{payer_signature   = undefined},
-            T#blockchain_txn_assert_location_v1_pb{location          = undefined},
-            T#blockchain_txn_assert_location_v1_pb{location          = <<>>},
-            T#blockchain_txn_assert_location_v1_pb{location          = <<"foo">>},
-            T#blockchain_txn_assert_location_v1_pb{nonce             = undefined},
-            T#blockchain_txn_assert_location_v1_pb{nonce             = -1},
-            T#blockchain_txn_assert_location_v1_pb{staking_fee       = undefined},
-            T#blockchain_txn_assert_location_v1_pb{staking_fee       = -1},
-            T#blockchain_txn_assert_location_v1_pb{fee               = undefined},
-            T#blockchain_txn_assert_location_v1_pb{fee               = -1}
-        ],
-    InvalidAddress =
-        [
-            ?_assertEqual({error, {invalid_address, Field}}, is_well_formed(Tx))
-        ||
-            {Field, Tx} <- [
-                {owner, T#blockchain_txn_assert_location_v1_pb{owner = <<"invalid_addr">>}},
-                {gateway, T#blockchain_txn_assert_location_v1_pb{gateway = <<"invalid_addr">>}},
-                {payer, T#blockchain_txn_assert_location_v1_pb{payer = <<"invalid_addr">>}}
-            ]
-        ],
     [
-        AssertAll(ok, Valid),
-        AssertAll({error, invalid}, Invalid),
-        InvalidAddress
+        {"Baseline all ok", ?_assertEqual(ok, is_well_formed(T))},
+        {"Empty payer is OK", ?_assertEqual(ok, is_well_formed(?T_SET(T, payer, <<>>)))},
+        {"All same addresses is OK", ?_assertEqual(ok, is_well_formed(T#blockchain_txn_assert_location_v1_pb{gateway = Addr1, owner = Addr1, payer = Addr1}))},
+        ?_assertMatch({error, {invalid, [{gateway, undefined}]}}, is_well_formed(?T_SET(T, gateway, undefined))),
+        ?_assertMatch({error, {invalid, [{owner, undefined}]}}, is_well_formed(?T_SET(T, owner, undefined))),
+        ?_assertMatch({error, {invalid, [{payer, undefined}]}}, is_well_formed(?T_SET(T, payer, undefined))),
+        ?_assertMatch({error, {invalid, [{gateway_signature, undefined}]}}, is_well_formed(?T_SET(T, gateway_signature, undefined))),
+        ?_assertMatch({error, {invalid, [{owner_signature, undefined}]}}, is_well_formed(?T_SET(T, owner_signature, undefined))),
+        ?_assertMatch({error, {invalid, [{payer_signature, undefined}]}}, is_well_formed(?T_SET(T, payer_signature, undefined))),
+        ?_assertMatch({error, {invalid, [{staking_fee, undefined}]}}, is_well_formed(?T_SET(T, staking_fee, undefined))),
+
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, staking_fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, fee, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, owner, <<"not-addr">>))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, gateway, <<"not-addr">>))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, payer, <<"not-addr">>))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, location, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, location, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, location, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, location, "foo"))),
+        ?_assertMatch({error, _}, is_well_formed(?T_SET(T, nonce, -1)))
     ].
 
 missing_payer_signature_new() ->
