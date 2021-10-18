@@ -100,6 +100,7 @@ handle_packet(Pid, SCPacket, HandlerPid) ->
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Parent = maps:get(parent, Args),
+    _Ref = erlang:monitor(process, Parent),
     SC = maps:get(state_channel, Args),
     Amount = blockchain_state_channel_v1:amount(SC),
     {ok, Bloom} = bloom:new_optimal(max(Amount, 1), ?FP_RATE),
