@@ -101,7 +101,7 @@ is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}) ->
             end
         end,
     TxnContract = {custom, invalid_txn, IsWellFormed},
-    blockchain_val:validate_all_defined(
+    blockchain_contracts:check_with_defined(
         [
             {transactions, Txs, {forall, [{list, {min, 2}}, {list_of, TxnContract}]}}
         ]

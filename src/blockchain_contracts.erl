@@ -1,7 +1,7 @@
 %%% ===========================================================================
-%%% Generic value validation.
+%%% Contract validation language.
 %%% ===========================================================================
--module(blockchain_val).
+-module(blockchain_contracts).
 
 -export_type([
     key/0,
@@ -11,16 +11,16 @@
     forall/0,
     exists/0,
     either/0,
-    requirement/0,
+    contract/0,
     spec/0,
     failure/0,
     result/0
 ]).
 
 -export([
-     validate/1,
-     validate/2,
-     validate_all_defined/1
+     check/1,
+     check/2,
+     check_with_defined/1
 ]).
 
 -type key() :: atom().
@@ -39,13 +39,13 @@
 -type either() :: either | '∃!'. % Only-one must pass
 -type quantifier() :: forall() | exists() | either().
 
--type requirement() ::
-      {quantifier(), [requirement()]}
+-type contract() ::
+      {quantifier(), [contract()]}
     | defined
     | undefined
     | {binary, size()}
     | {list, size()}
-    | {list_of, requirement()}
+    | {list_of, contract()}
     | {integer, size()}
     | {member, [any()]}
     | {address, libp2p}
@@ -55,7 +55,7 @@
     .
 
 -type spec() ::
-    {key(), val(), requirement()}.
+    {key(), val(), contract()}.
 
 -type failure() ::
       invalid_address
@@ -80,89 +80,89 @@
 
 %% API ========================================================================
 
--spec validate([spec()]) -> result().
-validate(Specs) ->
-    validate_specs(Specs).
+-spec check([spec()]) -> result().
+check(Specs) ->
+    check_specs(Specs).
 
--spec validate([spec()], fun((requirement()) -> requirement())) -> result().
-validate(Specs0, F) ->
+-spec check([spec()], fun((contract()) -> contract())) -> result().
+check(Specs0, F) ->
     Specs1 = [{K, V, F(R)}|| {K, V, R} <- Specs0],
-    validate(Specs1).
+    check(Specs1).
 
--spec validate_all_defined([spec()]) -> result().
-validate_all_defined(Specs) ->
-    validate(Specs, fun(R) -> {forall, [defined, R]} end).
+-spec check_with_defined([spec()]) -> result().
+check_with_defined(Specs) ->
+    check(Specs, fun(R) -> {forall, [defined, R]} end).
 
 %% Internal ===================================================================
--spec validate_specs([spec()]) -> result().
-validate_specs(Specs) ->
-    case lists:flatten([validate_spec(S) || S <- Specs]) of
+-spec check_specs([spec()]) -> result().
+check_specs(Specs) ->
+    case lists:flatten([check_spec(S) || S <- Specs]) of
         [] ->
             ok;
         [_|_]=Invalid ->
             {error, {invalid, Invalid}}
     end.
 
--spec validate_spec(spec()) -> [{key(), failure()}].
-validate_spec({Key, Val, Requirement}) ->
-    case test(Val, Requirement) of
+-spec check_spec(spec()) -> [{key(), failure()}].
+check_spec({Key, Val, Contract}) ->
+    case test(Val, Contract) of
         pass ->
             [];
         {fail, Failure} ->
             [{Key, Failure}]
     end.
 
--spec test(val(), requirement()) -> test_result().
+-spec test(val(), contract()) -> test_result().
 test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, SizeSpec})         -> test_list(V, SizeSpec);
-test(V, {list_of, Requirement})   -> test_list_of(V, Requirement);
+test(V, {list_of, Contract})   -> test_list_of(V, Contract);
 test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
 test(V, h3_string)                -> test_h3_string(V);
-test(V, {ForAll, Requirements}) when ForAll =:= forall; ForAll =:= '∀'->
-    test_forall(V, Requirements);
-test(V, {Exists, Requirements}) when Exists =:= exists; Exists =:= '∃'  ->
-    test_exists(V, Requirements);
-test(V, {Either, Requirements}) when Either =:= either; Either =:= '∃!'  ->
-    test_either(V, Requirements).
+test(V, {ForAll, Contracts}) when ForAll =:= forall; ForAll =:= '∀'->
+    test_forall(V, Contracts);
+test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
+    test_exists(V, Contracts);
+test(V, {Either, Contracts}) when Either =:= either; Either =:= '∃!'  ->
+    test_either(V, Contracts).
 
--spec test_forall(val(), [requirement()]) -> test_result().
-test_forall(V, Requirements) ->
+-spec test_forall(val(), [contract()]) -> test_result().
+test_forall(V, Contracts) ->
     lists:foldl(
         fun (R, pass) -> test(V, R);
             (_, {fail, _}=Failed) -> Failed
         end,
         pass,
-        Requirements
+        Contracts
     ).
 
--spec test_exists(val(), [requirement()]) -> test_result().
-test_exists(V, Requirements) ->
+-spec test_exists(val(), [contract()]) -> test_result().
+test_exists(V, Contracts) ->
     lists:foldl(
         fun (_, pass) -> pass;
             (R, {fail, _}) -> test(V, R)
         end,
-        case Requirements of
+        case Contracts of
             [] ->
                 pass;
             [_|_] ->
                 %% XXX Init failure must never escape this foldl
                 {fail, {'BUG_IN', {?MODULE, 'test_exists', ?LINE}}}
         end,
-        Requirements
+        Contracts
     ).
 
--spec test_either(val(), [requirement()]) -> test_result().
-test_either(V, Requirements) ->
-    Results = [test(V, R) || R <- Requirements],
+-spec test_either(val(), [contract()]) -> test_result().
+test_either(V, Contracts) ->
+    Results = [test(V, R) || R <- Contracts],
     case lists:filter(fun res_to_bool/1, Results) of
-        [] -> {fail, zero_requirements_passed};
+        [] -> {fail, zero_contracts_satisfied};
         [_] -> pass;
-        [_|_] -> {fail, multiple_requirements_passed}
+        [_|_] -> {fail, multiple_contracts_satisfied}
     end.
 
 -spec test_custom(val(), term(), fun((val()) -> boolean())) -> test_result().
@@ -204,8 +204,8 @@ test_list(V, SizeSpec) ->
             test_int(Size, SizeSpec, list_wrong_size)
     end.
 
--spec test_list_of(val(), requirement()) -> test_result().
-test_list_of(Xs, Requirement) ->
+-spec test_list_of(val(), contract()) -> test_result().
+test_list_of(Xs, Contract) ->
     case is_list(Xs) of
         false ->
             {fail, {not_a_list, Xs}};
@@ -213,7 +213,7 @@ test_list_of(Xs, Requirement) ->
             Invalid =
                 lists:foldl(
                     fun (X, Invalid) ->
-                        case test(X, Requirement) of
+                        case test(X, Contract) of
                             pass -> Invalid;
                             {fail, _} -> [X | Invalid]
                         end
@@ -314,15 +314,15 @@ logic_test_() ->
         ?_assertEqual(pass, test(5, {either, [{integer, any}, {binary, any}]})),
         ?_assertEqual(pass, test(5, {'∃!', [{integer, any}, {binary, any}]})),
         ?_assertMatch(
-            {fail, zero_requirements_passed},
+            {fail, zero_contracts_satisfied},
             test(5, {either, [{integer, {max, 1}}, {integer, {exact, 10}}]})
         ),
         ?_assertMatch(
-            {fail, multiple_requirements_passed},
+            {fail, multiple_contracts_satisfied},
             test(5, {either, [{integer, any}, {integer, any}]})
         ),
         ?_assertMatch(
-            {fail, multiple_requirements_passed},
+            {fail, multiple_contracts_satisfied},
             test(5, {either, [{integer, any}, {integer, {range, 0, 10}}]})
         )
     ].
@@ -349,23 +349,23 @@ custom_test_() ->
     [
         ?_assertEqual(pass, test(bar, RequireBar)),
         ?_assertEqual({fail, not_bar}, test(baz, RequireBar)),
-        ?_assertEqual(ok, validate([{Key, bar, RequireBar}])),
+        ?_assertEqual(ok, check([{Key, bar, RequireBar}])),
         ?_assertEqual(
             {error, {invalid, [{Key, not_bar}]}},
-            validate([{Key, baz, RequireBar}])
+            check([{Key, baz, RequireBar}])
         )
     ].
 
 defined_test_() ->
-    Requirement = defined,
+    Contract = defined,
     Key = foo,
     [
-        ?_assertEqual(pass, test(bar, Requirement)),
-        ?_assertEqual({fail, undefined}, test(undefined, Requirement)),
-        ?_assertEqual(ok, validate([{Key, bar, Requirement}])),
+        ?_assertEqual(pass, test(bar, Contract)),
+        ?_assertEqual({fail, undefined}, test(undefined, Contract)),
+        ?_assertEqual(ok, check([{Key, bar, Contract}])),
         ?_assertEqual(
             {error, {invalid, [{Key, undefined}]}},
-            validate([{Key, undefined, Requirement}])
+            check([{Key, undefined, Contract}])
         )
     ].
 
@@ -381,11 +381,11 @@ binary_test_() ->
         ),
         ?_assertEqual(pass, test(<<"a">>, {binary, {range, 1, 1024}})),
         ?_assertEqual(pass, test(<<"bar">>, {binary, {range, 3, 1024}})),
-        ?_assertEqual(ok, validate([{Key, <<>>, {binary, any}}])),
-        ?_assertEqual(ok, validate([{Key, <<>>, {binary, {exact, 0}}}])),
+        ?_assertEqual(ok, check([{Key, <<>>, {binary, any}}])),
+        ?_assertEqual(ok, check([{Key, <<>>, {binary, {exact, 0}}}])),
         ?_assertEqual(
             {error, {invalid, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}},
-            validate([{Key, <<>>, {binary, {range, 8, 1024}}}])
+            check([{Key, <<>>, {binary, {range, 8, 1024}}}])
         )
     ].
 
@@ -403,15 +403,15 @@ list_test_() ->
         ?_assertEqual(pass, test([a], {list, {range, 1, 1024}})),
         ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}})),
         ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}})),
-        ?_assertEqual(ok, validate([{Key, [], {list, any}}])),
-        ?_assertEqual(ok, validate([{Key, [], {list, {exact, 0}}}])),
+        ?_assertEqual(ok, check([{Key, [], {list, any}}])),
+        ?_assertEqual(ok, check([{Key, [], {list, {exact, 0}}}])),
         ?_assertEqual(
             {error, {invalid, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}},
-            validate([{Key, [], {list, {range, 8, 1024}}}])
+            check([{Key, [], {list, {range, 8, 1024}}}])
         ),
         ?_assertEqual(
             {error, {invalid, [{Key, {not_a_list, BadList}}]}},
-            validate(
+            check(
                 [{Key, BadList, {list, {range, 8, 1024}}}]
             )
         )

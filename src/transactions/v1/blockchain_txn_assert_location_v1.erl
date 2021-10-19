@@ -392,7 +392,7 @@ is_well_formed(
     }
 ) ->
     %% TODO Are sig size specs correct?
-    blockchain_val:validate_all_defined(
+    blockchain_contracts:check_with_defined(
         [
             {owner            , Owner     , {address, libp2p}},
             {gateway          , Gateway   , {address, libp2p}},
