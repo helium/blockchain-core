@@ -87,20 +87,11 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_bundle()) -> ok | {error, _}.
-is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}=Bundle) ->
+is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}) ->
     %% Min size is static, so we can check it here without any other info, but
     %% max size check has to be deferred for later, since we first need to
     %% lookup the current max in a chain var, for which we need the chain param.
-    case Txs of
-        undefined ->
-            {error, member_transactions_undefined};
-        [] ->
-            {error, {invalid_min_bundle_size, Bundle}};
-        [_] ->
-            {error, {invalid_min_bundle_size, Bundle}};
-        [_, _ | _] ->
-            ok
-    end.
+    blockchain_val:validate_all_defined([{transactions, Txs, {list, {min, 2}}}]).
 
 -spec is_absorbable(txn_bundle(), blockchain:blockchain()) -> boolean().
 is_absorbable(Tx, Chain) ->
@@ -176,15 +167,15 @@ speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=[_, _ | _]=Txns}, C
 is_well_formed_test_() ->
     [
         ?_assertEqual(
-            {error, member_transactions_undefined},
+           {error, {invalid, [{transactions, undefined}]}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=undefined})
         ),
         ?_assertMatch(
-            {error, {invalid_min_bundle_size, _}},
+           {error, {invalid, [{transactions, {list_wrong_size, 0, {min, 2}}}]}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[]})
         ),
         ?_assertMatch(
-            {error, {invalid_min_bundle_size, _}},
+            {error, {invalid, [{transactions, {list_wrong_size, 1, {min, 2}}}]}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[fake_tx]})
         ),
         ?_assertMatch(
