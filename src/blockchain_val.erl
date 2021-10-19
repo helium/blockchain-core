@@ -44,6 +44,7 @@
     | defined
     | undefined
     | {binary, size()}
+    | {list, size()}
     | {integer, size()}
     | {member, [any()]}
     | {address, libp2p}
@@ -60,9 +61,11 @@
     | {not_a_member_of, [val()]}
     | undefined
     | {not_an_integer, val()}
+    | {not_a_list, val()}
     | {integer_out_of_range, Actual :: integer(), Required :: size()}
     | {not_a_binary, val()}
     | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
     .
 
 -type result() ::
@@ -111,6 +114,7 @@ test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
+test(V, {list, SizeSpec})         -> test_list(V, SizeSpec);
 test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
@@ -184,6 +188,16 @@ test_binary(V, SizeSpec) ->
         true ->
             Size = byte_size(V),
             test_int(Size, SizeSpec, binary_wrong_size)
+    end.
+
+-spec test_list(val(), size()) -> test_result().
+test_list(V, SizeSpec) ->
+    case is_list(V) of
+        false ->
+            {fail, {not_a_list, V}};
+        true ->
+            Size = length(V),
+            test_int(Size, SizeSpec, list_wrong_size)
     end.
 
 -spec test_int(integer(), size(), atom()) -> test_result().
@@ -343,6 +357,34 @@ binary_test_() ->
         ?_assertEqual(
             {error, {invalid, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}},
             validate([{Key, <<>>, {binary, {range, 8, 1024}}}])
+        )
+    ].
+
+list_test_() ->
+    Key = foo,
+    BadList = <<"trust me, i'm a list">>,
+    [
+        ?_assertEqual(pass, test([], {list, any})),
+        ?_assertEqual(pass, test([], {list, {exact, 0}})),
+        ?_assertEqual(pass, test([], {list, {range, 0, 1024}})),
+        ?_assertEqual(
+            {fail, {list_wrong_size, 0, {range, 1, 1024}}},
+            test([], {list, {range, 1, 1024}})
+        ),
+        ?_assertEqual(pass, test([a], {list, {range, 1, 1024}})),
+        ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}})),
+        ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}})),
+        ?_assertEqual(ok, validate([{Key, [], {list, any}}])),
+        ?_assertEqual(ok, validate([{Key, [], {list, {exact, 0}}}])),
+        ?_assertEqual(
+            {error, {invalid, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}},
+            validate([{Key, [], {list, {range, 8, 1024}}}])
+        ),
+        ?_assertEqual(
+            {error, {invalid, [{Key, {not_a_list, BadList}}]}},
+            validate(
+                [{Key, BadList, {list, {range, 8, 1024}}}]
+            )
         )
     ].
 
