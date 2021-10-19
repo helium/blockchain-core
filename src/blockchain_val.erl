@@ -34,9 +34,9 @@
     | {max, integer()}
     .
 
--type forall() :: forall | '∀'.
--type exists() :: exists | '∃'.
--type either() :: either | '∃!'.
+-type forall() :: forall | '∀'.  % All must pass
+-type exists() :: exists | '∃'.  % Any must pass
+-type either() :: either | '∃!'. % Only-one must pass
 -type quantifier() :: forall() | exists() | either().
 
 -type requirement() ::
@@ -68,8 +68,11 @@
 -type result() ::
     ok | {error, {invalid, [{key(), failure()}]}}.
 
+%% For internal use
 -type test_result() ::
     pass | {fail, failure()}.
+
+%% API ========================================================================
 
 -spec validate([spec()]) -> result().
 validate(Specs) ->
@@ -84,6 +87,7 @@ validate(Specs0, F) ->
 validate_all_defined(Specs) ->
     validate(Specs, fun(R) -> {forall, [defined, R]} end).
 
+%% Internal ===================================================================
 -spec validate_specs([spec()]) -> result().
 validate_specs(Specs) ->
     case lists:flatten([validate_spec(S) || S <- Specs]) of
@@ -93,6 +97,7 @@ validate_specs(Specs) ->
             {error, {invalid, Invalid}}
     end.
 
+-spec validate_spec(spec()) -> [{key(), failure()}].
 validate_spec({Key, Val, Requirement}) ->
     case test(Val, Requirement) of
         pass ->
@@ -101,8 +106,7 @@ validate_spec({Key, Val, Requirement}) ->
             [{Key, Failure}]
     end.
 
--spec test(val(), requirement()) ->
-    test_result().
+-spec test(val(), requirement()) -> test_result().
 test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
@@ -118,6 +122,7 @@ test(V, {Exists, Requirements}) when Exists =:= exists; Exists =:= '∃'  ->
 test(V, {Either, Requirements}) when Either =:= either; Either =:= '∃!'  ->
     test_either(V, Requirements).
 
+-spec test_forall(val(), [requirement()]) -> test_result().
 test_forall(V, Requirements) ->
     lists:foldl(
         fun (R, pass) -> test(V, R);
@@ -127,6 +132,7 @@ test_forall(V, Requirements) ->
         Requirements
     ).
 
+-spec test_exists(val(), [requirement()]) -> test_result().
 test_exists(V, Requirements) ->
     lists:foldl(
         fun (_, pass) -> pass;
@@ -142,6 +148,7 @@ test_exists(V, Requirements) ->
         Requirements
     ).
 
+-spec test_either(val(), [requirement()]) -> test_result().
 test_either(V, Requirements) ->
     Results = [test(V, R) || R <- Requirements],
     case lists:filter(fun res_to_bool/1, Results) of
@@ -150,22 +157,26 @@ test_either(V, Requirements) ->
         [_|_] -> {fail, multiple_requirements_passed}
     end.
 
+-spec test_custom(val(), term(), fun((val()) -> boolean())) -> test_result().
 test_custom(V, Label, IsValid) ->
     case IsValid(V) of
         true -> pass;
         false -> {fail, Label}
     end.
 
+-spec test_defined(val()) -> test_result().
 test_defined(undefined) ->
     {fail, undefined};
 test_defined(_) ->
     pass.
 
+-spec test_undefined(val()) -> test_result().
 test_undefined(undefined) ->
     pass;
 test_undefined(_) ->
     {failed, defined}.
 
+-spec test_binary(val(), size()) -> test_result().
 test_binary(V, SizeSpec) ->
     case is_binary(V) of
         false ->
@@ -175,8 +186,7 @@ test_binary(V, SizeSpec) ->
             test_int(Size, SizeSpec, binary_wrong_size)
     end.
 
--spec test_int(integer(), size(), atom()) ->
-    test_result().
+-spec test_int(integer(), size(), atom()) -> test_result().
 test_int(Size, Spec, FailureLabel) ->
     case is_integer(Size) of
         false ->
@@ -199,9 +209,11 @@ test_int(Size, Spec, FailureLabel) ->
             res_of_bool(IsPass, {FailureLabel, Size, Spec})
     end.
 
+-spec test_membership(val(), [val()]) -> test_result().
 test_membership(V, Vs) ->
     res_of_bool(lists:member(V, Vs), {not_a_member_of, Vs}).
 
+-spec test_address_libp2p(val()) -> test_result().
 test_address_libp2p(V) ->
     try libp2p_crypto:bin_to_pubkey(V) of
         _ -> pass
@@ -209,6 +221,7 @@ test_address_libp2p(V) ->
         _:_ -> {fail, invalid_address}
     end.
 
+-spec test_h3_string(val()) -> test_result().
 test_h3_string(V) ->
     try h3:from_string(V) of
         _ -> pass
@@ -228,6 +241,7 @@ res_to_bool({fail, _}) -> false.
 
 -include_lib("eunit/include/eunit.hrl").
 
+%% Test cases =================================================================
 logic_test_() ->
     [
         ?_assertEqual(pass, test(<<>>, {'∀', [defined, {binary, any}]})),
@@ -355,6 +369,9 @@ address_test_() ->
         )
     ].
 
+%% Test helpers ===============================================================
+
+-spec addr_gen() -> binary().
 addr_gen() ->
     #{public := PK, secret := _} =
         libp2p_crypto:generate_keys(ecc_compact),
