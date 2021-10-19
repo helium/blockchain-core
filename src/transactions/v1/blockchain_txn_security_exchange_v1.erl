@@ -225,9 +225,9 @@ is_valid(Txn, Chain) ->
 is_well_formed(_Txn) ->
     error(not_implemented).
 
--spec is_absorbable(txn_security_exchange(), blockchain_ledger_v1:ledger()) ->
+-spec is_absorbable(txn_security_exchange(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(_Txn, _Ledger) ->
+is_absorbable(_Txn, _Chain) ->
     error(not_implemented).
 
 %%--------------------------------------------------------------------

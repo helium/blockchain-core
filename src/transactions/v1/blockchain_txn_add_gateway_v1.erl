@@ -382,9 +382,10 @@ is_well_formed(Txn) ->
         ]
     ).
 
--spec is_absorbable(txn_add_gateway(), blockchain_ledger_v1:ledger()) ->
+-spec is_absorbable(txn_add_gateway(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(Txn, Ledger) ->
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Gateway = gateway(Txn),
     %% Only new gateways allowed:
     case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of

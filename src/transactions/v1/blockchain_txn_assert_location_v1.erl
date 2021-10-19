@@ -408,9 +408,10 @@ is_well_formed(
         ]
     ).
 
--spec is_absorbable(txn_assert_location(), blockchain_ledger_v1:ledger()) ->
+-spec is_absorbable(txn_assert_location(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(T, Ledger) ->
+is_absorbable(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Addr = gateway(T),
     case blockchain_gateway_cache:get(Addr, Ledger) of
         {error, _} ->

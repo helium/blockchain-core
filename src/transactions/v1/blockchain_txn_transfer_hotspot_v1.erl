@@ -201,9 +201,9 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
 is_well_formed(_Txn) ->
     error(not_implemented).
 
--spec is_absorbable(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) ->
+-spec is_absorbable(txn_transfer_hotspot(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(_Txn, _Ledger) ->
+is_absorbable(_Txn, _Chain) ->
     error(not_implemented).
 
 -spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
