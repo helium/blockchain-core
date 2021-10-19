@@ -125,6 +125,7 @@
     absorb_delayed/2,
     sort/2,
     type/1,
+    type_check/1,
     serialize/1,
     deserialize/1,
     wrap_txn/1,
@@ -673,78 +674,85 @@ sort(TxnA, TxnB) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec type(txn()) -> atom().
-type(#blockchain_txn_assert_location_v1_pb{}) ->
-    blockchain_txn_assert_location_v1;
-type(#blockchain_txn_payment_v1_pb{}) ->
-    blockchain_txn_payment_v1;
-type(#blockchain_txn_security_exchange_v1_pb{}) ->
-    blockchain_txn_security_exchange_v1;
-type(#blockchain_txn_create_htlc_v1_pb{}) ->
-    blockchain_txn_create_htlc_v1;
-type(#blockchain_txn_redeem_htlc_v1_pb{}) ->
-    blockchain_txn_redeem_htlc_v1;
-type(#blockchain_txn_add_gateway_v1_pb{}) ->
-    blockchain_txn_add_gateway_v1;
-type(#blockchain_txn_coinbase_v1_pb{}) ->
-    blockchain_txn_coinbase_v1;
-type(#blockchain_txn_security_coinbase_v1_pb{}) ->
-    blockchain_txn_security_coinbase_v1;
-type(#blockchain_txn_consensus_group_v1_pb{}) ->
-    blockchain_txn_consensus_group_v1;
-type(#blockchain_txn_consensus_group_failure_v1_pb{}) ->
-    blockchain_txn_consensus_group_failure_v1;
-type(#blockchain_txn_poc_request_v1_pb{}) ->
-    blockchain_txn_poc_request_v1;
-type(#blockchain_txn_poc_receipts_v1_pb{}) ->
-    blockchain_txn_poc_receipts_v1;
-type(#blockchain_txn_gen_gateway_v1_pb{}) ->
-    blockchain_txn_gen_gateway_v1;
-type(#blockchain_txn_oui_v1_pb{}) ->
-    blockchain_txn_oui_v1;
-type(#blockchain_txn_routing_v1_pb{}) ->
-    blockchain_txn_routing_v1;
-type(#blockchain_txn_vars_v1_pb{}) ->
-    blockchain_txn_vars_v1;
-type(#blockchain_txn_rewards_v1_pb{}) ->
-    blockchain_txn_rewards_v1;
-type(#blockchain_txn_token_burn_v1_pb{}) ->
-    blockchain_txn_token_burn_v1;
-type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
-    blockchain_txn_dc_coinbase_v1;
-type(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
-    blockchain_txn_token_burn_exchange_rate_v1;
-type(#blockchain_txn_bundle_v1_pb{}) ->
-    blockchain_txn_bundle_v1;
-type(#blockchain_txn_payment_v2_pb{}) ->
-    blockchain_txn_payment_v2;
-type(#blockchain_txn_state_channel_open_v1_pb{}) ->
-    blockchain_txn_state_channel_open_v1;
-type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
-    blockchain_txn_update_gateway_oui_v1;
-type(#blockchain_txn_state_channel_close_v1_pb{}) ->
-    blockchain_txn_state_channel_close_v1;
-type(#blockchain_txn_price_oracle_v1_pb{}) ->
-    blockchain_txn_price_oracle_v1;
-type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
-    blockchain_txn_gen_price_oracle_v1;
-type(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
-    blockchain_txn_transfer_hotspot_v1;
-type(#blockchain_txn_rewards_v2_pb{}) ->
-    blockchain_txn_rewards_v2;
-type(#blockchain_txn_assert_location_v2_pb{}) ->
-    blockchain_txn_assert_location_v2;
-type(#blockchain_txn_gen_validator_v1_pb{}) ->
-    blockchain_txn_gen_validator_v1;
-type(#blockchain_txn_stake_validator_v1_pb{}) ->
-     blockchain_txn_stake_validator_v1;
-type(#blockchain_txn_unstake_validator_v1_pb{}) ->
-    blockchain_txn_unstake_validator_v1;
-type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
-    blockchain_txn_transfer_validator_stake_v1;
-type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
-    blockchain_txn_validator_heartbeat_v1;
-type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
-    blockchain_txn_transfer_hotspot_v2.
+type(Txn) ->
+    {ok, Type} = type_check(Txn),
+    Type.
+
+-spec type_check(txn()) -> {ok, atom()} | {error, not_a_known_txn_value}.
+type_check(#blockchain_txn_assert_location_v1_pb{}) ->
+    {ok, blockchain_txn_assert_location_v1};
+type_check(#blockchain_txn_payment_v1_pb{}) ->
+    {ok, blockchain_txn_payment_v1};
+type_check(#blockchain_txn_security_exchange_v1_pb{}) ->
+    {ok, blockchain_txn_security_exchange_v1};
+type_check(#blockchain_txn_create_htlc_v1_pb{}) ->
+    {ok, blockchain_txn_create_htlc_v1};
+type_check(#blockchain_txn_redeem_htlc_v1_pb{}) ->
+    {ok, blockchain_txn_redeem_htlc_v1};
+type_check(#blockchain_txn_add_gateway_v1_pb{}) ->
+    {ok, blockchain_txn_add_gateway_v1};
+type_check(#blockchain_txn_coinbase_v1_pb{}) ->
+    {ok, blockchain_txn_coinbase_v1};
+type_check(#blockchain_txn_security_coinbase_v1_pb{}) ->
+    {ok, blockchain_txn_security_coinbase_v1};
+type_check(#blockchain_txn_consensus_group_v1_pb{}) ->
+    {ok, blockchain_txn_consensus_group_v1};
+type_check(#blockchain_txn_consensus_group_failure_v1_pb{}) ->
+    {ok, blockchain_txn_consensus_group_failure_v1};
+type_check(#blockchain_txn_poc_request_v1_pb{}) ->
+    {ok, blockchain_txn_poc_request_v1};
+type_check(#blockchain_txn_poc_receipts_v1_pb{}) ->
+    {ok, blockchain_txn_poc_receipts_v1};
+type_check(#blockchain_txn_gen_gateway_v1_pb{}) ->
+    {ok, blockchain_txn_gen_gateway_v1};
+type_check(#blockchain_txn_oui_v1_pb{}) ->
+    {ok, blockchain_txn_oui_v1};
+type_check(#blockchain_txn_routing_v1_pb{}) ->
+    {ok, blockchain_txn_routing_v1};
+type_check(#blockchain_txn_vars_v1_pb{}) ->
+    {ok, blockchain_txn_vars_v1};
+type_check(#blockchain_txn_rewards_v1_pb{}) ->
+    {ok, blockchain_txn_rewards_v1};
+type_check(#blockchain_txn_token_burn_v1_pb{}) ->
+    {ok, blockchain_txn_token_burn_v1};
+type_check(#blockchain_txn_dc_coinbase_v1_pb{}) ->
+    {ok, blockchain_txn_dc_coinbase_v1};
+type_check(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
+    {ok, blockchain_txn_token_burn_exchange_rate_v1};
+type_check(#blockchain_txn_bundle_v1_pb{}) ->
+    {ok, blockchain_txn_bundle_v1};
+type_check(#blockchain_txn_payment_v2_pb{}) ->
+    {ok, blockchain_txn_payment_v2};
+type_check(#blockchain_txn_state_channel_open_v1_pb{}) ->
+    {ok, blockchain_txn_state_channel_open_v1};
+type_check(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
+    {ok, blockchain_txn_update_gateway_oui_v1};
+type_check(#blockchain_txn_state_channel_close_v1_pb{}) ->
+    {ok, blockchain_txn_state_channel_close_v1};
+type_check(#blockchain_txn_price_oracle_v1_pb{}) ->
+    {ok, blockchain_txn_price_oracle_v1};
+type_check(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
+    {ok, blockchain_txn_gen_price_oracle_v1};
+type_check(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
+    {ok, blockchain_txn_transfer_hotspot_v1};
+type_check(#blockchain_txn_rewards_v2_pb{}) ->
+    {ok, blockchain_txn_rewards_v2};
+type_check(#blockchain_txn_assert_location_v2_pb{}) ->
+    {ok, blockchain_txn_assert_location_v2};
+type_check(#blockchain_txn_gen_validator_v1_pb{}) ->
+    {ok, blockchain_txn_gen_validator_v1};
+type_check(#blockchain_txn_stake_validator_v1_pb{}) ->
+    {ok, blockchain_txn_stake_validator_v1};
+type_check(#blockchain_txn_unstake_validator_v1_pb{}) ->
+    {ok, blockchain_txn_unstake_validator_v1};
+type_check(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
+    {ok, blockchain_txn_transfer_validator_stake_v1};
+type_check(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
+    {ok, blockchain_txn_validator_heartbeat_v1};
+type_check(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
+    {ok, blockchain_txn_transfer_hotspot_v2};
+type_check(_) ->
+    {error, not_a_known_txn_value}.
 
 -spec validate_fields([field_validation_spec()]) ->
     ok | {error, field_validation_error()}.
