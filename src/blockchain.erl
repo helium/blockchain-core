@@ -781,11 +781,19 @@ has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
             Error
     end.
 
-find_first_block_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
+find_first_height_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}) ->
     {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
     rocksdb:iterator_move(Iter, {seek, <<(MinHeight):64/integer-unsigned-big>>}),
     case rocksdb:iterator_move(Iter, next) of
         {ok, <<Height:64/integer-unsigned-big>>, Hash} ->
+            {ok, Height, Hash};
+        {error, _} ->
+            {error, not_found}
+    end.
+
+find_first_block_after(MinHeight, Blockchain) ->
+    case find_first_height_after(MinHeight, Blockchain) of
+        {ok, Height, Hash} ->
             case get_block(Hash, Blockchain) of
                 {ok, Block} ->
                     {ok, Height, Block};
@@ -2656,21 +2664,22 @@ snapshot_height(Height) ->
          application:get_env(blockchain, quick_sync_mode, assumed_valid) == blessed_snapshot of
         true ->
             Chain = blockchain_worker:blockchain(),
-            {ok, HeadBlock} = blockchain:head_block(Chain),
             {ok, ChainHeight} = blockchain:height(Chain),
             EndHeight = case Height > ChainHeight of
                             true ->
                                 %% we've rolled back
                                 0;
                             false ->
-                                Height
+                                Height - 1
                         end,
             %% find the oldest block we have that's newer than the last known height
-            blockchain:fold_chain(fun(B, Acc) when Acc > EndHeight ->
-                                          blockchain_block:height(B);
-                                     (_, _) ->
-                                          return
-                                  end, ChainHeight, HeadBlock, Chain);
+            case find_first_height_after(EndHeight, Chain) of
+                {ok, FirstHeight, _Hash} ->
+                    FirstHeight;
+                {error, _} ->
+                    %% not sure this is the right bail strat
+                    ChainHeight
+            end;
         false ->
             Height
     end.
