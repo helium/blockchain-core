@@ -266,7 +266,6 @@ handle_info({got_block, Block, _BlockHash, []}, State0) ->
     Height = blockchain_block:height(Block),
     State1 = State0#state{height=Height},
     lager:debug("no transactions found in ~p", [Height]),
-    ok = check_state_channel_expiration(Block, State1),
     {noreply, State1};
 handle_info({got_block, Block, BlockHash, Txns}, State0) ->
     Height = blockchain_block:height(Block),
@@ -285,7 +284,6 @@ handle_info({got_block, Block, BlockHash, Txns}, State0) ->
             State1,
             Txns
         ),
-    ok = check_state_channel_expiration(Block, State2),
     {noreply, State2};
 handle_info(get_new_active, State0) ->
     lager:info("get a new active state channel"),
@@ -541,34 +539,6 @@ closed_state_channel(Txn, #state{state_channels=SCs}=State) ->
             }
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Close expired state channels
-%% @end
-%%--------------------------------------------------------------------
--spec check_state_channel_expiration(
-    Block :: blockchain_block:block(),
-    State :: state()
-) -> ok.
-check_state_channel_expiration(Block, #state{state_channels=SCs}) ->
-    BlockHeight = blockchain_block:height(Block),
-    lager:info("check_state_channel_expiration at block ~p", [BlockHeight]),
-    lists:foreach(
-        fun({ID, {SC, _SCState, Pid}}) ->
-            ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-            SCState = blockchain_state_channel_v1:state(SC),
-            lager:info("~p is ~p and expires at ~p", [blockchain_utils:addr2name(ID), _SCState, ExpireAt]),
-            case ExpireAt =< BlockHeight andalso SCState == open of
-                false ->
-                    ok;
-                true ->
-                    blockchain_state_channels_worker:expire(Pid)
-            end
-        end,
-        maps:to_list(SCs)
-    ),
-    ok.
-
 -spec start_workers(
     SCsWithSkewed :: #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(), skewed:skewed()}},
     ActiveSCIDs :: [blockchain_state_channel_v1:id()],
@@ -607,6 +577,7 @@ start_workers(SCsWithSkewed, ActiveSCIDs, State0) ->
 ) -> pid().
 start_worker(SC, Skewed, #state{db=DB, chain=Chain, owner=Owner}) ->
     Args = #{
+        parent => self(),
         state_channel => SC,
         chain => Chain,
         skewed => Skewed,
