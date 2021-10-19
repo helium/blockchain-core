@@ -2670,7 +2670,7 @@ snapshot_height(Height) ->
                                 %% we've rolled back
                                 0;
                             false ->
-                                Height
+                                Height - 1
                         end,
             %% find the oldest block we have that's newer than the last known height
             case find_first_height_after(EndHeight, Chain) of
