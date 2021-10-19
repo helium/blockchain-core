@@ -43,11 +43,11 @@ summary(#blockchain_state_channel_purchase_diff_v1_pb{summary=Summary}) ->
 packet_hash(#blockchain_state_channel_purchase_diff_v1_pb{packet_hash=PH}) ->
     PH.
 
--spec region(purchase_diff()) -> binary().
+-spec region(purchase_diff()) -> atom().
 region(#blockchain_state_channel_purchase_diff_v1_pb{region=Region}) ->
     Region.
 
--spec sc_owner(purchase_diff()) -> binary().
+-spec sc_owner(purchase_diff()) -> libp2p_crypto:pubkey_bin().
 sc_owner(#blockchain_state_channel_purchase_diff_v1_pb{sc_owner=SCOwner}) ->
     SCOwner.
 
