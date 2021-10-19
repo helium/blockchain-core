@@ -20,7 +20,8 @@
                  blockchain_state_channel_offer_v1:offer() |
                  blockchain_state_channel_purchase_v1:purchase() |
                  blockchain_state_channel_banner_v1:banner() |
-                 blockchain_state_channel_rejection_v1:rejection().
+                 blockchain_state_channel_rejection_v1:rejection()|
+                 blockchain_state_channel_purchase_diff_v1:purchase_diff().
 
 -export_type([message/0]).
 
@@ -48,7 +49,9 @@ wrap_msg(#blockchain_state_channel_purchase_v1_pb{}=Purchase) ->
 wrap_msg(#blockchain_state_channel_banner_v1_pb{}=Banner) ->
     #blockchain_state_channel_message_v1_pb{msg={banner, Banner}};
 wrap_msg(#blockchain_state_channel_rejection_v1_pb{}=Rejection) ->
-    #blockchain_state_channel_message_v1_pb{msg={reject, Rejection}}.
+    #blockchain_state_channel_message_v1_pb{msg={reject, Rejection}};
+wrap_msg(#blockchain_state_channel_purchase_diff_v1_pb{}=PurchaseDiff) ->
+    #blockchain_state_channel_message_v1_pb{msg={purchase_diff, PurchaseDiff}}.
 
 -spec unwrap_msg(message()) -> {atom(), oneof()}.
 unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->

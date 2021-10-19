@@ -216,6 +216,11 @@ handle_info(server, {send_purchase, PurchaseSC, Hotspot, PacketHash, Region, Own
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
     {noreply, HandlerState, Data};
+handle_info(server, {send_purchase_diff, Summary, PacketHash, Region, Owner, OwnerSigFun}, HandlerState) ->
+    DiffMsg = blockchain_state_channel_purchase_diff_v1:new(Summary, PacketHash, Region, Owner),
+    SignedDiffMsg = blockchain_state_channel_purchase_diff_v1:sign(DiffMsg, OwnerSigFun),
+    Data = blockchain_state_channel_message_v1:encode(SignedDiffMsg),
+    {noreply, HandlerState, Data};
 handle_info(server, {send_response, Resp}, HandlerState) ->
     lager:debug("sc_handler server sending resp: ~p", [Resp]),
     Data = blockchain_state_channel_message_v1:encode(Resp),

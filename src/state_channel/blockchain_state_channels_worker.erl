@@ -227,7 +227,7 @@ offer(
         state_channel = SC,
         skewed=Skewed,
         db=DB,
-        owner={_Owner, OwnerSigFun},
+        owner={Owner, OwnerSigFun},
         dc_payload_size=DCPayloadSize,
         max_actors_allowed=MaxActorsAllowed,
         prevent_overspend=PreventOverSpend
@@ -327,7 +327,7 @@ packet(
                     %% it happens in `send_purchase` for v2 SCs
                     SC1;
                 _ ->
-                    {ok, SC} = 
+                    {ok, SC, _} = 
                         try_update_summary(
                             SC1, 
                             HotspotID,
@@ -357,13 +357,13 @@ send_offer_rejection(HandlerPid, Offer) ->
     DCPayloadSize :: undefined | pos_integer(),
     MaxActorsAllowed :: non_neg_integer()
 ) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, does_not_fit}.
+    {ok, blockchain_state_channel_v1:state_channel(), {boolean(), blockchain_state_channel_summary_v1:summary()}} | {error, does_not_fit}.
 try_update_summary(SC, HotspotID, PayloadSize, DCPayloadSize, MaxActorsAllowed) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
     case update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, NewPurchaseSC0, MaxActorsAllowed) of
-        {NewPurchaseSC1, true} -> {ok, NewPurchaseSC1};
-        {_SC, false} -> {error, does_not_fit}
+        {NewPurchaseSC1, true, AlreadyInSummary} -> {ok, NewPurchaseSC1, AlreadyInSummary};
+        {_SC, false, _} -> {error, does_not_fit}
     end.
 
 -spec update_sc_summary(HotspotID :: libp2p_crypto:pubkey_bin(),
@@ -371,7 +371,7 @@ try_update_summary(SC, HotspotID, PayloadSize, DCPayloadSize, MaxActorsAllowed) 
                         DCPayloadSize :: undefined | pos_integer(),
                         SC :: blockchain_state_channel_v1:state_channel(),
                         MaxActorsAllowed :: non_neg_integer()) ->
-    {blockchain_state_channel_v1:state_channel(), boolean()}.
+    {blockchain_state_channel_v1:state_channel(), boolean(), {boolean(), blockchain_state_channel_summary_v1:summary()}}.
 update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) ->
     case blockchain_state_channel_v1:get_summary(HotspotID, SC) of
         {error, not_found} ->
@@ -381,7 +381,7 @@ update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) -
                                                                              NewSummary,
                                                                              SC,
                                                                              MaxActorsAllowed),
-            {NewSC, DidFit};
+            {NewSC, DidFit, {false, NewSummary}};
         {ok, ExistingSummary} ->
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
@@ -393,7 +393,7 @@ update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) -
                                                                              NewSummary,
                                                                              SC,
                                                                              MaxActorsAllowed),
-            {NewSC, DidFit}
+            {NewSC, DidFit, {true, NewSummary}}
     end.
 
 -spec refresh_cache(SC :: blockchain_state_channel_v1:state_channel()) -> ok. 

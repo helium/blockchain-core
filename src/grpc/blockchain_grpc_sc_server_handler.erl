@@ -114,6 +114,13 @@ handle_info({send_purchase, PurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun
     Msg = blockchain_state_channel_message_v1:wrap_msg(PurchaseMsg),
     NewStreamState = grpcbox_stream:send(false, Msg, StreamState),
     NewStreamState;
+handle_info({send_purchase_diff, Summary, PacketHash, Region, Owner, OwnerSigFun}, StreamState) ->
+    DiffMsg = blockchain_state_channel_purchase_diff_v1:new(Summary, PacketHash, Region, Owner),
+    lager:debug("grpc sc handler server sending purchase diff: ~p", [DiffMsg]),
+    SignedDiffMsg = blockchain_state_channel_purchase_diff_v1:sign(DiffMsg, OwnerSigFun),
+    Msg = blockchain_state_channel_message_v1:encode(SignedDiffMsg),
+    NewStreamState = grpcbox_stream:send(false, Msg, StreamState),
+    NewStreamState;
 handle_info({send_response, Resp}, StreamState) ->
     lager:debug("grpc sc handler server sending resp: ~p", [Resp]),
     Msg = blockchain_state_channel_message_v1:wrap_msg(Resp),
