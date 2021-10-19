@@ -45,6 +45,7 @@
     | undefined
     | {binary, size()}
     | {list, size()}
+    | {list_of, requirement()}
     | {integer, size()}
     | {member, [any()]}
     | {address, libp2p}
@@ -66,6 +67,7 @@
     | {not_a_binary, val()}
     | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
     | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    | {list_contains_invalid_elements, val()}
     .
 
 -type result() ::
@@ -115,6 +117,7 @@ test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, SizeSpec})         -> test_list(V, SizeSpec);
+test(V, {list_of, Requirement})   -> test_list_of(V, Requirement);
 test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
@@ -198,6 +201,31 @@ test_list(V, SizeSpec) ->
         true ->
             Size = length(V),
             test_int(Size, SizeSpec, list_wrong_size)
+    end.
+
+-spec test_list_of(val(), requirement()) -> test_result().
+test_list_of(Xs, Requirement) ->
+    case is_list(Xs) of
+        false ->
+            {fail, {not_a_list, Xs}};
+        true ->
+            Invalid =
+                lists:foldl(
+                    fun (X, Invalid) ->
+                        case test(X, Requirement) of
+                            pass -> Invalid;
+                            {fail, _} -> [X | Invalid]
+                        end
+                    end,
+                    [],
+                    Xs
+                ),
+            case Invalid of
+                [] ->
+                    pass;
+                [_|_] ->
+                    {fail, {list_contains_invalid_elements, Invalid}}
+            end
     end.
 
 -spec test_int(integer(), size(), atom()) -> test_result().
@@ -385,6 +413,18 @@ list_test_() ->
             validate(
                 [{Key, BadList, {list, {range, 8, 1024}}}]
             )
+        )
+    ].
+
+list_of_test_() ->
+    [
+        ?_assertEqual(pass, test([], {list_of, {integer, any}})),
+        ?_assertEqual(pass, test([], {list_of, {integer, {range, 1, 5}}})),
+        ?_assertEqual(pass, test([1, 2, 3], {list_of, {integer, any}})),
+        ?_assertEqual(pass, test([1, 2, 3], {list_of, {integer, {range, 1, 5}}})),
+        ?_assertEqual(
+            {fail, {list_contains_invalid_elements, [30]}},
+            test([1, 2, 30], {list_of, {integer, {range, 1, 5}}})
         )
     ].
 
