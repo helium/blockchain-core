@@ -96,34 +96,29 @@ fee_payer(_Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_coinbase(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            Amount = ?MODULE:amount(Txn),
-            case Amount > 0 of
-                true ->
-                    ok;
-                false ->
-                    {error, zero_or_negative_amount}
-            end;
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+is_valid(_Txn, _Chain) ->
+    ok.
 
 -spec is_well_formed(txn_coinbase()) -> ok | {error, _}.
 is_well_formed(#blockchain_txn_coinbase_v1_pb{payee = Payee, amount = Amount}) ->
     blockchain_contracts:check_with_defined(
         [
             {payee, Payee, {address, libp2p}},
-            {amount, Amount, {integer, any}}
+            {amount, Amount, {integer, {min, 1}}}
         ]
     ).
 
 -spec is_absorbable(txn_coinbase(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+is_absorbable(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            true;
+        _ ->
+            lager:error("Coinbase txn cannot be absorbed because chain is not in genesis block."),
+            false
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -189,11 +184,13 @@ is_well_formed_test_() ->
                 libp2p_crypto:generate_keys(ecc_compact),
             libp2p_crypto:pubkey_to_bin(PK)
         end)(),
-    T = #blockchain_txn_coinbase_v1_pb{payee = Addr, amount = 0},
+    T = #blockchain_txn_coinbase_v1_pb{payee = Addr, amount = 1},
     [
         ?_assertEqual(ok, is_well_formed(T)),
         ?_assertEqual(ok, is_well_formed(T#blockchain_txn_coinbase_v1_pb{amount=1000})),
         ?_assertMatch({error, _}, is_well_formed(T#blockchain_txn_coinbase_v1_pb{amount = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#blockchain_txn_coinbase_v1_pb{amount = 0})),
+        ?_assertMatch({error, _}, is_well_formed(T#blockchain_txn_coinbase_v1_pb{amount = -1})),
         ?_assertMatch({error, _}, is_well_formed(T#blockchain_txn_coinbase_v1_pb{payee = undefined})),
         ?_assertMatch({error, _}, is_well_formed(T#blockchain_txn_coinbase_v1_pb{payee = <<>>})),
         ?_assertMatch({error, _}, is_well_formed(T#blockchain_txn_coinbase_v1_pb{payee = <<"not address">>}))
