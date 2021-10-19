@@ -51,6 +51,7 @@
     | {address, libp2p}
     | {custom, Label :: term(), fun((val()) -> boolean())}
     | h3_string
+    %% TODO txn contracts: txn, txn_well_formed
     .
 
 -type spec() ::

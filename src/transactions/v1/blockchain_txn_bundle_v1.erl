@@ -91,7 +91,21 @@ is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}) ->
     %% Min size is static, so we can check it here without any other info, but
     %% max size check has to be deferred for later, since we first need to
     %% lookup the current max in a chain var, for which we need the chain param.
-    blockchain_val:validate_all_defined([{transactions, Txs, {list, {min, 2}}}]).
+    IsWellFormed =
+        fun (Tx) ->
+                case blockchain_txn:type_check(Tx) of
+                {ok, Type} ->
+                    result:to_bool(Type:is_well_formed(Tx));
+                {error, not_a_known_txn_value} ->
+                    false
+            end
+        end,
+    TxnContract = {custom, invalid_txn, IsWellFormed},
+    blockchain_val:validate_all_defined(
+        [
+            {transactions, Txs, {forall, [{list, {min, 2}}, {list_of, TxnContract}]}}
+        ]
+    ).
 
 -spec is_absorbable(txn_bundle(), blockchain:blockchain()) -> boolean().
 is_absorbable(Tx, Chain) ->
@@ -163,26 +177,41 @@ speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=[_, _ | _]=Txns}, C
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
 
 is_well_formed_test_() ->
+    Tx = blockchain_txn_assert_location_v1:gen_new_valid(),
     [
         ?_assertEqual(
            {error, {invalid, [{transactions, undefined}]}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=undefined})
         ),
-        ?_assertMatch(
+        ?_assertEqual(
            {error, {invalid, [{transactions, {list_wrong_size, 0, {min, 2}}}]}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[]})
         ),
-        ?_assertMatch(
+        ?_assertEqual(
             {error, {invalid, [{transactions, {list_wrong_size, 1, {min, 2}}}]}},
-            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[fake_tx]})
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[Tx]})
         ),
-        ?_assertMatch(
+        ?_assertEqual(
             ok,
             is_well_formed(#blockchain_txn_bundle_v1_pb{
-                transactions = [fake_tx_1, fake_tx_2]
+                transactions = [Tx, Tx]
             })
+        ),
+        ?_assertEqual(
+            {error, {invalid, [{transactions, {list_contains_invalid_elements, [trust_me_im_a_txn]}}]}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [Tx, Tx, trust_me_im_a_txn]})
+        ),
+        ?_assertMatch(
+            {error, {invalid, [{transactions, {list_contains_invalid_elements, [
+                #blockchain_txn_assert_location_v1_pb{}
+            ]}}]}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [
+                Tx,
+                Tx#blockchain_txn_assert_location_v1_pb{gateway = undefined}
+            ]})
         )
     ].
 -endif.
