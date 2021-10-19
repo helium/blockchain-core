@@ -1,5 +1,5 @@
 %%% ===========================================================================
-%%% Contract validation language.
+%%% Value contract validation.
 %%% ===========================================================================
 -module(blockchain_contracts).
 
@@ -34,9 +34,9 @@
     | {max, integer()}
     .
 
--type forall() :: forall | '∀'.  % All must pass
--type exists() :: exists | '∃'.  % Any must pass
--type either() :: either | '∃!'. % Only-one must pass
+-type forall() :: forall | '∀'.  % ALL contracts must be satisfied
+-type exists() :: exists | '∃'.  % AT LEAST ONE contract must be satisfied
+-type either() :: either | '∃!'. % EXACTLY ONE contract must be satisfied
 -type quantifier() :: forall() | exists() | either().
 
 -type contract() ::
