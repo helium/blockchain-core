@@ -609,9 +609,11 @@ absorb(Txn, Chain) ->
             {error, {Type, What, {Why, Stack}}}
     end.
 
+-spec print(txn()) -> iodata().
 print(Txn) ->
     print(Txn, false).
 
+-spec print(txn(), boolean()) -> iodata().
 print(Txn, Verbose) ->
     Type = ?MODULE:type(Txn),
     case erlang:function_exported(Type, print, 1) of

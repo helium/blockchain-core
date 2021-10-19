@@ -69,43 +69,52 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     TxnBundleSize = length(Txns),
     MaxBundleSize = max_bundle_size(Chain),
 
-    %% check that the bundle contains minimum two transactions
-    case TxnBundleSize < 2 of
+    %% check that the bundle size doesn't exceed allowed max_bundle_size var
+    case TxnBundleSize > MaxBundleSize of
         true ->
-            {error, {invalid_min_bundle_size, Txn}};
+            {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
         false ->
-            %% check that the bundle size doesn't exceed allowed max_bundle_size var
-            case TxnBundleSize > MaxBundleSize of
+            %% check that there are no bundles in the bundle txn
+            case lists:any(fun(T) ->
+                                   blockchain_txn:type(T) == blockchain_txn_bundle_v1
+                           end,
+                           Txns) of
                 true ->
-                    {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
+                    {error, {invalid_bundleception, Txn}};
                 false ->
-                    %% check that there are no bundles in the bundle txn
-                    case lists:any(fun(T) ->
-                                           blockchain_txn:type(T) == blockchain_txn_bundle_v1
-                                   end,
-                                   Txns) of
-                        true ->
-                            {error, {invalid_bundleception, Txn}};
-                        false ->
-                            %% speculative check whether the bundle is valid
-                            case speculative_absorb(Txn, Chain) of
-                                [] ->
-                                    ok;
-                                List ->
-                                    {error, {invalid_bundled_txns, List}}
-                            end
-                    end
+                    ok
             end
     end.
 
 -spec is_well_formed(txn_bundle()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}=Bundle) ->
+    %% Min size is static, so we can check it here without any other info, but
+    %% max size check has to be deferred for later, since we first need to
+    %% lookup the current max in a chain var, for which we need the chain param.
+    case Txs of
+        undefined ->
+            {error, member_transactions_undefined};
+        [] ->
+            {error, {invalid_min_bundle_size, Bundle}};
+        [_] ->
+            {error, {invalid_min_bundle_size, Bundle}};
+        [_, _ | _] ->
+            ok
+    end.
 
--spec is_absorbable(txn_bundle(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_absorbable(txn_bundle(), blockchain:blockchain()) -> boolean().
+is_absorbable(Tx, Chain) ->
+    %% speculative check whether the bundle is valid
+    case speculative_absorb(Tx, Chain) of
+        [] ->
+            true;
+        [_|_]=Invalid ->
+            InvalidStrings = [blockchain_txn:print(I) || I <- Invalid],
+            %% Eaxh printed tx can be a binary or a string/list:
+            InvalidString = iolist_to_binary(list:join("|", InvalidStrings)),
+            lager:error("Invalid bundled transactions: ~p", [InvalidString]),
+            false
+    end.
 
 -spec print(txn_bundle()) -> iodata().
 print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
@@ -136,8 +145,8 @@ max_bundle_size(Chain) ->
             Size
     end.
 
--spec speculative_absorb(txn_bundle(), blockchain:blockchain()) -> [blockchain_txn:txns()].
-speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain0) ->
+-spec speculative_absorb(txn_bundle(), blockchain:blockchain()) -> [blockchain_txn:txn()].
+speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=[_, _ | _]=Txns}, Chain0) ->
     InitLedger = blockchain:ledger(Chain0),
     %% Check that the bundled transactions can be absorbed in order in this ledger context
     LedgerContext = blockchain_ledger_v1:new_context(InitLedger),
@@ -159,3 +168,30 @@ speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain0) ->
                               Txns),
     blockchain_ledger_v1:delete_context(LedgerContext),
     InvalidTxns.
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+is_well_formed_test_() ->
+    [
+        ?_assertEqual(
+            {error, member_transactions_undefined},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=undefined})
+        ),
+        ?_assertMatch(
+            {error, {invalid_min_bundle_size, _}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[]})
+        ),
+        ?_assertMatch(
+            {error, {invalid_min_bundle_size, _}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[fake_tx]})
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(#blockchain_txn_bundle_v1_pb{
+                transactions = [fake_tx_1, fake_tx_2]
+            })
+        )
+    ].
+-endif.
