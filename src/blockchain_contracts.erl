@@ -67,6 +67,7 @@
     | {not_an_integer, val()}
     | {not_a_list, val()}
     | {integer_out_of_range, Actual :: integer(), Required :: size()}
+    | not_iodata
     | {not_a_binary, val()}
     | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
     | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
@@ -198,7 +199,7 @@ test_iodata(V, SizeSpec) ->
             test_int(Size, SizeSpec, iodata_wrong_size)
     catch
         _:_ ->
-            {fail, not_an_iodata}
+            {fail, not_iodata}
     end.
 
 -spec test_binary(val(), size()) -> test_result().
@@ -478,13 +479,13 @@ iodata_test_() ->
         ?_assertMatch({fail, {iodata_wrong_size, _, {min, _}}}, test_iodata(IOData, {min, iolist_size(IOData) + 1})),
         ?_assertMatch({fail, {iodata_wrong_size, _, {max, _}}}, test_iodata(IOData, {max, iolist_size(IOData) - 1})),
 
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(undefined, any)),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata([undefined], any)),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", bar, <<"baz">>], any)),
+        ?_assertEqual({fail, not_iodata}, test_iodata(undefined, any)),
+        ?_assertEqual({fail, not_iodata}, test_iodata([undefined], any)),
+        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", bar, <<"baz">>], any)),
         ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], <<"baz">>], any)),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[hi], ["qux"]]], <<"baz">>], any)),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin - 1, <<"baz">>], any)),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax + 1, <<"baz">>], any)),
+        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[hi], ["qux"]]], <<"baz">>], any)),
+        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin - 1, <<"baz">>], any)),
+        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax + 1, <<"baz">>], any)),
         ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin, <<"baz">>], any)),
         ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax, <<"baz">>], any)),
         ?_assertEqual(pass, test([[], [<<"1">>], "2", <<"3">>], {list_of, {iodata, any}})),
