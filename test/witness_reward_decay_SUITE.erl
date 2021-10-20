@@ -26,15 +26,13 @@
 
 -export([
     no_vars_test/1,
-    decay_rate_0_p_8_test/1,
-    decay_exclude_4_test/1
+    decay_rate_0_8_test/1
 ]).
 
 all() ->
     [
         {group, no_vars},
-        {group, decay_rate},
-        {group, decay_exclusion}
+        {group, with_decay}
     ].
 
 no_vars_cases() ->
@@ -44,19 +42,13 @@ no_vars_cases() ->
 
 decay_rate_cases() ->
     [
-        decay_rate_0_p_8_test
-    ].
-
-decay_exclusion_cases() ->
-    [
-        decay_exclude_4_test
+        decay_rate_0_8_test
     ].
 
 groups() ->
     [
         {no_vars, [], no_vars_cases()},
-        {decay_rate, [], decay_rate_cases()},
-        {decay_exclusion, [], decay_exclusion_cases()}
+        {with_decay, [], decay_rate_cases()}
     ].
 
 %%--------------------------------------------------------------------
@@ -68,9 +60,7 @@ init_per_group(Group, Config) ->
         case Group of
             no_vars ->
                 #{};
-            decay_rate ->
-                #{?witness_reward_decay_rate => 0.8};
-            decay_exclusion ->
+            with_decay ->
                 #{?witness_reward_decay_exclusion => 4}
         end,
 
@@ -106,13 +96,14 @@ end_per_suite(_Config) ->
 %% test case setup
 %%--------------------------------------------------------------------
 
-init_per_testcase(TestCase, Config) ->
-    Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
+init_per_testcase(TestCase, Config0) ->
+    Config = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config0),
     Balance = 5000,
-    BaseDir = ?config(base_dir, Config0),
+    BaseDir = ?config(base_dir, Config),
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
 
-    ExtraVars = ?config(extra_vars, Config0),
+    ExtraVars0 = ?config(extra_vars, Config),
+    ExtraVars = maps:merge(ExtraVars0, decay_rate(TestCase)),
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
@@ -139,7 +130,7 @@ init_per_testcase(TestCase, Config) ->
         poc_challengees_percent => 0.0,
         poc_challengers_percent => 0.0,
         dc_remainder => 0,
-        poc_version => 5
+        poc_version => 10
     },
 
     LedgerVars = maps:merge(common_poc_vars(), EpochVars),
@@ -150,26 +141,43 @@ init_per_testcase(TestCase, Config) ->
         {<<"b">>, 631196173757531135},
         {<<"c">>, 631196173214364159},
         {<<"d">>, 631179381325720575},
-        {<<"e">>, 631179377081096191}
+        {<<"e">>, 631179377081096191},
+        {<<"f">>, 631188755337926143},
+        {<<"g">>, 631188755339337215}
     ],
 
     [add_gateway_to_ledger(Name, Loc, Ledger1) || {Name, Loc} <- Gateways],
 
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
-    %% Witness1 = blockchain_poc_witness_v1:new(<<"a">>, 1, -80, <<>>),
-    %% Witness2 = blockchain_poc_witness_v1:new(<<"b">>, 1, -80, <<>>),
-    %% Elem = blockchain_poc_path_element_v1:new(<<"c">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
-    %% Txns = [
-    %%         blockchain_txn_poc_receipts_v1:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
-    %%         blockchain_txn_poc_receipts_v1:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
-    %%        ],
+    WitnessA = blockchain_poc_witness_v1:new(<<"a">>, 1, -80, <<>>),
+    WitnessB = blockchain_poc_witness_v1:new(<<"b">>, 1, -80, <<>>),
+    WitnessC = blockchain_poc_witness_v1:new(<<"c">>, 1, -80, <<>>),
+    WitnessE = blockchain_poc_witness_v1:new(<<"e">>, 1, -80, <<>>),
+    Elem1 = blockchain_poc_path_element_v1:new(<<"b">>, <<"Receipt not undefined">>, [WitnessA, WitnessC]),
+    Elem2 = blockchain_poc_path_element_v1:new(<<"c">>, <<"Receipt not undefined">>, [WitnessA, WitnessB]),
+    Elem3 = blockchain_poc_path_element_v1:new(<<"d">>, <<"Receipt not undefined">>, [WitnessA, WitnessE]),
+    Elem4 = blockchain_poc_path_element_v1:new(<<"e">>, <<"Receipt not undefined">>, [WitnessA, WitnessB]),
+    Elem5 = blockchain_poc_path_element_v1:new(<<"f">>, <<"Receipt not undefined">>, [WitnessA, WitnessC]),
+    Txns = [
+            blockchain_txn_poc_receipts_v1:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem1]),
+            blockchain_txn_poc_receipts_v1:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem1]),
+            blockchain_txn_poc_receipts_v1:new(<<"b">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem2, Elem2]),
+            blockchain_txn_poc_receipts_v1:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem2, Elem2]),
+            blockchain_txn_poc_receipts_v1:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem3, Elem3]),
+            blockchain_txn_poc_receipts_v1:new(<<"f">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem3, Elem3]),
+            blockchain_txn_poc_receipts_v1:new(<<"c">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem4, Elem4]),
+            blockchain_txn_poc_receipts_v1:new(<<"g">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem4, Elem4]),
+            blockchain_txn_poc_receipts_v1:new(<<"b">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem5, Elem5]),
+            blockchain_txn_poc_receipts_v1:new(<<"g">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem5, Elem5])
+           ],
 
-    _Rewards = #{{gateway, poc_witness, <<"a">>} => 25,
-                {gateway, poc_witness, <<"b">>} => 25},
+    ct:print("EpochVars ~p", [EpochVars]),
+    WitnessShares = lists:foldl(fun(T, Acc) -> blockchain_txn_rewards_v2:poc_witness_reward(T, Acc, Chain, Ledger, EpochVars) end,
+                                #{}, Txns),
+    Rewards = blockchain_txn_rewards_v2:normalize_witness_rewards(WitnessShares, EpochVars),
 
-    %% _WitnessShares = lists:foldl(fun(T, Acc) -> poc_witness_reward(T, Acc, Chain, Ledger, EpochVars) end,
-    %%                             #{}, Txns),
+    ct:print("Witness Shares: ~p; Rewards: ~p", [WitnessShares, Rewards]),
 
     [
         {balance, Balance},
@@ -185,7 +193,7 @@ init_per_testcase(TestCase, Config) ->
         {genesis_members, GenesisMembers},
         {base_dir, BaseDir},
         Keys
-        | Config0
+        | Config
     ].
 
 %%--------------------------------------------------------------------
@@ -203,12 +211,8 @@ no_vars_test(_Config) ->
     stash_witness_shares(no_vars, 1),
     ok.
 
-decay_rate_0_p_8_test(_Config) ->
+decay_rate_0_8_test(_Config) ->
     stash_witness_shares(zero_point_eight, 2),
-    ok.
-
-decay_exclude_4_test(_Config) ->
-    stash_witness_shares(exclude_four, 3),
     ok.
 
 stash_witness_shares(Key, Value) ->
@@ -221,6 +225,18 @@ add_gateway_to_ledger(Name, Location, Ledger) ->
     ok = blockchain_ledger_v1:add_gateway(<<"o">>, Name, Ledger),
     ok = blockchain_ledger_v1:add_gateway_location(Name, Location, 1, Ledger),
     ok.
+
+decay_rate(no_vars_test) ->
+    #{};
+decay_rate(Case) ->
+    Rate = maps:get(Case, #{
+                        decay_rate_0_6_test => 0.6,
+                        decay_rate_0_7_test => 0.7,
+                        decay_rate_0_8_test => 0.8,
+                        decay_rate_0_9_test => 0.9,
+                        decay_rate_1_0_test => 1.0
+                           }),
+    #{?witness_reward_decay_rate => Rate}.
 
 common_poc_vars() ->
     #{

@@ -46,7 +46,11 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--export([v1_to_v2/1]).
+-export([
+    normalize_witness_rewards/2,
+    poc_witness_reward/5,
+    v1_to_v2/1
+]).
 -endif.
 
 -type txn_rewards_v2() :: #blockchain_txn_rewards_v2_pb{}.
