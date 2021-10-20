@@ -6,6 +6,7 @@
 -module(blockchain_state_channel_diff_v1).
 
 -export([
+    calculate_diff/1
 ]).
 
 -include("blockchain.hrl").
@@ -14,6 +15,9 @@
 -type diff() :: #blockchain_state_channel_diff_v1_pb{}.
 -export_type([diff/0]).
 
+
+calculate_diff(_) ->
+    ok.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

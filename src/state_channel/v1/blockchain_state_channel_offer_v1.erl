@@ -6,13 +6,15 @@
 -module(blockchain_state_channel_offer_v1).
 
 -export([
-    from_packet/3,
-    hotspot/1,
+    from_packet/3, from_packet/4,
     routing/1,
-    region/1,
     packet_hash/1,
     payload_size/1,
-    signature/1, sign/2,
+    hotspot/1,
+    signature/1,
+    region/1,
+    req_diff/1,
+    sign/2,
     validate/1,
     encode/1, decode/1
 ]).
@@ -27,10 +29,22 @@
 -type offer() :: #blockchain_state_channel_offer_v1_pb{}.
 -export_type([offer/0]).
 
--spec from_packet(Packet :: blockchain_helium_packet_v1:packet(),
-                  Hotspot :: libp2p_crypto:pubkey_bin(),
-                  Region :: atom()) -> offer().
+
+-spec from_packet(
+    Packet :: blockchain_helium_packet_v1:packet(),
+    Hotspot :: libp2p_crypto:pubkey_bin(),
+    Region :: atom()
+) -> offer().
 from_packet(Packet, Hotspot, Region) ->
+    from_packet(Packet, Hotspot, Region, false).
+
+-spec from_packet(
+    Packet :: blockchain_helium_packet_v1:packet(),
+    Hotspot :: libp2p_crypto:pubkey_bin(),
+    Region :: atom(),
+    ReqDiff :: boolean()
+) -> offer().
+from_packet(Packet, Hotspot, Region, ReqDiff) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, _, _}=Routing ->
             #blockchain_state_channel_offer_v1_pb{
@@ -39,7 +53,8 @@ from_packet(Packet, Hotspot, Region) ->
                payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
                hotspot=Hotspot,
                signature = <<>>,
-               region=maybe_fix_region(Region)
+               region=maybe_fix_region(Region),
+               req_diff=ReqDiff
               };
         {devaddr, _}=Routing ->
             #blockchain_state_channel_offer_v1_pb{
@@ -48,21 +63,14 @@ from_packet(Packet, Hotspot, Region) ->
                payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
                hotspot=Hotspot,
                signature = <<>>,
-               region=maybe_fix_region(Region)
+               region=maybe_fix_region(Region),
+               req_diff=ReqDiff
               }
     end.
-
--spec hotspot(offer()) -> libp2p_crypto:pubkey_bin().
-hotspot(#blockchain_state_channel_offer_v1_pb{hotspot=Hotspot}) ->
-    Hotspot.
 
 -spec routing(offer()) -> blockchain_helium_packet_v1:routing_information().
 routing(#blockchain_state_channel_offer_v1_pb{routing=Routing}) ->
     Routing.
-
--spec region(offer()) -> atom().
-region(#blockchain_state_channel_offer_v1_pb{region=Region}) ->
-    Region.
 
 -spec packet_hash(offer()) -> binary().
 packet_hash(#blockchain_state_channel_offer_v1_pb{packet_hash=PacketHash}) ->
@@ -72,9 +80,21 @@ packet_hash(#blockchain_state_channel_offer_v1_pb{packet_hash=PacketHash}) ->
 payload_size(#blockchain_state_channel_offer_v1_pb{payload_size=PayloadSize}) ->
     PayloadSize.
 
+-spec hotspot(offer()) -> libp2p_crypto:pubkey_bin().
+hotspot(#blockchain_state_channel_offer_v1_pb{hotspot=Hotspot}) ->
+    Hotspot.
+
 -spec signature(offer()) -> binary().
 signature(#blockchain_state_channel_offer_v1_pb{signature=Signature}) ->
     Signature.
+
+-spec region(offer()) -> atom().
+region(#blockchain_state_channel_offer_v1_pb{region=Region}) ->
+    Region.
+
+-spec req_diff(offer()) -> boolean().
+req_diff(#blockchain_state_channel_offer_v1_pb{req_diff=ReqDiff}) ->
+    ReqDiff.
 
 -spec sign(offer(), function()) -> offer().
 sign(Offer, SigFun) ->
