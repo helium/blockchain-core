@@ -35,9 +35,9 @@
     | {max, integer()}
     .
 
--type forall() :: forall | '∀'.  % ALL contracts must be satisfied
--type exists() :: exists | '∃'.  % AT LEAST ONE contract must be satisfied
--type either() :: either | '∃!'. % EXACTLY ONE contract must be satisfied
+-type forall() :: forall | '∀'.  % and  ALL contracts must be satisfied
+-type exists() :: exists | '∃'.  % or   AT LEAST ONE contract must be satisfied
+-type either() :: either | '∃!'. % xor  EXACTLY ONE contract must be satisfied
 -type quantifier() :: forall() | exists() | either().
 
 -type contract() ::
