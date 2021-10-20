@@ -132,7 +132,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
-            case blockchain_txn:validate_fields([{{payee, P}, {address, libp2p}} || P <- ?MODULE:payees(Txn)]) of
+            case blockchain_contracts:check([{payees, payees(Txn), {list_of, {address, libp2p}}}]) of
                 ok ->
                     do_is_valid_checks(Txn, Chain, M);
                 Error ->
@@ -333,22 +333,19 @@ has_non_zero_amounts(Payments) ->
     Amounts = [blockchain_payment_v2:amount(P) || P <- Payments],
     lists:all(fun(A) -> A > 0 end, Amounts).
 
--spec has_valid_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
+-spec has_valid_memos(blockchain_payment_v2:payments()) -> boolean().
 has_valid_memos(Payments) ->
-    lists:all(
-        fun(Payment) ->
-                %% check that the memo field is valid
-                FieldCheck = blockchain_txn:validate_fields([ {{memo, blockchain_payment_v2:memo(Payment)}, {is_integer, 0}} ]),
-                case FieldCheck of
-                    ok ->
-                        %% check that the memo field is within limits
-                        blockchain_payment_v2:is_valid_memo(Payment);
-                    _ ->
-                        false
-                end
+    %% Check that each payment's memo field is valid and within limits:
+    PaymentToMemoContract =
+        fun (P) ->
+            {memo,
+                blockchain_payment_v2:memo(P),
+                {forall, [
+                    {integer, {min, 0}},
+                    {custom, memo_invalid, fun blockchain_payment_v2:memo_is_valid/1}
+                ]}}
         end,
-        Payments
-    ).
+    blockchain_contracts:are_satisfied(lists:map(PaymentToMemoContract, Payments)).
 
 -spec has_default_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
 has_default_memos(Payments) ->

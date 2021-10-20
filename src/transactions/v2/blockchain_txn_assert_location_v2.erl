@@ -302,14 +302,15 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {invalid_assert_loc_txn_v2, {invalid_antenna_gain, Gain, MinGain, MaxGain}}};
                                 true ->
-                                    Res = blockchain_txn:validate_fields([{{gateway, Gateway}, {address, libp2p}},
-                                                                          {{owner, Owner}, {address, libp2p}},
-                                                                          {{payer, Payer}, {address, libp2p}},
-                                                                          {{location, Location}, {is_integer, 0}},
-                                                                          {{elevation, Elevation}, {is_integer, -2147483648}}
-                                                                         ]),
-
-                                    case Res of
+                                    case
+                                        blockchain_contracts:check([
+                                            {gateway  , Gateway  , {address, libp2p}},
+                                            {owner    , Owner    , {address, libp2p}},
+                                            {payer    , Payer    , {address, libp2p}},
+                                            {location , Location , {integer, {min, 0}}},
+                                            {elevation, Elevation, {integer, {min, -2147483648}}}
+                                        ])
+                                    of
                                         {error, _}=E -> E;
                                         ok ->
                                             do_is_valid_checks(Txn, Chain)

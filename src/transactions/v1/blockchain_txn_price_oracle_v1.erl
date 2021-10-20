@@ -154,7 +154,7 @@ sign(Txn, SigFun) ->
 %% `price_oracle_height_delta' chain variable.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, _}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Price = ?MODULE:price(Txn),
@@ -169,8 +169,12 @@ is_valid(Txn, Chain) ->
     {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
     OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
 
-    case blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {member, OracleKeys}},
-                                         {{price, Price}, {is_integer, 0}}]) of
+    case
+        blockchain_contracts:check([
+            {oracle_public_key, RawTxnPK, {member, OracleKeys}},
+            {price, Price, {integer, {min, 0}}}
+        ])
+    of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of
                 false ->
@@ -184,7 +188,7 @@ is_valid(Txn, Chain) ->
                             ok
                     end
             end;
-        Error ->
+        {error, _}=Error ->
             Error
     end.
 

@@ -87,7 +87,7 @@
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 
 %% Check the transaction has the required fields and they're well formed and
-%% in-bounds.  Use blockchain_txn:validate_fields heavily here.
+%% in-bounds.  Use blockchain_contracts heavily here.
 -callback is_well_formed(txn()) -> ok | {error, any()}.
 
 %% Check the txn has the right causal information (nonce, block height, etc) to
@@ -131,7 +131,6 @@
     wrap_txn/1,
     unwrap_txn/1,
     is_valid/2,
-    validate_fields/1,
     depends_on/2,
     json_type/1,
     to_json/2
@@ -754,52 +753,6 @@ type_check(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
 type_check(_) ->
     {error, not_a_known_txn_value}.
 
--spec validate_fields([field_validation_spec()]) ->
-    ok | {error, field_validation_error()}.
-validate_fields([]) ->
-    ok;
-validate_fields([{{Name, Field}, {binary, Length}}|Tail]) when is_binary(Field) ->
-    case byte_size(Field) == Length of
-        true ->
-            validate_fields(Tail);
-        false ->
-            {error, {field_wrong_size, {Name, Length, byte_size(Field)}}}
-    end;
-validate_fields([{{Name, Field}, {binary, Min, Max}}|Tail]) when is_binary(Field) ->
-    case byte_size(Field) =< Max andalso byte_size(Field) >= Min of
-        true ->
-            validate_fields(Tail);
-        false ->
-            {error, {field_wrong_size, {Name, {Min, Max}, byte_size(Field)}}}
-    end;
-validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field) ->
-    try libp2p_crypto:bin_to_pubkey(Field) of
-        _ ->
-            validate_fields(Tail)
-    catch
-        _:_ ->
-            {error, {invalid_address, Name}}
-    end;
-validate_fields([{{Name, Field}, {member, List}}|Tail]) when is_list(List),
-                                                            is_binary(Field) ->
-    case lists:member(Field, List) of
-        true ->
-            validate_fields(Tail);
-        false ->
-            {error, {not_a_member, {Name, Field, List}}}
-    end;
-validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Field)
-                                                         andalso Field >= Min ->
-    validate_fields(Tail);
-validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
-                                                         andalso Field < Min ->
-    {error, {integer_too_small, {Name, Field, Min}}};
-validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
-    {error, {not_an_integer, {Name, Field}}};
-validate_fields([{{Name, undefined}, _}|_Tail]) ->
-    {error, {missing_field, Name}};
-validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
-    {error, {malformed_field, Name}}.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------

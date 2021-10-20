@@ -158,18 +158,18 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+    FieldContracts = case blockchain:config(?txn_field_validation_version, Ledger) of
                           {ok, 1} ->
-                              [{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
-                               {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32}},
-                               {{address, ?MODULE:address(Txn)}, {address, libp2p}}];
+                              [{payee, ?MODULE:payee(Txn), {address, libp2p}},
+                               {hashlock, ?MODULE:hashlock(Txn), {binary, {exact, 32}}},
+                               {address, ?MODULE:address(Txn), {address, libp2p}}];
                           _ ->
-                              [{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
-                               {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32, 64}},
-                               {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
+                              [{payee, ?MODULE:payee(Txn), {address, libp2p}},
+                               {hashlock, ?MODULE:hashlock(Txn), {binary, {range, 32, 64}}},
+                               {address, ?MODULE:address(Txn), {binary, {range, 32, 33}}}]
                       end,
 
-    case blockchain_txn:validate_fields(FieldValidation) of
+    case blockchain_contracts:check(FieldContracts) of
         ok ->
             case blockchain_ledger_v1:find_htlc(?MODULE:address(Txn), Ledger) of
                 {ok, _HTLC} ->
@@ -205,7 +205,7 @@ is_valid(Txn, Chain) ->
                                                     {error, invalid_transaction};
                                                 true ->
                                                     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                    TxnFee = ?MODULE:fee(Txn),
+                                                    TxnFee = ?MODULE:fee(Txn),  % TODO Is this second binding an intentional assertion or an accident?
                                                     ExpectedTxnFee = calculate_fee(Txn, Chain),
                                                     case (ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled) of
                                                         false ->
@@ -218,7 +218,7 @@ is_valid(Txn, Chain) ->
                             end
                     end
             end;
-        Error ->
+        {error, _}=Error ->
             Error
     end.
 

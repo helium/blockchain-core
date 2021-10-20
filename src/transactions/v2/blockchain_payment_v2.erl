@@ -15,6 +15,7 @@
          payee/1,
          amount/1,
          memo/1, memo/2,
+         memo_is_valid/1,
          is_valid_memo/1,
          print/1,
          json_type/0,
@@ -65,8 +66,12 @@ memo(Payment) ->
 memo(Payment, Memo) ->
     Payment#payment_pb{memo=Memo}.
 
--spec is_valid_memo(Payment :: payment()) -> boolean().
-is_valid_memo(#payment_pb{memo = Memo}) ->
+-spec is_valid_memo(payment()) -> boolean().
+is_valid_memo(Payment) ->
+    memo_is_valid(memo(Payment)).
+
+-spec memo_is_valid(non_neg_integer()) -> boolean().
+memo_is_valid(Memo) ->
     try
         Bin = binary:encode_unsigned(Memo, big),
         bit_size(Bin) =< 64

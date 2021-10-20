@@ -192,7 +192,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_security_exchange_v1_pb:encode_msg(BaseTxn),
-    case blockchain_txn:validate_fields([{{payee, Payee}, {address, libp2p}}]) of
+    case blockchain_contracts:check([{payee, Payee, {address, libp2p}}]) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->
@@ -218,7 +218,8 @@ is_valid(Txn, Chain) ->
                             {error, invalid_transaction_self_payment}
                     end
             end;
-        Error -> Error
+        {error, _}=Error ->
+            Error
     end.
 
 -spec is_well_formed(txn_security_exchange()) -> ok | {error, _}.

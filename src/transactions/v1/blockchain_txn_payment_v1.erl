@@ -133,13 +133,13 @@ is_valid(Txn, Chain) ->
         {ok, true} ->
             {error, payment_v1_deprecated};
         _ ->
-            FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+            FieldContracts = case blockchain:config(?txn_field_validation_version, Ledger) of
                                   {ok, 1} ->
-                                      [{{payee, Payee}, {address, libp2p}}];
+                                      [{payee, Payee, {address, libp2p}}];
                                   _ ->
-                                      [{{payee, Payee}, {binary, 20, 33}}]
+                                      [{payee, Payee, {binary, {range, 20, 33}}}]
                               end,
-            case blockchain_txn:validate_fields(FieldValidation) of
+            case blockchain_contracts:check(FieldContracts) of
                 ok ->
                     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                         false ->

@@ -372,15 +372,11 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(txn_add_gateway()) ->
     ok | {error, blockchain_txn:field_validation_error()}.
 is_well_formed(Txn) ->
-    Payer = payer(Txn),
-    blockchain_txn:validate_fields(
-        [
-            {{owner, owner(Txn)}, {address, libp2p}},
-            {{gateway, gateway(Txn)}, {address, libp2p}}
-        |
-            [{{payer, Payer}, {address, libp2p}} || byte_size(Payer) > 0]
-        ]
-    ).
+    blockchain_contracts:check([
+        {owner  , owner(Txn)  , {address, libp2p}},
+        {gateway, gateway(Txn), {address, libp2p}},
+        {payer  , payer(Txn)  , {either, [{address, libp2p}, {binary, {exact, 0}}]}}
+    ]).
 
 -spec is_absorbable(txn_add_gateway(), blockchain:blockchain()) ->
     boolean().
@@ -589,7 +585,7 @@ to_json_test() ->
 is_well_formed_test_() ->
     [
         ?_assertEqual(
-            {error, {invalid_address, owner}},
+            {error, {invalid, [{owner, invalid_address}, {gateway, invalid_address}]}},
             is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
         ),
         ?_assertEqual(

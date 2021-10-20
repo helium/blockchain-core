@@ -125,17 +125,17 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Redeemer),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+    FieldContracts = case blockchain:config(?txn_field_validation_version, Ledger) of
                           {ok, 1} ->
-                              [{{payee, Redeemer}, {address, libp2p}},
-                               {{preimage, ?MODULE:preimage(Txn)}, {binary, 32}},
-                               {{address, ?MODULE:address(Txn)}, {address, libp2p}}];
+                              [{payee, Redeemer, {address, libp2p}},
+                               {preimage, ?MODULE:preimage(Txn), {binary, {exact, 32}}},
+                               {address, ?MODULE:address(Txn), {address, libp2p}}];
                           _ ->
-                              [{{payee, Redeemer}, {address, libp2p}},
-                               {{preimage, ?MODULE:preimage(Txn)}, {binary, 1, 32}},
-                               {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
+                              [{payee, Redeemer, {address, libp2p}},
+                               {preimage, ?MODULE:preimage(Txn), {binary, {range, 1, 32}}},
+                               {address, ?MODULE:address(Txn), {binary, {range, 32, 33}}}]
                       end,
-    case blockchain_txn:validate_fields(FieldValidation) of
+    case blockchain_contracts:check(FieldContracts) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->

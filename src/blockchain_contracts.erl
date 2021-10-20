@@ -20,7 +20,8 @@
 -export([
      check/1,
      check/2,
-     check_with_defined/1
+     check_with_defined/1,
+     are_satisfied/1
 ]).
 
 -type key() :: atom().
@@ -79,6 +80,10 @@
     pass | {fail, failure()}.
 
 %% API ========================================================================
+
+-spec are_satisfied([spec()]) -> boolean().
+are_satisfied(Specs) ->
+    result:to_bool(check(Specs)).
 
 -spec check([spec()]) -> result().
 check(Specs) ->

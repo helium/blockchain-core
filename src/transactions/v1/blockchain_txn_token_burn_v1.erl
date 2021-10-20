@@ -149,7 +149,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_token_burn_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_token_burn_v1_pb:encode_msg(BaseTxn),
-    case blockchain_txn:validate_fields([{{payee, ?MODULE:payee(Txn)}, {address, libp2p}}]) of
+    case blockchain_contracts:check([{payee, ?MODULE:payee(Txn), {address, libp2p}}]) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->
@@ -189,7 +189,7 @@ is_valid(Txn, Chain) ->
                             end
                     end
             end;
-        Error ->
+        {error, _}=Error ->
             Error
     end.
 

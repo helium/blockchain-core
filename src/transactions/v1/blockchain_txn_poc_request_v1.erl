@@ -156,9 +156,13 @@ is_valid(Txn, Chain) ->
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
 
-    case blockchain_txn:validate_fields([{{secret_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
-                                         {{onion_key_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
-                                         {{block_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}}]) of
+    case
+        blockchain_contracts:check([
+            {secret_hash, ?MODULE:secret_hash(Txn), {binary, {exact, 32}}},
+            {onion_key_hash, ?MODULE:secret_hash(Txn), {binary, {exact, 32}}},
+            {block_hash, ?MODULE:secret_hash(Txn), {binary, {exact, 32}}}
+        ])
+    of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
                 false ->
@@ -213,7 +217,8 @@ is_valid(Txn, Chain) ->
                             end
                     end
             end;
-        Error -> Error
+        {error, _}=Error ->
+            Error
     end.
 
 -spec is_well_formed(txn_poc_request()) -> ok | {error, _}.

@@ -331,7 +331,7 @@ validate_addresses([]) ->
 validate_addresses(Addresses) ->
     case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
         {L, L} when L =< 3 ->
-            ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
+            ok == blockchain_contracts:check([{router_address, P, {address, libp2p}} || P <- Addresses]);
         _ ->
             false
     end.
