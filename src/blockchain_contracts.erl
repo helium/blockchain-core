@@ -118,7 +118,7 @@ test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, SizeSpec})         -> test_list(V, SizeSpec);
-test(V, {list_of, Contract})   -> test_list_of(V, Contract);
+test(V, {list_of, Contract})      -> test_list_of(V, Contract);
 test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
