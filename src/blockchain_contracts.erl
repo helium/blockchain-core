@@ -44,7 +44,7 @@
       {quantifier(), [contract()]}
     | defined
     | undefined
-    | iodata
+    | {iodata, size()}
     | {binary, size()}
     | {list, size()}
     | {list_of, contract()}
@@ -122,7 +122,7 @@ check_spec({Key, Val, Contract}) ->
 test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
-test(V, iodata)                   -> test_iodata(V);
+test(V, {iodata, SizeSpec})       -> test_iodata(V, SizeSpec);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, SizeSpec})         -> test_list(V, SizeSpec);
 test(V, {list_of, Contract})      -> test_list_of(V, Contract);
@@ -190,6 +190,16 @@ test_undefined(undefined) ->
     pass;
 test_undefined(_) ->
     {failed, defined}.
+
+-spec test_iodata(val(), size()) -> test_result().
+test_iodata(V, SizeSpec) ->
+    try erlang:iolist_size(V) of
+        Size ->
+            test_int(Size, SizeSpec, iodata_wrong_size)
+    catch
+        _:_ ->
+            {fail, not_an_iodata}
+    end.
 
 -spec test_binary(val(), size()) -> test_result().
 test_binary(V, SizeSpec) ->
@@ -286,35 +296,6 @@ res_of_bool(false, Failure) -> {fail, Failure}.
 -spec res_to_bool(test_result()) -> boolean().
 res_to_bool(pass) -> true;
 res_to_bool({fail, _}) -> false.
-
--spec test_iodata(val()) -> test_result().
-test_iodata(V) ->
-    res_of_bool(is_iodata(V), not_an_iodata).
-
--spec is_iodata(val()) -> boolean().
-is_iodata(V) ->
-    Range = {range, 0, 255},
-    if
-        is_binary(V) ->
-            true;
-        is_list(V) ->
-            case V of
-                [] ->
-                    true;
-                [X | Xs] ->
-                    case test_int(X, Range, out_of_range) of
-                        pass ->
-                            is_iodata(Xs);
-                        {fail, {not_an_integer, X}} ->
-                            is_iodata(X) andalso
-                            is_iodata(Xs);
-                        {fail, {out_of_range, X, Range}} ->
-                            false
-                    end
-            end;
-        true ->
-            false
-    end.
 
 -ifdef(TEST).
 
@@ -489,24 +470,28 @@ address_test_() ->
     ].
 
 iodata_test_() ->
-    Min = 0,
-    Max = 255,
+    CharMin = 0,
+    CharMax = 255,
+    IOData = ["foo", <<"baz">>],
     [
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(undefined)),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata([undefined])),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", bar, <<"baz">>])),
-        ?_assertEqual(pass, test_iodata(["foo", <<"baz">>])),
-        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], <<"baz">>])),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[hi], ["qux"]]], <<"baz">>])),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], Min - 1, <<"baz">>])),
-        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], Max + 1, <<"baz">>])),
-        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], Min, <<"baz">>])),
-        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], Max, <<"baz">>])),
-        ?_assertEqual(pass, test([[], [<<"1">>], "2", <<"3">>], {list_of, iodata})),
+        ?_assertEqual(pass                                    , test_iodata(IOData, any)),
+        ?_assertMatch({fail, {iodata_wrong_size, _, {min, _}}}, test_iodata(IOData, {min, iolist_size(IOData) + 1})),
+        ?_assertMatch({fail, {iodata_wrong_size, _, {max, _}}}, test_iodata(IOData, {max, iolist_size(IOData) - 1})),
+
+        ?_assertEqual({fail, not_an_iodata}, test_iodata(undefined, any)),
+        ?_assertEqual({fail, not_an_iodata}, test_iodata([undefined], any)),
+        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", bar, <<"baz">>], any)),
+        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], <<"baz">>], any)),
+        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[hi], ["qux"]]], <<"baz">>], any)),
+        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin - 1, <<"baz">>], any)),
+        ?_assertEqual({fail, not_an_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax + 1, <<"baz">>], any)),
+        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin, <<"baz">>], any)),
+        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax, <<"baz">>], any)),
+        ?_assertEqual(pass, test([[], [<<"1">>], "2", <<"3">>], {list_of, {iodata, any}})),
 
         ?_assertMatch(pass                                       , test("12345678", {list_of, {integer, any}})),
-        ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list_of, iodata})),
-        ?_assertEqual(pass                                       , test("12345678", iodata))
+        ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list_of, {iodata, any}})),
+        ?_assertEqual(pass                                       , test("12345678", {iodata, any}))
     ].
 
 %% Test helpers ===============================================================
