@@ -608,15 +608,9 @@ majority(N) ->
 
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    IsAux = blockchain_ledger_v1:is_aux(Ledger),
     lists:foldl(
       fun(VarName, Acc) ->
-              %% NOTE: This isn't ideal but in order for get_var/2 to
-              %% correspond with blockchain:config/2, it returns {ok, ..} | {error, ..}
-              %% So we just put undefined for any error lookups here.
-              %% The callee must handle those situations.
-              case get_var_(VarName, IsAux, VarsNonce, Ledger) of
+              case get_var_(VarName, isaux, varsnonce, Ledger) of
                   {ok, VarValue} -> maps:put(VarName, VarValue, Acc);
                   _ -> maps:put(VarName, undefined, Acc)
               end
@@ -626,33 +620,12 @@ get_vars(VarList, Ledger) ->
                HasAux :: boolean(),
                VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
-get_var_(VarName, HasAux, VarsNonce, Ledger) ->
-    e2qc:cache(
-        ?VAR_CACHE,
-        {HasAux, VarsNonce, VarName},
-        fun() ->
-            get_var_(VarName, Ledger)
-        end
-    ).
+get_var_(VarName, _HasAux, _VarsNonce, Ledger) ->
+            get_var_(VarName, Ledger).
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
-    %% NOTE: Special casing vars_nonce if it is not_found.
-    %% This may happen if miner is booted without a genesis block (mostly in testing).
-    VarsNonce =
-    case blockchain_ledger_v1:vars_nonce(Ledger) of
-        {ok, VN} -> VN;
-        {error, not_found} -> 0
-    end,
-
-    IsAux = blockchain_ledger_v1:is_aux(Ledger),
-    e2qc:cache(
-        ?VAR_CACHE,
-        {IsAux, VarsNonce, VarName},
-        fun() ->
-            get_var_(VarName, Ledger)
-        end
-    ).
+            get_var_(VarName, Ledger).
 
 -spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, Ledger) ->
