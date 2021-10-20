@@ -204,8 +204,14 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_consensus_group_failure()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(Tx) ->
+    blockchain_contracts:check([
+        {failed_members, failed_members(Tx), {list_of, {address, libp2p}}},
+        {height        , height(Tx)        , {integer, {min, 0}}},
+        {delay         , delay(Tx)         , {integer, {min, 0}}},
+        {members       , members(Tx)       , {list_of, {address, libp2p}}},
+        {signatures    , signatures(Tx)    , {list_of, {iodata, any}}}
+    ]).
 
 -spec is_absorbable(txn_consensus_group_failure(), blockchain:blockchain()) ->
     boolean().
@@ -311,7 +317,37 @@ to_json(Txn, _Opts) ->
 %% Tests ======================================================================
 -ifdef(TEST).
 
-validation_test() ->
-    error('TODO-validation_test').
+-define(TSET(T, K, V), T#blockchain_txn_consensus_group_failure_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        (fun () ->
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end)(),
+    T = new([Addr], 0, 0),
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, height, -1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, height, 0))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, height, 1))),
+
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, delay, -1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, delay, 0))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, delay, 1))),
+
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, failed_members, [Addr]))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, failed_members, [<<"not addr">>]))),
+
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, members, [Addr]))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, members, [<<"not addr">>]))),
+
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, signatures, ["not iodata"]))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, signatures, ['not iodata']))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, signatures, 'not list'))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, signatures, <<"not list">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, signatures, "not list of iodata")))
+    ].
 
 -endif.
