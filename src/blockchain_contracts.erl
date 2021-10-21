@@ -7,6 +7,7 @@
     key/0,
     val/0,
     size/0,
+    txn_type/0,
     quantifier/0,
     forall/0,
     exists/0,
@@ -35,6 +36,9 @@
     | {max, integer()}
     .
 
+-type txn_type() ::
+    any | {type, atom()}.
+
 -type forall() :: forall | '∀'.  % and  ALL contracts must be satisfied
 -type exists() :: exists | '∃'.  % or   AT LEAST ONE contract must be satisfied
 -type either() :: either | '∃!'. % xor  EXACTLY ONE contract must be satisfied
@@ -53,8 +57,14 @@
     | {address, libp2p}
     | {custom, Label :: term(), fun((val()) -> boolean())}
     | h3_string
-    %% TODO txn contracts: txn, txn_well_formed
+    | {txn, txn_type()}
     .
+    %% TODO
+    %%  - [x] txn
+    %%  - [ ] tuple of size()
+    %%  - [ ] records as tuple with given head
+    %%  - [ ] atom
+    %%  - [ ] a concrete, given value, something like: -type() val(A) :: {val, A}.
 
 -type spec() ::
     {key(), val(), contract()}.
@@ -72,6 +82,9 @@
     | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
     | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
     | {list_contains_invalid_elements, val()}
+    | not_a_txn
+    | {txn_wrong_type, Actual :: atom(), Required :: atom()}
+    | txn_malformed
     .
 
 -type result() ::
@@ -131,6 +144,7 @@ test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range)
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
 test(V, h3_string)                -> test_h3_string(V);
+test(V, {txn, TxnType})           -> test_txn(V, TxnType);
 test(V, {ForAll, Contracts}) when ForAll =:= forall; ForAll =:= '∀'->
     test_forall(V, Contracts);
 test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
@@ -288,6 +302,32 @@ test_h3_string(V) ->
         _ -> pass
     catch
         _:_ -> {fail, invalid_h3_string}
+    end.
+
+-spec test_txn(val(), txn_type()) -> test_result().
+test_txn(V, TxnType) ->
+    case blockchain_txn:type_check(V) of
+        {error, not_a_known_txn_value} ->
+            {fail, not_a_txn};
+        {ok, TypeActual} ->
+            TypeRequired =
+                case TxnType of
+                    any ->
+                        TypeActual;
+                    {type, Type} ->
+                        Type
+                end,
+            case TypeActual =:= TypeRequired of
+                true ->
+                    case TypeActual:is_well_formed(V) of
+                        ok ->
+                            pass;
+                        {error, _} ->
+                            {fail, txn_malformed} % TODO Return more info?
+                    end;
+                false ->
+                    {fail, {txn_wrong_type, TypeActual, TypeRequired}}
+            end
     end.
 
 -spec res_of_bool(boolean(), failure()) -> test_result().
@@ -493,6 +533,24 @@ iodata_test_() ->
         ?_assertMatch(pass                                       , test("12345678", {list_of, {integer, any}})),
         ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list_of, {iodata, any}})),
         ?_assertEqual(pass                                       , test("12345678", {iodata, any}))
+    ].
+
+txn_test_() ->
+    Addr = addr_gen(),
+    Type = blockchain_txn_add_gateway_v1,
+    Txn  = Type:new(Addr, Addr),
+    [
+        ?_assertEqual({fail, not_a_txn}, test(trust_me_im_a_txn, {txn, any})),
+        ?_assertEqual(pass, test(Txn, {txn, any})),
+        ?_assertEqual(pass, test(Txn, {txn, {type, Type}})),
+        ?_assertEqual(
+            {fail, {txn_wrong_type, Type, not_a_txn_type}},
+            test(Txn, {txn, {type, not_a_txn_type}})
+        ),
+        ?_assertEqual(
+            {fail, txn_malformed},
+            test(Type:new(<<"not addr">>, Addr), {txn, any})
+        )
     ].
 
 %% Test helpers ===============================================================
