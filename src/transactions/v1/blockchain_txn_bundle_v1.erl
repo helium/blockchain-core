@@ -91,19 +91,9 @@ is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}) ->
     %% Min size is static, so we can check it here without any other info, but
     %% max size check has to be deferred for later, since we first need to
     %% lookup the current max in a chain var, for which we need the chain param.
-    IsWellFormed =
-        fun (Tx) ->
-                case blockchain_txn:type_check(Tx) of
-                {ok, Type} ->
-                    result:to_bool(Type:is_well_formed(Tx));
-                {error, not_a_known_txn_value} ->
-                    false
-            end
-        end,
-    TxnContract = {custom, invalid_txn, IsWellFormed},
     blockchain_contracts:check_with_defined(
         [
-            {transactions, Txs, {forall, [{list, {min, 2}}, {list_of, TxnContract}]}}
+            {transactions, Txs, {forall, [{list, {min, 2}}, {list_of, {txn, any}}]}}
         ]
     ).
 
