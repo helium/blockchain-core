@@ -224,6 +224,7 @@ offer(
     Offer,
     HandlerPid,
     #state{
+        id = SCID,
         state_channel = SC,
         skewed=Skewed,
         db=DB,
