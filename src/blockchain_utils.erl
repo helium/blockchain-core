@@ -620,8 +620,8 @@ get_vars(VarList, Ledger) ->
       end, #{}, VarList).
 
 -spec get_var_(VarName :: atom(),
-               HasAux :: boolean(),
-               VarsNonce :: non_neg_integer(),
+               IsAux :: atom(),         % XXX: Temporary
+               VarsNonce :: atom(),     % XXX: Temporary
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, _HasAux, _VarsNonce, Ledger) ->
     get_var_(VarName, Ledger).
