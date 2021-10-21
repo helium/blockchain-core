@@ -66,7 +66,7 @@ start(Args) ->
 
 -spec get(Pid :: pid()) -> blockchain_state_channel_v1:state_channel().
 get(Pid) ->
-    gen_server:call(Pid, get, infinity).
+    gen_server:call(Pid, get).
 
 -spec handle_offer(
     Pid :: pid(),
