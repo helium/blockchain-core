@@ -46,12 +46,12 @@
 
 -type contract() ::
       {quantifier(), [contract()]}
+    | any
     | defined
     | undefined
     | {iodata, size()}
     | {binary, size()}
-    | {list, size()}
-    | {list_of, contract()}
+    | {list, size(), contract()}
     | {integer, size()}
     | {member, [any()]}
     | {address, libp2p}
@@ -133,13 +133,13 @@ check_spec({Key, Val, Contract}) ->
     end.
 
 -spec test(val(), contract()) -> test_result().
+test(_, any)                      -> pass;
 test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
 test(V, {iodata, SizeSpec})       -> test_iodata(V, SizeSpec);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
-test(V, {list, SizeSpec})         -> test_list(V, SizeSpec);
-test(V, {list_of, Contract})      -> test_list_of(V, Contract);
+test(V, {list, Size, Contract})   -> test_list(V, Size, Contract);
 test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
@@ -226,8 +226,8 @@ test_binary(V, SizeSpec) ->
             test_int(Size, SizeSpec, binary_wrong_size)
     end.
 
--spec test_list(val(), size()) -> test_result().
-test_list(V, SizeSpec) ->
+-spec test_list_size(val(), size()) -> test_result().
+test_list_size(V, SizeSpec) ->
     case is_list(V) of
         false ->
             {fail, {not_a_list, V}};
@@ -236,12 +236,12 @@ test_list(V, SizeSpec) ->
             test_int(Size, SizeSpec, list_wrong_size)
     end.
 
--spec test_list_of(val(), contract()) -> test_result().
-test_list_of(Xs, Contract) ->
-    case is_list(Xs) of
-        false ->
-            {fail, {not_a_list, Xs}};
-        true ->
+-spec test_list(val(), size(), contract()) -> test_result().
+test_list(Xs, SizeSpec, Contract) ->
+    case test_list_size(Xs, SizeSpec) of
+        {fail, _}=Fail ->
+            Fail;
+        pass ->
             Invalid =
                 lists:foldl(
                     fun (X, Invalid) ->
@@ -451,39 +451,36 @@ list_test_() ->
     Key = foo,
     BadList = <<"trust me, i'm a list">>,
     [
-        ?_assertEqual(pass, test([], {list, any})),
-        ?_assertEqual(pass, test([], {list, {exact, 0}})),
-        ?_assertEqual(pass, test([], {list, {range, 0, 1024}})),
+        ?_assertEqual(pass, test([], {list, any, any})),
+        ?_assertEqual(pass, test([], {list, {exact, 0}, any})),
+        ?_assertEqual(pass, test([], {list, {range, 0, 1024}, any})),
         ?_assertEqual(
             {fail, {list_wrong_size, 0, {range, 1, 1024}}},
-            test([], {list, {range, 1, 1024}})
+            test([], {list, {range, 1, 1024}, any})
         ),
-        ?_assertEqual(pass, test([a], {list, {range, 1, 1024}})),
-        ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}})),
-        ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}})),
-        ?_assertEqual(ok, check([{Key, [], {list, any}}])),
-        ?_assertEqual(ok, check([{Key, [], {list, {exact, 0}}}])),
+        ?_assertEqual(pass, test([a], {list, {range, 1, 1024}, any})), % TODO atom contract
+        ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}, any})), % TODO atom contract
+        ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}, any})), % TODO atom contract
+        ?_assertEqual(ok, check([{Key, [], {list, any, any}}])),
+        ?_assertEqual(ok, check([{Key, [], {list, {exact, 0}, any}}])),
         ?_assertEqual(
             {error, {invalid, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}},
-            check([{Key, [], {list, {range, 8, 1024}}}])
+            check([{Key, [], {list, {range, 8, 1024}, any}}])
         ),
         ?_assertEqual(
             {error, {invalid, [{Key, {not_a_list, BadList}}]}},
             check(
-                [{Key, BadList, {list, {range, 8, 1024}}}]
+                [{Key, BadList, {list, {range, 8, 1024}, any}}]
             )
-        )
-    ].
-
-list_of_test_() ->
-    [
-        ?_assertEqual(pass, test([], {list_of, {integer, any}})),
-        ?_assertEqual(pass, test([], {list_of, {integer, {range, 1, 5}}})),
-        ?_assertEqual(pass, test([1, 2, 3], {list_of, {integer, any}})),
-        ?_assertEqual(pass, test([1, 2, 3], {list_of, {integer, {range, 1, 5}}})),
+        ),
+        ?_assertEqual(pass, test([], {list, any, {integer, any}})),
+        ?_assertEqual(pass, test([], {list, any, {integer, {range, 1, 5}}})),
+        ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, any}})),
+        ?_assertEqual(pass, test([1, 2, 3], {list, {exact, 3}, {integer, any}})),
+        ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, {range, 1, 5}}})),
         ?_assertEqual(
             {fail, {list_contains_invalid_elements, [30]}},
-            test([1, 2, 30], {list_of, {integer, {range, 1, 5}}})
+            test([1, 2, 30], {list, any, {integer, {range, 1, 5}}})
         )
     ].
 
@@ -528,10 +525,10 @@ iodata_test_() ->
         ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax + 1, <<"baz">>], any)),
         ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin, <<"baz">>], any)),
         ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax, <<"baz">>], any)),
-        ?_assertEqual(pass, test([[], [<<"1">>], "2", <<"3">>], {list_of, {iodata, any}})),
+        ?_assertEqual(pass, test([[], [<<"1">>], "2", <<"3">>], {list, any, {iodata, any}})),
 
-        ?_assertMatch(pass                                       , test("12345678", {list_of, {integer, any}})),
-        ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list_of, {iodata, any}})),
+        ?_assertMatch(pass                                       , test("12345678", {list, any, {integer, any}})),
+        ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list, any, {iodata, any}})),
         ?_assertEqual(pass                                       , test("12345678", {iodata, any}))
     ].
 

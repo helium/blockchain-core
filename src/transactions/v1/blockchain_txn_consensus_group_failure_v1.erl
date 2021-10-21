@@ -206,11 +206,11 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(txn_consensus_group_failure()) -> ok | {error, _}.
 is_well_formed(Tx) ->
     blockchain_contracts:check([
-        {failed_members, failed_members(Tx), {list_of, {address, libp2p}}},
+        {failed_members, failed_members(Tx), {list, any, {address, libp2p}}},
         {height        , height(Tx)        , {integer, {min, 0}}},
         {delay         , delay(Tx)         , {integer, {min, 0}}},
-        {members       , members(Tx)       , {list_of, {address, libp2p}}},
-        {signatures    , signatures(Tx)    , {list_of, {iodata, any}}}
+        {members       , members(Tx)       , {list, any, {address, libp2p}}},
+        {signatures    , signatures(Tx)    , {list, any, {iodata, any}}}
     ]).
 
 -spec is_absorbable(txn_consensus_group_failure(), blockchain:blockchain()) ->

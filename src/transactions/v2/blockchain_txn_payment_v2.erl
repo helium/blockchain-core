@@ -132,7 +132,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
-            case blockchain_contracts:check([{payees, payees(Txn), {list_of, {address, libp2p}}}]) of
+            case blockchain_contracts:check([{payees, payees(Txn), {list, any, {address, libp2p}}}]) of
                 ok ->
                     do_is_valid_checks(Txn, Chain, M);
                 Error ->
