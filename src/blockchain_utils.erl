@@ -606,6 +606,9 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 majority(N) ->
     (N div 2) + 1.
 
+%% TODO: we can probably do this in ETS somehow, but e2qc is causing major issues when called like
+%% this. all of these are being edited into noops and passthroughs.
+
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
     lists:foldl(
@@ -621,11 +624,11 @@ get_vars(VarList, Ledger) ->
                VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, _HasAux, _VarsNonce, Ledger) ->
-            get_var_(VarName, Ledger).
+    get_var_(VarName, Ledger).
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
-            get_var_(VarName, Ledger).
+    get_var_(VarName, Ledger).
 
 -spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, Ledger) ->
@@ -633,15 +636,18 @@ get_var_(VarName, Ledger) ->
 
 -spec var_cache_stats() -> list().
 var_cache_stats() ->
-    e2qc:stats(?VAR_CACHE).
+    %%e2qc:stats(?VAR_CACHE).
+    [].
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
-    e2qc:teardown(?VAR_CACHE).
+    %% e2qc:teardown(?VAR_CACHE).
+    ok.
 
 init_var_cache() ->
     %% TODO could pull cache settings from app env here
-    e2qc:setup(?VAR_CACHE, []).
+    %%e2qc:setup(?VAR_CACHE, []).
+    ok.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
