@@ -19,6 +19,7 @@
 -define(SUM_PACKETS(Sum), blockchain_state_channel_summary_v1:num_packets(Sum)).
 
 -type diff() :: #blockchain_state_channel_diff_v1_pb{}.
+-type entry() :: #blockchain_state_channel_diff_entry_v1_pb{}.
 -export_type([diff/0]).
 
 -spec new(
@@ -59,7 +60,7 @@ decode(Binary) ->
 -spec calculate_diffs(
     OldSC :: blockchain_state_channel_v1:state_channel(),
     NewSC :: blockchain_state_channel_v1:state_channel()
-) -> list().
+) -> [entry()].
 calculate_diffs(OldSC, NewSC) ->
     OldSumMap = summaries_to_map(blockchain_state_channel_v1:summaries(OldSC)),
     NewSummaries = blockchain_state_channel_v1:summaries(NewSC),
@@ -68,19 +69,19 @@ calculate_diffs(OldSC, NewSC) ->
             HotspotID = ?SUM_CLIENT(Summary),
             case maps:get(HotspotID, OldSumMap, undefined) of
                 undefined ->
-                    Append = #blockchain_state_channel_diff_append_summary_v1_pb{
-                        client_pubkeybin=HotspotID,
-                        num_packets=?SUM_PACKETS(Summary),
-                        num_dcs=?SUM_DCS(Summary)
-                    },
-                    [{append, Append}|Appends];
+                    Entry = new_append_entry(
+                        HotspotID,
+                        ?SUM_PACKETS(Summary),
+                        ?SUM_DCS(Summary)
+                    ),
+                    {[Entry|Appends], Updates};
                 {OldNumPackets, OldNumDCs} ->
-                    Update = #blockchain_state_channel_diff_update_summary_v1_pb{
-                        client_index=Index,
-                        add_packets=?SUM_PACKETS(Summary)-OldNumPackets,
-                        add_dcs=?SUM_DCS(Summary)-OldNumDCs
-                    },
-                    [{add, Update}|Updates]
+                    Entry = new_add_entry(
+                        Index,
+                        ?SUM_PACKETS(Summary)-OldNumPackets,
+                        ?SUM_DCS(Summary)-OldNumDCs
+                    ),
+                    {Appends, [Entry|Updates]}
             end
         end,
         {[], []},
@@ -99,6 +100,32 @@ summaries_to_map(Summaries) ->
         Summaries
     ).
 
+-spec new_append_entry(
+    CPubKeyBin ::libp2p_crypto:pubkey_bin(), NumP :: pos_integer(), NumD :: pos_integer()
+) -> entry().
+new_append_entry(CPubKeyBin, NumP, NumD) ->
+    Append = #blockchain_state_channel_diff_append_summary_v1_pb{
+        client_pubkeybin=CPubKeyBin,
+        num_packets=NumP,
+        num_dcs=NumD
+    },
+    #blockchain_state_channel_diff_entry_v1_pb{
+        entry={append, Append}
+    }.
+
+-spec new_add_entry(
+    Index ::pos_integer(), AddP :: pos_integer(), AddD :: pos_integer()
+) -> entry().
+new_add_entry(Index, AddP, AddD) ->
+    Add = #blockchain_state_channel_diff_update_summary_v1_pb{
+        client_index=Index,
+        add_packets=AddP,
+        add_dcs=AddD
+    },
+    #blockchain_state_channel_diff_entry_v1_pb{
+        entry={add, Add}
+    }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -106,5 +133,44 @@ summaries_to_map(Summaries) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
+new_test() ->
+    SCID = crypto:strong_rand_bytes(32),
+    Owner = crypto:strong_rand_bytes(32),
+    OldActors = [crypto:strong_rand_bytes(32), crypto:strong_rand_bytes(32)],
+    OldSummaries = lists:map(
+        fun(Actor) ->
+            blockchain_state_channel_summary_v1:new(Actor, 1, 1)
+        end,
+        OldActors
+    ),
+    OldSC0 = blockchain_state_channel_v1:new(SCID, Owner, 100),
+    OldSC1 = blockchain_state_channel_v1:summaries(OldSummaries, OldSC0),
+    OldSC2 = blockchain_state_channel_v1:nonce(2, OldSC1),
+
+    %% We are adding 2 new actors and updating the 2 current ones so nonce+4
+    NewActors = [crypto:strong_rand_bytes(32), crypto:strong_rand_bytes(32)],
+    NewSummaries = lists:map(
+        fun(Actor) ->
+            blockchain_state_channel_summary_v1:new(Actor, 2, 2)
+        end,
+        OldActors ++ NewActors
+    ),
+    NewSC0 = blockchain_state_channel_v1:new(SCID, Owner, 100),
+    NewSC1 = blockchain_state_channel_v1:summaries(NewSummaries, NewSC0),
+    NewSC2 = blockchain_state_channel_v1:nonce(6, NewSC1),
+
+    ExpectedDiff = #blockchain_state_channel_diff_v1_pb{
+        id = SCID,
+        add_nonce = 4,
+        diffs = [
+            new_add_entry(1, 1, 1),
+            new_add_entry(0, 1, 1),
+            new_append_entry(lists:nth(1, NewActors), 2, 2),
+            new_append_entry(lists:nth(2, NewActors), 2, 2)
+        ]
+    },
+
+    ?assertEqual(ExpectedDiff, ?MODULE:new(OldSC2, NewSC2)),
+    ok.
 
 -endif.
