@@ -26,6 +26,7 @@
      check/1,
      check/2,
      check_with_defined/1,
+     is_satisfied/2,
      are_satisfied/1
 ]).
 
@@ -121,6 +122,10 @@
 -define(CHAR_MAX, 255).
 
 %% API ========================================================================
+
+-spec is_satisfied(val(), contract()) -> boolean().
+is_satisfied(Val, Contract) ->
+    res_to_bool(test(Val, Contract)).
 
 -spec are_satisfied([spec()]) -> boolean().
 are_satisfied(Specs) ->
@@ -606,6 +611,9 @@ txn_test_() ->
             test(Type:new(<<"not addr">>, Addr), {txn, any})
         )
     ].
+
+is_satisfied_test() ->
+    ?assert(is_satisfied("foo", {forall, [{string, any}, {iodata, any}]})).
 
 %% Test helpers ===============================================================
 
