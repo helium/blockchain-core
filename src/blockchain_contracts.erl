@@ -15,6 +15,10 @@
     contract/0,
     spec/0,
     failure/0,
+    failure_bin/0,
+    failure_int/0,
+    failure_list/0,
+    failure_txn/0,
     result/0
 ]).
 
@@ -49,6 +53,7 @@
     | any
     | defined
     | undefined
+    | {string, size()}
     | {iodata, size()}
     | {binary, size()}
     | {list, size(), contract()}
@@ -69,22 +74,40 @@
 -type spec() ::
     {key(), val(), contract()}.
 
+-type failure_bin() ::
+      {not_a_binary, val()}
+    | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    .
+
+-type failure_int() ::
+      {not_an_integer, val()}
+    | {integer_out_of_range, Actual :: integer(), Required :: size()}
+    .
+
+-type failure_list() ::
+      {not_a_list, val()}
+    | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    | {list_contains_invalid_elements, val()}
+    .
+
+-type failure_txn() ::
+      not_a_txn
+    | {txn_wrong_type, Actual :: atom(), Required :: atom()}
+    | txn_malformed
+    .
+
 -type failure() ::
       invalid_address
     | invalid_h3_string
     | {not_a_member_of, [val()]}
+    | defined
     | undefined
-    | {not_an_integer, val()}
-    | {not_a_list, val()}
-    | {integer_out_of_range, Actual :: integer(), Required :: size()}
     | not_iodata
-    | {not_a_binary, val()}
-    | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
-    | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
-    | {list_contains_invalid_elements, val()}
-    | not_a_txn
-    | {txn_wrong_type, Actual :: atom(), Required :: atom()}
-    | txn_malformed
+    | failure_txn()
+    | failure_bin()
+    | failure_int()
+    | failure_list()
+    | {invalid_string, failure_list()}
     .
 
 -type result() ::
@@ -93,6 +116,9 @@
 %% For internal use
 -type test_result() ::
     pass | {fail, failure()}.
+
+-define(CHAR_MIN, 0).
+-define(CHAR_MAX, 255).
 
 %% API ========================================================================
 
@@ -137,6 +163,7 @@ test(_, any)                      -> pass;
 test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
+test(V, {string, SizeSpec})       -> test_string(V, SizeSpec);
 test(V, {iodata, SizeSpec})       -> test_iodata(V, SizeSpec);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, Size, Contract})   -> test_list(V, Size, Contract);
@@ -224,6 +251,15 @@ test_binary(V, SizeSpec) ->
         true ->
             Size = byte_size(V),
             test_int(Size, SizeSpec, binary_wrong_size)
+    end.
+
+-spec test_string(val(), size()) -> test_result().
+test_string(V, Size) ->
+    case test(V, {list, Size, {integer, {range, ?CHAR_MIN, ?CHAR_MAX}}}) of
+        pass ->
+            pass;
+        {fail, Reason} ->
+            {fail, {invalid_string, Reason}}
     end.
 
 -spec test_list_size(val(), size()) -> test_result().
@@ -530,6 +566,27 @@ iodata_test_() ->
         ?_assertMatch(pass                                       , test("12345678", {list, any, {integer, any}})),
         ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list, any, {iodata, any}})),
         ?_assertEqual(pass                                       , test("12345678", {iodata, any}))
+    ].
+
+string_test_() ->
+    [
+        ?_assertEqual(pass, test("foo", {string, any})),
+        ?_assertEqual(
+            {fail, {invalid_string, {list_wrong_size, 3, {min, 4}}}},
+            test("foo", {string, {min, 4}})
+        ),
+        ?_assertEqual(
+            {fail, {invalid_string, {not_a_list, <<"foo">>}}},
+            test(<<"foo">>, {string, any})
+        ),
+        ?_assertEqual(
+            {fail, {invalid_string, {list_contains_invalid_elements, [?CHAR_MIN - 1]}}},
+            test("foo" ++ [?CHAR_MIN - 1], {string, any})
+        ),
+        ?_assertEqual(
+            {fail, {invalid_string, {list_contains_invalid_elements, [?CHAR_MAX + 1]}}},
+            test("foo" ++ [?CHAR_MAX + 1], {string, any})
+        )
     ].
 
 txn_test_() ->
