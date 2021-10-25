@@ -137,13 +137,19 @@ is_valid(_Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_genesis_gateway()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(#blockchain_txn_gen_gateway_v1_pb{location=L}=T) ->
+    blockchain_contracts:check([
+        {gateway , gateway(T) , {address, libp2p}},
+        {owner   , owner(T)   , {address, libp2p}},
+        {location, L          , {either, [undefined, {string, {exact, 0}}, h3_string]}},
+        {nonce   , nonce(T)   , {integer, {min, 1}}}
+    ]).
 
 -spec is_absorbable(txn_genesis_gateway(), blockchain:blockchain()) ->
     boolean().
 is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+    %% TODO Revisit
+    true.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -195,6 +201,7 @@ to_json(Txn, _Opts) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-define(TSET(T, K, V), T#blockchain_txn_gen_gateway_v1_pb{K = V}).
 -define(TEST_LOCATION, 631210968840687103).
 
 new_test() ->
@@ -226,7 +233,27 @@ json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, location, nonce])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_gen_gateway_v1_pb{
+            gateway  = Addr,
+            owner    = Addr,
+            location = h3:to_string(?TEST_LOCATION),
+            nonce    = 1
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertEqual(ok, is_well_formed(?TSET(T, location, undefined))),
+        ?_assertEqual(ok, is_well_formed(?TSET(T, location, ""))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, location, "foo"))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, nonce, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, gateway, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<>>)))
+    ].
 
 -endif.
