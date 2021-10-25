@@ -236,7 +236,7 @@ test_defined(_) ->
 test_undefined(undefined) ->
     pass;
 test_undefined(_) ->
-    {failed, defined}.
+    {fail, defined}.
 
 -spec test_iodata(val(), size()) -> test_result().
 test_iodata(V, SizeSpec) ->
