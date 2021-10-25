@@ -223,13 +223,24 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_create_htlc()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contracts:check([
+        {payer    , payer(T)    , {address, libp2p}},
+        {payee    , payee(T)    , {address, libp2p}},
+        {address  , address(T)  , {address, libp2p}},
+        {hashlock , hashlock(T) , {binary, any}},
+        {timelock , timelock(T) , {integer, {min, 0}}}, % 64-bit
+        {amount   , amount(T)   , {integer, {min, 0}}}, % 64-bit
+        {fee      , fee(T)      , {integer, {min, 0}}}, % 64-bit
+        {signature, signature(T), {binary, any}}, % TODO Constraints?
+        {nonce    , nonce(T)    , {integer, {min, 1}}} % TODO Is >0 correct constraint?
+    ]).
 
 -spec is_absorbable(txn_create_htlc(), blockchain:blockchain()) ->
     boolean().
 is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+    %% TODO Revisit
+    true.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -413,7 +424,48 @@ is_valid_with_extended_validation_test() ->
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
 
-validation_test() ->
-    error('TODO-validation_test').
+-define(TSET(T, K, V), T#blockchain_txn_create_htlc_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_create_htlc_v1_pb{
+            payer     = Addr,
+            payee     = Addr,
+            address   = Addr,
+            hashlock  = <<>>,
+            timelock  = 0,
+            amount    = 0,
+            fee       = 0,
+            nonce     = 1,
+            signature =  <<>>
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertEqual(
+            {error, {invalid, [{payer, invalid_address}]}},
+            is_well_formed(?TSET(T, payer, undefined))
+        ),
+        ?_assertEqual(
+            {error, {invalid, [{payer, invalid_address}]}},
+            is_well_formed(?TSET(T, payer, <<>>))
+        ),
+        ?_assertEqual(
+            {error, {invalid, [{payee, invalid_address}]}},
+            is_well_formed(?TSET(T, payee, <<>>))
+        ),
+        ?_assertEqual(
+            {error, {invalid, [{address, invalid_address}]}},
+            is_well_formed(?TSET(T, address, <<>>))
+        ),
+        ?_assertEqual(
+            {error, {invalid, [{nonce, {integer_out_of_range, -1, {min, 1}}}]}},
+            is_well_formed(?TSET(T, nonce, -1))
+        )
+    ].
 
 -endif.
