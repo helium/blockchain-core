@@ -38,7 +38,7 @@ init(_RPC, StreamState)->
     Ledger = blockchain:ledger(Blockchain),
     Self = self(),
     case blockchain:config(?sc_version, Ledger) of
-        {ok, N} when N > 1 ->
+        {ok, 2} ->
             ActiveSCs =
                 e2qc:cache(
                     ?MODULE,

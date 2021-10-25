@@ -62,7 +62,7 @@ init(server, _Conn, [_Path, Blockchain]) ->
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
     case blockchain:config(?sc_version, Ledger) of
-        {ok, N} when N > 1 ->
+        {ok, 2} ->
             ActiveSCs =
                 e2qc:cache(
                     ?MODULE,
