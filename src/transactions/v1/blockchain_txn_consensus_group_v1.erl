@@ -9,7 +9,6 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
--include("blockchain.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_v1_pb.hrl").
 
@@ -41,13 +40,24 @@
 -type txn_consensus_group() :: #blockchain_txn_consensus_group_v1_pb{}.
 -export_type([txn_consensus_group/0]).
 
+%% TODO Perhaps we need blockchain_limits.hrl ?
+
+-define(HEIGHT_MIN, 1).
+-define(HEIGHT_MAX, 2 * ceil(math:pow(2, 63)) - 1).  % 64-bit unsigned
+
+-define(DELAY_MIN, 0).
+-define(DELAY_MAX, 2 * ceil(math:pow(2, 31)) - 1).  % 32-bit unsigned
+
+-define(PROOF_MIN, 5).
+-define(PROOF_MAX, 1024 * 1024).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec new([libp2p_crypto:pubkey_bin()], binary(), pos_integer(), non_neg_integer()) -> txn_consensus_group().
-new(_Members, _Proof, 0, _Delay) ->
-    error(blowupyay);
+new(_Members, _Proof, Height, _Delay) when Height < ?HEIGHT_MIN ->
+    error({invalid_height, Height, {min, ?HEIGHT_MIN}});
 new(Members, Proof, Height, Delay) ->
     #blockchain_txn_consensus_group_v1_pb{members = Members,
                                           proof = Proof,
@@ -116,6 +126,59 @@ fee(_Txn) ->
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
+-spec is_well_formed(txn_consensus_group()) -> ok | {error, _}.
+is_well_formed(T) ->
+    blockchain_contracts:check_with_defined([
+        {members, members(T), {list, {min, 1}, {address, libp2p}}},
+        {proof  , proof(T)  , {binary , {range, ?PROOF_MIN, ?PROOF_MAX}}},
+        {height , height(T) , {integer, {range, ?HEIGHT_MIN, ?HEIGHT_MAX}}},
+        {delay  , delay(T)  , {integer, {range, ?DELAY_MIN, ?DELAY_MAX}}}
+    ]).
+
+-spec is_absorbable(txn_consensus_group(), blockchain:blockchain()) ->
+    boolean().
+is_absorbable(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        %% no chain, genesis block
+        {ok, 0} ->
+            true;
+        {ok, CurrHeight} ->
+            {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+            TxnHeight = ?MODULE:height(Txn),
+            Delay = ?MODULE:delay(Txn),
+            case blockchain_ledger_v1:election_height(Ledger) of
+                {ok, BaseHeight} when TxnHeight =< BaseHeight ->
+                    false;
+                _ ->
+                    %% either genesis block or election is not too old
+                    {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
+                    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+                    %% The next election should be at least ElectionInterval blocks past the last election
+                    %% This check prevents elections ahead of schedule
+                    case TxnHeight >= LastElectionHeight + ElectionInterval of
+                        true ->
+                            IntervalRange =
+                            case blockchain:config(?election_restart_interval_range, Ledger) of
+                                {ok, IR} -> IR;
+                                _ -> 1
+                            end,
+                            {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
+                            %% The next election should occur within RestartInterval blocks of when the election started
+                            NextRestart = LastElectionHeight + ElectionInterval + Delay +
+                            (RestartInterval * IntervalRange),
+                            case CurrHeight > NextRestart of
+                                true ->
+                                    false;
+                                _ ->
+                                    true
+                            end;
+                        false ->
+                            false
+                    end
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -127,92 +190,32 @@ is_valid(Txn, Chain) ->
     Delay = ?MODULE:delay(Txn),
     Proof0 = ?MODULE:proof(Txn),
     try
-        case Members of
-            [] ->
-                throw({error, no_members});
-            _ ->
-                ok
-        end,
-        TxnHeight = ?MODULE:height(Txn),
         case blockchain_ledger_v1:current_height(Ledger) of
             %% no chain, genesis block
             {ok, 0} ->
                 ok;
             {ok, CurrHeight} ->
-                {ok, #block_info_v2{election_info={_, LastElectionHeight}}} = blockchain:get_block_info(CurrHeight, Chain),
-
-                case blockchain_ledger_v1:election_height(Ledger) of
-                    %% no chain, genesis block
-                    {error, not_found} ->
-                        ok;
-                    {ok, BaseHeight} when TxnHeight > BaseHeight ->
-                        ok;
-                    {ok, BaseHeight} ->
-                        throw({error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}})
-                end,
+                {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+                {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
                 {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
-                %% The next election should be at least ElectionInterval blocks past the last election
-                %% This check prevents elections ahead of schedule
-                case TxnHeight >= LastElectionHeight + ElectionInterval of
-                    true ->
-                        Proof = binary_to_term(Proof0),
-                        EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
-                        {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                        {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
-                        IntervalRange =
-                            case blockchain:config(?election_restart_interval_range, Ledger) of
-                                {ok, IR} -> IR;
-                                _ -> 1
-                            end,
-                        %% The next election should occur within RestartInterval blocks of when the election started
-                        NextRestart = LastElectionHeight + ElectionInterval + Delay +
-                            (RestartInterval * IntervalRange),
-                        case CurrHeight > NextRestart of
-                            true ->
-                                throw({error, {txn_too_old, {CurrHeight, NextRestart}}});
-                            _ ->
-                                ok
-                        end,
-                        {ok, N} = blockchain:config(?num_consensus_members, Ledger),
-                        case length(Members) == N of
-                            true -> ok;
-                            _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
-                        end,
-                        %% if we're on validators make sure that everyone is staked
-                        case blockchain_ledger_v1:config(?election_version, Ledger) of
-                            {ok, N} when N >= 5 ->
-                                case lists:all(fun(M) ->
-                                                       {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
-                                                       blockchain_ledger_validator_v1:status(V) == staked end,
-                                               Members) of
-                                    true -> ok;
-                                    false -> throw({error, not_all_validators_staked})
-                                end;
-                            _ -> ok
-                        end,
-                        Hash = blockchain_block:hash_block(Block),
-                        {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
-                        case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
-                            ok -> ok;
-                            {error, _} = VerifyErr -> throw(VerifyErr)
-                        end;
-                    _ ->
-                        throw({error, {election_too_early, {TxnHeight,
-                                       LastElectionHeight + ElectionInterval}}})
+                Proof = binary_to_term(Proof0),
+                EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
+                {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
+                {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+                case length(Members) == N of
+                    true -> ok;
+                    _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
+                end,
+                Hash = blockchain_block:hash_block(Block),
+                {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
+                case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
+                    ok -> ok;
+                    {error, _} = VerifyErr -> throw(VerifyErr)
                 end
         end
     catch throw:E ->
-            E
+        E
     end.
-
--spec is_well_formed(txn_consensus_group()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
-
--spec is_absorbable(txn_consensus_group(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -367,6 +370,8 @@ verify_proof(Proof, Members, Hash, Delay, OldLedger) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-define(TSET(T, K, V), T#blockchain_txn_consensus_group_v1_pb{K = V}).
+
 new_test() ->
     Tx = #blockchain_txn_consensus_group_v1_pb{members = [<<"1">>],
                                                proof = <<"proof">>,
@@ -384,7 +389,56 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, members, proof, height, delay])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_consensus_group_v1_pb{
+            members = [Addr],
+            proof = <<"12345">>,
+            height = 1,
+            delay = 0
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertEqual(
+            {error,
+                {invalid, [
+                    {height,
+                        {integer_out_of_range,
+                            ?HEIGHT_MIN - 1,
+                            {range, ?HEIGHT_MIN, ?HEIGHT_MAX}
+                        }
+                    }
+                ]}
+            },
+            is_well_formed(?TSET(T, height, ?HEIGHT_MIN - 1))
+        ),
+        ?_assertEqual(
+            {error,
+                {invalid, [
+                    {delay,
+                        {integer_out_of_range,
+                            ?DELAY_MIN - 1,
+                            {range, ?DELAY_MIN, ?DELAY_MAX}
+                        }
+                    }
+                ]}
+            },
+            is_well_formed(?TSET(T, delay, ?DELAY_MIN - 1))
+        ),
+        ?_assertEqual(
+            {error,
+                {invalid, [
+                    {proof, {binary_wrong_size, 1, {range, ?PROOF_MIN, ?PROOF_MAX}}}
+                ]}
+            },
+            is_well_formed(?TSET(T, proof, <<"1">>))
+        )
+    ].
 
 -endif.
