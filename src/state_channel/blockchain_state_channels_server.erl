@@ -478,16 +478,10 @@ get_new_active(
                 end,
             FilterFun =
                 fun({_ID, {SC, _SCState, _Pid}}) ->
-                    case SCVersion of
-                        2 ->
-                            ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-                                ExpireAt > BlockHeight andalso
-                                blockchain_state_channel_v1:state(SC) == open andalso
-                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom);
-                        _ ->
-                            %% We are not on sc_version=2, just set this to true to include any state channel
-                            true
-                    end
+                    ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+                    ExpireAt > BlockHeight andalso
+                        blockchain_state_channel_v1:state(SC) == open andalso
+                        blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom)
                 end,
             SCSortFun1 =
                 fun({_ID1, {SC1, _SC1State, _SC1Pid}}, {_ID2, {SC2, _SC2State, _SC2Pid}}) ->
