@@ -114,13 +114,17 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_dc_coinbase()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contracts:check([
+        {payee  , payee(T) , {address, libp2p}},
+        {amount , amount(T), {integer, {min, 0}}}
+    ]).
 
 -spec is_absorbable(txn_dc_coinbase(), blockchain:blockchain()) ->
     boolean().
 is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+    %% TODO Revisit
+    true.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -162,6 +166,8 @@ to_json(Txn, _Opts) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-define(TSET(T, K, V), T#blockchain_txn_dc_coinbase_v1_pb{K = V}).
+
 new_test() ->
     Tx = #blockchain_txn_dc_coinbase_v1_pb{payee= <<"payee">>, amount=666},
     ?assertEqual(Tx, new(<<"payee">>, 666)).
@@ -180,7 +186,24 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, amount])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_dc_coinbase_v1_pb{
+            payee  = Addr,
+            amount = 0
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, payee, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, payee, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, amount, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, amount, undefined)))
+    ].
 
 -endif.
