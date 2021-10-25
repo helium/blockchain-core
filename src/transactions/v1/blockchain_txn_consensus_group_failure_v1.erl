@@ -216,7 +216,8 @@ is_well_formed(Tx) ->
 -spec is_absorbable(txn_consensus_group_failure(), blockchain:blockchain()) ->
     boolean().
 is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+    %% TODO Revisit
+    true.
 
 verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list
