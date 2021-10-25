@@ -91,26 +91,27 @@ fee_payer(_Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Price = price(Txn),
-    case {blockchain_ledger_v1:current_height(Ledger), Price > 0} of
-        {{ok, 0}, true} ->
-            ok;
-        {{ok, 0}, false} ->
-            {error, invalid_oracle_price};
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+is_valid(_Txn, _Chain) ->
+    ok.
 
 -spec is_well_formed(txn_genesis_price_oracle()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contracts:check([{price, price(T), {integer, {min, 1}}}]).
 
 -spec is_absorbable(txn_genesis_price_oracle(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+is_absorbable(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            true;
+        {ok, Height} ->
+            lager:error("Not in genesis block. Height: ~p", [Height]),
+            false;
+        {error, _}=Error ->
+            lager:error("Failed to fetch current height. Error: ~p", [Error]),
+            false
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -162,7 +163,12 @@ json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, price])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    [
+        ?_assertMatch(ok, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=1})),
+        ?_assertMatch({error, _}, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=0})),
+        ?_assertMatch({error, _}, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=-1})),
+        ?_assertMatch({error, _}, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=undefined}))
+    ].
 
 -endif.
