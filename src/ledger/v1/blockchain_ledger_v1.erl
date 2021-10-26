@@ -630,7 +630,11 @@ remove_checkpoint(CheckpointDir) ->
     file:delete(filename:join(CheckpointDir, "delayed")),
     rocksdb:destroy(CheckpointDir, []),
     %% remove any temp dirs that got orphaned
-    [begin rocksdb:destroy(TmpDir, []), file:del_dir(filename:dirname(TmpDir)) end || TmpDir <- filelib:wildcard(CheckpointDir ++ "-[0-9]*/" ++ ?DB_FILE)],
+    [begin
+         lager:warning("removing TmpDir: ~p", [TmpDir]),
+         rocksdb:destroy(TmpDir, []),
+         file:del_dir(filename:dirname(TmpDir))
+     end || TmpDir <- filelib:wildcard(CheckpointDir ++ "-[0-9]*/" ++ ?DB_FILE)],
     file:del_dir(filename:dirname(CheckpointDir)).
 
 snapshot_key(#ledger_v1{mode=Aux}, Height) when Aux == aux; Aux == aux_load ->
