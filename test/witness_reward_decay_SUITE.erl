@@ -10,6 +10,9 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("helium_proto/include/blockchain_block_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include("blockchain_ct_utils.hrl").
 -include("blockchain_vars.hrl").
 
@@ -146,19 +149,19 @@ init_per_testcase(TestCase, Config0) ->
     ConstructedWitnesses1 = construct_witnesses([b, d], GatewayLetterToAddrMap),
 
     SecondBeaconer = maps:get(d, GatewayLetterToAddrMap),
-    Rx2 = blockchain_poc_receipt_v1:new(SecondBeaconer, 1000, 10, <<"first_rx">>, p2p),
+    Rx2 = blockchain_poc_receipt_v1:new(SecondBeaconer, 1001, 10, <<"second_rx">>, p2p),
     ConstructedWitnesses2 = construct_witnesses([b, c], GatewayLetterToAddrMap),
 
     ThirdBeaconer = maps:get(e, GatewayLetterToAddrMap),
-    Rx3 = blockchain_poc_receipt_v1:new(ThirdBeaconer, 1000, 10, <<"first_rx">>, p2p),
+    Rx3 = blockchain_poc_receipt_v1:new(ThirdBeaconer, 1002, 10, <<"third_rx">>, p2p),
     ConstructedWitnesses3 = construct_witnesses([b, d], GatewayLetterToAddrMap),
 
     FourthBeaconer = maps:get(f, GatewayLetterToAddrMap),
-    Rx4 = blockchain_poc_receipt_v1:new(FourthBeaconer, 1000, 10, <<"first_rx">>, p2p),
+    Rx4 = blockchain_poc_receipt_v1:new(FourthBeaconer, 1003, 10, <<"fourth_rx">>, p2p),
     ConstructedWitnesses4 = construct_witnesses([b, e], GatewayLetterToAddrMap),
 
     FifthBeaconer = maps:get(g, GatewayLetterToAddrMap),
-    Rx5 = blockchain_poc_receipt_v1:new(FifthBeaconer, 1000, 10, <<"first_rx">>, p2p),
+    Rx5 = blockchain_poc_receipt_v1:new(FifthBeaconer, 1004, 10, <<"fifth_rx">>, p2p),
     ConstructedWitnesses5 = construct_witnesses([b, f], GatewayLetterToAddrMap),
 
     ok = create_req_and_poc_blocks(
@@ -210,16 +213,13 @@ init_per_testcase(TestCase, Config0) ->
     {ok, Height} = blockchain:height(Chain),
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
-    DecayRate =
-        case blockchain_utils:get_var(?witness_reward_decay_rate, Ledger) of
-            {ok, DecayRateVar} -> DecayRateVar;
-            {error, not_found} -> not_found
-        end,
-    ct:print("Decay Rate Var : ~p", [DecayRate]),
+    ReceiptRewardBlocks = lists:map(fun(X) -> blockchain:get_block(X, Chain) end, lists:seq(1, 11)),
+    RewardWitnesses = lists:flatten(lists:foldl(fun({ok, Block}, Acc) -> get_reward_gateways(Block, Acc) end, [], ReceiptRewardBlocks)),
+    ct:print("Witnesses : ~p, ", [lists:flatten(RewardWitnesses)]),
 
     {ok, RewardsMd} = blockchain_txn_rewards_v2:calculate_rewards_metadata(1, Height, Chain),
     WitnessRewards = maps:get(poc_witness, RewardsMd),
-    ct:print("WitnessRewards : ~p", [WitnessRewards]),
+    ct:print("Witness Rewards : ~p", [WitnessRewards]),
 
     [
         {balance, Balance},
@@ -369,3 +369,20 @@ create_req_and_poc_blocks(
     _ = blockchain_gossip_handler:add_block(PocBlock, Chain, self(), blockchain_swarm:swarm()),
 
     ok.
+
+get_reward_gateways(Block, Acc) ->
+    NewWitnesses = case Block#blockchain_block_v1_pb.transactions of
+        [] ->
+            [];
+        [Txns  | _] ->
+            case Txns#blockchain_txn_pb.txn of
+                {poc_receipts, PocReceipts} ->
+                    [ReceiptPath | _] = PocReceipts#blockchain_txn_poc_receipts_v1_pb.path,
+                    ReceiptWitnesses = ReceiptPath#blockchain_poc_path_element_v1_pb.witnesses,
+                    BinWitnesses = [Witness#blockchain_poc_witness_v1_pb.gateway || Witness <- ReceiptWitnesses],
+                    [erlang:list_to_binary(blockchain_utils:addr2name(BinWitness)) || BinWitness <- BinWitnesses];
+                _ ->
+                    []
+            end
+                   end,
+    [NewWitnesses | Acc].
