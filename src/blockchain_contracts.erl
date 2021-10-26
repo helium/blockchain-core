@@ -58,6 +58,15 @@
     | {iodata, size()}
     | {binary, size()}
     | {list, size(), contract()}
+
+    % TODO Reconsider name, since we only require element uniquness, not order.
+    % ordset alternatives:
+    % - ulist
+    % - set_list
+    % - list_set
+    % - list_of_uniques
+    | {ordset, size(), contract()}
+
     | {integer, size()}
     | {member, [any()]}
     | {address, libp2p}
@@ -88,7 +97,7 @@
 -type failure_list() ::
       {not_a_list, val()}
     | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
-    | {list_contains_invalid_elements, val()}
+    | {list_contains_invalid_elements, [term()]}
     .
 
 -type failure_txn() ::
@@ -108,6 +117,7 @@
     | failure_bin()
     | failure_int()
     | failure_list()
+    | {list_contains_duplicate_elements, [term()]}
     | {invalid_string, failure_list()}
     .
 
@@ -172,6 +182,7 @@ test(V, {string, SizeSpec})       -> test_string(V, SizeSpec);
 test(V, {iodata, SizeSpec})       -> test_iodata(V, SizeSpec);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, Size, Contract})   -> test_list(V, Size, Contract);
+test(V, {ordset, Size, Contract}) -> test_ordset(V, Size, Contract);
 test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
@@ -299,6 +310,20 @@ test_list(Xs, SizeSpec, Contract) ->
                     pass;
                 [_|_] ->
                     {fail, {list_contains_invalid_elements, Invalid}}
+            end
+    end.
+
+-spec test_ordset(val(), size(), contract()) -> test_result().
+test_ordset(Xs, Size, Contract) ->
+    case test_list(Xs, Size, Contract) of
+        {fail, _}=Fail ->
+            Fail;
+        pass ->
+            case Xs -- lists:usort(Xs) of
+                [] ->
+                    pass;
+                [_|_]=Dups ->
+                    {fail, {list_contains_duplicate_elements, Dups}}
             end
     end.
 
@@ -614,6 +639,26 @@ txn_test_() ->
 
 is_satisfied_test() ->
     ?assert(is_satisfied("foo", {forall, [{string, any}, {iodata, any}]})).
+
+ordset_test_() ->
+    [
+        ?_assertMatch(pass, test([], {ordset, any, any})),
+        ?_assertMatch(pass, test([a, b, c], {ordset, any, any})),
+
+        % XXX Note that it isn't a strict ordset, since order is not enforced,
+        % only uniquness:
+        ?_assertMatch(pass, test([c, a, b], {ordset, any, any})),
+        ?_assertMatch(pass, test([c, b, a], {ordset, any, any})),
+
+        ?_assertMatch(
+            {fail, {list_contains_duplicate_elements, [c]}},
+            test([c, b, a, c], {ordset, any, any})
+        ),
+        ?_assertMatch(
+            {fail, {list_contains_duplicate_elements, [c, c]}},
+            test([c, b, a, c, c], {ordset, any, any})
+        )
+    ].
 
 %% Test helpers ===============================================================
 
