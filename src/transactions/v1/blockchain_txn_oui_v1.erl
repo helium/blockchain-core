@@ -199,8 +199,19 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_oui()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contracts:check([
+        {owner                , owner(T)                , {address, libp2p}},
+        {addresses            , addresses(T)            , {ordset, {max, 3}, {address, libp2p}}},
+        {filter               , filter(T)               , {forall, [{binary, any}, {custom, fun validate_filter/1, invalid_filter}]}},
+        {requested_subnet_size, requested_subnet_size(T), {forall, [{integer, {min, 0}}, {custom, fun validate_subnet_size/1, invalid_subnet_size}]}},
+        {payer                , payer(T)                , {either, [{address, libp2p}, {binary, {exact, 0}}]}},
+        {staking_fee          , staking_fee(T)          , {integer, {min, 0}}},
+        {fee                  , fee(T)                  , {integer, {min, 0}}},
+        {owner_signature      , owner_signature(T)      , {binary, any}},
+        {payer_signature      , payer_signature(T)      , {binary, any}},
+        {oui                  , oui(T)                  , {integer, {min, 0}}}
+    ]).
 
 -spec is_absorbable(txn_oui(), blockchain:blockchain()) ->
     boolean().
@@ -329,12 +340,7 @@ to_json(Txn, _Opts) ->
 validate_addresses([]) ->
     true;
 validate_addresses(Addresses) ->
-    case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
-        {L, L} when L =< 3 ->
-            ok == blockchain_contracts:check([{router_address, P, {address, libp2p}} || P <- Addresses]);
-        _ ->
-            false
-    end.
+    blockchain_contracts:is_satisfied(Addresses, {ordset, {max, 3}, {address, libp2p}}).
 
 validate_subnet_size(Size) when Size < 8; Size > 65536 ->
     false;
@@ -526,7 +532,41 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size, oui])).
 
-validation_test() ->
-    error('TODO-validation_test').
+-define(TSET(T, K, V), T#blockchain_txn_oui_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    T =
+        #blockchain_txn_oui_v1_pb{
+            owner                 = Addr1,
+            addresses             = [Addr1],
+            filter                = Filter,
+            requested_subnet_size = 8,
+            payer                 = Addr1,
+            staking_fee           = 0,
+            fee                   = 0,
+            owner_signature       = <<>>,
+            payer_signature       = <<>>,
+            oui                   = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<"foo">>))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, []))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1]))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2]))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3]))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr()]))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, addresses, [<<"foo">>])))
+    ].
 
 -endif.
