@@ -39,6 +39,8 @@
     election_v6_test/1,
     chain_vars_test/1,
     chain_vars_set_unset_test/1,
+    poc_v2_set_challenger_type_chain_var_test/1,
+    poc_v2_unset_challenger_type_chain_var_test/1,
     token_burn_test/1,
     payer_test/1,
     poc_sync_interval_test/1,
@@ -93,6 +95,8 @@ all() ->
         light_gw_election_v4_test,
         chain_vars_test,
         chain_vars_set_unset_test,
+        poc_v2_set_challenger_type_chain_var_test,
+        poc_v2_unset_challenger_type_chain_var_test,
         token_burn_test,
         payer_test,
         poc_sync_interval_test,
@@ -2508,6 +2512,198 @@ chain_vars_set_unset_test(Config) ->
         lists:seq(1, 15)
     ),
     ?assertEqual({ok, 33}, blockchain:height(Chain)),
+
+    ok.
+
+poc_v2_set_challenger_type_chain_var_test(Config) ->
+    %% then the poc_challenger_type chain var is modified
+    %% any existing POC in the ledger should be purged
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    {Priv, _} = ?config(master_key, Config),
+
+    Ledger = blockchain:ledger(Chain),
+
+    %% add a gw to act as our challenger
+    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer),
+    SignedAddGatewayTx0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTx0, GatewaySigFun),
+    SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedAddGatewayTx1, PayerSigFun),
+
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1),
+    SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(SignedAssertLocationTx0, OwnerSigFun),
+    SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
+
+
+    {ok, AddGWBlock} = test_utils:create_block(ConsensusMembers, [SignedAddGatewayTx2, SignedAssertLocationTx2]),
+    _ = blockchain_gossip_handler:add_block(AddGWBlock, Chain, self(), blockchain_swarm:swarm()),
+
+    ct:pal("height: ~p", [blockchain:height(Chain)]),
+
+    ok = test_utils:wait_until(fun() -> {ok, 4} >= blockchain:height(Chain) end),
+
+    %% populate the ledger with some POC data
+    %% before the chain var is modified the poc_challenger_type
+    %% chain var will be unset, thus in this test it will modify
+    %% from unset/undefined to validator
+    {ok, BlockHash} = blockchain:head_hash(Chain),
+    POCReqTxn = fake_poc_request(Gateway, GatewaySigFun, BlockHash),
+    OnionKeyHash = blockchain_txn_poc_request_v1:onion_key_hash(POCReqTxn),
+    {ok, POCBlock} = test_utils:create_block(ConsensusMembers, [POCReqTxn]),
+    _ = blockchain_gossip_handler:add_block(POCBlock, Chain, self(), blockchain_swarm:swarm()),
+    %% confirm the poc is on the ledger
+    {ok, [_POC1]} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
+
+    %% create the var txn
+    Vars = #{poc_challenger_type => validator},
+    ct:pal("priv_key ~p", [Priv]),
+
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    {ok, VarBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:swarm()),
+
+    {ok, Height} = blockchain:height(Chain),
+    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    CommitHeight = Height + Delay + 5,
+
+    ct:pal("commit height ~p", [CommitHeight]),
+    %% Add some blocks up unil the commit height
+    lists:foreach(
+        fun(_) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                {ok, CurHeight} = blockchain:height(Chain),
+                case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
+                    {error, not_found} when CurHeight < CommitHeight ->
+                        ct:pal("poc_challenger_type result: ~p", [not_found]),
+                        ok;
+                    {ok, validator} when CurHeight >= CommitHeight ->
+                        ct:pal("poc_challenger_type result: ~p", [validator]),
+                        ok;
+                    Res ->
+                        ct:pal("poc_challenger_type result: ~p", [Res]),
+                        throw({error, {chain_var_wrong_height, Res, CurHeight}})
+                end
+        end,
+        lists:seq(1, CommitHeight - Height)
+    ),
+    {error,not_found} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
+    ok.
+
+poc_v2_unset_challenger_type_chain_var_test(Config) ->
+    %% then the poc_challenger_type chain var is modified
+    %% any existing POC in the ledger should be purged
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    {Priv, _} = ?config(master_key, Config),
+
+    Ledger = blockchain:ledger(Chain),
+
+    %% add a gw to act as our challenger
+    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer),
+    SignedAddGatewayTx0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTx0, GatewaySigFun),
+    SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedAddGatewayTx1, PayerSigFun),
+
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1),
+    SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(SignedAssertLocationTx0, OwnerSigFun),
+    SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
+
+    {ok, AddGWBlock} = test_utils:create_block(ConsensusMembers, [SignedAddGatewayTx2, SignedAssertLocationTx2]),
+    _ = blockchain_gossip_handler:add_block(AddGWBlock, Chain, self(), blockchain_swarm:swarm()),
+
+    %% create a var txn to set enable validator challengers
+    Vars = #{poc_challenger_type => validator},
+    ct:pal("priv_key ~p", [Priv]),
+
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    {ok, VarBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:swarm()),
+
+    {ok, Height} = blockchain:height(Chain),
+    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    CommitHeight = Height + Delay + 5,
+
+    ct:pal("commit height ~p", [CommitHeight]),
+    %% Add some blocks up unil the commit height
+    lists:foreach(
+        fun(_) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                {ok, CurHeight} = blockchain:height(Chain),
+                case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
+                    {error, not_found} when CurHeight < CommitHeight ->
+                        ct:pal("poc_challenger_type result: ~p", [not_found]),
+                        ok;
+                    {ok, validator} when CurHeight >= CommitHeight ->
+                        ct:pal("poc_challenger_type result: ~p", [validator]),
+                        ok;
+                    Res ->
+                        ct:pal("poc_challenger_type result: ~p", [Res]),
+                        throw({error, {chain_var_wrong_height, Res, CurHeight}})
+                end
+        end,
+        lists:seq(1, CommitHeight - Height)
+    ),
+
+    %% confirm there are POCs on the ledger
+    {ok, _ValidatorPOCs} = blockchain_ledger_v1:active_public_pocs(Ledger),
+
+    %% now unset the poc_challenger_type chain var
+    %% and confirm the ledger is wiped of pocs
+
+    %% create a var txn to unset enable validator challengers
+    UnsetVarTxn = blockchain_txn_vars_v1:new(#{}, 4, #{unsets => [poc_challenger_type]}),
+    UnsetProof = blockchain_txn_vars_v1:create_proof(Priv, UnsetVarTxn),
+    UnsetVarTxn1 = blockchain_txn_vars_v1:proof(UnsetVarTxn, UnsetProof),
+
+    {ok, UnsetBlock} = test_utils:create_block(ConsensusMembers, [UnsetVarTxn1]),
+    _ = blockchain_gossip_handler:add_block(UnsetBlock, Chain, self(), blockchain_swarm:swarm()),
+
+    {ok, Height2} = blockchain:height(Chain),
+    UnsetCommitHeight = Height2 + Delay + 5,
+
+    %% Add some blocks,
+    lists:foreach(
+        fun(_) ->
+                {ok, Block1} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:swarm()),
+                {ok, CurHeight1} = blockchain:height(Chain),
+                ct:pal("Height1 ~p", [CurHeight1]),
+                case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
+                    {error, not_found} when CurHeight1 >= UnsetCommitHeight ->
+                        ok;
+                    Res ->
+                        throw({error, {chain_var_wrong_height, Res, CurHeight1, UnsetCommitHeight}})
+                end
+        end,
+        lists:seq(1, UnsetCommitHeight - Height2)
+    ),
+    {ok, []} = blockchain_ledger_v1:active_public_pocs(Ledger),
 
     ok.
 
