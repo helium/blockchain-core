@@ -39,13 +39,9 @@
          rescue_absorb/2,
          sign/2,
          print/1,
-<<<<<<< HEAD
          json_type/0,
-         to_json/2
-=======
          to_json/2,
          process_hooks/3
->>>>>>> b9dd4bc6... Cleanup and export process_hooks
         ]).
 
 %% helper API
@@ -1480,11 +1476,24 @@ process_hooks(Vars, Unsets, Ledger) ->
 
 %% separate out hook functions and call them in separate functions
 %% below the hook section.
+
+%% poc challenger type has been modified
+%% we want to clear out the pocs CF
+%% we dont care about its value, if its been
+%% updated then we wipe all POCs
+var_hook(?poc_challenger_type, true, Ledger) ->
+    lager:info("poc_challenger_type changed, puring pocs", []),
+    purge_pocs(Ledger),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
 unset_hook(_Var, _Ledger) ->
     ok.
+
+purge_pocs(Ledger) ->
+    blockchain_ledger_v1:purge_pocs(Ledger).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
