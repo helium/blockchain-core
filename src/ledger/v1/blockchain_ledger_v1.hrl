@@ -50,7 +50,10 @@
           %% it provides this extra aux_heights column to differentiate actual
           %% rewards vs aux rewards (for now, but can be extended to show other differences)
           aux_heights :: rocksdb:cf_handle(),
-          aux_heights_md :: rocksdb:cf_handle()
+          aux_heights_md :: rocksdb:cf_handle(),
+          aux_heights_diff :: rocksdb:cf_handle(),
+          aux_heights_diffsum :: rocksdb:cf_handle()
+
          }).
 
 %% This record is for managing validator stake cooldown information in the
@@ -80,6 +83,8 @@
 -define(hex_prefix, "$hex_").
 -define(aux_height_prefix, "aux_height_").
 -define(aux_height_md_prefix, "aux_height_md_").
+-define(aux_height_diff_prefix, "aux_height_diff_").
+-define(aux_height_diffsum_prefix, "aux_height_diffsum_").
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
