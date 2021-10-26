@@ -367,7 +367,9 @@ sweep_old_checkpoints(Ledger) ->
                       end
               end, Subdirs),
         lists:map(fun(Dir) ->
-                          remove_checkpoint(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]))
+                          ToRemove = filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]),
+                          lager:warning("removing checkpoint @ ~p", [ToRemove]),
+                          remove_checkpoint(ToRemove)
                   end,
                   ToDelete)
     catch _:_ ->
@@ -384,7 +386,9 @@ clean_checkpoints(RecordDir) ->
         CPs = filename:join([BaseDir, "checkpoints"]),
         {ok, Subdirs} = file:list_dir(CPs),
         lists:map(fun(Dir) ->
-                          remove_checkpoint(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]))
+                          ToRemove = filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]),
+                          lager:warning("removing checkpoint @ ~p", [ToRemove]),
+                          remove_checkpoint(ToRemove)
                   end,
                   Subdirs)
     catch _:_ ->
@@ -589,6 +593,7 @@ new_snapshot(#ledger_v1{snapshot=undefined,
                                     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
                                     {ok, DelayedHeight} = current_height(DelayedLedger),
                                     OldDir = checkpoint_dir(Ledger, DeleteHeight),
+                                    lager:warning("removing checkpoint @ ~p", [OldDir]),
                                     remove_checkpoint(OldDir),
                                     {ok, Ledger1};
                                 {error, Reason1}=Error1 ->
