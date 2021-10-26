@@ -81,23 +81,27 @@ fee_payer(_Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(_Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            ok;
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+is_valid(_Txn, _Chain) ->
+    ok.
 
 -spec is_well_formed(txn_genesis_validator()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contracts:check([
+        {address, address(T), {address, libp2p}},
+        {owner  , owner(T)  , {address, libp2p}},
+        {stake  , stake(T)  , {integer, {min, 0}}}
+    ]).
 
 -spec is_absorbable(txn_genesis_validator(), blockchain:blockchain()) ->
     boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+is_absorbable(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, Height} ->
+            Height =:= 0;
+        {error, _} ->
+            false
+    end.
 
 -spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
@@ -137,6 +141,8 @@ to_json(Txn, _Opts) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-define(TSET(T, K, V), T#blockchain_txn_gen_validator_v1_pb{K = V}).
+
 new_test() ->
     Tx = #blockchain_txn_gen_validator_v1_pb{address = <<"0">>,
                                              owner = <<"1">>,
@@ -161,7 +167,25 @@ json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_gen_validator_v1_pb))).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    TDefaults = #blockchain_txn_gen_validator_v1_pb{},
+    T =
+        #blockchain_txn_gen_validator_v1_pb{
+            address = Addr,
+            owner   = Addr,
+            stake   = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(TDefaults)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, address, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, stake, -1)))
+    ].
 
 -endif.
