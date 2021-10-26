@@ -1464,6 +1464,7 @@ validate_region_params(Var, Value) ->
 
 -spec process_hooks(Vars :: map(), Unsets :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 process_hooks(Vars, Unsets, Ledger) ->
+    lager:info("processing commit hooks on vars ~p", [Vars]),
     _ = maps:map(
           fun(Var, Value) ->
                   var_hook(Var, Value, Ledger)
@@ -1481,13 +1482,17 @@ process_hooks(Vars, Unsets, Ledger) ->
 %% we want to clear out the pocs CF
 %% we dont care about its value, if its been
 %% updated then we wipe all POCs
-var_hook(?poc_challenger_type, true, Ledger) ->
+var_hook(?poc_challenger_type, _, Ledger) ->
     lager:info("poc_challenger_type changed, puring pocs", []),
     purge_pocs(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
+unset_hook(?poc_challenger_type, Ledger) ->
+    lager:info("poc_challenger_type unset, puring pocs", []),
+    purge_pocs(Ledger),
+    ok;
 unset_hook(_Var, _Ledger) ->
     ok.
 
