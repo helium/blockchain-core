@@ -887,7 +887,8 @@ to_json(Txn, Opts) ->
       onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),
       path => [blockchain_poc_path_element_v1:to_json(Elem, ElemOpts) || {Elem, ElemOpts} <- PathElems],
       fee => fee(Txn),
-      challenger => ?BIN_TO_B58(challenger(Txn))
+      challenger => ?BIN_TO_B58(challenger(Txn)),
+      block_hash => ?BIN_TO_B58(block_hash(Txn))
      }.
 
 
@@ -1418,7 +1419,8 @@ new_test() ->
         onion_key_hash = <<"onion">>,
         path=[],
         fee = 0,
-        signature = <<>>
+        signature = <<>>,
+        block_hash = <<"blockhash">>
     },
     ?assertEqual(Tx, new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>)).
 
@@ -1429,6 +1431,10 @@ onion_key_hash_test() ->
 challenger_test() ->
     Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
     ?assertEqual(<<"challenger">>, challenger(Tx)).
+
+blockhash_test() ->
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
+    ?assertEqual(<<"blockhash">>, block_hash(Tx)).
 
 secret_test() ->
     Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, [], <<"blockhash">>),
@@ -1497,7 +1503,7 @@ delta_test() ->
     P4 = blockchain_poc_path_element_v1:new(<<"c4">>, undefined, []),
     P5 = blockchain_poc_path_element_v1:new(<<"c5">>, undefined, []),
     Path1 = [P1, P2, P3, P4, P5],
-    Txn1 = new(Challenger, Secret, OnionKeyHash, BlockHash, Path1),
+    Txn1 = new(Challenger, Secret, OnionKeyHash, Path1, BlockHash),
 
     Deltas1 = deltas(Txn1),
     ?assertEqual(2, length(Deltas1)),
@@ -1510,7 +1516,7 @@ delta_test() ->
     P4Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
     P5Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
     Path2 = [P1Prime, P2Prime, P3Prime, P4Prime, P5Prime],
-    Txn2 = new(Challenger, Secret, OnionKeyHash, BlockHash, Path2),
+    Txn2 = new(Challenger, Secret, OnionKeyHash, Path2, BlockHash),
 
     Deltas2 = deltas(Txn2),
     ?assertEqual(1, length(Deltas2)),
@@ -1580,7 +1586,7 @@ to_json_test() ->
     Json = to_json(Txn, []),
 
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, secret, onion_key_hash, request_block_hash, path, fee, challenger])).
+                      [type, hash, secret, onion_key_hash, block_hash, path, fee, challenger])).
 
 
 eirp_from_closest_freq_test() ->

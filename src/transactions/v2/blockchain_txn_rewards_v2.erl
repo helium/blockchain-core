@@ -1565,9 +1565,9 @@ poc_challengers_rewards_2_test() ->
     ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, []),
 
     Txns = [
-        blockchain_txn_poc_receipts_v2:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, []),
-        blockchain_txn_poc_receipts_v2:new(<<"b">>, <<"Secret">>, <<"OnionKeyHash">>, []),
-        blockchain_txn_poc_receipts_v2:new(<<"c">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA])
+        blockchain_txn_poc_receipts_v2:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, [], <<"BlockHash">>),
+        blockchain_txn_poc_receipts_v2:new(<<"b">>, <<"Secret">>, <<"OnionKeyHash">>, [], <<"BlockHash">>),
+        blockchain_txn_poc_receipts_v2:new(<<"c">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA], <<"BlockHash">>)
     ],
     Vars = #{
         epoch_reward => 1000,
@@ -1634,13 +1634,13 @@ poc_challengees_rewards_3_test() ->
 
     Txns = [
         %% No rewards here, Only receipt with no witness or subsequent receipt
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA]),  %% 1, 2
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA], <<"BlockHash">>),  %% 1, 2
         %% Reward because of witness
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness]), %% 3
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness], <<"BlockHash">>), %% 3
         %% Reward because of next elem has receipt
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC]), %% 3, 2, 2
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC], <<"BlockHash">>), %% 3, 2, 2
         %% Reward because of witness (adding to make reward 50/50)
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness]) %% 3
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness], <<"BlockHash">>) %% 3
     ],
     Rewards = #{
         %% a gets 8 shares
@@ -1705,8 +1705,8 @@ poc_witnesses_rewards_test() ->
     Witness2 = blockchain_poc_witness_v1:new(<<"b">>, 1, -80, <<>>),
     Elem = blockchain_poc_path_element_v1:new(<<"c">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
     Txns = [
-        blockchain_txn_poc_receipts_v2:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
-        blockchain_txn_poc_receipts_v2:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
+        blockchain_txn_poc_receipts_v2:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem], <<"BlockHash">>),
+        blockchain_txn_poc_receipts_v2:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem], <<"BlockHash">>)
     ],
 
     Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
@@ -1820,13 +1820,13 @@ dc_rewards_v3_spillover_test() ->
 
     Txns = [
         %% No rewards here, Only receipt with no witness or subsequent receipt
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA]),  %% 1, 2
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA], <<"BlockHash">>),  %% 1, 2
         %% Reward because of witness
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness]), %% 3
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness], <<"BlockHash">>), %% 3
         %% Reward because of next elem has receipt
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC]), %% 3, 2, 2
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC], <<"BlockHash">>), %% 3, 2, 2
         %% Reward because of witness (adding to make reward 50/50)
-        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness]) %% 3
+        blockchain_txn_poc_receipts_v2:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness], <<"BlockHash">>) %% 3
     ],
 
 

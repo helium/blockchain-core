@@ -450,7 +450,8 @@ new_merge(Overrides) ->
              election_epoch => 0,
              epoch_start => 0,
              seen_votes => [],
-             bba_completion => <<>>
+             bba_completion => <<>>,
+             poc_keys => []
            },
           Overrides)).
 
@@ -567,7 +568,8 @@ remove_var_txns_test() ->
                 election_epoch => 0,
                 epoch_start    => 0,
                 seen_votes     => [],
-                bba_completion => <<>>
+                bba_completion => <<>>,
+                poc_keys       => []
              }
         ),
     ?assertMatch(
