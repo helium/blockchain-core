@@ -70,7 +70,7 @@
     | {integer, size()}
     | {member, [any()]}
     | {address, libp2p}
-    | {custom, Label :: term(), fun((val()) -> boolean())}
+    | {custom, fun((val()) -> boolean()), Label :: term()}
     | h3_string
     | {txn, txn_type()}
     .
@@ -175,7 +175,7 @@ check_spec({Key, Val, Contract}) ->
 
 -spec test(val(), contract()) -> test_result().
 test(_, any)                      -> pass;
-test(V, {custom, Label, IsValid}) -> test_custom(V, Label, IsValid);
+test(V, {custom, IsValid, Label}) -> test_custom(V, IsValid, Label);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
 test(V, {string, SizeSpec})       -> test_string(V, SizeSpec);
@@ -230,11 +230,11 @@ test_either(V, Contracts) ->
         [_|_] -> {fail, multiple_contracts_satisfied}
     end.
 
--spec test_custom(val(), term(), fun((val()) -> boolean())) -> test_result().
-test_custom(V, Label, IsValid) ->
+-spec test_custom(val(), fun((val()) -> boolean()), term()) -> test_result().
+test_custom(V, IsValid, Label) ->
     case IsValid(V) of
         true -> pass;
-        false -> {fail, Label}
+        false -> {fail, {Label, V}}
     end.
 
 -spec test_defined(val()) -> test_result().
@@ -423,7 +423,7 @@ logic_test_() ->
                 {exists, [
                     defined,
                     {binary, {exact, 5}},
-                    {custom, is_atom, fun erlang:is_atom/1}
+                    {custom, fun erlang:is_atom/1, is_atom}
                 ]}
             )
         ),
@@ -468,7 +468,7 @@ integer_test_() ->
     ].
 
 custom_test_() ->
-    RequireBar = {custom, not_bar, fun(X) -> X =:= bar end},
+    RequireBar = {custom, fun(X) -> X =:= bar end, not_bar},
     Key = foo,
     [
         ?_assertEqual(pass, test(bar, RequireBar)),
