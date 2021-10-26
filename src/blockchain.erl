@@ -538,7 +538,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                         {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
                         _ when Mode == aux ->
-                            %% Try to interpolate aux ledger
+                            %% XXX: Try to interpolate aux ledger
                             case fold_blocks(Chain0, DelayedHeight, Ledger, Height, ForceRecalc) of
                                 {ok, Chain1} ->
                                     Ledger1 = ?MODULE:ledger(Chain1),
@@ -603,6 +603,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                                       %% take an intermediate snapshot here to
                                       %% make things faster in the future
                                       Ledger1 = ?MODULE:ledger(Chain1),
+                                      %% XXX: context_snapshot does not factor in ledger_mode = aux
                                       {ok, NewLedger} = blockchain_ledger_v1:context_snapshot(Ledger1),
                                       {ok, blockchain:ledger(NewLedger, Chain1)};
                                   _ ->

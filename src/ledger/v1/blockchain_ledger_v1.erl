@@ -642,7 +642,9 @@ snapshot_key(#ledger_v1{mode=Aux}, Height) when Aux == aux; Aux == aux_load ->
 snapshot_key(#ledger_v1{}, Height) ->
     Height.
 
-context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) when Mode == active; Mode == delayed ->
+%% XXX: Invoking context_snapshot from withing fold_blocks when ledger mode = aux should also be allowed?
+context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger)
+  when Mode == active; Mode == delayed; Mode == aux ->
     case application:get_env(blockchain, follow_mode, false) of
         true ->
             {ok, Ledger};
@@ -672,7 +674,9 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) when Mo
                                     %% take a checkpoint and omit writing the delayed file or the updates
                                     %% because of a crash or a restart
                                     %% note that this MUST be a subdirectory, not a sibling directory
-                                    %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
+                                    %% of the final db dir.
+                                    %% This is because we assume the database is always called ledger.db
+                                    %% and so there can only be one per directory
                                     TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
                                     ok = filelib:ensure_dir(TmpDir),
                                     ok = rocksdb:checkpoint(DB, TmpDir),
