@@ -208,6 +208,15 @@ init_per_testcase(TestCase, Config0) ->
     ),
 
     {ok, Height} = blockchain:height(Chain),
+    ?assertEqual({ok, 11}, blockchain:height(Chain)),
+
+    DecayRate =
+        case blockchain_utils:get_var(?witness_reward_decay_rate, Ledger) of
+            {ok, DecayRateVar} -> DecayRateVar;
+            {error, not_found} -> not_found
+        end,
+    ct:print("Decay Rate Var : ~p", [DecayRate]),
+
     {ok, RewardsMd} = blockchain_txn_rewards_v2:calculate_rewards_metadata(1, Height, Chain),
     WitnessRewards = maps:get(poc_witness, RewardsMd),
     ct:print("WitnessRewards : ~p", [WitnessRewards]),
