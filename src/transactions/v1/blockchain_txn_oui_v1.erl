@@ -49,6 +49,9 @@
 -type txn_oui() :: #blockchain_txn_oui_v1_pb{}.
 -export_type([txn_oui/0]).
 
+-define(SUBNET_MIN, 8).
+-define(SUBNET_MAX, 65536).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -203,9 +206,15 @@ is_well_formed(T) ->
     blockchain_contracts:check([
         {owner                , owner(T)                , {address, libp2p}},
         {addresses            , addresses(T)            , {ordset, {max, 3}, {address, libp2p}}},
-        {filter               , filter(T)               , {forall, [{binary, any}, {custom, fun validate_filter/1, invalid_filter}]}},
-        {requested_subnet_size, requested_subnet_size(T), {forall, [{integer, {min, 0}}, {custom, fun validate_subnet_size/1, invalid_subnet_size}]}},
-        {payer                , payer(T)                , {either, [{address, libp2p}, {binary, {exact, 0}}]}},
+        {filter               , filter(T)               , {forall, [
+                                                            {binary, any},
+                                                            {custom, fun validate_filter/1, invalid_filter}]}},
+        {requested_subnet_size, requested_subnet_size(T), {forall, [
+                                                            {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
+                                                            {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
+        {payer                , payer(T)                , {either, [
+                                                            {address, libp2p},
+                                                            {binary, {exact, 0}}]}},
         {staking_fee          , staking_fee(T)          , {integer, {min, 0}}},
         {fee                  , fee(T)                  , {integer, {min, 0}}},
         {owner_signature      , owner_signature(T)      , {binary, any}},
@@ -342,11 +351,14 @@ validate_addresses([]) ->
 validate_addresses(Addresses) ->
     blockchain_contracts:is_satisfied(Addresses, {ordset, {max, 3}, {address, libp2p}}).
 
-validate_subnet_size(Size) when Size < 8; Size > 65536 ->
-    false;
 validate_subnet_size(Size) ->
     %% subnet size should be between 8 and 65536 as a power of two
-    Res = math:log2(Size),
+    Size >= ?SUBNET_MIN andalso
+    Size =< ?SUBNET_MAX andalso
+    is_power_of_2(Size).
+
+is_power_of_2(N) ->
+    Res = math:log2(N),
     %% check there's no floating point components of the number
     %% Erlang will coerce between floats and ints when you use ==
     trunc(Res) == Res.
@@ -559,14 +571,36 @@ is_well_formed_test_() ->
         },
     [
         ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, filter, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, staking_fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, oui, -1))),
         ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<"foo">>))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payer, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, payer, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN - 1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN * 2))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN + 1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MAX))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MAX + 1))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, []))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1]))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2]))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3]))),
-        ?_assertMatch({error, _}, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr()]))),
-        ?_assertMatch({error, _}, is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))),
-        ?_assertMatch({error, _}, is_well_formed(?TSET(T, addresses, [<<"foo">>])))
+        ?_assertMatch(
+            {error, {invalid, [{addresses, {list_wrong_size, 4, {max, 3}}}]}},
+            is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr()]))
+        ),
+        ?_assertMatch(
+            {error, {invalid, [{addresses, {list_contains_duplicate_elements, [_]}}]}},
+            is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))
+        ),
+        ?_assertMatch(
+            {error, {invalid, [{addresses, {list_contains_invalid_elements, [_]}}]}},
+            is_well_formed(?TSET(T, addresses, [<<"foo">>]))
+        )
     ].
 
 -endif.
