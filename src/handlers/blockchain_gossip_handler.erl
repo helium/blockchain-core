@@ -193,8 +193,10 @@ regossip_block(Block, SwarmTID) ->
                 %% this is awful but safe
                 regossip_block(Block, height, hash, SwarmTID);
             2 ->
-                %% should be impossible to hit this?
-                {error, bad_gossip_version}
+                %% this is not super efficient but the cost should tail off over time.
+                Height = blockchain_block:height(Block),
+                Hash = blockchain_block:hash_block(Block),
+                regossip_block(Block, Height, Hash, SwarmTID)
         end.
 
 regossip_block(Block, Height, Hash, SwarmTID) ->
