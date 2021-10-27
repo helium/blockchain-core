@@ -1087,7 +1087,7 @@ fetch_and_parse_latest(URL) ->
                {full_result, false} % do not return the "full result" response as defined in httpc docs
               ],
 
-    case httpc:request(get, {URL ++ "/latest-snap", Headers}, HTTPOptions, Options) of
+    case httpc:request(get, {URL ++ "/latest-snap.json", Headers}, HTTPOptions, Options) of
         {ok, {200, Latest}} ->
             #{<<"height">> := Height,
               <<"hash">> := B64Hash} = jsx:decode(Latest, [{return_maps, true}]),
