@@ -1089,9 +1089,9 @@ fetch_and_parse_latest(URL) ->
 
     case httpc:request(get, {URL ++ "/latest-snap", Headers}, HTTPOptions, Options) of
         {ok, {200, Latest}} ->
-            [BinHeight, B58Hash] = binary:split(Latest, <<"\n">>, [trim, global]),
-            Height = binary_to_integer(BinHeight),
-            Hash = base58:base58_to_binary(binary_to_list(B58Hash)),
+            #{<<"height">> := Height,
+              <<"hash">> := B64Hash} = jsx:decode(Latest, [{return_maps, true}]),
+            Hash = base64url:decode(B64Hash),
             {Height, Hash};
         {ok, {404, _Response}} -> throw({error, url_not_found});
         {ok, {Status, Response}} -> throw({error, {Status, Response}});
