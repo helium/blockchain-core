@@ -204,22 +204,28 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(txn_oui()) -> ok | {error, _}.
 is_well_formed(T) ->
     blockchain_contracts:check([
-        {owner                , owner(T)                , {address, libp2p}},
-        {addresses            , addresses(T)            , {ordset, {max, 3}, {address, libp2p}}},
-        {filter               , filter(T)               , {forall, [
-                                                            {binary, any},
-                                                            {custom, fun validate_filter/1, invalid_filter}]}},
-        {requested_subnet_size, requested_subnet_size(T), {forall, [
-                                                            {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
-                                                            {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
-        {payer                , payer(T)                , {either, [
-                                                            {address, libp2p},
-                                                            {binary, {exact, 0}}]}},
-        {staking_fee          , staking_fee(T)          , {integer, {min, 0}}},
-        {fee                  , fee(T)                  , {integer, {min, 0}}},
-        {owner_signature      , owner_signature(T)      , {binary, any}},
-        {payer_signature      , payer_signature(T)      , {binary, any}},
-        {oui                  , oui(T)                  , {integer, {min, 0}}}
+        {owner          , owner(T)          , {address, libp2p}},
+        {addresses      , addresses(T)      , {ordset, {max, 3}, {address, libp2p}}},
+        {staking_fee    , staking_fee(T)    , {integer, {min, 0}}},
+        {fee            , fee(T)            , {integer, {min, 0}}},
+        {owner_signature, owner_signature(T), {binary, any}},
+        {payer_signature, payer_signature(T), {binary, any}},
+        {oui            , oui(T)            , {integer, {min, 0}}},
+        {filter,
+            filter(T),
+            {forall, [
+                {binary, any},
+                {custom, fun validate_filter/1, invalid_filter}]}},
+        {requested_subnet_size,
+            requested_subnet_size(T),
+            {forall, [
+                {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
+                {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
+        {payer,
+            payer(T),
+            {either, [
+                {address, libp2p},
+                {binary, {exact, 0}}]}}
     ]).
 
 -spec is_absorbable(txn_oui(), blockchain:blockchain()) ->
