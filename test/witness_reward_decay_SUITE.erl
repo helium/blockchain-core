@@ -214,7 +214,11 @@ init_per_testcase(TestCase, Config0) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
     ReceiptRewardBlocks = lists:map(fun(X) -> blockchain:get_block(X, Chain) end, lists:seq(1, 11)),
-    RewardWitnesses = lists:flatten(lists:foldl(fun({ok, Block}, Acc) -> get_reward_gateways(Block, Acc) end, [], ReceiptRewardBlocks)),
+    RewardWitnesses = lists:flatten(
+        lists:foldl(
+            fun({ok, Block}, Acc) -> get_reward_gateways(Block, Acc) end, [], ReceiptRewardBlocks
+        )
+    ),
     ct:print("Witnesses : ~p, ", [lists:flatten(RewardWitnesses)]),
 
     {ok, RewardsMd} = blockchain_txn_rewards_v2:calculate_rewards_metadata(1, Height, Chain),
@@ -371,18 +375,28 @@ create_req_and_poc_blocks(
     ok.
 
 get_reward_gateways(Block, Acc) ->
-    NewWitnesses = case Block#blockchain_block_v1_pb.transactions of
-        [] ->
-            [];
-        [Txns  | _] ->
-            case Txns#blockchain_txn_pb.txn of
-                {poc_receipts, PocReceipts} ->
-                    [ReceiptPath | _] = PocReceipts#blockchain_txn_poc_receipts_v1_pb.path,
-                    ReceiptWitnesses = ReceiptPath#blockchain_poc_path_element_v1_pb.witnesses,
-                    BinWitnesses = [Witness#blockchain_poc_witness_v1_pb.gateway || Witness <- ReceiptWitnesses],
-                    [erlang:list_to_binary(blockchain_utils:addr2name(BinWitness)) || BinWitness <- BinWitnesses];
-                _ ->
-                    []
-            end
-                   end,
+    NewWitnesses =
+        case Block#blockchain_block_v1_pb.transactions of
+            [] ->
+                [];
+            [Txns | _] ->
+                case Txns#blockchain_txn_pb.txn of
+                    {poc_receipts, PocReceipts} ->
+                        #blockchain_txn_poc_receipts_v1_pb{
+                            path = [
+                                #blockchain_poc_path_element_v1_pb{witnesses = ReceiptWitnesses} | _
+                            ]
+                        } = PocReceipts,
+                        BinWitnesses = [
+                            Witness#blockchain_poc_witness_v1_pb.gateway
+                         || Witness <- ReceiptWitnesses
+                        ],
+                        [
+                            erlang:list_to_binary(blockchain_utils:addr2name(BinWitness))
+                         || BinWitness <- BinWitnesses
+                        ];
+                    _ ->
+                        []
+                end
+        end,
     [NewWitnesses | Acc].
