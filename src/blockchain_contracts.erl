@@ -68,9 +68,16 @@
     | {ordset, size(), contract()}
 
     | {integer, size()}
+    % TODO Design integration of finer refinements, like is_power_of_2, etc.
+    %       {integer, size(), [refinement()]} ?
+    %       {integer, size(), [contract()]} ? where refinement is a contract variant
+    %
+    % Use-case in blockchain_txn_oui_v1.erl
+
+
     | {member, [any()]}
     | {address, libp2p}
-    | {custom, fun((val()) -> boolean()), Label :: term()}
+    | {custom, fun((val()) -> boolean()), Label :: term()} % TODO Maybe rename "custom" to "test"
     | h3_string
     | {txn, txn_type()}
     .
