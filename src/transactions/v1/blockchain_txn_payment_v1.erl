@@ -350,8 +350,20 @@ is_well_formed_test_() ->
         },
     [
         ?_assertMatch(ok, is_well_formed(T)),
+
+        %% No self-payment is allowed
         ?_assertMatch({error, {invalid, [{payer, _}, {payee, _}]}}, is_well_formed(?TSET(T, payer, Payee))),
         ?_assertMatch({error, {invalid, [{payer, _}, {payee, _}]}}, is_well_formed(?TSET(T, payee, Payer))),
+
+        %% Must be a binary
+        ?_assertMatch({error, {invalid, [{payee, {not_a_binary, _}}]}}, is_well_formed(?TSET(T, payee, undefined))),
+        ?_assertMatch({error, {invalid, [{payee, {not_a_binary, _}}]}}, is_well_formed(?TSET(T, payee, 0))),
+        ?_assertMatch({error, {invalid, [{payee, {not_a_binary, _}}]}}, is_well_formed(?TSET(T, payee, "not addr"))),
+
+        %% But, more-refined validation will happen later, in is_valid/2
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<>>))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<"not addr">>))),
+
         ?_assertMatch({error, {invalid, [{amount, _}]}}, is_well_formed(?TSET(T, amount, -1))),
         ?_assertMatch({error, {invalid, [{fee, _}]}}, is_well_formed(?TSET(T, fee, -1))),
         ?_assertMatch({error, {invalid, [{nonce, _}]}}, is_well_formed(?TSET(T, nonce, -1)))
