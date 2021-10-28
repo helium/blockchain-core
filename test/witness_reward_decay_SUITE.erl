@@ -29,7 +29,11 @@
 
 -export([
     no_vars_test/1,
-    decay_rate_0_8_test/1
+    decay_rate_0_6_test/1,
+    decay_rate_0_7_test/1,
+    decay_rate_0_8_test/1,
+    decay_rate_0_9_test/1,
+    decay_rate_1_0_test/1
 ]).
 
 all() ->
@@ -45,7 +49,11 @@ no_vars_cases() ->
 
 decay_rate_cases() ->
     [
-        decay_rate_0_8_test
+        decay_rate_0_6_test,
+        decay_rate_0_7_test,
+        decay_rate_0_8_test,
+        decay_rate_0_9_test,
+        decay_rate_1_0_test
     ].
 
 groups() ->
@@ -64,10 +72,10 @@ init_per_group(Group, Config) ->
             no_vars ->
                 #{};
             with_decay ->
-                #{?witness_reward_decay_exclusion => 4}
+                #{?witness_reward_decay_exclusion => 3}
         end,
 
-    [{extra_vars, ExtraVars} | Config].
+    [{extra_vars, maps:merge(#{?poc_version => 10}, ExtraVars)} | Config].
 
 %%--------------------------------------------------------------------
 %% group teardown
@@ -100,6 +108,8 @@ end_per_suite(_Config) ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config0) ->
+    blockchain_test_reward_store:insert(elem_witness_map, #{}),
+
     Config = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config0),
     Balance = 5000,
     BaseDir = ?config(base_dir, Config),
@@ -137,37 +147,48 @@ init_per_testcase(TestCase, Config0) ->
         #{},
         lists:zip(AllGws, GatewayAddrs)
     ),
+    {GatewayLetterToAddrMap, GatewayAddrToLetterMap} = lists:foldl(
+        fun({Letter, A}, {L2A, A2L}) ->
+            {maps:put(Letter, A, L2A), maps:put(A, Letter, A2L)}
+        end,
+        {#{}, #{}},
+        lists:zip(AllGws, GatewayAddrs)
+    ),
 
     Challenger = maps:get(a, GatewayLetterToAddrMap),
     {_, {_, _, ChallengerSigFun}} = lists:keyfind(Challenger, 1, GenesisMembers),
 
-    %% First beaconer (challengee)
-    FirstBeaconer = maps:get(c, GatewayLetterToAddrMap),
-    %% Receipt for first beaconer
-    Rx1 = blockchain_poc_receipt_v1:new(FirstBeaconer, 1000, 10, <<"first_rx">>, p2p),
-    %% Witnesses for first beaconer
+    Beaconer1 = maps:get(c, GatewayLetterToAddrMap),
+    Rx1 = blockchain_poc_receipt_v1:new(Beaconer1, 1000, 10, <<"first_rx">>, p2p),
     ConstructedWitnesses1 = construct_witnesses([b, d], GatewayLetterToAddrMap),
 
-    SecondBeaconer = maps:get(d, GatewayLetterToAddrMap),
-    Rx2 = blockchain_poc_receipt_v1:new(SecondBeaconer, 1001, 10, <<"second_rx">>, p2p),
+    Beaconer2 = maps:get(d, GatewayLetterToAddrMap),
+    Rx2 = blockchain_poc_receipt_v1:new(Beaconer2, 1001, 10, <<"second_rx">>, p2p),
     ConstructedWitnesses2 = construct_witnesses([b, c], GatewayLetterToAddrMap),
 
-    ThirdBeaconer = maps:get(e, GatewayLetterToAddrMap),
-    Rx3 = blockchain_poc_receipt_v1:new(ThirdBeaconer, 1002, 10, <<"third_rx">>, p2p),
+    Beaconer3 = maps:get(e, GatewayLetterToAddrMap),
+    Rx3 = blockchain_poc_receipt_v1:new(Beaconer3, 1002, 10, <<"third_rx">>, p2p),
     ConstructedWitnesses3 = construct_witnesses([b, d], GatewayLetterToAddrMap),
 
-    FourthBeaconer = maps:get(f, GatewayLetterToAddrMap),
-    Rx4 = blockchain_poc_receipt_v1:new(FourthBeaconer, 1003, 10, <<"fourth_rx">>, p2p),
+    Beaconer4 = maps:get(f, GatewayLetterToAddrMap),
+    Rx4 = blockchain_poc_receipt_v1:new(Beaconer4, 1003, 10, <<"fourth_rx">>, p2p),
     ConstructedWitnesses4 = construct_witnesses([b, e], GatewayLetterToAddrMap),
 
-    FifthBeaconer = maps:get(g, GatewayLetterToAddrMap),
-    Rx5 = blockchain_poc_receipt_v1:new(FifthBeaconer, 1004, 10, <<"fifth_rx">>, p2p),
+    Beaconer5 = maps:get(g, GatewayLetterToAddrMap),
+    Rx5 = blockchain_poc_receipt_v1:new(Beaconer5, 1004, 10, <<"fifth_rx">>, p2p),
     ConstructedWitnesses5 = construct_witnesses([b, f], GatewayLetterToAddrMap),
+
+    meck:expect(blockchain_txn_poc_request_v1, is_valid, fun(_, _) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_, _) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_, _) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, get_channels, fun(_, _) ->
+        {ok, lists:seq(1, 11)}
+    end),
 
     ok = create_req_and_poc_blocks(
         Challenger,
         ChallengerSigFun,
-        FirstBeaconer,
+        Beaconer1,
         Rx1,
         ConstructedWitnesses1,
         ConsensusMembers,
@@ -176,7 +197,7 @@ init_per_testcase(TestCase, Config0) ->
     ok = create_req_and_poc_blocks(
         Challenger,
         ChallengerSigFun,
-        SecondBeaconer,
+        Beaconer2,
         Rx2,
         ConstructedWitnesses2,
         ConsensusMembers,
@@ -185,7 +206,7 @@ init_per_testcase(TestCase, Config0) ->
     ok = create_req_and_poc_blocks(
         Challenger,
         ChallengerSigFun,
-        ThirdBeaconer,
+        Beaconer3,
         Rx3,
         ConstructedWitnesses3,
         ConsensusMembers,
@@ -194,7 +215,7 @@ init_per_testcase(TestCase, Config0) ->
     ok = create_req_and_poc_blocks(
         Challenger,
         ChallengerSigFun,
-        FourthBeaconer,
+        Beaconer4,
         Rx4,
         ConstructedWitnesses4,
         ConsensusMembers,
@@ -203,41 +224,46 @@ init_per_testcase(TestCase, Config0) ->
     ok = create_req_and_poc_blocks(
         Challenger,
         ChallengerSigFun,
-        FifthBeaconer,
+        Beaconer5,
         Rx5,
         ConstructedWitnesses5,
         ConsensusMembers,
         Chain
     ),
 
+    meck:expect(
+        blockchain_txn_poc_receipts_v1,
+        valid_witnesses,
+        fun(E, _, _) ->
+            ElemMap = blockchain_test_reward_store:fetch(elem_witness_map),
+            case lists:any(fun(Elem) -> E == Elem end, maps:keys(ElemMap)) of
+                true ->
+                    maps:get(E, ElemMap);
+                false -> []
+            end
+        end
+    ),
+
     {ok, Height} = blockchain:height(Chain),
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
-    ReceiptRewardBlocks = lists:map(fun(X) -> blockchain:get_block(X, Chain) end, lists:seq(1, 11)),
-    RewardWitnesses = lists:flatten(
-        lists:foldl(
-            fun({ok, Block}, Acc) -> get_reward_gateways(Block, Acc) end, [], ReceiptRewardBlocks
-        )
-    ),
-    ct:print("Witnesses : ~p, ", [lists:flatten(RewardWitnesses)]),
-
     {ok, RewardsMd} = blockchain_txn_rewards_v2:calculate_rewards_metadata(1, Height, Chain),
-    WitnessRewards = maps:get(poc_witness, RewardsMd),
-    ct:print("Witness Rewards : ~p", [WitnessRewards]),
+    WitnessRewards = format_results(maps:get(poc_witness, RewardsMd), GatewayAddrToLetterMap),
 
     [
         {balance, Balance},
-        {sup, Sup},
-        {pubkey, PubKey},
-        {privkey, PrivKey},
-        {opts, Opts},
+        {base_dir, BaseDir},
         {chain, Chain},
-        {ledger, Ledger},
-        {swarm, Swarm},
-        {n, N},
         {consensus_members, ConsensusMembers},
         {genesis_members, GenesisMembers},
-        {base_dir, BaseDir},
+        {ledger, Ledger},
+        {n, N},
+        {opts, Opts},
+        {privkey, PrivKey},
+        {pubkey, PubKey},
+        {sup, Sup},
+        {swarm, Swarm},
+        {witness_rewards, WitnessRewards},
         Keys
         | Config
     ].
@@ -253,24 +279,45 @@ end_per_testcase(_TestCase, _Config) ->
 %% test cases
 %%--------------------------------------------------------------------
 
-no_vars_test(_Config) ->
-    stash_witness_shares(no_vars, 1),
+no_vars_test(Config) ->
+    Rewards = ?config(witness_rewards, Config),
+    stash_witness_shares(undefined, Rewards),
     ok.
 
-decay_rate_0_8_test(_Config) ->
-    stash_witness_shares(zero_point_eight, 2),
+decay_rate_0_6_test(Config) ->
+    Rewards = ?config(witness_rewards, Config),
+    stash_witness_shares(0.6, Rewards),
     ok.
+
+decay_rate_0_7_test(Config) ->
+    Rewards = ?config(witness_rewards, Config),
+    stash_witness_shares(0.7, Rewards),
+    ok.
+
+decay_rate_0_8_test(Config) ->
+    Rewards = ?config(witness_rewards, Config),
+    stash_witness_shares(0.8, Rewards),
+    ok.
+
+decay_rate_0_9_test(Config) ->
+    Rewards = ?config(witness_rewards, Config),
+    stash_witness_shares(0.9, Rewards),
+    ok.
+
+decay_rate_1_0_test(Config) ->
+    Rewards = ?config(witness_rewards, Config),
+    stash_witness_shares(1.0, Rewards),
+    ok.
+
+%%--------------------------------------------------------------------
+%% internal functions
+%%--------------------------------------------------------------------
 
 stash_witness_shares(Key, Value) ->
     WitnessShares = blockchain_test_reward_store:fetch(witness_shares),
     WitnessShares0 = maps:merge(WitnessShares, #{Key => Value}),
     blockchain_test_reward_store:insert(witness_shares, WitnessShares0),
     ok.
-
-%% add_gateway_to_ledger(Name, Location, Ledger) ->
-%%     ok = blockchain_ledger_v1:add_gateway(<<"o">>, Name, Ledger),
-%%     ok = blockchain_ledger_v1:add_gateway_location(Name, Location, 1, Ledger),
-%%     ok.
 
 decay_rate(no_vars_test) ->
     #{};
@@ -283,25 +330,6 @@ decay_rate(Case) ->
         decay_rate_1_0_test => 1.0
     }),
     #{?witness_reward_decay_rate => Rate}.
-
-%% common_poc_vars() ->
-%%     #{
-%%         ?poc_v4_exclusion_cells => 10,
-%%         ?poc_v4_parent_res => 11,
-%%         ?poc_v4_prob_bad_rssi => 0.01,
-%%         ?poc_v4_prob_count_wt => 0.3,
-%%         ?poc_v4_prob_good_rssi => 1.0,
-%%         ?poc_v4_prob_no_rssi => 0.5,
-%%         ?poc_v4_prob_rssi_wt => 0.3,
-%%         ?poc_v4_prob_time_wt => 0.3,
-%%         ?poc_v4_randomness_wt => 0.1,
-%%         ?poc_v4_target_challenge_age => 300,
-%%         ?poc_v4_target_exclusion_cells => 6000,
-%%         ?poc_v4_target_prob_edge_wt => 0.2,
-%%         ?poc_v4_target_prob_score_wt => 0.8,
-%%         ?poc_v4_target_score_curve => 5,
-%%         ?poc_v5_target_prob_randomness_wt => 0.0
-%%     }.
 
 construct_witnesses(WitnessList, GatewayLetterToAddrMap) ->
     lists:foldl(
@@ -333,38 +361,12 @@ create_req_and_poc_blocks(
     ReqTxn = blockchain_txn_poc_request_v1:new(Challenger, Secret, OnionKeyHash, BlockHash, 10),
     SignedReqTxn = blockchain_txn_poc_request_v1:sign(ReqTxn, ChallengerSigFun),
 
-    Poc = blockchain_poc_path_element_v1:new(Beaconer, Rx, Witnesses),
-    PocTxn = blockchain_txn_poc_receipts_v1:new(Challenger, Secret, OnionKeyHash, BlockHash, [Poc]),
+    Elem = blockchain_poc_path_element_v1:new(Beaconer, Rx, Witnesses),
+    ElemWitnessMap0 = blockchain_test_reward_store:fetch(elem_witness_map),
+    blockchain_test_reward_store:insert(elem_witness_map, ElemWitnessMap0#{Elem => Witnesses}),
+
+    PocTxn = blockchain_txn_poc_receipts_v1:new(Challenger, Secret, OnionKeyHash, BlockHash, [Elem]),
     SignedPocTxn = blockchain_txn_poc_receipts_v1:sign(PocTxn, ChallengerSigFun),
-
-    meck:expect(
-        blockchain_txn_poc_receipts_v1,
-        good_quality_witnesses,
-        fun
-            (E, _) when E == Poc ->
-                Witnesses;
-            (_, _) ->
-                []
-        end
-    ),
-
-    meck:expect(
-        blockchain_txn_poc_receipts_v1,
-        valid_witnesses,
-        fun
-            (E, _, _) when E == Poc ->
-                Witnesses;
-            (_, _, _) ->
-                []
-        end
-    ),
-
-    meck:expect(blockchain_txn_poc_request_v1, is_valid, fun(_, _) -> ok end),
-    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_, _) -> ok end),
-    meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_, _) -> ok end),
-    meck:expect(blockchain_txn_poc_receipts_v1, get_channels, fun(_, _) ->
-        {ok, lists:seq(1, 11)}
-    end),
 
     {ok, ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedReqTxn], #{}, false),
     _ = blockchain_gossip_handler:add_block(ReqBlock, Chain, self(), blockchain_swarm:swarm()),
@@ -374,29 +376,11 @@ create_req_and_poc_blocks(
 
     ok.
 
-get_reward_gateways(Block, Acc) ->
-    NewWitnesses =
-        case Block#blockchain_block_v1_pb.transactions of
-            [] ->
-                [];
-            [Txns | _] ->
-                case Txns#blockchain_txn_pb.txn of
-                    {poc_receipts, PocReceipts} ->
-                        #blockchain_txn_poc_receipts_v1_pb{
-                            path = [
-                                #blockchain_poc_path_element_v1_pb{witnesses = ReceiptWitnesses} | _
-                            ]
-                        } = PocReceipts,
-                        BinWitnesses = [
-                            Witness#blockchain_poc_witness_v1_pb.gateway
-                         || Witness <- ReceiptWitnesses
-                        ],
-                        [
-                            erlang:list_to_binary(blockchain_utils:addr2name(BinWitness))
-                         || BinWitness <- BinWitnesses
-                        ];
-                    _ ->
-                        []
-                end
+format_results(Witnesses, LetterLookupMap) ->
+    maps:fold(
+        fun({gateway, poc_witnesses, Address}, Val, AccIn) ->
+            AccIn#{maps:get(Address, LetterLookupMap) => Val}
         end,
-    [NewWitnesses | Acc].
+        #{},
+        Witnesses
+    ).
