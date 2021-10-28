@@ -51,6 +51,7 @@
 
 -type contract() ::
       {quantifier(), [contract()]}
+    | {'not', contract()}
     | any
     | defined
     | undefined
@@ -80,13 +81,14 @@
     | {custom, fun((val()) -> boolean()), Label :: term()} % TODO Maybe rename "custom" to "test"
     | h3_string
     | {txn, txn_type()}
+    | {val, val()}  % A concrete, given value.
     .
     %% TODO
     %%  - [x] txn
     %%  - [ ] tuple of size()
     %%  - [ ] records as tuple with given head
     %%  - [ ] atom
-    %%  - [ ] a concrete, given value, something like: -type() val(A) :: {val, A}.
+    %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
 
 -type spec() ::
     {key(), val(), contract()}.
@@ -116,6 +118,8 @@
 -type failure() ::
       invalid_address
     | invalid_h3_string
+    | negation_failed
+    | {unexpected_val, given, val(), expected, val()}
     | {not_a_member_of, [val()]}
     | defined
     | undefined
@@ -182,6 +186,8 @@ check_spec({Key, Val, Contract}) ->
 
 -spec test(val(), contract()) -> test_result().
 test(_, any)                      -> pass;
+test(V, {val, Expected})          -> test_val(V, Expected);
+test(V, {'not', Contract})        -> test_not(V, Contract);
 test(V, {custom, IsValid, Label}) -> test_custom(V, IsValid, Label);
 test(V, defined)                  -> test_defined(V);
 test(V, undefined)                -> test_undefined(V);
@@ -201,6 +207,17 @@ test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
     test_exists(V, Contracts);
 test(V, {Either, Contracts}) when Either =:= either; Either =:= '∃!'  ->
     test_either(V, Contracts).
+
+-spec test_not(val(), contract()) -> test_result().
+test_not(V, Contract) ->
+    case test(V, Contract) of
+        pass -> {fail, negation_failed};
+        {fail, _} -> pass
+    end.
+
+-spec test_val(val(), val()) -> test_result().
+test_val(V, V) -> pass;
+test_val(G, E) -> {fail, {unexpected_val, given, G, expected, E}}.
 
 -spec test_forall(val(), [contract()]) -> test_result().
 test_forall(V, Contracts) ->
@@ -475,15 +492,15 @@ integer_test_() ->
     ].
 
 custom_test_() ->
-    RequireBar = {custom, fun(X) -> X =:= bar end, not_bar},
+    BarContract = {custom, fun(X) -> X =:= bar end, not_bar},
     Key = foo,
     [
-        ?_assertEqual(pass, test(bar, RequireBar)),
-        ?_assertEqual({fail, not_bar}, test(baz, RequireBar)),
-        ?_assertEqual(ok, check([{Key, bar, RequireBar}])),
+        ?_assertEqual(pass, test(bar, BarContract)),
+        ?_assertEqual({fail, {not_bar, baz}}, test(baz, BarContract)),
+        ?_assertEqual(ok, check([{Key, bar, BarContract}])),
         ?_assertEqual(
-            {error, {invalid, [{Key, not_bar}]}},
-            check([{Key, baz, RequireBar}])
+            {error, {invalid, [{Key, {not_bar, baz}}]}},
+            check([{Key, baz, BarContract}])
         )
     ].
 
@@ -664,6 +681,23 @@ ordset_test_() ->
         ?_assertMatch(
             {fail, {list_contains_duplicate_elements, [c, c]}},
             test([c, b, a, c, c], {ordset, any, any})
+        )
+    ].
+
+val_test_() ->
+    [
+        ?_assertEqual(pass, test(a, {val, a})),
+        ?_assertEqual(
+            {fail, {unexpected_val, given, b, expected, a}},
+            test(b, {val, a})
+        ),
+        ?_assertEqual(
+            {fail, negation_failed},
+            test(a, {'not', {val, a}})
+        ),
+        ?_assertEqual(
+            pass,
+            test(b, {'not', {val, a}})
         )
     ].
 
