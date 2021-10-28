@@ -192,8 +192,28 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_payment()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(#blockchain_txn_payment_v1_pb{
+    payer     = Payer,
+    payee     = Payee,
+    amount    = Amount,
+    fee       = Fee,
+    nonce     = Nonce,
+    signature = Signature
+}) ->
+    %% XXX Destructure is better than accessors for cases where _everything_
+    %% needs accessing. When only one name is bound and then passed to multiple
+    %% functions, it is easy to make the mistake of calling the same accessor
+    %% more than once, without violating any language rules; but, when
+    %% destructuring and binding multiple names, we get either a warning for an
+    %% unused or a reused binding.
+    blockchain_contracts:check([
+        {payer     , Payer    , {forall, [{address, libp2p}, {'not', {val, Payee}}]}},
+        {payee     , Payee    , {forall, [{address, libp2p}, {'not', {val, Payer}}]}},
+        {amount    , Amount   , {integer, {min, 0}}},  % TODO Limit to 64bit?
+        {fee       , Fee      , {integer, {min, 0}}},  % TODO Limit to 64bit?
+        {nonce     , Nonce    , {integer, {min, 1}}},  % TODO Limit to 64bit?
+        {signature , Signature, {binary, any}}         % TODO Size constraint?
+    ]).
 
 -spec is_absorbable(txn_payment(), blockchain:blockchain()) ->
     boolean().
@@ -299,8 +319,33 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).
 
-validation_test() ->
-    error('TODO-validation_test').
+-define(TSET(T, K, V), T#blockchain_txn_payment_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Payer = Addr(),
+    Payee = Addr(),
+    T =
+        #blockchain_txn_payment_v1_pb{
+            payer     = Payer,
+            payee     = Payee,
+            amount    = 1,
+            fee       = 1,
+            nonce     = 1,
+            signature = <<>>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, {invalid, [{payer, _}, {payee, _}]}}, is_well_formed(?TSET(T, payer, Payee))),
+        ?_assertMatch({error, {invalid, [{payer, _}, {payee, _}]}}, is_well_formed(?TSET(T, payee, Payer))),
+        ?_assertMatch({error, {invalid, [{amount, _}]}}, is_well_formed(?TSET(T, amount, -1))),
+        ?_assertMatch({error, {invalid, [{fee, _}]}}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, {invalid, [{nonce, _}]}}, is_well_formed(?TSET(T, nonce, -1)))
+    ].
 
 is_valid_with_extended_validation_test() ->
     {timeout, 30000,
