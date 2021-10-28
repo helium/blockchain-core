@@ -121,7 +121,7 @@ init_per_testcase(TestCase, Config) ->
     Balance =
         case TestCase of
             poc_v2_unset_challenger_type_chain_var_test -> ?bones(15000);
-            _ -> ?bones(5000)
+            _ -> 5000
         end,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
     %% two tests rely on the swarm not being in the consensus group, so exclude them here
@@ -2453,13 +2453,10 @@ chain_vars_test(Config) ->
                 {ok, Height} = blockchain:height(Chain),
                 case blockchain:config(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
-                        ct:pal("garbage_value result: ~p", [not_found]),
                         ok;
                     {ok, 2} when Height >= (Delay + 1) ->
-                        ct:pal("garbage_value result: ~p", [2]),
                         ok;
                     _Res ->
-                        ct:pal("garbage_value result: ~p", [_Res]),
                         throw({error, {chain_var_wrong_height, _Res, Height}})
                 end
         end,
