@@ -150,28 +150,18 @@ is_valid_amount(Txn, Ledger) ->
         end,
     amount(Txn) >= Min.
 
-%% TODO Rename func prefixes to reflect codomain. is_* boolean(), ?_* result()
-
 -spec is_valid(txn_payment(), blockchain:blockchain()) -> ok | {error, _}.
-is_valid(Txn, Chain) ->
-    true = blockchain_contracts:is_satisfied(payer(Txn), {'not', {val, payee(Txn)}}),
-    Ledger = blockchain:ledger(Chain),
-    case is_valid_payee(Txn, Ledger) of
-        false ->
-            {error, invalid_payee};
-        true ->
-            case is_valid_sig(Txn) of
-                false ->
-                    {error, bad_signature};
-                true ->
-                    case is_valid_amount(Txn, Ledger) of
-                        false ->
-                            {error, invalid_transaction};
-                        true ->
-                            is_valid_fee(Txn, Chain, Ledger)
-                    end
-            end
-    end.
+is_valid(T, C) ->
+    %% XXX self-payment checked by is_well_formed
+    L = blockchain:ledger(C),
+    Steps =
+        [
+            fun ({}) -> result:of_bool(is_valid_payee(T, L), {}, invalid_payee) end,
+            fun ({}) -> result:of_bool(is_valid_sig(T), {}, bad_signature) end,
+            fun ({}) -> result:of_bool(is_valid_amount(T, L), {}, invalid_transaction) end,
+            fun ({}) -> result:of_empty(validate_fee(T, C, L), {}) end
+        ],
+    result:to_empty(result:pipe(Steps, {})).
 
 -spec is_well_formed(txn_payment()) -> ok | {error, _}.
 is_well_formed(#blockchain_txn_payment_v1_pb{
@@ -206,7 +196,7 @@ is_valid_payee(Txn, Ledger) ->
         end,
     blockchain_contracts:is_satisfied(payee(Txn), Contract).
 
-is_valid_fee(Txn, Chain, Ledger) ->
+validate_fee(Txn, Chain, Ledger) ->
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     ExpectedTxnFee = calculate_fee(Txn, Chain),
     TxnFee = fee(Txn),
