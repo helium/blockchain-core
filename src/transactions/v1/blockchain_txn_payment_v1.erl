@@ -364,9 +364,10 @@ is_well_formed_test_() ->
         ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<>>))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<"not addr">>))),
 
-        ?_assertMatch({error, {invalid, [{amount, _}]}}, is_well_formed(?TSET(T, amount, -1))),
-        ?_assertMatch({error, {invalid, [{fee, _}]}}, is_well_formed(?TSET(T, fee, -1))),
-        ?_assertMatch({error, {invalid, [{nonce, _}]}}, is_well_formed(?TSET(T, nonce, -1)))
+        ?_assertMatch({error, {invalid, [{amount, {not_an_integer, _}}]}}, is_well_formed(?TSET(T, amount, undefined))),
+        ?_assertMatch({error, {invalid, [{amount, {integer_out_of_range, _, _}}]}}, is_well_formed(?TSET(T, amount, -1))),
+        ?_assertMatch({error, {invalid, [{fee, {integer_out_of_range, _, _}}]}}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, {invalid, [{nonce, {integer_out_of_range, _, _}}]}}, is_well_formed(?TSET(T, nonce, -1)))
     ].
 
 is_valid_with_extended_validation_test() ->
