@@ -150,7 +150,7 @@ is_satisfied(Val, Contract) ->
 
 -spec are_satisfied([spec()]) -> boolean().
 are_satisfied(Specs) ->
-    result:to_bool(check(Specs)).
+    result:to_bool(result:of_empty(check(Specs), {})).
 
 -spec check([spec()]) -> result().
 check(Specs) ->

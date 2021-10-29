@@ -42,7 +42,6 @@ pipe([F | Fs], X) ->
             pipe(Fs, Y)
     end.
 
--spec to_bool(ok | t(_, _)) -> boolean().
-to_bool(ok) -> true;
+-spec to_bool(t(_, _)) -> boolean().
 to_bool({ok, _}) -> true;
 to_bool({error, _}) -> false.

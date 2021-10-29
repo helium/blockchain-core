@@ -269,7 +269,7 @@ is_absorbable(Txn, Chain) ->
                             Ledger,
                             AreFeesEnabled
                         ),
-                    result:to_bool(Result)
+                    result:to_bool(result:of_empty(Result, {}))
             end
     end.
 
