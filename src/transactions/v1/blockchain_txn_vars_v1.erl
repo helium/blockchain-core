@@ -28,6 +28,8 @@
          proof/1, proof/2,
          multi_proofs/1, multi_proofs/2,
          vars/1,
+         to_var/2,
+         from_var/1,
          decoded_vars/1,
          version_predicate/1,
          unsets/1,
