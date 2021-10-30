@@ -33,13 +33,20 @@
 -type key() :: atom().
 -type val() :: term().
 
--type size() ::
+%% TODO Need better name than "size"
+%% - "range" is a good one, but then "exact" doesn't seem to fit in...
+%% - "magnitude" - too clever?
+%% - ...
+-type size(A) ::
       any
-    | {exact, integer()}
-    | {range, Min :: integer(), Max :: integer()}
-    | {min, integer()}
-    | {max, integer()}
+    | {exact, A}
+    | {range, Min :: A, Max :: A}
+    | {min, A}
+    | {max, A}
     .
+
+-type size() ::
+    size(integer()).
 
 -type txn_type() ::
     any | {type, atom()}.
@@ -68,6 +75,7 @@
     % - list_of_uniques
     | {ordset, size(), contract()}
 
+    | {float, size(float())}
     | {integer, size()}
     % TODO Design integration of finer refinements, like is_power_of_2, etc.
     %       {integer, size(), [refinement()]} ?
@@ -98,6 +106,16 @@
     | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
     .
 
+-type failure_iodata() ::
+      not_iodata
+    | {iodata_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    .
+
+-type failure_float() ::
+      {not_a_float, val()}
+    | {float_out_of_range, Actual :: float(), Required :: size(float())}
+    .
+
 -type failure_int() ::
       {not_an_integer, val()}
     | {integer_out_of_range, Actual :: integer(), Required :: size()}
@@ -123,10 +141,11 @@
     | {not_a_member_of, [val()]}
     | defined
     | undefined
-    | not_iodata
+    | failure_iodata()
     | failure_txn()
     | failure_bin()
     | failure_int()
+    | failure_float()
     | failure_list()
     | {list_contains_duplicate_elements, [term()]}
     | {invalid_string, failure_list()}
@@ -196,7 +215,8 @@ test(V, {iodata, SizeSpec})       -> test_iodata(V, SizeSpec);
 test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
 test(V, {list, Size, Contract})   -> test_list(V, Size, Contract);
 test(V, {ordset, Size, Contract}) -> test_ordset(V, Size, Contract);
-test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec, integer_out_of_range);
+test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec);
+test(V, {float, SizeSpec})        -> test_float(V, SizeSpec);
 test(V, {member, Vs})             -> test_membership(V, Vs);
 test(V, {address, libp2p})        -> test_address_libp2p(V);
 test(V, h3_string)                -> test_h3_string(V);
@@ -277,7 +297,10 @@ test_undefined(_) ->
 test_iodata(V, SizeSpec) ->
     try erlang:iolist_size(V) of
         Size ->
-            test_int(Size, SizeSpec, iodata_wrong_size)
+            res_of_bool(
+                is_in_range(Size, SizeSpec),
+                {iodata_wrong_size, Size, SizeSpec}
+            )
     catch
         _:_ ->
             {fail, not_iodata}
@@ -290,7 +313,10 @@ test_binary(V, SizeSpec) ->
             {fail, {not_a_binary, V}};
         true ->
             Size = byte_size(V),
-            test_int(Size, SizeSpec, binary_wrong_size)
+            res_of_bool(
+                is_in_range(Size, SizeSpec),
+                {binary_wrong_size, Size, SizeSpec}
+            )
     end.
 
 -spec test_string(val(), size()) -> test_result().
@@ -309,7 +335,10 @@ test_list_size(V, SizeSpec) ->
             {fail, {not_a_list, V}};
         true ->
             Size = length(V),
-            test_int(Size, SizeSpec, list_wrong_size)
+            res_of_bool(
+                is_in_range(Size, SizeSpec),
+                {list_wrong_size, Size, SizeSpec}
+            )
     end.
 
 -spec test_list(val(), size(), contract()) -> test_result().
@@ -351,28 +380,35 @@ test_ordset(Xs, Size, Contract) ->
             end
     end.
 
--spec test_int(integer(), size(), atom()) -> test_result().
-test_int(Size, Spec, FailureLabel) ->
-    case is_integer(Size) of
+-spec test_float(val(), size(float())) -> test_result().
+test_float(V, Range) ->
+    test_num(V, Range, fun erlang:is_float/1, not_a_float, float_out_of_range).
+
+-spec test_int(val(), size()) -> test_result().
+test_int(V, Range) ->
+    test_num(V, Range, fun erlang:is_integer/1, not_an_integer, integer_out_of_range).
+
+-spec test_num(val(), size(Type), fun((val()) -> boolean()), atom(), atom()) ->
+    test_result() when Type :: integer() | float().
+test_num(V, Range, TypeTest, TypeFailureLabel, RangeFailureLabel) ->
+    case TypeTest(V) of
         false ->
-            {fail, {not_an_integer, Size}};
+            {fail, {TypeFailureLabel, V}};
         true ->
-            IsPass =
-                case Spec of
-                    any ->
-                        true;
-                    {exact, Required} when is_integer(Required) ->
-                        Size == Required;
-                    {range, Min, Max} when is_integer(Min), is_integer(Max) ->
-                        Size >= Min andalso
-                        Size =< Max;
-                    {min, Min} when is_integer(Min)->
-                        Size >= Min;
-                    {max, Max} when is_integer(Max) ->
-                        Size =< Max
-                end,
-            res_of_bool(IsPass, {FailureLabel, Size, Spec})
+            res_of_bool(
+                is_in_range(V, Range),
+                {RangeFailureLabel, V, Range}
+            )
     end.
+
+-spec is_in_range(A, size(A)) -> boolean().
+is_in_range(_, any) -> true;
+is_in_range(X, {exact, Y}) -> X =:= Y;
+is_in_range(X, {min, Min}) -> X >= Min;
+is_in_range(X, {max, Max}) -> X =< Max;
+is_in_range(X, {range, Min, Max}) ->
+    is_in_range(X, {min, Min}) andalso
+    is_in_range(X, {max, Max}).
 
 -spec test_membership(val(), [val()]) -> test_result().
 test_membership(V, Vs) ->
@@ -488,6 +524,16 @@ integer_test_() ->
         ?_assertEqual(
             {fail, {integer_out_of_range, 2, {exact, 1}}},
             test(2, {integer, {exact, 1}})
+        )
+    ].
+
+float_test_() ->
+    [
+        ?_assertEqual(pass, test(1.0, {float, any})),
+        ?_assertEqual(pass, test(1.0, {float, {exact, 1.0}})),
+        ?_assertEqual(
+            {fail, {float_out_of_range, 2.0, {exact, 1.0}}},
+            test(2.0, {float, {exact, 1.0}})
         )
     ].
 
