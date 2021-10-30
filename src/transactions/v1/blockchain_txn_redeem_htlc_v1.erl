@@ -326,7 +326,7 @@ is_valid_with_extended_validation_test_() ->
 
              %% valid payee, invalid address
              Tx1 = sign(new(Payee, <<"address">>, crypto:strong_rand_bytes(32)), SigFun),
-             ?assertEqual({error, {invalid_address, address}}, is_valid(Tx1, Chain)),
+             ?assertEqual({error, {invalid, [{address, invalid_address}]}}, is_valid(Tx1, Chain)),
 
              #{public := PubKey2, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
              Address = libp2p_crypto:pubkey_to_bin(PubKey2),
