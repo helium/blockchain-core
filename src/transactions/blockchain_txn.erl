@@ -51,34 +51,7 @@
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
 
--type field_validation_spec() ::
-    {
-        {FieldName :: atom(), FieldValue :: iodata() | undefined},
-        FieldType ::
-              {binary, pos_integer()}
-            | {binary, pos_integer(), pos_integer()}
-            | {is_integer, non_neg_integer()}
-            | {member, list()}
-            | {address, libp2p}
-    }.
-
--type field_validation_error()
-        :: {invalid_address   , Name :: atom()}
-        |  {not_a_member      , {Name :: atom(), Value, [Value]}}
-        |  {integer_too_small , {Name :: atom(), Value, Min :: non_neg_integer()}}
-        |  {not_an_integer    , {Name :: atom(), Value}}
-        |  {missing_field     , Name :: atom()}
-        |  {malformed_field   , Name :: atom()}
-        |  {field_wrong_size,
-                {
-                    Name :: atom(),
-                    Length
-                        :: non_neg_integer()
-                        | {Min :: non_neg_integer(), Max :: non_neg_integer()},
-                    Size :: non_neg_integer()}
-                }.
-
--export_type([hash/0, txn/0, txns/0, field_validation_spec/0, field_validation_error/0]).
+-export_type([hash/0, txn/0, txns/0]).
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
