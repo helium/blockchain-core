@@ -227,9 +227,118 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+%% TODO Move to blockchain_contracts?
+-spec number_contract() -> blockchain_contracts:t().
+number_contract() ->
+    {either, [
+        {float, any},
+        {integer, any},
+        {val, infinity},
+        {val, '-infinity'},
+        {val, nan}
+    ]}.
+
+is_well_formed_blockchain_poc_receipt_v1_pb(
+    #blockchain_poc_receipt_v1_pb{
+        gateway   = Gateway,
+        timestamp = Timestamp,
+        signal    = Signal,
+        data      = Data,
+        origin    = Origin,
+        signature = Signature,
+        snr       = Snr,
+        frequency = Frequency,
+        channel   = Channel,
+        datarate  = DataRate,
+        addr_hash = AddrHash,
+        tx_power  = TxPower
+    }
+) ->
+    blockchain_contracts:are_satisfied([
+        {gateway  , Gateway  , {binary, any}},
+        {timestamp, Timestamp, {integer, {min, 0}}},
+        {signal   , Signal   , {integer, {min, 0}}},
+        {data     , Data     , {binary, any}},
+        {origin   , Origin   , {either, [{val, p2p}, {val, radio}, {integer, any}]}},
+        {signature, Signature, {binary, any}},
+        {snr      , Snr      , number_contract()},
+        {frequency, Frequency, number_contract()},
+        {channel  , Channel  , {integer, {min, 0}}},
+        {datarate , DataRate , {iodata, any}},
+        {addr_hash, AddrHash , {binary, any}},
+        {tx_power , TxPower  , {integer, {min, 0}}}
+    ]).
+
+is_well_formed_blockchain_poc_witness_v1_pb(
+    #blockchain_poc_witness_v1_pb{
+        gateway     = Gateway,
+        timestamp   = Timestamp,
+        signal      = Signal,
+        packet_hash = PacketHash,
+        signature   = Signature,
+        snr         = Snr,
+        frequency   = Frequency,
+        channel     = Channel,
+        datarate    = DataRate
+    }
+) ->
+    blockchain_contracts:check([
+        {gateway    , Gateway   , {binary, any}},
+        {timestamp  , Timestamp , {integer, {min, 0}}}, % max 64 bit
+        {signal     , Signal    , {integer, {min, 0}}}, % max 32 bit
+        {packet_hash, PacketHash, {binary, any}},
+        {signature  , Signature , {binary, any}},
+        {snr        , Snr       , number_contract()},
+        {frequency  , Frequency , number_contract()},
+        {channel    , Channel   , {integer, {min, 0}}}, % max 32 bit
+        {datarate   , DataRate  , {iodata, any}}
+    ]).
+
+is_well_formed_blockchain_poc_path_element_v1_pb(
+    #blockchain_poc_path_element_v1_pb{
+        challengee = Challengee,
+        receipt    = Receipt,
+        witnesses  = Witnesses
+    }
+) ->
+    blockchain_contracts:are_satisfied([
+        {challengee, Challengee, {binary, any}},
+        {receipt, Receipt,
+            {either, [
+                undefined,
+                {custom,
+                    fun is_well_formed_blockchain_poc_receipt_v1_pb/1,
+                    invalid_receipt}
+            ]}},
+        {witnesses, Witnesses,
+            {list,
+                any,
+                {custom,
+                    fun is_well_formed_blockchain_poc_witness_v1_pb/1,
+                    invalid_witness}}}
+    ]).
+
 -spec is_well_formed(txn_poc_receipts()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(
+    #blockchain_txn_poc_receipts_v1_pb{
+        challenger         = Challenger,
+        secret             = Secret,
+        onion_key_hash     = OnionKeyHash,
+        path               = Path,
+        fee                = Fee,
+        signature          = Signature,
+        request_block_hash = RequestBlockHash
+    }
+) ->
+    blockchain_contracts:check([
+        {challenger        , Challenger      , {binary, any}},
+        {secret            , Secret          , {binary, any}},
+        {onion_key_hash    , OnionKeyHash    , {binary, any}},
+        {path              , Path            , {list, any, {custom, fun is_well_formed_blockchain_poc_path_element_v1_pb/1, invalid_path_element}}},
+        {fee               , Fee             , {integer, {min, 0}}},
+        {signature         , Signature       , {binary, any}},
+        {request_block_hash, RequestBlockHash, {binary, any}}
+    ]).
 
 -spec is_absorbable(txn_poc_receipts(), blockchain:blockchain()) ->
     boolean().
