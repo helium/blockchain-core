@@ -2,6 +2,7 @@
 %%% Value contract validation.
 %%% ===========================================================================
 -module(blockchain_contracts).
+%%% TODO Rename to singular blockchain_contract
 
 -export_type([
     key/0,
@@ -20,7 +21,9 @@
     failure_int/0,
     failure_list/0,
     failure_txn/0,
-    result/0
+    result/0,
+
+    t/0
 ]).
 
 -export([
@@ -93,6 +96,8 @@
     %%  - [ ] records as tuple with given head
     %%  - [ ] atom
     %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
+
+-type t() :: contract().
 
 -type spec() ::
     {key(), val(), contract()}.
