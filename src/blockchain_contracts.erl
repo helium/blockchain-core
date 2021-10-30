@@ -6,7 +6,8 @@
 -export_type([
     key/0,
     val/0,
-    size/0,
+    measure/0,
+    measure/1,
     txn_type/0,
     quantifier/0,
     forall/0,
@@ -33,20 +34,16 @@
 -type key() :: atom().
 -type val() :: term().
 
-%% TODO Need better name than "size"
-%% - "range" is a good one, but then "exact" doesn't seem to fit in...
-%% - "magnitude" - too clever?
-%% - ...
--type size(A) ::
+-type measure(A) ::
       any
-    | {exact, A}
+    | {exactly, A}
     | {range, Min :: A, Max :: A}
     | {min, A}
     | {max, A}
     .
 
--type size() ::
-    size(integer()).
+-type measure() ::
+    measure(integer()).
 
 -type txn_type() ::
     any | {type, atom()}.
@@ -62,10 +59,10 @@
     | any
     | defined
     | undefined
-    | {string, size()}
-    | {iodata, size()}
-    | {binary, size()}
-    | {list, size(), contract()}
+    | {string, measure()}
+    | {iodata, measure()}
+    | {binary, measure()}
+    | {list, measure(), contract()}
 
     % TODO Reconsider name, since we only require element uniquness, not order.
     % ordset alternatives:
@@ -73,16 +70,15 @@
     % - set_list
     % - list_set
     % - list_of_uniques
-    | {ordset, size(), contract()}
+    | {ordset, measure(), contract()}
 
-    | {float, size(float())}
-    | {integer, size()}
+    | {float, measure(float())}
+    | {integer, measure(integer())}
     % TODO Design integration of finer refinements, like is_power_of_2, etc.
-    %       {integer, size(), [refinement()]} ?
-    %       {integer, size(), [contract()]} ? where refinement is a contract variant
+    %       {integer, measure(), [refinement()]} ?
+    %       {integer, measure(), [contract()]} ? where refinement is a contract variant
     %
     % Use-case in blockchain_txn_oui_v1.erl
-
 
     | {member, [any()]}
     | {address, libp2p}
@@ -93,7 +89,7 @@
     .
     %% TODO
     %%  - [x] txn
-    %%  - [ ] tuple of size()
+    %%  - [ ] tuple of measure()
     %%  - [ ] records as tuple with given head
     %%  - [ ] atom
     %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
@@ -103,27 +99,27 @@
 
 -type failure_bin() ::
       {not_a_binary, val()}
-    | {binary_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    | {binary_wrong_size, Actual :: non_neg_integer(), Required :: measure()}
     .
 
 -type failure_iodata() ::
       not_iodata
-    | {iodata_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    | {iodata_wrong_size, Actual :: non_neg_integer(), Required :: measure()}
     .
 
 -type failure_float() ::
       {not_a_float, val()}
-    | {float_out_of_range, Actual :: float(), Required :: size(float())}
+    | {float_out_of_range, Actual :: float(), Required :: measure(float())}
     .
 
 -type failure_int() ::
       {not_an_integer, val()}
-    | {integer_out_of_range, Actual :: integer(), Required :: size()}
+    | {integer_out_of_range, Actual :: integer(), Required :: measure()}
     .
 
 -type failure_list() ::
       {not_a_list, val()}
-    | {list_wrong_size, Actual :: non_neg_integer(), Required :: size()}
+    | {list_wrong_size, Actual :: non_neg_integer(), Required :: measure()}
     | {list_contains_invalid_elements, [term()]}
     .
 
@@ -204,23 +200,23 @@ check_spec({Key, Val, Contract}) ->
     end.
 
 -spec test(val(), contract()) -> test_result().
-test(_, any)                      -> pass;
-test(V, {val, Expected})          -> test_val(V, Expected);
-test(V, {'not', Contract})        -> test_not(V, Contract);
-test(V, {custom, IsValid, Label}) -> test_custom(V, IsValid, Label);
-test(V, defined)                  -> test_defined(V);
-test(V, undefined)                -> test_undefined(V);
-test(V, {string, SizeSpec})       -> test_string(V, SizeSpec);
-test(V, {iodata, SizeSpec})       -> test_iodata(V, SizeSpec);
-test(V, {binary, SizeSpec})       -> test_binary(V, SizeSpec);
-test(V, {list, Size, Contract})   -> test_list(V, Size, Contract);
-test(V, {ordset, Size, Contract}) -> test_ordset(V, Size, Contract);
-test(V, {integer, SizeSpec})      -> test_int(V, SizeSpec);
-test(V, {float, SizeSpec})        -> test_float(V, SizeSpec);
-test(V, {member, Vs})             -> test_membership(V, Vs);
-test(V, {address, libp2p})        -> test_address_libp2p(V);
-test(V, h3_string)                -> test_h3_string(V);
-test(V, {txn, TxnType})           -> test_txn(V, TxnType);
+test(_, any)                         -> pass;
+test(V, {val, Expected})             -> test_val(V, Expected);
+test(V, {'not', Contract})           -> test_not(V, Contract);
+test(V, {custom, IsValid, Label})    -> test_custom(V, IsValid, Label);
+test(V, defined)                     -> test_defined(V);
+test(V, undefined)                   -> test_undefined(V);
+test(V, {string, Measure})           -> test_string(V, Measure);
+test(V, {iodata, Measure})           -> test_iodata(V, Measure);
+test(V, {binary, Measure})           -> test_binary(V, Measure);
+test(V, {list, Measure, Contract})   -> test_list(V, Measure, Contract);
+test(V, {ordset, Measure, Contract}) -> test_ordset(V, Measure, Contract);
+test(V, {integer, Measure})          -> test_int(V, Measure);
+test(V, {float, Measure})            -> test_float(V, Measure);
+test(V, {member, Vs})                -> test_membership(V, Vs);
+test(V, {address, libp2p})           -> test_address_libp2p(V);
+test(V, h3_string)                   -> test_h3_string(V);
+test(V, {txn, TxnType})              -> test_txn(V, TxnType);
 test(V, {ForAll, Contracts}) when ForAll =:= forall; ForAll =:= '∀'->
     test_forall(V, Contracts);
 test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
@@ -293,64 +289,64 @@ test_undefined(undefined) ->
 test_undefined(_) ->
     {fail, defined}.
 
--spec test_iodata(val(), size()) -> test_result().
-test_iodata(V, SizeSpec) ->
+-spec test_iodata(val(), measure()) -> test_result().
+test_iodata(V, Measure) ->
     try erlang:iolist_size(V) of
         Size ->
             res_of_bool(
-                is_in_range(Size, SizeSpec),
-                {iodata_wrong_size, Size, SizeSpec}
+                is_in_range(Size, Measure),
+                {iodata_wrong_size, Size, Measure}
             )
     catch
         _:_ ->
             {fail, not_iodata}
     end.
 
--spec test_binary(val(), size()) -> test_result().
-test_binary(V, SizeSpec) ->
+-spec test_binary(val(), measure()) -> test_result().
+test_binary(V, Measure) ->
     case is_binary(V) of
         false ->
             {fail, {not_a_binary, V}};
         true ->
             Size = byte_size(V),
             res_of_bool(
-                is_in_range(Size, SizeSpec),
-                {binary_wrong_size, Size, SizeSpec}
+                is_in_range(Size, Measure),
+                {binary_wrong_size, Size, Measure}
             )
     end.
 
--spec test_string(val(), size()) -> test_result().
-test_string(V, Size) ->
-    case test(V, {list, Size, {integer, {range, ?CHAR_MIN, ?CHAR_MAX}}}) of
+-spec test_string(val(), measure()) -> test_result().
+test_string(V, Measure) ->
+    case test(V, {list, Measure, {integer, {range, ?CHAR_MIN, ?CHAR_MAX}}}) of
         pass ->
             pass;
         {fail, Reason} ->
             {fail, {invalid_string, Reason}}
     end.
 
--spec test_list_size(val(), size()) -> test_result().
-test_list_size(V, SizeSpec) ->
+-spec test_list_size(val(), measure()) -> test_result().
+test_list_size(V, Measure) ->
     case is_list(V) of
         false ->
             {fail, {not_a_list, V}};
         true ->
             Size = length(V),
             res_of_bool(
-                is_in_range(Size, SizeSpec),
-                {list_wrong_size, Size, SizeSpec}
+                is_in_range(Size, Measure),
+                {list_wrong_size, Size, Measure}
             )
     end.
 
--spec test_list(val(), size(), contract()) -> test_result().
-test_list(Xs, SizeSpec, Contract) ->
-    case test_list_size(Xs, SizeSpec) of
+-spec test_list(val(), measure(), contract()) -> test_result().
+test_list(Xs, Measure, ElementContract) ->
+    case test_list_size(Xs, Measure) of
         {fail, _}=Fail ->
             Fail;
         pass ->
             Invalid =
                 lists:foldl(
                     fun (X, Invalid) ->
-                        case test(X, Contract) of
+                        case test(X, ElementContract) of
                             pass -> Invalid;
                             {fail, _} -> [X | Invalid]
                         end
@@ -366,9 +362,9 @@ test_list(Xs, SizeSpec, Contract) ->
             end
     end.
 
--spec test_ordset(val(), size(), contract()) -> test_result().
-test_ordset(Xs, Size, Contract) ->
-    case test_list(Xs, Size, Contract) of
+-spec test_ordset(val(), measure(), contract()) -> test_result().
+test_ordset(Xs, Measure, ElementContract) ->
+    case test_list(Xs, Measure, ElementContract) of
         {fail, _}=Fail ->
             Fail;
         pass ->
@@ -380,15 +376,15 @@ test_ordset(Xs, Size, Contract) ->
             end
     end.
 
--spec test_float(val(), size(float())) -> test_result().
+-spec test_float(val(), measure(float())) -> test_result().
 test_float(V, Range) ->
     test_num(V, Range, fun erlang:is_float/1, not_a_float, float_out_of_range).
 
--spec test_int(val(), size()) -> test_result().
+-spec test_int(val(), measure()) -> test_result().
 test_int(V, Range) ->
     test_num(V, Range, fun erlang:is_integer/1, not_an_integer, integer_out_of_range).
 
--spec test_num(val(), size(Type), fun((val()) -> boolean()), atom(), atom()) ->
+-spec test_num(val(), measure(Type), fun((val()) -> boolean()), atom(), atom()) ->
     test_result() when Type :: integer() | float().
 test_num(V, Range, TypeTest, TypeFailureLabel, RangeFailureLabel) ->
     case TypeTest(V) of
@@ -401,9 +397,9 @@ test_num(V, Range, TypeTest, TypeFailureLabel, RangeFailureLabel) ->
             )
     end.
 
--spec is_in_range(A, size(A)) -> boolean().
+-spec is_in_range(A, measure(A)) -> boolean().
 is_in_range(_, any) -> true;
-is_in_range(X, {exact, Y}) -> X =:= Y;
+is_in_range(X, {exactly, Y}) -> X =:= Y;
 is_in_range(X, {min, Min}) -> X >= Min;
 is_in_range(X, {max, Max}) -> X =< Max;
 is_in_range(X, {range, Min, Max}) ->
@@ -474,32 +470,32 @@ logic_test_() ->
         ?_assertEqual(pass, test(<<>>, {'∀', [defined, {binary, any}]})),
         ?_assertEqual(pass, test(<<>>, {forall, [defined, {binary, any}]})),
         ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, any}]})),
-        ?_assertEqual(pass, test(<<>>, {'∃', [defined, {binary, {exact, 5}}]})),
-        ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, {exact, 5}}]})),
+        ?_assertEqual(pass, test(<<>>, {'∃', [defined, {binary, {exactly, 5}}]})),
+        ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, {exactly, 5}}]})),
         ?_assertEqual(
             pass,
             test(
                 undefined,
                 {exists, [
                     defined,
-                    {binary, {exact, 5}},
+                    {binary, {exactly, 5}},
                     {custom, fun erlang:is_atom/1, is_atom}
                 ]}
             )
         ),
         ?_assertMatch(
             {fail, undefined},
-            test(undefined, {forall, [defined, {binary, {exact, 5}}]})
+            test(undefined, {forall, [defined, {binary, {exactly, 5}}]})
         ),
         ?_assertMatch(
-            {fail, {binary_wrong_size, 0, {exact, 5}}},
-            test(<<>>, {forall, [defined, {binary, {exact, 5}}]})
+            {fail, {binary_wrong_size, 0, {exactly, 5}}},
+            test(<<>>, {forall, [defined, {binary, {exactly, 5}}]})
         ),
         ?_assertEqual(pass, test(5, {either, [{integer, any}, {binary, any}]})),
         ?_assertEqual(pass, test(5, {'∃!', [{integer, any}, {binary, any}]})),
         ?_assertMatch(
             {fail, zero_contracts_satisfied},
-            test(5, {either, [{integer, {max, 1}}, {integer, {exact, 10}}]})
+            test(5, {either, [{integer, {max, 1}}, {integer, {exactly, 10}}]})
         ),
         ?_assertMatch(
             {fail, multiple_contracts_satisfied},
@@ -520,20 +516,20 @@ membership_test_() ->
 integer_test_() ->
     [
         ?_assertEqual(pass, test(1, {integer, any})),
-        ?_assertEqual(pass, test(1, {integer, {exact, 1}})),
+        ?_assertEqual(pass, test(1, {integer, {exactly, 1}})),
         ?_assertEqual(
-            {fail, {integer_out_of_range, 2, {exact, 1}}},
-            test(2, {integer, {exact, 1}})
+            {fail, {integer_out_of_range, 2, {exactly, 1}}},
+            test(2, {integer, {exactly, 1}})
         )
     ].
 
 float_test_() ->
     [
         ?_assertEqual(pass, test(1.0, {float, any})),
-        ?_assertEqual(pass, test(1.0, {float, {exact, 1.0}})),
+        ?_assertEqual(pass, test(1.0, {float, {exactly, 1.0}})),
         ?_assertEqual(
-            {fail, {float_out_of_range, 2.0, {exact, 1.0}}},
-            test(2.0, {float, {exact, 1.0}})
+            {fail, {float_out_of_range, 2.0, {exactly, 1.0}}},
+            test(2.0, {float, {exactly, 1.0}})
         )
     ].
 
@@ -567,7 +563,7 @@ binary_test_() ->
     Key = foo,
     [
         ?_assertEqual(pass, test(<<>>, {binary, any})),
-        ?_assertEqual(pass, test(<<>>, {binary, {exact, 0}})),
+        ?_assertEqual(pass, test(<<>>, {binary, {exactly, 0}})),
         ?_assertEqual(pass, test(<<>>, {binary, {range, 0, 1024}})),
         ?_assertEqual(
             {fail, {binary_wrong_size, 0, {range, 1, 1024}}},
@@ -576,7 +572,7 @@ binary_test_() ->
         ?_assertEqual(pass, test(<<"a">>, {binary, {range, 1, 1024}})),
         ?_assertEqual(pass, test(<<"bar">>, {binary, {range, 3, 1024}})),
         ?_assertEqual(ok, check([{Key, <<>>, {binary, any}}])),
-        ?_assertEqual(ok, check([{Key, <<>>, {binary, {exact, 0}}}])),
+        ?_assertEqual(ok, check([{Key, <<>>, {binary, {exactly, 0}}}])),
         ?_assertEqual(
             {error, {invalid, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}},
             check([{Key, <<>>, {binary, {range, 8, 1024}}}])
@@ -588,7 +584,7 @@ list_test_() ->
     BadList = <<"trust me, i'm a list">>,
     [
         ?_assertEqual(pass, test([], {list, any, any})),
-        ?_assertEqual(pass, test([], {list, {exact, 0}, any})),
+        ?_assertEqual(pass, test([], {list, {exactly, 0}, any})),
         ?_assertEqual(pass, test([], {list, {range, 0, 1024}, any})),
         ?_assertEqual(
             {fail, {list_wrong_size, 0, {range, 1, 1024}}},
@@ -598,7 +594,7 @@ list_test_() ->
         ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}, any})), % TODO atom contract
         ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}, any})), % TODO atom contract
         ?_assertEqual(ok, check([{Key, [], {list, any, any}}])),
-        ?_assertEqual(ok, check([{Key, [], {list, {exact, 0}, any}}])),
+        ?_assertEqual(ok, check([{Key, [], {list, {exactly, 0}, any}}])),
         ?_assertEqual(
             {error, {invalid, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}},
             check([{Key, [], {list, {range, 8, 1024}, any}}])
@@ -612,7 +608,7 @@ list_test_() ->
         ?_assertEqual(pass, test([], {list, any, {integer, any}})),
         ?_assertEqual(pass, test([], {list, any, {integer, {range, 1, 5}}})),
         ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, any}})),
-        ?_assertEqual(pass, test([1, 2, 3], {list, {exact, 3}, {integer, any}})),
+        ?_assertEqual(pass, test([1, 2, 3], {list, {exactly, 3}, {integer, any}})),
         ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, {range, 1, 5}}})),
         ?_assertEqual(
             {fail, {list_contains_invalid_elements, [30]}},
@@ -636,7 +632,7 @@ address_test_() ->
                     defined,
                     {binary, any},
                     {binary, {range, 0, 1024}},
-                    {binary, {exact, 33}},
+                    {binary, {exactly, 33}},
                     {address, libp2p}
                 ]}
             )

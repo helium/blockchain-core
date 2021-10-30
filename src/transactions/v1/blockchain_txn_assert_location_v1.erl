@@ -396,11 +396,11 @@ is_well_formed(
         [
             {owner            , Owner     , {address, libp2p}},
             {gateway          , Gateway   , {address, libp2p}},
-            {payer            , Payer     , {either, [{binary, {exact, 0}}, {address, libp2p}]}},
+            {payer            , Payer     , {either, [{binary, {exactly, 0}}, {address, libp2p}]}},
 
-            {owner_signature  , OwnerSig  , {either, [{binary, {exact, 0}}, {binary, {exact, 512}}]}},
-            {gateway_signature, GatewaySig, {either, [{binary, {exact, 0}}, {binary, {exact, 512}}]}},
-            {payer_signature  , PayerSig  , {either, [{binary, {exact, 0}}, {binary, {exact, 512}}]}},
+            {owner_signature  , OwnerSig  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {gateway_signature, GatewaySig, {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {payer_signature  , PayerSig  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
 
             {nonce            , Nonce     , {integer, {min, 1}}},
             {staking_fee      , StakingFee, {integer, {min, 0}}},

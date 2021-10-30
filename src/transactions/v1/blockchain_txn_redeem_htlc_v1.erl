@@ -128,7 +128,7 @@ is_valid(Txn, Chain) ->
     FieldContracts = case blockchain:config(?txn_field_validation_version, Ledger) of
                           {ok, 1} ->
                               [{payee, Redeemer, {address, libp2p}},
-                               {preimage, ?MODULE:preimage(Txn), {binary, {exact, 32}}},
+                               {preimage, ?MODULE:preimage(Txn), {binary, {exactly, 32}}},
                                {address, ?MODULE:address(Txn), {address, libp2p}}];
                           _ ->
                               [{payee, Redeemer, {address, libp2p}},

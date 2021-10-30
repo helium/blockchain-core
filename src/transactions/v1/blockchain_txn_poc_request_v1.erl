@@ -158,9 +158,9 @@ is_valid(Txn, Chain) ->
 
     case
         blockchain_contracts:check([
-            {secret_hash, ?MODULE:secret_hash(Txn), {binary, {exact, 32}}},
-            {onion_key_hash, ?MODULE:secret_hash(Txn), {binary, {exact, 32}}},
-            {block_hash, ?MODULE:secret_hash(Txn), {binary, {exact, 32}}}
+            {secret_hash, ?MODULE:secret_hash(Txn), {binary, {exactly, 32}}},
+            {onion_key_hash, ?MODULE:secret_hash(Txn), {binary, {exactly, 32}}},
+            {block_hash, ?MODULE:secret_hash(Txn), {binary, {exactly, 32}}}
         ])
     of
         ok ->

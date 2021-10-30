@@ -375,7 +375,7 @@ is_well_formed(Txn) ->
     blockchain_contracts:check([
         {owner  , owner(Txn)  , {address, libp2p}},
         {gateway, gateway(Txn), {address, libp2p}},
-        {payer  , payer(Txn)  , {either, [{address, libp2p}, {binary, {exact, 0}}]}}
+        {payer  , payer(Txn)  , {either, [{address, libp2p}, {binary, {exactly, 0}}]}}
     ]).
 
 -spec is_absorbable(txn_add_gateway(), blockchain:blockchain()) ->

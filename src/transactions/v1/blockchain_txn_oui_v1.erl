@@ -228,7 +228,7 @@ is_well_formed(T) ->
             payer(T),
             {either, [
                 {address, libp2p},
-                {binary, {exact, 0}}]}}
+                {binary, {exactly, 0}}]}}
                 %% TODO Allow undefined? It is permitted by is_valid_payer
     ]).
 

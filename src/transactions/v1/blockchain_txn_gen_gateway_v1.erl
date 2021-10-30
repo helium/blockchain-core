@@ -141,7 +141,7 @@ is_well_formed(#blockchain_txn_gen_gateway_v1_pb{location=L}=T) ->
     blockchain_contracts:check([
         {gateway , gateway(T) , {address, libp2p}},
         {owner   , owner(T)   , {address, libp2p}},
-        {location, L          , {either, [undefined, {string, {exact, 0}}, h3_string]}},
+        {location, L          , {either, [undefined, {string, {exactly, 0}}, h3_string]}},
         {nonce   , nonce(T)   , {integer, {min, 1}}}
     ]).
 
