@@ -45,6 +45,13 @@
     get_channels/2
 ]).
 
+-define(RECORD_TO_PAIRS(RECORD_NAME),
+record_to_pairs(RECORD_NAME, RecordValue) ->
+    Keys = record_info(fields, RECORD_NAME),
+    [ _ | Vals] = tuple_to_list(RecordValue),
+    lists:zip(Keys, Vals)
+).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -239,106 +246,96 @@ number_contract() ->
     ]}.
 
 is_well_formed_blockchain_poc_receipt_v1_pb(
-    #blockchain_poc_receipt_v1_pb{
-        gateway   = Gateway,
-        timestamp = Timestamp,
-        signal    = Signal,
-        data      = Data,
-        origin    = Origin,
-        signature = Signature,
-        snr       = Snr,
-        frequency = Frequency,
-        channel   = Channel,
-        datarate  = DataRate,
-        addr_hash = AddrHash,
-        tx_power  = TxPower
-    }
+    #blockchain_poc_receipt_v1_pb{}=Receipt
 ) ->
-    blockchain_contracts:are_satisfied([
-        {gateway  , Gateway  , {binary, any}},
-        {timestamp, Timestamp, {integer, {min, 0}}},
-        {signal   , Signal   , {integer, {min, 0}}},
-        {data     , Data     , {binary, any}},
-        {origin   , Origin   , {either, [{val, p2p}, {val, radio}, {integer, any}]}},
-        {signature, Signature, {binary, any}},
-        {snr      , Snr      , number_contract()},
-        {frequency, Frequency, number_contract()},
-        {channel  , Channel  , {integer, {min, 0}}},
-        {datarate , DataRate , {iodata, any}},
-        {addr_hash, AddrHash , {binary, any}},
-        {tx_power , TxPower  , {integer, {min, 0}}}
-    ]).
+    KeyValues = record_to_pairs(blockchain_poc_receipt_v1_pb, Receipt),
+    KeyContracts =
+        [
+            {gateway  , {binary, any}},
+            {timestamp, {integer, {min, 0}}},
+            {signal   , {integer, {min, 0}}},
+            {data     , {binary, any}},
+            {origin   , {either, [{val, p2p}, {val, radio}, {integer, any}]}},
+            {signature, {binary, any}},
+            {snr      , number_contract()},
+            {frequency, number_contract()},
+            {channel  , {integer, {min, 0}}},
+            {datarate , {iodata, any}},
+            {addr_hash, {binary, any}},
+            {tx_power , {integer, {min, 0}}}
+        ],
+    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
+    blockchain_contracts:are_satisfied(KeyValueContracts).
 
 is_well_formed_blockchain_poc_witness_v1_pb(
-    #blockchain_poc_witness_v1_pb{
-        gateway     = Gateway,
-        timestamp   = Timestamp,
-        signal      = Signal,
-        packet_hash = PacketHash,
-        signature   = Signature,
-        snr         = Snr,
-        frequency   = Frequency,
-        channel     = Channel,
-        datarate    = DataRate
-    }
+    #blockchain_poc_witness_v1_pb{}=Witness
 ) ->
-    blockchain_contracts:check([
-        {gateway    , Gateway   , {binary, any}},
-        {timestamp  , Timestamp , {integer, {min, 0}}}, % max 64 bit
-        {signal     , Signal    , {integer, {min, 0}}}, % max 32 bit
-        {packet_hash, PacketHash, {binary, any}},
-        {signature  , Signature , {binary, any}},
-        {snr        , Snr       , number_contract()},
-        {frequency  , Frequency , number_contract()},
-        {channel    , Channel   , {integer, {min, 0}}}, % max 32 bit
-        {datarate   , DataRate  , {iodata, any}}
-    ]).
+    KeyValues = record_to_pairs(blockchain_poc_witness_v1_pb, Witness),
+    KeyContracts =
+        [
+            {gateway    , {binary, any}},
+            {timestamp  , {integer, {min, 0}}}, % max 64 bit
+            {signal     , {integer, {min, 0}}}, % max 32 bit
+            {packet_hash, {binary, any}},
+            {signature  , {binary, any}},
+            {snr        , number_contract()},
+            {frequency  , number_contract()},
+            {channel    , {integer, {min, 0}}}, % max 32 bit
+            {datarate   , {iodata, any}}
+        ],
+    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
+    blockchain_contracts:check(KeyValueContracts).
 
 is_well_formed_blockchain_poc_path_element_v1_pb(
-    #blockchain_poc_path_element_v1_pb{
-        challengee = Challengee,
-        receipt    = Receipt,
-        witnesses  = Witnesses
-    }
+    #blockchain_poc_path_element_v1_pb{}=PathElement
 ) ->
-    blockchain_contracts:are_satisfied([
-        {challengee, Challengee, {binary, any}},
-        {receipt, Receipt,
-            {either, [
-                undefined,
-                {custom,
-                    fun is_well_formed_blockchain_poc_receipt_v1_pb/1,
-                    invalid_receipt}
-            ]}},
-        {witnesses, Witnesses,
-            {list,
-                any,
-                {custom,
-                    fun is_well_formed_blockchain_poc_witness_v1_pb/1,
-                    invalid_witness}}}
-    ]).
+    KeyValues = record_to_pairs(blockchain_poc_path_element_v1_pb, PathElement),
+    KeyContracts =
+        [
+            {challengee, {binary, any}},
+            {receipt,
+                {either, [
+                    undefined,
+                    {custom,
+                        fun is_well_formed_blockchain_poc_receipt_v1_pb/1,
+                        invalid_receipt}
+                ]}},
+            {witnesses,
+                {list,
+                    any,
+                    {custom,
+                        fun is_well_formed_blockchain_poc_witness_v1_pb/1,
+                        invalid_witness}}}
+        ],
+    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
+    blockchain_contracts:are_satisfied(KeyValueContracts).
 
 -spec is_well_formed(txn_poc_receipts()) -> ok | {error, _}.
-is_well_formed(
-    #blockchain_txn_poc_receipts_v1_pb{
-        challenger         = Challenger,
-        secret             = Secret,
-        onion_key_hash     = OnionKeyHash,
-        path               = Path,
-        fee                = Fee,
-        signature          = Signature,
-        request_block_hash = RequestBlockHash
-    }
-) ->
-    blockchain_contracts:check([
-        {challenger        , Challenger      , {binary, any}},
-        {secret            , Secret          , {binary, any}},
-        {onion_key_hash    , OnionKeyHash    , {binary, any}},
-        {path              , Path            , {list, any, {custom, fun is_well_formed_blockchain_poc_path_element_v1_pb/1, invalid_path_element}}},
-        {fee               , Fee             , {integer, {min, 0}}},
-        {signature         , Signature       , {binary, any}},
-        {request_block_hash, RequestBlockHash, {binary, any}}
-    ]).
+is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
+    KeyValues = record_to_pairs(blockchain_txn_poc_receipts_v1_pb, Txn),
+    KeyContracts =
+        [
+            {challenger        , {binary, any}},
+            {secret            , {binary, any}},
+            {onion_key_hash    , {binary, any}},
+            {path              , {list, any, {custom, fun is_well_formed_blockchain_poc_path_element_v1_pb/1, invalid_path_element}}},
+            {fee               , {integer, {min, 0}}},
+            {signature         , {binary, any}},
+            {request_block_hash, {binary, any}}
+        ],
+    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
+    blockchain_contracts:check(KeyValueContracts).
+
+-spec pairs_to_triples([{A, B}], [{A, C}]) -> [{A, B, C}].
+pairs_to_triples(XYs, XZs) ->
+    Z = fun (X) -> {_, Z} = lists:keyfind(X, 1, XZs), Z end,
+    [{X, Y, Z(X)} || {X, Y} <- XYs].
+
+-spec record_to_pairs(atom(), tuple()) -> [{atom(), term()}].
+?RECORD_TO_PAIRS(blockchain_poc_receipt_v1_pb);
+?RECORD_TO_PAIRS(blockchain_poc_witness_v1_pb);
+?RECORD_TO_PAIRS(blockchain_poc_path_element_v1_pb);
+?RECORD_TO_PAIRS(blockchain_txn_poc_receipts_v1_pb).
 
 -spec is_absorbable(txn_poc_receipts(), blockchain:blockchain()) ->
     boolean().
