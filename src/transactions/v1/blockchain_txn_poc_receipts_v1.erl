@@ -45,13 +45,6 @@
     get_channels/2
 ]).
 
--define(RECORD_TO_PAIRS(RECORD_NAME),
-record_to_pairs(RECORD_NAME, RecordValue) ->
-    Keys = record_info(fields, RECORD_NAME),
-    [ _ | Vals] = tuple_to_list(RecordValue),
-    lists:zip(Keys, Vals)
-).
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -87,6 +80,13 @@ record_to_pairs(RECORD_NAME, RecordValue) ->
     ?poc_v4_target_exclusion_cells,
     ?poc_path_limit
 ]).
+
+-define(RECORD_TO_KVL(RECORD_NAME),
+record_to_kvl(RECORD_NAME, RecordValue) ->
+    Keys = record_info(fields, RECORD_NAME),
+    [ _ | Vals] = tuple_to_list(RecordValue),
+    lists:zip(Keys, Vals)
+).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -245,12 +245,13 @@ number_contract() ->
         {val, nan}
     ]}.
 
+-spec is_well_formed_blockchain_poc_receipt_v1_pb(any()) -> boolean().
 is_well_formed_blockchain_poc_receipt_v1_pb(
     #blockchain_poc_receipt_v1_pb{}=Receipt
 ) ->
-    KeyValues = record_to_pairs(blockchain_poc_receipt_v1_pb, Receipt),
-    KeyContracts =
-        [
+    blockchain_contracts:is_satisfied(
+        record_to_kvl(blockchain_poc_receipt_v1_pb, Receipt),
+        {kvl, [
             {gateway  , {binary, any}},
             {timestamp, {integer, {min, 0}}},
             {signal   , {integer, {min, 0}}},
@@ -263,16 +264,18 @@ is_well_formed_blockchain_poc_receipt_v1_pb(
             {datarate , {iodata, any}},
             {addr_hash, {binary, any}},
             {tx_power , {integer, {min, 0}}}
-        ],
-    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
-    blockchain_contracts:are_satisfied(KeyValueContracts).
+        ]}
+    );
+is_well_formed_blockchain_poc_receipt_v1_pb(_) ->
+    false.
 
+-spec is_well_formed_blockchain_poc_witness_v1_pb(any()) -> boolean().
 is_well_formed_blockchain_poc_witness_v1_pb(
     #blockchain_poc_witness_v1_pb{}=Witness
 ) ->
-    KeyValues = record_to_pairs(blockchain_poc_witness_v1_pb, Witness),
-    KeyContracts =
-        [
+    blockchain_contracts:is_satisfied(
+        record_to_kvl(blockchain_poc_witness_v1_pb, Witness),
+        {kvl, [
             {gateway    , {binary, any}},
             {timestamp  , {integer, {min, 0}}}, % max 64 bit
             {signal     , {integer, {min, 0}}}, % max 32 bit
@@ -282,16 +285,18 @@ is_well_formed_blockchain_poc_witness_v1_pb(
             {frequency  , number_contract()},
             {channel    , {integer, {min, 0}}}, % max 32 bit
             {datarate   , {iodata, any}}
-        ],
-    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
-    blockchain_contracts:check(KeyValueContracts).
+        ]}
+    );
+is_well_formed_blockchain_poc_witness_v1_pb(_) ->
+    false.
 
+-spec is_well_formed_blockchain_poc_path_element_v1_pb(any()) -> boolean().
 is_well_formed_blockchain_poc_path_element_v1_pb(
     #blockchain_poc_path_element_v1_pb{}=PathElement
 ) ->
-    KeyValues = record_to_pairs(blockchain_poc_path_element_v1_pb, PathElement),
-    KeyContracts =
-        [
+    blockchain_contracts:is_satisfied(
+        record_to_kvl(blockchain_poc_path_element_v1_pb, PathElement),
+        {kvl, [
             {challengee, {binary, any}},
             {receipt,
                 {either, [
@@ -306,15 +311,16 @@ is_well_formed_blockchain_poc_path_element_v1_pb(
                     {custom,
                         fun is_well_formed_blockchain_poc_witness_v1_pb/1,
                         invalid_witness}}}
-        ],
-    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
-    blockchain_contracts:are_satisfied(KeyValueContracts).
+        ]}
+    );
+is_well_formed_blockchain_poc_path_element_v1_pb(_) ->
+    false.
 
--spec is_well_formed(txn_poc_receipts()) -> ok | {error, _}.
+-spec is_well_formed(txn_poc_receipts()) -> blockchain_contracts:result().
 is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
-    KeyValues = record_to_pairs(blockchain_txn_poc_receipts_v1_pb, Txn),
-    KeyContracts =
-        [
+    blockchain_contracts:check(
+        record_to_kvl(blockchain_txn_poc_receipts_v1_pb, Txn),
+        {kvl, [
             {challenger        , {binary, any}},
             {secret            , {binary, any}},
             {onion_key_hash    , {binary, any}},
@@ -322,20 +328,14 @@ is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
             {fee               , {integer, {min, 0}}},
             {signature         , {binary, any}},
             {request_block_hash, {binary, any}}
-        ],
-    KeyValueContracts = pairs_to_triples(KeyValues, KeyContracts),
-    blockchain_contracts:check(KeyValueContracts).
+        ]}
+    ).
 
--spec pairs_to_triples([{A, B}], [{A, C}]) -> [{A, B, C}].
-pairs_to_triples(XYs, XZs) ->
-    Z = fun (X) -> {_, Z} = lists:keyfind(X, 1, XZs), Z end,
-    [{X, Y, Z(X)} || {X, Y} <- XYs].
-
--spec record_to_pairs(atom(), tuple()) -> [{atom(), term()}].
-?RECORD_TO_PAIRS(blockchain_poc_receipt_v1_pb);
-?RECORD_TO_PAIRS(blockchain_poc_witness_v1_pb);
-?RECORD_TO_PAIRS(blockchain_poc_path_element_v1_pb);
-?RECORD_TO_PAIRS(blockchain_txn_poc_receipts_v1_pb).
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?RECORD_TO_KVL(blockchain_poc_receipt_v1_pb);
+?RECORD_TO_KVL(blockchain_poc_witness_v1_pb);
+?RECORD_TO_KVL(blockchain_poc_path_element_v1_pb);
+?RECORD_TO_KVL(blockchain_txn_poc_receipts_v1_pb).
 
 -spec is_absorbable(txn_poc_receipts(), blockchain:blockchain()) ->
     boolean().
@@ -1994,7 +1994,26 @@ eirp_from_closest_freq_test() ->
     EIRP = eirp_from_closest_freq(915.1, FreqEirps),
     ?assertEqual(15, EIRP).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    PathElement =
+        #blockchain_poc_path_element_v1_pb{
+            challengee = <<"fake_challengee">>,
+            receipt    = #blockchain_poc_receipt_v1_pb{},
+            witnesses  = [#blockchain_poc_witness_v1_pb{}]
+        },
+    T =
+        #blockchain_txn_poc_receipts_v1_pb{
+            challenger         = <<"fake_challenger">>,
+            secret             = <<"fake_secret">>,
+            onion_key_hash     = <<"fake_onion">>,
+            path               = [PathElement],
+            fee                = 0,
+            signature          = <<>>,
+            request_block_hash = <<"fake_request_block_hash">>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+        %% TODO More tests?
+    ].
 
 -endif.
