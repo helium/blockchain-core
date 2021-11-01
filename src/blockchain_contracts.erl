@@ -66,6 +66,18 @@
     | {iodata, measure()}
     | {binary, measure()}
     | {list, measure(), contract()}
+    | {kvl, [{key(), contract()}]}
+    %% TODO Reconsider semantics - how can we spec a looser contract than every key?
+    %%      Maybe:
+    %%          {kvl, [{key(), contract()}], Opt} when Opt :: fail_unknown_keys | pass_unknown_keys
+    %%          {kvl, Required :: [{key(), contract()}], Optional :: [{key(), contract()}]}
+    %%      Report:
+    %%          - duplicated
+    %%          - unsupported
+    %%          - missing
+    %%          - invalid contract
+    %%      See hope_kv_list validations.
+    %% TODO Better name than "kvl"? "pairs"?
 
     % TODO Reconsider name, since we only require element uniquness, not order.
     % ordset alternatives:
@@ -90,15 +102,20 @@
     | {txn, txn_type()}
     | {val, val()}  % A concrete, given value.
     .
-    %% TODO
+    %% TODO More contracts:
     %%  - [x] txn
     %%  - [ ] tuple of measure()
+    %%      {tuple, measure()} --> tuple_wrong_size
+    %%      {tuple_of, [contract()]} --> invalid elements in positions I, J, K, ...
+    %%      {tuple, measure(), [contract()]} --> what if [contract()] conflicts with measure()?
     %%  - [ ] records as tuple with given head
-    %%  - [ ] atom
+    %%      Can we automate mapping field names to positions?
+    %%  - [ ] atom. But, maybe not useful in light of {val, A}?
     %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
 
 -type t() :: contract().
 
+%% TODO Remove the specs concept in favor of a kvl contract
 -type spec() ::
     {key(), val(), contract()}.
 
@@ -128,6 +145,14 @@
     | {list_contains_invalid_elements, [term()]}
     .
 
+-type failure_kvl() ::
+      {invalid_kv_pair, {key(), val()}} % TODO Integrate into failure_list(), where it occurs
+    | {invalid_kvl, failure_list()}
+    | {invalid_kvl_pairs, [{key(), failure()}]}
+    | {kvl_keys_missing_a_contract, [key()]}
+    | {kvl_keys_missing_a_value, [key()]}
+    .
+
 -type failure_txn() ::
       not_a_txn
     | {txn_wrong_type, Actual :: atom(), Required :: atom()}
@@ -148,12 +173,14 @@
     | failure_int()
     | failure_float()
     | failure_list()
+    | failure_kvl()
     | {list_contains_duplicate_elements, [term()]}
     | {invalid_string, failure_list()}
     .
 
 -type result() ::
     ok | {error, {invalid, [{key(), failure()}]}}.
+%% TODO Maybe drop the enclosing 'invalid' tuple from error reason?
 
 %% For internal use
 -type test_result() ::
@@ -164,28 +191,38 @@
 
 %% API ========================================================================
 
+%% TODO Remove the specs concept in favor of a kvl contract
+
 -spec is_satisfied(val(), contract()) -> boolean().
 is_satisfied(Val, Contract) ->
     res_to_bool(test(Val, Contract)).
 
+%% TODO Deprecated - REMOVE
 -spec are_satisfied([spec()]) -> boolean().
 are_satisfied(Specs) ->
     result:to_bool(result:of_empty(check(Specs), {})).
 
+%% TODO Deprecated - REMOVE
 -spec check([spec()]) -> result().
 check(Specs) ->
     check_specs(Specs).
 
--spec check([spec()], fun((contract()) -> contract())) -> result().
-check(Specs0, F) ->
-    Specs1 = [{K, V, F(R)}|| {K, V, R} <- Specs0],
-    check(Specs1).
+-spec check(val(), contract()) -> result().
+check(Val, Contract) ->
+    case test(Val, Contract) of
+        pass ->
+            ok;
+        {fail, Failure} ->
+            {error, {invalid, Failure}}
+    end.
 
+%% TODO Deprecated - REMOVE
 -spec check_with_defined([spec()]) -> result().
 check_with_defined(Specs) ->
-    check(Specs, fun(R) -> {forall, [defined, R]} end).
+    check([{K, V, {forall, [defined, C]}}|| {K, V, C} <- Specs]).
 
 %% Internal ===================================================================
+%% TODO Deprecated - REMOVE
 -spec check_specs([spec()]) -> result().
 check_specs(Specs) ->
     case lists:flatten([check_spec(S) || S <- Specs]) of
@@ -195,6 +232,7 @@ check_specs(Specs) ->
             {error, {invalid, Invalid}}
     end.
 
+%% TODO Deprecated - REMOVE
 -spec check_spec(spec()) -> [{key(), failure()}].
 check_spec({Key, Val, Contract}) ->
     case test(Val, Contract) of
@@ -216,6 +254,7 @@ test(V, {iodata, Measure})           -> test_iodata(V, Measure);
 test(V, {binary, Measure})           -> test_binary(V, Measure);
 test(V, {list, Measure, Contract})   -> test_list(V, Measure, Contract);
 test(V, {ordset, Measure, Contract}) -> test_ordset(V, Measure, Contract);
+test(V, {kvl, KeyContracts})         -> test_kvl(V, KeyContracts);
 test(V, {integer, Measure})          -> test_int(V, Measure);
 test(V, {float, Measure})            -> test_float(V, Measure);
 test(V, {member, Vs})                -> test_membership(V, Vs);
@@ -228,6 +267,46 @@ test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
     test_exists(V, Contracts);
 test(V, {Either, Contracts}) when Either =:= either; Either =:= '∃!'  ->
     test_either(V, Contracts).
+
+-spec test_kvl(val(), [{key(), contract()}]) -> test_result().
+test_kvl(KeyValues, KeyContracts) ->
+    IsPair = fun ({_, _}) -> true; (_) -> false end,
+    case test_list(KeyValues, any, {custom, IsPair, invalid_kv_pair}) of
+        {fail, Failure} ->
+            {fail, {invalid_kvl, Failure}};
+        pass ->
+            KeyValueContracts =
+                [{K, V, kvl_get(K, KeyContracts)} || {K, V} <- KeyValues],
+            KeysMissingContracts =
+                [K || {K, _, Opt} <- KeyValueContracts, Opt =:= none],
+            case KeysMissingContracts of
+                [_|_] ->
+                    {fail, {kvl_keys_missing_a_contract, KeysMissingContracts}};
+                [] ->
+                    case [K || {K, _} <- KeyContracts, kvl_get(K, KeyValues) =:= none] of
+                        [_|_]=KeysMissingValues ->
+                            {fail, {kvl_keys_missing_a_value, KeysMissingValues}};
+                        [] ->
+                            KeyResults =
+                                [{K, test(V, C)} || {K, V, {some, C}} <- KeyValueContracts],
+                            KeyFailures =
+                                lists:filtermap(
+                                    fun ({_, pass}) ->
+                                            false;
+                                        ({K, {fail, F}}) ->
+                                            {true, {K, F}}
+                                    end,
+                                    KeyResults
+                                ),
+                            case KeyFailures of
+                                [] ->
+                                    pass;
+                                [_|_] ->
+                                    {fail, {invalid_kvl_pairs, KeyFailures}}
+                            end
+                    end
+            end
+    end.
 
 -spec test_not(val(), contract()) -> test_result().
 test_not(V, Contract) ->
@@ -465,6 +544,13 @@ res_of_bool(false, Failure) -> {fail, Failure}.
 res_to_bool(pass) -> true;
 res_to_bool({fail, _}) -> false.
 
+-spec kvl_get(K, [{K, V}]) -> none | {some, V}.
+kvl_get(K, KVL) ->
+    case lists:keyfind(K, 1, KVL) of
+        {_, V} -> {some, V};
+        false -> none
+    end.
+
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -544,10 +630,11 @@ custom_test_() ->
     [
         ?_assertEqual(pass, test(bar, BarContract)),
         ?_assertEqual({fail, {not_bar, baz}}, test(baz, BarContract)),
-        ?_assertEqual(ok, check([{Key, bar, BarContract}])),
+        ?_assertEqual(ok, check([{Key, bar}], {kvl, [{Key, BarContract}]})),
+
         ?_assertEqual(
-            {error, {invalid, [{Key, {not_bar, baz}}]}},
-            check([{Key, baz, BarContract}])
+            {error, {invalid, {invalid_kvl_pairs, [{Key, {not_bar, baz}}]}}},
+            check([{Key, baz}], {kvl, [{Key, BarContract}]})
         )
     ].
 
@@ -557,10 +644,10 @@ defined_test_() ->
     [
         ?_assertEqual(pass, test(bar, Contract)),
         ?_assertEqual({fail, undefined}, test(undefined, Contract)),
-        ?_assertEqual(ok, check([{Key, bar, Contract}])),
+        ?_assertEqual(ok, check([{Key, bar}], {kvl, [{Key, Contract}]})),
         ?_assertEqual(
-            {error, {invalid, [{Key, undefined}]}},
-            check([{Key, undefined, Contract}])
+            {error, {invalid, {invalid_kvl_pairs, [{Key, undefined}]}}},
+            check([{Key, undefined}], {kvl, [{Key, Contract}]})
         )
     ].
 
@@ -576,11 +663,11 @@ binary_test_() ->
         ),
         ?_assertEqual(pass, test(<<"a">>, {binary, {range, 1, 1024}})),
         ?_assertEqual(pass, test(<<"bar">>, {binary, {range, 3, 1024}})),
-        ?_assertEqual(ok, check([{Key, <<>>, {binary, any}}])),
-        ?_assertEqual(ok, check([{Key, <<>>, {binary, {exactly, 0}}}])),
+        ?_assertEqual(ok, check([{Key, <<>>}], {kvl, [{Key, {binary, any}}]})),
+        ?_assertEqual(ok, check([{Key, <<>>}], {kvl, [{Key, {binary, {exactly, 0}}}]})),
         ?_assertEqual(
-            {error, {invalid, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}},
-            check([{Key, <<>>, {binary, {range, 8, 1024}}}])
+            {error, {invalid, {invalid_kvl_pairs, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}}},
+            check([{Key, <<>>}], {kvl, [{Key, {binary, {range, 8, 1024}}}]})
         )
     ].
 
@@ -598,16 +685,17 @@ list_test_() ->
         ?_assertEqual(pass, test([a], {list, {range, 1, 1024}, any})), % TODO atom contract
         ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}, any})), % TODO atom contract
         ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}, any})), % TODO atom contract
-        ?_assertEqual(ok, check([{Key, [], {list, any, any}}])),
-        ?_assertEqual(ok, check([{Key, [], {list, {exactly, 0}, any}}])),
+        ?_assertEqual(ok, check([{Key, []}], {kvl, [{Key, {list, any, any}}]})),
+        ?_assertEqual(ok, check([{Key, []}], {kvl, [{Key, {list, {exactly, 0}, any}}]})),
         ?_assertEqual(
-            {error, {invalid, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}},
-            check([{Key, [], {list, {range, 8, 1024}, any}}])
+            {error, {invalid, {invalid_kvl_pairs, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}}},
+            check([{Key, []}], {kvl, [{Key, {list, {range, 8, 1024}, any}}]})
         ),
         ?_assertEqual(
-            {error, {invalid, [{Key, {not_a_list, BadList}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{Key, {not_a_list, BadList}}]}}},
             check(
-                [{Key, BadList, {list, {range, 8, 1024}, any}}]
+                [{Key, BadList}],
+                {kvl, [{Key, {list, {range, 8, 1024}, any}}]}
             )
         ),
         ?_assertEqual(pass, test([], {list, any, {integer, any}})),
@@ -745,6 +833,22 @@ val_test_() ->
         ?_assertEqual(
             pass,
             test(b, {'not', {val, a}})
+        )
+    ].
+
+kvl_test_() ->
+    [
+        ?_assertMatch(
+           pass,
+            test([{a, 1}], {kvl, [{a, defined}]})
+        ),
+        ?_assertMatch(
+           {fail, {kvl_keys_missing_a_contract, [a]}},
+            test([{a, 1}], {kvl, [{b, defined}]})
+        ),
+        ?_assertMatch(
+           {fail, {kvl_keys_missing_a_value, [b]}},
+            test([{a, 1}], {kvl, [{a, defined}, {b, defined}]})
         )
     ].
 
