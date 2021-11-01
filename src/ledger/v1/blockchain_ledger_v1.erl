@@ -112,6 +112,7 @@
     add_htlc/8,
     redeem_htlc/4,
 
+    create_addr/1,
     get_netids/1,
     get_retired_netids/1,
     get_roaming_netids/1,
@@ -3017,6 +3018,25 @@ get_roaming_netids(Ledger) ->
             [];
         Error ->
             Error
+    end.
+
+-spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+create_addr(Class, NetID, NwkAddr) ->
+    Size = addr_class_width(Class),
+    IDSize = 32 - 3 - Size,
+    Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, Class:3/integer-unsigned>>),
+    Addr.
+
+addr_class_width(Class) ->
+    case Class of
+        0 -> 25;
+        1 -> 24;
+        2 -> 20;
+        3 -> 17;
+        4 -> 15;
+        5 -> 13;
+        6 -> 10;
+        7 -> 7
     end.
 
 -spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
