@@ -12,6 +12,7 @@
 -include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
@@ -80,13 +81,6 @@
     ?poc_v4_target_exclusion_cells,
     ?poc_path_limit
 ]).
-
--define(RECORD_TO_KVL(RECORD_NAME),
-record_to_kvl(RECORD_NAME, RecordValue) ->
-    Keys = record_info(fields, RECORD_NAME),
-    [ _ | Vals] = tuple_to_list(RecordValue),
-    lists:zip(Keys, Vals)
-).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -332,10 +326,10 @@ is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
     ).
 
 -spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
-?RECORD_TO_KVL(blockchain_poc_receipt_v1_pb);
-?RECORD_TO_KVL(blockchain_poc_witness_v1_pb);
-?RECORD_TO_KVL(blockchain_poc_path_element_v1_pb);
-?RECORD_TO_KVL(blockchain_txn_poc_receipts_v1_pb).
+?DEFINE_RECORD_TO_KVL(blockchain_poc_receipt_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_poc_witness_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_poc_path_element_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_poc_receipts_v1_pb).
 
 -spec is_absorbable(txn_poc_receipts(), blockchain:blockchain()) ->
     boolean().
