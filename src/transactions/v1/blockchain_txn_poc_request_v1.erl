@@ -14,6 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
 
 -export([
     new/5,
@@ -222,8 +223,19 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_poc_request()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contracts:check(
+        record_to_kvl(blockchain_txn_poc_request_v1_pb, T),
+        {kvl, [
+            {challenger    , {binary, any}},
+            {secret_hash   , {binary, any}},
+            {onion_key_hash, {binary, any}},
+            {block_hash    , {binary, any}},
+            {fee           , {integer, {min, 0}}},
+            {signature     , {binary, any}},
+            {version       , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_poc_request(), blockchain:blockchain()) ->
     boolean().
@@ -291,6 +303,9 @@ maybe_log_duration(Type, Start) ->
         _ -> ok
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_poc_request_v1_pb).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -350,7 +365,28 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, challenger, secret_hash, onion_key_hash, block_hash, version, fee])).
 
-validation_test() ->
-    error('TODO-validation_test').
+-define(TSET(T, K, V), T#blockchain_txn_poc_request_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    T =
+        #blockchain_txn_poc_request_v1_pb{
+            challenger     = <<"fake_gateway">>,
+            secret_hash    = <<"fake_secret_hash">>,
+            onion_key_hash = <<"fake_onion_key_hash">>,
+            block_hash     = <<"fake_block_hash">>,
+            fee            = 0,
+            signature      = <<>>,
+            version        = 0
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, version, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, challenger, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, secret_hash, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, onion_key_hash, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, block_hash, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, signature, undefined)))
+    ].
 
 -endif.
