@@ -468,6 +468,14 @@
 -define(full_gateway_capabilities_mask, full_gateway_capabilities_mask).
 
 %%%
+%%% network netid variables
+%%%
+
+-define(netids, netids).
+-define(retired_netids, retired_netids).
+-define(roaming_netids, roaming_netids).
+
+%%%
 %%% validators variables
 %%%
 
