@@ -115,6 +115,10 @@
     get_netids/1,
     get_retired_netids/1,
     get_roaming_netids/1,
+    net_id/1,
+    addr_bit_width/1,
+    net_id_type/1,
+    get_nwk_addr/1,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
@@ -3015,6 +3019,81 @@ get_roaming_netids(Ledger) ->
             Error
     end.
 
+-spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
+net_id(DevNum) when erlang:is_number(DevNum) ->
+    net_id(<<DevNum:32/integer-unsigned>>);
+net_id(DevAddr) ->
+    try
+        Type = net_id_type(DevAddr),
+        NetID =
+            case Type of
+                0 -> get_net_id(DevAddr, 1, 6);
+                1 -> get_net_id(DevAddr, 2, 6);
+                2 -> get_net_id(DevAddr, 3, 9);
+                3 -> get_net_id(DevAddr, 4, 11);
+                4 -> get_net_id(DevAddr, 5, 12);
+                5 -> get_net_id(DevAddr, 6, 13);
+                6 -> get_net_id(DevAddr, 7, 15);
+                7 -> get_net_id(DevAddr, 8, 17)
+            end,
+        {ok, NetID bor (Type bsl 21)}
+    catch
+        throw:invalid_net_id_type:_ ->
+            {error, invalid_net_id_type}
+    end.
+
+-spec addr_bit_width(number() | binary()) -> non_neg_integer().
+addr_bit_width(DevNum) when erlang:is_number(DevNum) ->
+    addr_bit_width(<<DevNum:32/integer-unsigned>>);
+addr_bit_width(DevAddr) ->
+    Type = net_id_type(DevAddr),
+    NetID =
+    case Type of
+        0 -> 25;
+        1 -> 24;
+        2 -> 20;
+        3 -> 17;
+        4 -> 15;
+        5 -> 13;
+        6 -> 10;
+        7 -> 7
+    end.
+
+-spec net_id_type(binary()) -> 0..7.
+net_id_type(<<First:8/integer-unsigned, _/binary>>) ->
+    net_id_type(First, 7).
+
+-spec net_id_type(non_neg_integer(), non_neg_integer()) -> 0..7.
+net_id_type(_, -1) ->
+    throw(invalid_net_id_type);
+net_id_type(Prefix, Index) ->
+    case Prefix band (1 bsl Index) of
+        0 -> 7 - Index;
+        _ -> net_id_type(Prefix, Index - 1)
+    end.
+
+-spec get_net_id(binary(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
+    <<Temp:32/integer-unsigned>> = DevAddr,
+    %% Remove type prefix
+    One = uint32(Temp bsl PrefixLength),
+    %% Remove NwkAddr suffix
+    Two = uint32(One bsr (32 - NwkIDBits)),
+
+    IgnoreSize = 32 - NwkIDBits,
+    <<_:IgnoreSize, NetID:NwkIDBits/integer-unsigned>> = <<Two:32/integer-unsigned>>,
+    NetID.
+
+-spec get_nwk_addr(binary()) -> non_neg_integer().
+get_nwk_addr(DevAddr) ->
+    AddrBitWidth = addr_bit_width(DevAddr),
+    <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
+    NwkAddr.
+
+-spec uint32(integer()) -> integer().
+uint32(Num) ->
+    Num band 16#FFFFFFFF.
+
 -spec get_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 get_oui_counter(Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -3118,82 +3197,6 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
         _ ->
             {ok, Res}
     end.
-
--spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
-net_id(DevNum) when erlang:is_number(DevNum) ->
-    net_id(<<DevNum:32/integer-unsigned>>);
-net_id(DevAddr) ->
-    try
-        Type = net_id_type(DevAddr),
-        NetID =
-            case Type of
-                0 -> get_net_id(DevAddr, 1, 6);
-                1 -> get_net_id(DevAddr, 2, 6);
-                2 -> get_net_id(DevAddr, 3, 9);
-                3 -> get_net_id(DevAddr, 4, 11);
-                4 -> get_net_id(DevAddr, 5, 12);
-                5 -> get_net_id(DevAddr, 6, 13);
-                6 -> get_net_id(DevAddr, 7, 15);
-                7 -> get_net_id(DevAddr, 8, 17)
-            end,
-        {ok, NetID bor (Type bsl 21)}
-    catch
-        throw:invalid_net_id_type:_ ->
-            {error, invalid_net_id_type}
-    end.
-
--spec addr_bit_width(number() | binary()) -> non_neg_integer().
-addr_bit_width(DevNum) when erlang:is_number(DevNum) ->
-    addr_bit_width(<<DevNum:32/integer-unsigned>>);
-addr_bit_width(DevAddr) ->
-    Type = net_id_type(DevAddr),
-    NetID =
-    case Type of
-        0 -> 25;
-        1 -> 24;
-        2 -> 20;
-        3 -> 17;
-        4 -> 15;
-        5 -> 13;
-        6 -> 10;
-        7 -> 7
-    end.
-
--spec net_id_type(binary()) -> 0..7.
-net_id_type(<<First:8/integer-unsigned, _/binary>>) ->
-    net_id_type(First, 7).
-
--spec net_id_type(non_neg_integer(), non_neg_integer()) -> 0..7.
-net_id_type(_, -1) ->
-    throw(invalid_net_id_type);
-net_id_type(Prefix, Index) ->
-    case Prefix band (1 bsl Index) of
-        0 -> 7 - Index;
-        _ -> net_id_type(Prefix, Index - 1)
-    end.
-
--spec get_net_id(binary(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
-    <<Temp:32/integer-unsigned>> = DevAddr,
-    %% Remove type prefix
-    One = uint32(Temp bsl PrefixLength),
-    %% Remove NwkAddr suffix
-    Two = uint32(One bsr (32 - NwkIDBits)),
-
-    IgnoreSize = 32 - NwkIDBits,
-    <<_:IgnoreSize, NetID:NwkIDBits/integer-unsigned>> = <<Two:32/integer-unsigned>>,
-    NetID.
-
--spec get_nwk_addr(binary()) -> non_neg_integer().
-get_nwk_addr(DevAddr) ->
-    AddrBitWidth = addr_bit_width(DevAddr),
-    <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
-    NwkAddr.
-
--spec uint32(integer()) -> integer().
-uint32(Num) ->
-    Num band 16#FFFFFFFF.
-
 
 -spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
                                Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
