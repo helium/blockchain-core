@@ -524,4 +524,4 @@
 %%
 %% As an example, blockchain_txn_transfer_hotspot_v2, will get enabled
 %% when this value is set to >= 2.
--define(transaction_validity_version, transfer_hotspot_txn_version).    % pos_integer
+-define(transaction_validity_version, transaction_validity_version).    % pos_integer
