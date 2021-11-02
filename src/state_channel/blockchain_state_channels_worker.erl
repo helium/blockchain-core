@@ -257,12 +257,12 @@ offer(
                 {error, _Reason} ->
                     lager:warning(
                         "dropping this packet because: ~p ~p",
-                        [_Reason, lager:pr(SC, blockchain_state_channel_v1)]
+                        [_Reason, blockchain_state_channel_v1:id(SC)]
                     ),
                     ok = send_offer_rejection(HandlerPid, Offer),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
-                    lager:debug("purchasing offer from ~p ~p", [HotspotName, PurchaseSC]),
+                    lager:debug("purchasing offer from ~p ~p", [HotspotName, blockchain_state_channel_v1:id(PurchaseSC)]),
                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
