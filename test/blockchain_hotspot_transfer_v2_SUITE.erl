@@ -314,7 +314,7 @@ var_not_set_test(Config) ->
     ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
     ct:pal("IsValidOwner: ~p", [blockchain_txn_transfer_hotspot_v2:is_valid_owner(OwnerSignedTxn)]),
 
-    {error, transfer_hotspot_txn_version_not_set} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
+    {error, transaction_validity_version_not_set} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
 
     ok.
 

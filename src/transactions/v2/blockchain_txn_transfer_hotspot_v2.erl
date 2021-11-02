@@ -149,7 +149,7 @@ is_valid(Txn, Chain) ->
         {ok, 2} ->
             is_valid_conditions(Txn, Ledger, Chain);
         _ ->
-            {error, transfer_hotspot_txn_version_not_set}
+            {error, transaction_validity_version_not_set}
     end.
 
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
