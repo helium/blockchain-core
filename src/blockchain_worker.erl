@@ -1075,28 +1075,13 @@ attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer) ->
     end.
 
 fetch_and_parse_latest(URL) ->
-    Headers = [
-               {"user-agent", "blockchain-worker-2"}
-              ],
-    HTTPOptions = [
-                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
-                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
-                  ],
-    Options = [
-               {body_format, binary}, % return body as a binary
-               {full_result, false} % do not return the "full result" response as defined in httpc docs
-              ],
-
-    case httpc:request(get, {URL ++ "/latest-snap.json", Headers}, HTTPOptions, Options) of
-        {ok, {200, Latest}} ->
-            #{<<"height">> := Height,
-              <<"hash">> := B64Hash} = jsx:decode(Latest, [{return_maps, true}]),
-            Hash = base64url:decode(B64Hash),
-            {Height, Hash};
-        {ok, {404, _Response}} -> throw({error, url_not_found});
-        {ok, {Status, Response}} -> throw({error, {Status, Response}});
-        Other -> throw(Other)
-    end.
+    {JsonMod, JsonDecode} = application:get_env(blockchain, json_decoder,
+                                              {blockchain_httpc, json_decode}),
+    {ok, Data} = blockchain_httpc:fetch(URL ++ "/latest-snap.json"),
+    #{<<"height">> := Height,
+      <<"hash">> := B64Hash} = JsonMod:JsonDecode(Data),
+    RawHash = base64url:decode(B64Hash),
+    {Height, RawHash}.
 
 build_filename(Height) ->
     HeightStr = integer_to_list(Height),
@@ -1131,31 +1116,13 @@ do_snap_source_download(Url, Filepath) ->
     %% old partial failure nuggets hanging out
     ok = delete_dir(ScratchFile),
 
-    Headers = [
-               {"user-agent", "blockchain-worker-2"}
-              ],
-    HTTPOptions = [
-                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
-                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
-                  ],
-    Options = [
-               {body_format, binary}, % return body as a binary
-               {stream, ScratchFile}, % write data into file
-               {full_result, false} % do not return the "full result" response as defined in httpc docs
-              ],
-
     lager:info("Attempting snapshot download from ~p, writing to scratch file ~p",
                [Url, ScratchFile]),
-    case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
-        {ok, saved_to_file} ->
-            lager:info("snap written to scratch file ~p", [ScratchFile]),
-            %% prof assures me rename is atomic :)
-            ok = file:rename(ScratchFile, Filepath),
-            {ok, Filepath};
-        {ok, {404, _Response}} -> throw({error, url_not_found});
-        {ok, {Status, Response}} -> throw({error, {Status, Response}});
-        Other -> throw(Other)
-    end.
+    {ok, saved} = blockchain_httpc:fetch_to_scratch_file(Url, ScratchFile),
+    lager:info("snap written to scratch file ~p", [ScratchFile]),
+    %% prof assures me rename is atomic :)
+    ok = file:rename(ScratchFile, Filepath),
+    {ok, Filepath}.
 
 attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
     lager:debug("attempting to load snapshot from ~p", [Filename]),
