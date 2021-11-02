@@ -3229,35 +3229,37 @@ find_routing_via_devaddr(DevAddr0, Ledger) ->
     FindAny = lists:any(fun(X) -> X == NetID end, HeliumNetIDs)
     case FindAny of
         true ->
-            find_routing_inner(NwkAddr, Ledger);
+            Dest = find_dest(NwkAddr, Ledger);
+            case Dest of
+            error ->
+               {error, {subnet_not_found, NwkAddr}};
+            _ ->
+                case find_routing(Dest, Ledger) of
+                    {ok, Route} ->
+                        {ok, [Route]};
+                    Error ->
+                        Error
+                end
         false ->
             {error, {unknown_devaddr_prefix, NetID}}
     end.
 
-find_routing_inner(DevAddr, Ledger) ->
-    %% use the subnets
+-spec find_dest(Key :: non_neg_integer(),
+                Ledger :: ledger()) -> non_neg_integer() | error.
+find_dest(Key, Ledger) ->
+    %% iterate through the subnets
     {_Name, DB, SubnetCF} = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-    Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+    Dest = subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
     catch rocksdb:iterator_close(Itr),
-    case Dest of
-        error ->
-            {error, subnet_not_found};
-        _ ->
-            case find_routing(Dest, Ledger) of
-                {ok, Route} ->
-                    {ok, [Route]};
-                Error ->
-                    Error
-            end
-    end.
+    Dest.
 
-subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
-    case (DevAddr band (Mask bsl 2)) == Base of
+subnet_lookup(Itr, Key, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
+    case (Key band (Mask bsl 2)) == Base of
         true ->
             Dest;
         false ->
-            subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, prev))
+            subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, prev))
     end;
 subnet_lookup(_, _, _) ->
     error.
