@@ -205,7 +205,7 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(txn_consensus_group_failure()) -> ok | {error, _}.
 is_well_formed(Tx) ->
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {failed_members, failed_members(Tx), {list, any, {address, libp2p}}},
         {height        , height(Tx)        , {integer, {min, 0}}},
         {delay         , delay(Tx)         , {integer, {min, 0}}},

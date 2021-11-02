@@ -132,7 +132,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
-            case blockchain_contracts:check([{payees, payees(Txn), {list, any, {address, libp2p}}}]) of
+            case blockchain_contract:check([{payees, payees(Txn), {list, any, {address, libp2p}}}]) of
                 ok ->
                     do_is_valid_checks(Txn, Chain, M);
                 Error ->
@@ -345,7 +345,7 @@ has_valid_memos(Payments) ->
                     {custom, memo_invalid, fun blockchain_payment_v2:memo_is_valid/1}
                 ]}}
         end,
-    blockchain_contracts:are_satisfied(lists:map(PaymentToMemoContract, Payments)).
+    blockchain_contract:are_satisfied(lists:map(PaymentToMemoContract, Payments)).
 
 -spec has_default_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
 has_default_memos(Payments) ->

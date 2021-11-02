@@ -170,7 +170,7 @@ is_valid(Txn, Chain) ->
     OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
 
     case
-        blockchain_contracts:check([
+        blockchain_contract:check([
             {oracle_public_key, RawTxnPK, {member, OracleKeys}},
             {price, Price, {integer, {min, 0}}}
         ])

@@ -179,7 +179,7 @@ is_well_formed(#blockchain_txn_payment_v1_pb{
     %% destructuring and binding multiple names, we get either a warning for an
     %% unused or a reused binding.
     %% TODO Should ?txn_field_validation_version matter here?
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {payer     , Payer    , {forall, [{address, libp2p}, {'not', {val, Payee}}]}},
         {payee     , Payee    , {forall, [{binary, any}, {'not', {val, Payer}}]}},
         {amount    , Amount   , {integer, {min, 0}}},  % TODO Limit to 64bit?
@@ -194,7 +194,7 @@ is_valid_payee(Txn, Ledger) ->
             {ok, 1} -> {address, libp2p};
             _       -> {binary, {range, 20, 33}}
         end,
-    blockchain_contracts:is_satisfied(payee(Txn), Contract).
+    blockchain_contract:is_satisfied(payee(Txn), Contract).
 
 validate_fee(Txn, Chain, Ledger) ->
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),

@@ -214,7 +214,7 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(txn_poc_request()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contracts:check(
+    blockchain_contract:check(
         record_to_kvl(blockchain_txn_poc_request_v1_pb, T),
         {kvl, [
             {challenger    , {binary, any}},

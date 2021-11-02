@@ -303,7 +303,7 @@ is_valid(Txn, Chain) ->
                                     {error, {invalid_assert_loc_txn_v2, {invalid_antenna_gain, Gain, MinGain, MaxGain}}};
                                 true ->
                                     case
-                                        blockchain_contracts:check([
+                                        blockchain_contract:check([
                                             {gateway  , Gateway  , {address, libp2p}},
                                             {owner    , Owner    , {address, libp2p}},
                                             {payer    , Payer    , {address, libp2p}},

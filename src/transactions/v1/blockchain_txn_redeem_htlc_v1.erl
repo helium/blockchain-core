@@ -135,7 +135,7 @@ is_valid(Txn, Chain) ->
                                {preimage, ?MODULE:preimage(Txn), {binary, {range, 1, 32}}},
                                {address, ?MODULE:address(Txn), {binary, {range, 32, 33}}}]
                       end,
-    case blockchain_contracts:check(FieldContracts) of
+    case blockchain_contract:check(FieldContracts) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->

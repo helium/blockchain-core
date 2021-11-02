@@ -91,7 +91,7 @@ is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}) ->
     %% Min size is static, so we can check it here without any other info, but
     %% max size check has to be deferred for later, since we first need to
     %% lookup the current max in a chain var, for which we need the chain param.
-    blockchain_contracts:check_with_defined([
+    blockchain_contract:check_with_defined([
         {transactions, Txs, {list, {min, 2}, {txn, any}}}
     ]).
 

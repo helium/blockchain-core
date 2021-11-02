@@ -86,7 +86,7 @@ is_valid(_Txn, _Chain) ->
 
 -spec is_well_formed(txn_genesis_validator()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {address, address(T), {address, libp2p}},
         {owner  , owner(T)  , {address, libp2p}},
         {stake  , stake(T)  , {integer, {min, 0}}}

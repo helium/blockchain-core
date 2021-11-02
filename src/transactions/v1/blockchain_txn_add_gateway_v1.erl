@@ -372,7 +372,7 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(txn_add_gateway()) ->
     ok | {error, blockchain_txn:field_validation_error()}.
 is_well_formed(Txn) ->
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {owner  , owner(Txn)  , {address, libp2p}},
         {gateway, gateway(Txn), {address, libp2p}},
         {payer  , payer(Txn)  , {either, [{address, libp2p}, {binary, {exactly, 0}}]}}

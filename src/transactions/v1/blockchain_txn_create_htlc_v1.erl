@@ -169,7 +169,7 @@ is_valid(Txn, Chain) ->
                                {address, ?MODULE:address(Txn), {binary, {range, 32, 33}}}]
                       end,
 
-    case blockchain_contracts:check(FieldContracts) of
+    case blockchain_contract:check(FieldContracts) of
         ok ->
             case blockchain_ledger_v1:find_htlc(?MODULE:address(Txn), Ledger) of
                 {ok, _HTLC} ->
@@ -224,7 +224,7 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(txn_create_htlc()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {payer    , payer(T)    , {address, libp2p}},
         {payee    , payee(T)    , {address, libp2p}},
         {address  , address(T)  , {address, libp2p}},

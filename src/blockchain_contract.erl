@@ -1,8 +1,7 @@
 %%% ===========================================================================
 %%% Value contract validation.
 %%% ===========================================================================
--module(blockchain_contracts).
-%%% TODO Rename to singular blockchain_contract
+-module(blockchain_contract).
 
 -export_type([
     key/0,

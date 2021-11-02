@@ -60,7 +60,7 @@
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 
 %% Check the transaction has the required fields and they're well formed and
-%% in-bounds.  Use blockchain_contracts heavily here.
+%% in-bounds.  Use blockchain_contract heavily here.
 -callback is_well_formed(txn()) -> ok | {error, any()}.
 
 %% Check the txn has the right causal information (nonce, block height, etc) to

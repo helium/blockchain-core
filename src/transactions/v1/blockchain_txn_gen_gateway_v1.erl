@@ -138,7 +138,7 @@ is_valid(_Txn, Chain) ->
 
 -spec is_well_formed(txn_genesis_gateway()) -> ok | {error, _}.
 is_well_formed(#blockchain_txn_gen_gateway_v1_pb{location=L}=T) ->
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {gateway , gateway(T) , {address, libp2p}},
         {owner   , owner(T)   , {address, libp2p}},
         {location, L          , {either, [undefined, {string, {exactly, 0}}, h3_string]}},

@@ -205,7 +205,7 @@ is_valid(Txn, _Chain) ->
 
 -spec is_well_formed(txn_oui()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contracts:check([
+    blockchain_contract:check([
         {owner          , owner(T)          , {address, libp2p}},
         {addresses      , addresses(T)      , {ordset, {max, 3}, {address, libp2p}}},
         {staking_fee    , staking_fee(T)    , {integer, {min, 0}}},

@@ -96,7 +96,7 @@ is_valid(_Txn, _Chain) ->
 
 -spec is_well_formed(txn_genesis_price_oracle()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contracts:check([{price, price(T), {integer, {min, 1}}}]).
+    blockchain_contract:check([{price, price(T), {integer, {min, 1}}}]).
 
 -spec is_absorbable(txn_genesis_price_oracle(), blockchain:blockchain()) ->
     boolean().

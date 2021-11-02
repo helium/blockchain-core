@@ -128,7 +128,7 @@ fee_payer(_Txn, _Ledger) ->
 
 -spec is_well_formed(txn_consensus_group()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contracts:check_with_defined([
+    blockchain_contract:check_with_defined([
         {members, members(T), {list, {min, 1}, {address, libp2p}}},
         {proof  , proof(T)  , {binary , {range, ?PROOF_MIN, ?PROOF_MAX}}},
         {height , height(T) , {integer, {range, ?HEIGHT_MIN, ?HEIGHT_MAX}}},

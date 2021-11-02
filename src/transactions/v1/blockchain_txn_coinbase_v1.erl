@@ -101,7 +101,7 @@ is_valid(_Txn, _Chain) ->
 
 -spec is_well_formed(txn_coinbase()) -> ok | {error, _}.
 is_well_formed(#blockchain_txn_coinbase_v1_pb{payee = Payee, amount = Amount}) ->
-    blockchain_contracts:check_with_defined(
+    blockchain_contract:check_with_defined(
         [
             {payee, Payee, {address, libp2p}},
             {amount, Amount, {integer, {min, 1}}}

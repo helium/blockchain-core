@@ -228,8 +228,8 @@ is_valid(Txn, Chain) ->
             end
     end.
 
-%% TODO Move to blockchain_contracts?
--spec number_contract() -> blockchain_contracts:t().
+%% TODO Move to blockchain_contract?
+-spec number_contract() -> blockchain_contract:t().
 number_contract() ->
     {either, [
         {float, any},
@@ -243,7 +243,7 @@ number_contract() ->
 is_well_formed_blockchain_poc_receipt_v1_pb(
     #blockchain_poc_receipt_v1_pb{}=Receipt
 ) ->
-    blockchain_contracts:is_satisfied(
+    blockchain_contract:is_satisfied(
         record_to_kvl(blockchain_poc_receipt_v1_pb, Receipt),
         {kvl, [
             {gateway  , {binary, any}},
@@ -267,7 +267,7 @@ is_well_formed_blockchain_poc_receipt_v1_pb(_) ->
 is_well_formed_blockchain_poc_witness_v1_pb(
     #blockchain_poc_witness_v1_pb{}=Witness
 ) ->
-    blockchain_contracts:is_satisfied(
+    blockchain_contract:is_satisfied(
         record_to_kvl(blockchain_poc_witness_v1_pb, Witness),
         {kvl, [
             {gateway    , {binary, any}},
@@ -288,7 +288,7 @@ is_well_formed_blockchain_poc_witness_v1_pb(_) ->
 is_well_formed_blockchain_poc_path_element_v1_pb(
     #blockchain_poc_path_element_v1_pb{}=PathElement
 ) ->
-    blockchain_contracts:is_satisfied(
+    blockchain_contract:is_satisfied(
         record_to_kvl(blockchain_poc_path_element_v1_pb, PathElement),
         {kvl, [
             {challengee, {binary, any}},
@@ -310,9 +310,9 @@ is_well_formed_blockchain_poc_path_element_v1_pb(
 is_well_formed_blockchain_poc_path_element_v1_pb(_) ->
     false.
 
--spec is_well_formed(txn_poc_receipts()) -> blockchain_contracts:result().
+-spec is_well_formed(txn_poc_receipts()) -> blockchain_contract:result().
 is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
-    blockchain_contracts:check(
+    blockchain_contract:check(
         record_to_kvl(blockchain_txn_poc_receipts_v1_pb, Txn),
         {kvl, [
             {challenger        , {binary, any}},
