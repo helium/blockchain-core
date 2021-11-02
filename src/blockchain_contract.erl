@@ -13,7 +13,6 @@
     forall/0,
     exists/0,
     either/0,
-    contract/0,
     spec/0,
     failure/0,
     failure_bin/0,
@@ -55,21 +54,21 @@
 -type either() :: either | '∃!'. % xor  EXACTLY ONE contract must be satisfied
 -type quantifier() :: forall() | exists() | either().
 
--type contract() ::
-      {quantifier(), [contract()]}
-    | {'not', contract()}
+-type t() ::
+      {quantifier(), [t()]}
+    | {'not', t()}
     | any
     | defined
     | undefined
     | {string, measure()}
     | {iodata, measure()}
     | {binary, measure()}
-    | {list, measure(), contract()}
-    | {kvl, [{key(), contract()}]}
+    | {list, measure(), t()}
+    | {kvl, [{key(), t()}]}
     %% TODO Reconsider semantics - how can we spec a looser contract than every key?
     %%      Maybe:
-    %%          {kvl, [{key(), contract()}], Opt} when Opt :: fail_unknown_keys | pass_unknown_keys
-    %%          {kvl, Required :: [{key(), contract()}], Optional :: [{key(), contract()}]}
+    %%          {kvl, [{key(), t()}], Opt} when Opt :: fail_unknown_keys | pass_unknown_keys
+    %%          {kvl, Required :: [{key(), t()}], Optional :: [{key(), t()}]}
     %%      Report:
     %%          - duplicated
     %%          - unsupported
@@ -84,13 +83,13 @@
     % - set_list
     % - list_set
     % - list_of_uniques
-    | {ordset, measure(), contract()}
+    | {ordset, measure(), t()}
 
     | {float, measure(float())}
     | {integer, measure(integer())}
     % TODO Design integration of finer refinements, like is_power_of_2, etc.
     %       {integer, measure(), [refinement()]} ?
-    %       {integer, measure(), [contract()]} ? where refinement is a contract variant
+    %       {integer, measure(), [t()]} ? where refinement is a t variant
     %
     % Use-case in blockchain_txn_oui_v1.erl
 
@@ -105,18 +104,16 @@
     %%  - [x] txn
     %%  - [ ] tuple of measure()
     %%      {tuple, measure()} --> tuple_wrong_size
-    %%      {tuple_of, [contract()]} --> invalid elements in positions I, J, K, ...
-    %%      {tuple, measure(), [contract()]} --> what if [contract()] conflicts with measure()?
+    %%      {tuple_of, [t()]} --> invalid elements in positions I, J, K, ...
+    %%      {tuple, measure(), [t()]} --> what if [t()] conflicts with measure()?
     %%  - [ ] records as tuple with given head
     %%      Can we automate mapping field names to positions?
     %%  - [ ] atom. But, maybe not useful in light of {val, A}?
     %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
 
--type t() :: contract().
-
 %% TODO Remove the specs concept in favor of a kvl contract
 -type spec() ::
-    {key(), val(), contract()}.
+    {key(), val(), t()}.
 
 -type failure_bin() ::
       {not_a_binary, val()}
@@ -192,7 +189,7 @@
 
 %% TODO Remove the specs concept in favor of a kvl contract
 
--spec is_satisfied(val(), contract()) -> boolean().
+-spec is_satisfied(val(), t()) -> boolean().
 is_satisfied(Val, Contract) ->
     res_to_bool(test(Val, Contract)).
 
@@ -206,7 +203,7 @@ are_satisfied(Specs) ->
 check(Specs) ->
     check_specs(Specs).
 
--spec check(val(), contract()) -> result().
+-spec check(val(), t()) -> result().
 check(Val, Contract) ->
     case test(Val, Contract) of
         pass ->
@@ -241,7 +238,7 @@ check_spec({Key, Val, Contract}) ->
             [{Key, Failure}]
     end.
 
--spec test(val(), contract()) -> test_result().
+-spec test(val(), t()) -> test_result().
 test(_, any)                         -> pass;
 test(V, {val, Expected})             -> test_val(V, Expected);
 test(V, {'not', Contract})           -> test_not(V, Contract);
@@ -267,7 +264,7 @@ test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
 test(V, {Either, Contracts}) when Either =:= either; Either =:= '∃!'  ->
     test_either(V, Contracts).
 
--spec test_kvl(val(), [{key(), contract()}]) -> test_result().
+-spec test_kvl(val(), [{key(), t()}]) -> test_result().
 test_kvl(KeyValues, KeyContracts) ->
     IsPair = fun ({_, _}) -> true; (_) -> false end,
     case test_list(KeyValues, any, {custom, IsPair, invalid_kv_pair}) of
@@ -307,7 +304,7 @@ test_kvl(KeyValues, KeyContracts) ->
             end
     end.
 
--spec test_not(val(), contract()) -> test_result().
+-spec test_not(val(), t()) -> test_result().
 test_not(V, Contract) ->
     case test(V, Contract) of
         pass -> {fail, negation_failed};
@@ -318,7 +315,7 @@ test_not(V, Contract) ->
 test_val(V, V) -> pass;
 test_val(G, E) -> {fail, {unexpected_val, given, G, expected, E}}.
 
--spec test_forall(val(), [contract()]) -> test_result().
+-spec test_forall(val(), [t()]) -> test_result().
 test_forall(V, Contracts) ->
     lists:foldl(
         fun (R, pass) -> test(V, R);
@@ -328,7 +325,7 @@ test_forall(V, Contracts) ->
         Contracts
     ).
 
--spec test_exists(val(), [contract()]) -> test_result().
+-spec test_exists(val(), [t()]) -> test_result().
 test_exists(V, Contracts) ->
     lists:foldl(
         fun (_, pass) -> pass;
@@ -344,7 +341,7 @@ test_exists(V, Contracts) ->
         Contracts
     ).
 
--spec test_either(val(), [contract()]) -> test_result().
+-spec test_either(val(), [t()]) -> test_result().
 test_either(V, Contracts) ->
     Results = [test(V, R) || R <- Contracts],
     case lists:filter(fun res_to_bool/1, Results) of
@@ -420,7 +417,7 @@ test_list_size(V, Measure) ->
             )
     end.
 
--spec test_list(val(), measure(), contract()) -> test_result().
+-spec test_list(val(), measure(), t()) -> test_result().
 test_list(Xs, Measure, ElementContract) ->
     case test_list_size(Xs, Measure) of
         {fail, _}=Fail ->
@@ -445,7 +442,7 @@ test_list(Xs, Measure, ElementContract) ->
             end
     end.
 
--spec test_ordset(val(), measure(), contract()) -> test_result().
+-spec test_ordset(val(), measure(), t()) -> test_result().
 test_ordset(Xs, Measure, ElementContract) ->
     case test_list(Xs, Measure, ElementContract) of
         {fail, _}=Fail ->
