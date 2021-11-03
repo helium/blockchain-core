@@ -6,12 +6,14 @@
 -module(blockchain_txn_routing_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
 
 -export([
@@ -200,6 +202,7 @@ calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Ledger, _Fee, _ExtraData
 -spec is_valid(txn_routing(),
                blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
+    %% TODO Refactor
     Ledger = blockchain:ledger(Chain),
     OUI = ?MODULE:oui(Txn),
     case blockchain_ledger_v1:find_routing(OUI, Ledger) of
@@ -257,9 +260,59 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+is_well_formed_update_routers(#update_routers_pb{}=UR) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(update_routers_pb, UR),
+        {kvl, [
+            {router_addresses, {list, any, {binary, any}}} % TODO Stricter contract. {address, libp2p}?
+        ]}
+    );
+is_well_formed_update_routers(_) ->
+    false.
+
+is_well_formed_update_xor(#update_xor_pb{}=UX) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(update_xor_pb, UX),
+        {kvl, [
+            {index, {integer, {min, 0}}},
+            {filter, {binary, any}}  % TODO Stricter contract?
+        ]}
+    );
+is_well_formed_update_xor(_) ->
+    false.
+
 -spec is_well_formed(txn_routing()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_routing_v1_pb, T),
+        {kvl, [
+            {oui        , {integer, {min, 0}}},
+            {owner      , {address, libp2p}},
+            {fee        , {integer, {min, 0}}},
+            {staking_fee, {integer, {min, 0}}},
+            {nonce      , {integer, {min, 1}}},
+            {signature  , {binary, any}},
+            {update     , {one_of, [
+                undefined,
+                {tuple, [
+                    {val, update_routers},
+                    {custom, fun is_well_formed_update_routers/1, invalid_update_routers}
+                ]},
+                {tuple, [
+                    {val, new_xor},
+                    {binary, any} % TODO Stricter contract
+                ]},
+                {tuple, [
+                    {val, update_xor},
+                    {custom, fun is_well_formed_update_xor/1, invalid_update_xor}
+                ]},
+                {tuple, [
+                    {val, request_subnet},
+                    {integer, {min, 0}} % TODO Stricter contract. Power of 2?
+                ]}
+            ]}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_routing(), blockchain:blockchain()) ->
     boolean().
@@ -503,6 +556,11 @@ subnets_left(Routing, MaxSubnetNum) ->
     Subnets = length(blockchain_ledger_routing_v1:subnets(Routing)),
     Subnets < MaxSubnetNum.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(update_routers_pb);
+?DEFINE_RECORD_TO_KVL(update_xor_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_routing_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -588,7 +646,40 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, oui, owner, fee, action, nonce])).
 
-validation_test() ->
-    error('TODO-validation_test').
+-define(TSET(T, K, V), T#blockchain_txn_routing_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_routing_v1_pb{
+            oui         = 0,
+            owner       = Addr,
+            fee         = 0,
+            staking_fee = 0,
+            nonce       = 1,
+            signature   = <<>>,
+            update      = undefined
+        },
+    UX =
+        #update_xor_pb{
+            index = 0,
+            filter = <<"fake_filter">>
+        },
+    UR =
+        #update_routers_pb{
+            router_addresses = [<<"fake_router_addr">>]
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {request_subnet, 1}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {new_xor, <<>>}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {update_xor, UX}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {update_routers, UR})))
+    ].
 
 -endif.
