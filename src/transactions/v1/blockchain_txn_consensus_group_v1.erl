@@ -414,7 +414,7 @@ is_well_formed_test_() ->
         ?_assertEqual(ok, is_well_formed(T)),
         ?_assertEqual(
             {error,
-                {invalid, {invalid_kvl_pairs, [
+                {contract_breach, {invalid_kvl_pairs, [
                     {height,
                         {integer_out_of_range,
                             ?HEIGHT_MIN - 1,
@@ -427,7 +427,7 @@ is_well_formed_test_() ->
         ),
         ?_assertEqual(
             {error,
-                {invalid, {invalid_kvl_pairs, [
+                {contract_breach, {invalid_kvl_pairs, [
                     {delay,
                         {integer_out_of_range,
                             ?DELAY_MIN - 1,
@@ -440,7 +440,7 @@ is_well_formed_test_() ->
         ),
         ?_assertEqual(
             {error,
-                {invalid, {invalid_kvl_pairs, [
+                {contract_breach, {invalid_kvl_pairs, [
                     {proof, {binary_wrong_size, 1, {range, ?PROOF_MIN, ?PROOF_MAX}}}
                 ]}}
             },

@@ -141,7 +141,7 @@ is_valid(Txn, Chain) ->
             of
                 ok ->
                     do_is_valid_checks(Txn, Chain, M);
-                Error ->
+                {error, _}=Error ->
                     Error
             end;
         _ ->

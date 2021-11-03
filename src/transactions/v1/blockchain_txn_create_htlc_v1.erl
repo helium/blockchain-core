@@ -469,23 +469,23 @@ is_well_formed_test_() ->
     [
         ?_assertEqual(ok, is_well_formed(T)),
         ?_assertMatch(
-            {error, {invalid, _}},
+            {error, {contract_breach, _}},
             is_well_formed(?TSET(T, payer, undefined))
         ),
         ?_assertMatch(
-            {error, {invalid, _}},
+            {error, {contract_breach, _}},
             is_well_formed(?TSET(T, payer, <<>>))
         ),
         ?_assertMatch(
-            {error, {invalid, _}},
+            {error, {contract_breach, _}},
             is_well_formed(?TSET(T, payee, <<>>))
         ),
         ?_assertMatch(
-            {error, {invalid, _}},
+            {error, {contract_breach, _}},
             is_well_formed(?TSET(T, address, <<>>))
         ),
         ?_assertMatch(
-            {error, {invalid, _}},
+            {error, {contract_breach, _}},
             is_well_formed(?TSET(T, nonce, -1))
         )
     ].

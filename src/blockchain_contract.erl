@@ -167,8 +167,7 @@
     .
 
 -type result() ::
-    ok | {error, {invalid, failure()}}.
-%% TODO Rename 'invalid' to 'contract_violation' or some such.
+    ok | {error, {contract_breach, failure()}}.
 
 %% For internal use
 -type test_result() ::
@@ -189,7 +188,7 @@ check(Val, Contract) ->
         pass ->
             ok;
         {fail, Failure} ->
-            {error, {invalid, Failure}}
+            {error, {contract_breach, Failure}}
     end.
 
 %% Internal ===================================================================
@@ -588,7 +587,7 @@ custom_test_() ->
         ?_assertEqual(ok, check([{Key, bar}], {kvl, [{Key, BarContract}]})),
 
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{Key, {not_bar, baz}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{Key, {not_bar, baz}}]}}},
             check([{Key, baz}], {kvl, [{Key, BarContract}]})
         )
     ].
@@ -601,7 +600,7 @@ defined_test_() ->
         ?_assertEqual({fail, undefined}, test(undefined, Contract)),
         ?_assertEqual(ok, check([{Key, bar}], {kvl, [{Key, Contract}]})),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{Key, undefined}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{Key, undefined}]}}},
             check([{Key, undefined}], {kvl, [{Key, Contract}]})
         )
     ].
@@ -621,7 +620,7 @@ binary_test_() ->
         ?_assertEqual(ok, check([{Key, <<>>}], {kvl, [{Key, {binary, any}}]})),
         ?_assertEqual(ok, check([{Key, <<>>}], {kvl, [{Key, {binary, {exactly, 0}}}]})),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{Key, {binary_wrong_size, 0, {range, 8, 1024}}}]}}},
             check([{Key, <<>>}], {kvl, [{Key, {binary, {range, 8, 1024}}}]})
         )
     ].
@@ -643,11 +642,11 @@ list_test_() ->
         ?_assertEqual(ok, check([{Key, []}], {kvl, [{Key, {list, any, any}}]})),
         ?_assertEqual(ok, check([{Key, []}], {kvl, [{Key, {list, {exactly, 0}, any}}]})),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{Key, {list_wrong_size, 0, {range, 8, 1024}}}]}}},
             check([{Key, []}], {kvl, [{Key, {list, {range, 8, 1024}, any}}]})
         ),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{Key, {not_a_list, BadList}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{Key, {not_a_list, BadList}}]}}},
             check(
                 [{Key, BadList}],
                 {kvl, [{Key, {list, {range, 8, 1024}, any}}]}

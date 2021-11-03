@@ -580,15 +580,15 @@ validation_test_() ->
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2]))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3]))),
         ?_assertMatch(
-            {error, {invalid, {invalid_kvl_pairs, [{addresses, {list_wrong_size, 4, {max, 3}}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_wrong_size, 4, {max, 3}}}]}}},
             is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr4]))
         ),
         ?_assertMatch(
-            {error, {invalid, {invalid_kvl_pairs, [{addresses, {list_contains_duplicate_elements, [_]}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_contains_duplicate_elements, [_]}}]}}},
             is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))
         ),
         ?_assertMatch(
-            {error, {invalid, {invalid_kvl_pairs, [{addresses, {list_contains_invalid_elements, [_]}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_contains_invalid_elements, [_]}}]}}},
             is_well_formed(?TSET(T, addresses, [<<"foo">>]))
         )
 

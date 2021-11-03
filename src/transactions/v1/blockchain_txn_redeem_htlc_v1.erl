@@ -339,7 +339,7 @@ is_valid_with_extended_validation_test_() ->
              %% valid payee, invalid address
              Tx1 = sign(new(Payee, <<"address">>, crypto:strong_rand_bytes(32)), SigFun),
              ?assertEqual(
-                 {error, {invalid, {invalid_kvl_pairs, [{address, invalid_address}]}}},
+                 {error, {contract_breach, {invalid_kvl_pairs, [{address, invalid_address}]}}},
                  is_valid(Tx1, Chain)
              ),
 

@@ -176,15 +176,15 @@ is_well_formed_test_() ->
     Tx = blockchain_txn_assert_location_v1:gen_new_valid(),
     [
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{transactions, {not_a_list, undefined}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {not_a_list, undefined}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=undefined})
         ),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 0, {min, 2}}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 0, {min, 2}}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[]})
         ),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 1, {min, 2}}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 1, {min, 2}}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[Tx]})
         ),
         ?_assertEqual(
@@ -194,11 +194,11 @@ is_well_formed_test_() ->
             })
         ),
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [trust_me_im_a_txn]}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [trust_me_im_a_txn]}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [Tx, Tx, trust_me_im_a_txn]})
         ),
         ?_assertMatch(
-            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [
                 #blockchain_txn_assert_location_v1_pb{}
             ]}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [

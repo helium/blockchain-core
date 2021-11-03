@@ -598,7 +598,7 @@ to_json_test() ->
 is_well_formed_test_() ->
     [
         ?_assertEqual(
-            {error, {invalid, {invalid_kvl_pairs, [
+            {error, {contract_breach, {invalid_kvl_pairs, [
                 {owner, invalid_address},
                 {gateway, invalid_address}
             ]}}},
