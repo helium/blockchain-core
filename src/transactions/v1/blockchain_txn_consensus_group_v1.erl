@@ -6,9 +6,10 @@
 -module(blockchain_txn_consensus_group_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_v1_pb.hrl").
 
@@ -128,12 +129,15 @@ fee_payer(_Txn, _Ledger) ->
 
 -spec is_well_formed(txn_consensus_group()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contract:check_with_defined([
-        {members, members(T), {list, {min, 1}, {address, libp2p}}},
-        {proof  , proof(T)  , {binary , {range, ?PROOF_MIN, ?PROOF_MAX}}},
-        {height , height(T) , {integer, {range, ?HEIGHT_MIN, ?HEIGHT_MAX}}},
-        {delay  , delay(T)  , {integer, {range, ?DELAY_MIN, ?DELAY_MAX}}}
-    ]).
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_consensus_group_v1_pb, T),
+        {kvl, [
+            {members, {list, {min, 1}, {address, libp2p}}},
+            {proof  , {binary , {range, ?PROOF_MIN, ?PROOF_MAX}}},
+            {height , {integer, {range, ?HEIGHT_MIN, ?HEIGHT_MAX}}},
+            {delay  , {integer, {range, ?DELAY_MIN, ?DELAY_MAX}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_consensus_group(), blockchain:blockchain()) ->
     boolean().
@@ -365,6 +369,9 @@ verify_proof(Proof, Members, Hash, Delay, OldLedger) ->
             {error, group_mismatch}
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_consensus_group_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -407,35 +414,35 @@ is_well_formed_test_() ->
         ?_assertEqual(ok, is_well_formed(T)),
         ?_assertEqual(
             {error,
-                {invalid, [
+                {invalid, {invalid_kvl_pairs, [
                     {height,
                         {integer_out_of_range,
                             ?HEIGHT_MIN - 1,
                             {range, ?HEIGHT_MIN, ?HEIGHT_MAX}
                         }
                     }
-                ]}
+                ]}}
             },
             is_well_formed(?TSET(T, height, ?HEIGHT_MIN - 1))
         ),
         ?_assertEqual(
             {error,
-                {invalid, [
+                {invalid, {invalid_kvl_pairs, [
                     {delay,
                         {integer_out_of_range,
                             ?DELAY_MIN - 1,
                             {range, ?DELAY_MIN, ?DELAY_MAX}
                         }
                     }
-                ]}
+                ]}}
             },
             is_well_formed(?TSET(T, delay, ?DELAY_MIN - 1))
         ),
         ?_assertEqual(
             {error,
-                {invalid, [
+                {invalid, {invalid_kvl_pairs, [
                     {proof, {binary_wrong_size, 1, {range, ?PROOF_MIN, ?PROOF_MAX}}}
-                ]}
+                ]}}
             },
             is_well_formed(?TSET(T, proof, <<"1">>))
         )

@@ -7,9 +7,11 @@
 
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_gen_price_oracle_v1_pb.hrl").
 
 -export([
@@ -96,7 +98,10 @@ is_valid(_Txn, _Chain) ->
 
 -spec is_well_formed(txn_genesis_price_oracle()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contract:check([{price, price(T), {integer, {min, 1}}}]).
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_gen_price_oracle_v1_pb, T),
+        {kvl, [{price, {integer, {min, 1}}}]}
+    ).
 
 -spec is_absorbable(txn_genesis_price_oracle(), blockchain:blockchain()) ->
     boolean().
@@ -143,6 +148,8 @@ to_json(Txn, _Opts) ->
       price => price(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_gen_price_oracle_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

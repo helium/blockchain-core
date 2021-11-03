@@ -7,9 +7,11 @@
 
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_gen_validator_v1_pb.hrl").
 
 -export([
@@ -84,13 +86,16 @@ fee_payer(_Txn, _Ledger) ->
 is_valid(_Txn, _Chain) ->
     ok.
 
--spec is_well_formed(txn_genesis_validator()) -> ok | {error, _}.
+-spec is_well_formed(txn_genesis_validator()) -> blockchain_contract:result().
 is_well_formed(T) ->
-    blockchain_contract:check([
-        {address, address(T), {address, libp2p}},
-        {owner  , owner(T)  , {address, libp2p}},
-        {stake  , stake(T)  , {integer, {min, 0}}}
-    ]).
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_gen_validator_v1_pb, T),
+        {kvl, [
+            {address, {address, libp2p}},
+            {owner  , {address, libp2p}},
+            {stake  , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_genesis_validator(), blockchain:blockchain()) ->
     boolean().
@@ -135,6 +140,8 @@ to_json(Txn, _Opts) ->
       stake => stake(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_gen_validator_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

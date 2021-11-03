@@ -7,9 +7,11 @@
 
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_gen_gateway_v1_pb.hrl").
 
 -export([
@@ -137,13 +139,16 @@ is_valid(_Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_genesis_gateway()) -> ok | {error, _}.
-is_well_formed(#blockchain_txn_gen_gateway_v1_pb{location=L}=T) ->
-    blockchain_contract:check([
-        {gateway , gateway(T) , {address, libp2p}},
-        {owner   , owner(T)   , {address, libp2p}},
-        {location, L          , {either, [undefined, {string, {exactly, 0}}, h3_string]}},
-        {nonce   , nonce(T)   , {integer, {min, 1}}}
-    ]).
+is_well_formed(#blockchain_txn_gen_gateway_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_gen_gateway_v1_pb, T),
+        {kvl, [
+            {gateway , {address, libp2p}},
+            {owner   , {address, libp2p}},
+            {location, {either, [undefined, {string, {exactly, 0}}, h3_string]}},
+            {nonce   , {integer, {min, 1}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_genesis_gateway(), blockchain:blockchain()) ->
     boolean().
@@ -195,6 +200,8 @@ to_json(Txn, _Opts) ->
       nonce => nonce(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_gen_gateway_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

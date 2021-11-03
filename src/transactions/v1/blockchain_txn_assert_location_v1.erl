@@ -13,6 +13,7 @@
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
 
 -export([
     new/4, new/5,
@@ -377,36 +378,22 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
-is_well_formed(
-    #blockchain_txn_assert_location_v1_pb{
-        gateway           = Gateway,
-        gateway_signature = GatewaySig,
-        owner             = Owner,
-        owner_signature   = OwnerSig,
-        payer             = Payer,
-        payer_signature   = PayerSig,
-        location          = Location,
-        nonce             = Nonce,
-        staking_fee       = StakingFee,
-        fee               = Fee
-    }
-) ->
+is_well_formed(T) ->
     %% TODO Are sig size specs correct?
-    blockchain_contract:check_with_defined(
-        [
-            {owner            , Owner     , {address, libp2p}},
-            {gateway          , Gateway   , {address, libp2p}},
-            {payer            , Payer     , {either, [{binary, {exactly, 0}}, {address, libp2p}]}},
-
-            {owner_signature  , OwnerSig  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
-            {gateway_signature, GatewaySig, {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
-            {payer_signature  , PayerSig  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
-
-            {nonce            , Nonce     , {integer, {min, 1}}},
-            {staking_fee      , StakingFee, {integer, {min, 0}}},
-            {fee              , Fee       , {integer, {min, 0}}},
-            {location         , Location  , h3_string}
-        ]
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_assert_location_v1_pb, T),
+        {kvl, [
+            {owner            , {address, libp2p}},
+            {gateway          , {address, libp2p}},
+            {payer            , {either, [{binary, {exactly, 0}}, {address, libp2p}]}},
+            {owner_signature  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {gateway_signature, {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {payer_signature  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {nonce            , {integer, {min, 1}}},
+            {staking_fee      , {integer, {min, 0}}},
+            {fee              , {integer, {min, 0}}},
+            {location         , h3_string}
+        ]}
     ).
 
 -spec is_absorbable(txn_assert_location(), blockchain:blockchain()) ->
@@ -551,6 +538,8 @@ staking_fee_for_gw_mode(_, Ledger)->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_assert_location_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -641,13 +630,13 @@ is_well_formed_test_() ->
         {"Baseline all ok", ?_assertEqual(ok, is_well_formed(T))},
         {"Empty payer is OK", ?_assertEqual(ok, is_well_formed(?T_SET(T, payer, <<>>)))},
         {"All same addresses is OK", ?_assertEqual(ok, is_well_formed(T#blockchain_txn_assert_location_v1_pb{gateway = Addr1, owner = Addr1, payer = Addr1}))},
-        ?_assertMatch({error, {invalid, [{gateway, undefined}]}}, is_well_formed(?T_SET(T, gateway, undefined))),
-        ?_assertMatch({error, {invalid, [{owner, undefined}]}}, is_well_formed(?T_SET(T, owner, undefined))),
-        ?_assertMatch({error, {invalid, [{payer, undefined}]}}, is_well_formed(?T_SET(T, payer, undefined))),
-        ?_assertMatch({error, {invalid, [{gateway_signature, undefined}]}}, is_well_formed(?T_SET(T, gateway_signature, undefined))),
-        ?_assertMatch({error, {invalid, [{owner_signature, undefined}]}}, is_well_formed(?T_SET(T, owner_signature, undefined))),
-        ?_assertMatch({error, {invalid, [{payer_signature, undefined}]}}, is_well_formed(?T_SET(T, payer_signature, undefined))),
-        ?_assertMatch({error, {invalid, [{staking_fee, undefined}]}}, is_well_formed(?T_SET(T, staking_fee, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{gateway, _}]}}}, is_well_formed(?T_SET(T, gateway, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{owner, _}]}}}, is_well_formed(?T_SET(T, owner, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{payer, _}]}}}, is_well_formed(?T_SET(T, payer, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{gateway_signature, _}]}}}, is_well_formed(?T_SET(T, gateway_signature, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{owner_signature, _}]}}}, is_well_formed(?T_SET(T, owner_signature, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{payer_signature, _}]}}}, is_well_formed(?T_SET(T, payer_signature, undefined))),
+        ?_assertMatch({error, {invalid, {invalid_kvl_pairs, [{staking_fee, _}]}}}, is_well_formed(?T_SET(T, staking_fee, undefined))),
 
         ?_assertMatch({error, _}, is_well_formed(?T_SET(T, staking_fee, -1))),
         ?_assertMatch({error, _}, is_well_formed(?T_SET(T, fee, undefined))),

@@ -12,6 +12,7 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
@@ -205,32 +206,32 @@ is_valid(Txn, _Chain) ->
 
 -spec is_well_formed(txn_oui()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contract:check([
-        {owner          , owner(T)          , {address, libp2p}},
-        {addresses      , addresses(T)      , {ordset, {max, 3}, {address, libp2p}}},
-        {staking_fee    , staking_fee(T)    , {integer, {min, 0}}},
-        {fee            , fee(T)            , {integer, {min, 0}}},
-        {owner_signature, owner_signature(T), {binary, any}},
-        {payer_signature, payer_signature(T), {binary, any}},
-        {oui            , oui(T)            , {integer, {min, 0}}},
-        {filter,
-            filter(T),
-            {forall, [
-                {binary, any},
-                {custom, fun validate_filter/1, invalid_filter}]}},
-        {requested_subnet_size,
-            requested_subnet_size(T),
-            {forall, [
-                %% subnet size should be between 8 and 65536 as a power of two
-                {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
-                {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
-        {payer,
-            payer(T),
-            {either, [
-                {address, libp2p},
-                {binary, {exactly, 0}}]}}
-                %% TODO Allow undefined? It is permitted by is_valid_payer
-    ]).
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_oui_v1_pb, T),
+        {kvl, [
+            {owner          , {address, libp2p}},
+            {addresses      , {ordset, {max, 3}, {address, libp2p}}},
+            {staking_fee    , {integer, {min, 0}}},
+            {fee            , {integer, {min, 0}}},
+            {owner_signature, {binary, any}},
+            {payer_signature, {binary, any}},
+            {oui            , {integer, {min, 0}}},
+            {filter,
+                {forall, [
+                    {binary, any},
+                    {custom, fun validate_filter/1, invalid_filter}]}},
+            {requested_subnet_size,
+                {forall, [
+                    %% subnet size should be between 8 and 65536 as a power of two
+                    {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
+                    {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
+            {payer,
+                {either, [
+                    {address, libp2p},
+                    {binary, {exactly, 0}}]}}
+                    %% TODO Allow undefined? It is permitted by is_valid_payer
+        ]}
+    ).
 
 -spec is_absorbable(txn_oui(), blockchain:blockchain()) ->
     boolean().
@@ -420,6 +421,9 @@ validate_oui(OUI, Ledger) ->
             {false, OtherOUI}
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_oui_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -576,15 +580,15 @@ validation_test_() ->
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2]))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3]))),
         ?_assertMatch(
-            {error, {invalid, [{addresses, {list_wrong_size, 4, {max, 3}}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{addresses, {list_wrong_size, 4, {max, 3}}}]}}},
             is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr4]))
         ),
         ?_assertMatch(
-            {error, {invalid, [{addresses, {list_contains_duplicate_elements, [_]}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{addresses, {list_contains_duplicate_elements, [_]}}]}}},
             is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))
         ),
         ?_assertMatch(
-            {error, {invalid, [{addresses, {list_contains_invalid_elements, [_]}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{addresses, {list_contains_invalid_elements, [_]}}]}}},
             is_well_formed(?TSET(T, addresses, [<<"foo">>]))
         )
 

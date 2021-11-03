@@ -10,6 +10,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_dc_coinbase_v1_pb.hrl").
 
@@ -115,10 +116,13 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(txn_dc_coinbase()) -> ok | {error, _}.
 is_well_formed(T) ->
-    blockchain_contract:check([
-        {payee  , payee(T) , {address, libp2p}},
-        {amount , amount(T), {integer, {min, 0}}}
-    ]).
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_dc_coinbase_v1_pb, T),
+        {kvl, [
+            {payee, {address, libp2p}},
+            {amount, {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_dc_coinbase(), blockchain:blockchain()) ->
     boolean().
@@ -160,6 +164,8 @@ to_json(Txn, _Opts) ->
       amount=> amount(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_dc_coinbase_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

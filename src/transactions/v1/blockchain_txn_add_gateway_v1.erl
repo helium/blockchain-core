@@ -6,12 +6,14 @@
 -module(blockchain_txn_add_gateway_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
@@ -371,12 +373,20 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(txn_add_gateway()) ->
     ok | {error, blockchain_txn:field_validation_error()}.
-is_well_formed(Txn) ->
-    blockchain_contract:check([
-        {owner  , owner(Txn)  , {address, libp2p}},
-        {gateway, gateway(Txn), {address, libp2p}},
-        {payer  , payer(Txn)  , {either, [{address, libp2p}, {binary, {exactly, 0}}]}}
-    ]).
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_add_gateway_v1_pb, T),
+        {kvl, [
+            {owner            , {address, libp2p}},
+            {owner_signature  , {binary, any}},
+            {gateway          , {address, libp2p}},
+            {gateway_signature, {binary, any}},
+            {payer            , {either, [{address, libp2p}, {binary, {exactly, 0}}]}},
+            {payer_signature  , {binary, any}},
+            {staking_fee      , {integer, {min, 0}}}, % TODO Max 64 bit?
+            {fee              , {integer, {min, 0}}}  % TODO Max 64 bit?
+        ]}
+    ).
 
 -spec is_absorbable(txn_add_gateway(), blockchain:blockchain()) ->
     boolean().
@@ -462,6 +472,9 @@ staking_fee_for_gw_mode(light, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_light_gateway_v1(Ledger);
 staking_fee_for_gw_mode(full, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_add_gateway_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -585,7 +598,10 @@ to_json_test() ->
 is_well_formed_test_() ->
     [
         ?_assertEqual(
-            {error, {invalid, [{owner, invalid_address}, {gateway, invalid_address}]}},
+            {error, {invalid, {invalid_kvl_pairs, [
+                {owner, invalid_address},
+                {gateway, invalid_address}
+            ]}}},
             is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
         ),
         ?_assertEqual(

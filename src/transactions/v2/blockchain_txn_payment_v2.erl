@@ -132,7 +132,13 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
-            case blockchain_contract:check([{payees, payees(Txn), {list, any, {address, libp2p}}}]) of
+            case
+                %% TODO Drop this when implementing a full, deep contract in is_well_formed
+                blockchain_contract:check(
+                    [{payees, payees(Txn)}],
+                    {kvl, [{payees, {list, any, {address, libp2p}}}]}
+                )
+            of
                 ok ->
                     do_is_valid_checks(Txn, Chain, M);
                 Error ->
@@ -336,16 +342,20 @@ has_non_zero_amounts(Payments) ->
 -spec has_valid_memos(blockchain_payment_v2:payments()) -> boolean().
 has_valid_memos(Payments) ->
     %% Check that each payment's memo field is valid and within limits:
-    PaymentToMemoContract =
+    IsValidPayment =
         fun (P) ->
-            {memo,
-                blockchain_payment_v2:memo(P),
-                {forall, [
-                    {integer, {min, 0}},
-                    {custom, memo_invalid, fun blockchain_payment_v2:memo_is_valid/1}
-                ]}}
+                blockchain_contract:is_satisfied(
+                    blockchain_payment_v2:memo(P),
+                    {forall, [
+                        {integer, {min, 0}},
+                        {custom, memo_invalid, fun blockchain_payment_v2:memo_is_valid/1}
+                    ]}
+                )
         end,
-    blockchain_contract:are_satisfied(lists:map(PaymentToMemoContract, Payments)).
+    blockchain_contract:is_satisfied(
+        Payments,
+        {list, any, {custom, IsValidPayment, payment_with_invalid_memo}}
+    ).
 
 -spec has_default_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
 has_default_memos(Payments) ->

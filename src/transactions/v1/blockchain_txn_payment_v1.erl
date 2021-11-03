@@ -8,10 +8,13 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
 -export([
@@ -164,29 +167,19 @@ is_valid(T, C) ->
     result:to_empty(result:pipe(Steps, {})).
 
 -spec is_well_formed(txn_payment()) -> ok | {error, _}.
-is_well_formed(#blockchain_txn_payment_v1_pb{
-    payer     = Payer,
-    payee     = Payee,
-    amount    = Amount,
-    fee       = Fee,
-    nonce     = Nonce,
-    signature = Signature
-}) ->
-    %% XXX Destructure is better than accessors for cases where _everything_
-    %% needs accessing. When only one name is bound and then passed to multiple
-    %% functions, it is easy to make the mistake of calling the same accessor
-    %% more than once, without violating any language rules; but, when
-    %% destructuring and binding multiple names, we get either a warning for an
-    %% unused or a reused binding.
+is_well_formed(#blockchain_txn_payment_v1_pb{}=T) ->
     %% TODO Should ?txn_field_validation_version matter here?
-    blockchain_contract:check([
-        {payer     , Payer    , {forall, [{address, libp2p}, {'not', {val, Payee}}]}},
-        {payee     , Payee    , {forall, [{binary, any}, {'not', {val, Payer}}]}},
-        {amount    , Amount   , {integer, {min, 0}}},  % TODO Limit to 64bit?
-        {fee       , Fee      , {integer, {min, 0}}},  % TODO Limit to 64bit?
-        {nonce     , Nonce    , {integer, {min, 1}}},  % TODO Limit to 64bit?
-        {signature , Signature, {binary, any}}         % TODO Size constraint?
-    ]).
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_payment_v1_pb, T),
+        {kvl, [
+            {payer     , {forall, [{address, libp2p}, {'not', {val, payee(T)}}]}},
+            {payee     , {forall, [{binary, any}, {'not', {val, payer(T)}}]}},
+            {amount    , {integer, {min, 0}}},  % TODO Limit to 64bit?
+            {fee       , {integer, {min, 0}}},  % TODO Limit to 64bit?
+            {nonce     , {integer, {min, 1}}},  % TODO Limit to 64bit?
+            {signature , {binary, any}}         % TODO Size constraint?
+        ]}
+    ).
 
 is_valid_payee(Txn, Ledger) ->
     Contract =
@@ -262,6 +255,9 @@ to_json(Txn, _Opts) ->
       fee => fee(Txn),
       nonce => nonce(Txn)
      }.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_payment_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -342,22 +338,22 @@ is_well_formed_test_() ->
         ?_assertMatch(ok, is_well_formed(T)),
 
         %% No self-payment is allowed
-        ?_assertMatch({error, {invalid, [{payer, _}, {payee, _}]}}, is_well_formed(?TSET(T, payer, Payee))),
-        ?_assertMatch({error, {invalid, [{payer, _}, {payee, _}]}}, is_well_formed(?TSET(T, payee, Payer))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, payer, Payee))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, payee, Payer))),
 
         %% Must be a binary
-        ?_assertMatch({error, {invalid, [{payee, {not_a_binary, _}}]}}, is_well_formed(?TSET(T, payee, undefined))),
-        ?_assertMatch({error, {invalid, [{payee, {not_a_binary, _}}]}}, is_well_formed(?TSET(T, payee, 0))),
-        ?_assertMatch({error, {invalid, [{payee, {not_a_binary, _}}]}}, is_well_formed(?TSET(T, payee, "not addr"))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, payee, undefined))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, payee, 0))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, payee, "not addr"))),
 
         %% But, more-refined validation will happen later, in is_valid/2
         ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<>>))),
         ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<"not addr">>))),
 
-        ?_assertMatch({error, {invalid, [{amount, {not_an_integer, _}}]}}, is_well_formed(?TSET(T, amount, undefined))),
-        ?_assertMatch({error, {invalid, [{amount, {integer_out_of_range, _, _}}]}}, is_well_formed(?TSET(T, amount, -1))),
-        ?_assertMatch({error, {invalid, [{fee, {integer_out_of_range, _, _}}]}}, is_well_formed(?TSET(T, fee, -1))),
-        ?_assertMatch({error, {invalid, [{nonce, {integer_out_of_range, _, _}}]}}, is_well_formed(?TSET(T, nonce, -1)))
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, amount, undefined))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, amount, -1))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, {invalid, _}}, is_well_formed(?TSET(T, nonce, -1)))
     ].
 
 is_valid_with_extended_validation_test() ->

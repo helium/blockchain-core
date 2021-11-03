@@ -379,16 +379,9 @@ validate_owner(Txn, Routing) ->
             IsOwner
     end.
 
--spec validate_addresses(string()) -> boolean().
-validate_addresses([]) ->
-    true;
+-spec validate_addresses([binary()]) -> boolean().
 validate_addresses(Addresses) ->
-    case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
-        {L, L} when L =< 3 ->
-            ok == blockchain_contract:check([{router_address, P, {address, libp2p}} || P <- Addresses]);
-        _ ->
-            false
-    end.
+    blockchain_contract:is_satisfied(Addresses, {ordset, {max, 3}, {address, libp2p}}).
 
 -spec do_is_valid_checks(Txn :: txn_routing(),
                          Ledger :: blockchain_ledger_v1:ledger(),

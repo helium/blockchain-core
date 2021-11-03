@@ -13,7 +13,6 @@
     forall/0,
     exists/0,
     either/0,
-    spec/0,
     failure/0,
     failure_bin/0,
     failure_int/0,
@@ -25,11 +24,8 @@
 ]).
 
 -export([
-     check/1,
      check/2,
-     check_with_defined/1,
-     is_satisfied/2,
-     are_satisfied/1
+     is_satisfied/2
 ]).
 
 -type key() :: atom().
@@ -111,10 +107,6 @@
     %%  - [ ] atom. But, maybe not useful in light of {val, A}?
     %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
 
-%% TODO Remove the specs concept in favor of a kvl contract
--type spec() ::
-    {key(), val(), t()}.
-
 -type failure_bin() ::
       {not_a_binary, val()}
     | {binary_wrong_size, Actual :: non_neg_integer(), Required :: measure()}
@@ -175,8 +167,8 @@
     .
 
 -type result() ::
-    ok | {error, {invalid, [{key(), failure()}]}}.
-%% TODO Maybe drop the enclosing 'invalid' tuple from error reason?
+    ok | {error, {invalid, failure()}}.
+%% TODO Rename 'invalid' to 'contract_violation' or some such.
 
 %% For internal use
 -type test_result() ::
@@ -187,21 +179,9 @@
 
 %% API ========================================================================
 
-%% TODO Remove the specs concept in favor of a kvl contract
-
 -spec is_satisfied(val(), t()) -> boolean().
 is_satisfied(Val, Contract) ->
     res_to_bool(test(Val, Contract)).
-
-%% TODO Deprecated - REMOVE
--spec are_satisfied([spec()]) -> boolean().
-are_satisfied(Specs) ->
-    result:to_bool(result:of_empty(check(Specs), {})).
-
-%% TODO Deprecated - REMOVE
--spec check([spec()]) -> result().
-check(Specs) ->
-    check_specs(Specs).
 
 -spec check(val(), t()) -> result().
 check(Val, Contract) ->
@@ -212,31 +192,7 @@ check(Val, Contract) ->
             {error, {invalid, Failure}}
     end.
 
-%% TODO Deprecated - REMOVE
--spec check_with_defined([spec()]) -> result().
-check_with_defined(Specs) ->
-    check([{K, V, {forall, [defined, C]}}|| {K, V, C} <- Specs]).
-
 %% Internal ===================================================================
-%% TODO Deprecated - REMOVE
--spec check_specs([spec()]) -> result().
-check_specs(Specs) ->
-    case lists:flatten([check_spec(S) || S <- Specs]) of
-        [] ->
-            ok;
-        [_|_]=Invalid ->
-            {error, {invalid, Invalid}}
-    end.
-
-%% TODO Deprecated - REMOVE
--spec check_spec(spec()) -> [{key(), failure()}].
-check_spec({Key, Val, Contract}) ->
-    case test(Val, Contract) of
-        pass ->
-            [];
-        {fail, Failure} ->
-            [{Key, Failure}]
-    end.
 
 -spec test(val(), t()) -> test_result().
 test(_, any)                         -> pass;

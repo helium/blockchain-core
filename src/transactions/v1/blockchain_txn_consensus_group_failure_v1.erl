@@ -12,6 +12,7 @@
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_failure_v1_pb.hrl").
 
@@ -204,14 +205,17 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_consensus_group_failure()) -> ok | {error, _}.
-is_well_formed(Tx) ->
-    blockchain_contract:check([
-        {failed_members, failed_members(Tx), {list, any, {address, libp2p}}},
-        {height        , height(Tx)        , {integer, {min, 0}}},
-        {delay         , delay(Tx)         , {integer, {min, 0}}},
-        {members       , members(Tx)       , {list, any, {address, libp2p}}},
-        {signatures    , signatures(Tx)    , {list, any, {iodata, any}}}
-    ]).
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_consensus_group_failure_v1_pb, T),
+        {kvl, [
+            {failed_members, {list, any, {address, libp2p}}},
+            {height        , {integer, {min, 0}}},
+            {delay         , {integer, {min, 0}}},
+            {members       , {list, any, {address, libp2p}}},
+            {signatures    , {list, any, {iodata, any}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_consensus_group_failure(), blockchain:blockchain()) ->
     boolean().
@@ -314,6 +318,9 @@ to_json(Txn, _Opts) ->
         height => height(Txn),
         delay => delay(Txn)
     }.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_consensus_group_failure_v1_pb).
 
 %% Tests ======================================================================
 -ifdef(TEST).

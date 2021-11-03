@@ -303,15 +303,25 @@ is_valid(Txn, Chain) ->
                                     {error, {invalid_assert_loc_txn_v2, {invalid_antenna_gain, Gain, MinGain, MaxGain}}};
                                 true ->
                                     case
-                                        blockchain_contract:check([
-                                            {gateway  , Gateway  , {address, libp2p}},
-                                            {owner    , Owner    , {address, libp2p}},
-                                            {payer    , Payer    , {address, libp2p}},
-                                            {location , Location , {integer, {min, 0}}},
-                                            {elevation, Elevation, {integer, {min, -2147483648}}}
-                                        ])
+                                        blockchain_contract:check(
+                                            [
+                                                {gateway  , Gateway},
+                                                {owner    , Owner},
+                                                {payer    , Payer},
+                                                {location , Location},
+                                                {elevation, Elevation}
+                                            ],
+                                            {kvl, [
+                                                {gateway  , {address, libp2p}},
+                                                {owner    , {address, libp2p}},
+                                                {payer    , {address, libp2p}},
+                                                {location , {integer, {min, 0}}},
+                                                {elevation, {integer, {min, -2147483648}}}
+                                            ]}
+                                        )
                                     of
-                                        {error, _}=E -> E;
+                                        {error, _}=E ->
+                                            E;
                                         ok ->
                                             do_is_valid_checks(Txn, Chain)
                                     end

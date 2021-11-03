@@ -6,15 +6,15 @@
 -module(blockchain_txn_poc_request_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_caps.hrl").
 -include("blockchain_json.hrl").
-
--include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_records_meta.hrl").
+
+-include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
 
 -export([
     new/5,

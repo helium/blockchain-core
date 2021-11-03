@@ -6,11 +6,12 @@
 -module(blockchain_txn_bundle_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_pb.hrl").
 
 -define(MAX_BUNDLE_SIZE, 5).
@@ -87,13 +88,14 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_bundle()) -> ok | {error, _}.
-is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=Txs}) ->
+is_well_formed(#blockchain_txn_bundle_v1_pb{}=T) ->
     %% Min size is static, so we can check it here without any other info, but
     %% max size check has to be deferred for later, since we first need to
     %% lookup the current max in a chain var, for which we need the chain param.
-    blockchain_contract:check_with_defined([
-        {transactions, Txs, {list, {min, 2}, {txn, any}}}
-    ]).
+    blockchain_contract:check(
+		record_to_kvl(blockchain_txn_bundle_v1_pb, T),
+		{kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
+	).
 
 -spec is_absorbable(txn_bundle(), blockchain:blockchain()) -> boolean().
 is_absorbable(Tx, Chain) ->
@@ -162,6 +164,9 @@ speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=[_, _ | _]=Txns}, C
     blockchain_ledger_v1:delete_context(LedgerContext),
     InvalidTxns.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_bundle_v1_pb).
+
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -171,15 +176,15 @@ is_well_formed_test_() ->
     Tx = blockchain_txn_assert_location_v1:gen_new_valid(),
     [
         ?_assertEqual(
-           {error, {invalid, [{transactions, undefined}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{transactions, {not_a_list, undefined}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=undefined})
         ),
         ?_assertEqual(
-           {error, {invalid, [{transactions, {list_wrong_size, 0, {min, 2}}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 0, {min, 2}}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[]})
         ),
         ?_assertEqual(
-            {error, {invalid, [{transactions, {list_wrong_size, 1, {min, 2}}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 1, {min, 2}}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[Tx]})
         ),
         ?_assertEqual(
@@ -189,13 +194,13 @@ is_well_formed_test_() ->
             })
         ),
         ?_assertEqual(
-            {error, {invalid, [{transactions, {list_contains_invalid_elements, [trust_me_im_a_txn]}}]}},
+            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [trust_me_im_a_txn]}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [Tx, Tx, trust_me_im_a_txn]})
         ),
         ?_assertMatch(
-            {error, {invalid, [{transactions, {list_contains_invalid_elements, [
+            {error, {invalid, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [
                 #blockchain_txn_assert_location_v1_pb{}
-            ]}}]}},
+            ]}}]}}},
             is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [
                 Tx,
                 Tx#blockchain_txn_assert_location_v1_pb{gateway = undefined}

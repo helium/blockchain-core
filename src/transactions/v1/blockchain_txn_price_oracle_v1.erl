@@ -170,10 +170,16 @@ is_valid(Txn, Chain) ->
     OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
 
     case
-        blockchain_contract:check([
-            {oracle_public_key, RawTxnPK, {member, OracleKeys}},
-            {price, Price, {integer, {min, 0}}}
-        ])
+        blockchain_contract:check(
+            [
+                {oracle_public_key, RawTxnPK},
+                {price, Price}
+            ],
+            {kvl, [
+                {oracle_public_key, {member, OracleKeys}},
+                {price, {integer, {min, 0}}}
+            ]}
+        )
     of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of

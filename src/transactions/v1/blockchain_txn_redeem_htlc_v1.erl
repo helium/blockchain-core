@@ -125,17 +125,29 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Redeemer),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldContracts = case blockchain:config(?txn_field_validation_version, Ledger) of
-                          {ok, 1} ->
-                              [{payee, Redeemer, {address, libp2p}},
-                               {preimage, ?MODULE:preimage(Txn), {binary, {exactly, 32}}},
-                               {address, ?MODULE:address(Txn), {address, libp2p}}];
-                          _ ->
-                              [{payee, Redeemer, {address, libp2p}},
-                               {preimage, ?MODULE:preimage(Txn), {binary, {range, 1, 32}}},
-                               {address, ?MODULE:address(Txn), {binary, {range, 32, 33}}}]
-                      end,
-    case blockchain_contract:check(FieldContracts) of
+    VariableFieldContracts =
+        case blockchain:config(?txn_field_validation_version, Ledger) of
+            {ok, 1} ->
+                [
+                    {preimage, {binary, {exactly, 32}}},
+                    {address , {address, libp2p}}
+                ];
+            _ ->
+                [
+                    {preimage, {binary, {range, 1, 32}}},
+                    {address , {binary, {range, 32, 33}}}
+                ]
+        end,
+    case
+        blockchain_contract:check(
+            [
+                {payee, Redeemer},
+                {preimage, ?MODULE:preimage(Txn)},
+                {address, ?MODULE:address(Txn)}
+            ],
+            {kvl, [{payee, {address, libp2p}} | VariableFieldContracts]}
+        )
+    of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->
@@ -326,7 +338,10 @@ is_valid_with_extended_validation_test_() ->
 
              %% valid payee, invalid address
              Tx1 = sign(new(Payee, <<"address">>, crypto:strong_rand_bytes(32)), SigFun),
-             ?assertEqual({error, {invalid, [{address, invalid_address}]}}, is_valid(Tx1, Chain)),
+             ?assertEqual(
+                 {error, {invalid, {invalid_kvl_pairs, [{address, invalid_address}]}}},
+                 is_valid(Tx1, Chain)
+             ),
 
              #{public := PubKey2, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
              Address = libp2p_crypto:pubkey_to_bin(PubKey2),
