@@ -45,9 +45,9 @@
 -type txn_type() ::
     any | {type, atom()}.
 
--type forall() :: forall | '∀'.  % and  ALL contracts must be satisfied
--type exists() :: exists | '∃'.  % or   AT LEAST ONE contract must be satisfied
--type either() :: either | '∃!'. % xor  EXACTLY ONE contract must be satisfied
+-type forall() :: forall | '∀'  | all_of. % and  ALL contracts must be satisfied
+-type exists() :: exists | '∃'  | any_of. % or   AT LEAST ONE contract must be satisfied
+-type either() :: either | '∃!' | one_of. % xor  EXACTLY ONE contract must be satisfied
 -type quantifier() :: forall() | exists() | either().
 
 -type t() ::
@@ -213,11 +213,11 @@ test(V, {member, Vs})                -> test_membership(V, Vs);
 test(V, {address, libp2p})           -> test_address_libp2p(V);
 test(V, h3_string)                   -> test_h3_string(V);
 test(V, {txn, TxnType})              -> test_txn(V, TxnType);
-test(V, {ForAll, Contracts}) when ForAll =:= forall; ForAll =:= '∀'->
+test(V, {Q, Contracts}) when Q =:= forall; Q =:= '∀' ; Q =:= 'all_of' ->
     test_forall(V, Contracts);
-test(V, {Exists, Contracts}) when Exists =:= exists; Exists =:= '∃'  ->
+test(V, {Q, Contracts}) when Q =:= exists; Q =:= '∃' ; Q =:= 'any_of' ->
     test_exists(V, Contracts);
-test(V, {Either, Contracts}) when Either =:= either; Either =:= '∃!'  ->
+test(V, {Q, Contracts}) when Q =:= either; Q =:= '∃!'; Q =:= 'one_of' ->
     test_either(V, Contracts).
 
 -spec test_kvl(val(), [{key(), t()}]) -> test_result().
@@ -512,7 +512,9 @@ logic_test_() ->
     [
         ?_assertEqual(pass, test(<<>>, {'∀', [defined, {binary, any}]})),
         ?_assertEqual(pass, test(<<>>, {forall, [defined, {binary, any}]})),
+        ?_assertEqual(pass, test(<<>>, {all_of, [defined, {binary, any}]})),
         ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, any}]})),
+        ?_assertEqual(pass, test(<<>>, {any_of, [defined, {binary, any}]})),
         ?_assertEqual(pass, test(<<>>, {'∃', [defined, {binary, {exactly, 5}}]})),
         ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, {exactly, 5}}]})),
         ?_assertEqual(
@@ -534,6 +536,7 @@ logic_test_() ->
             {fail, {binary_wrong_size, 0, {exactly, 5}}},
             test(<<>>, {forall, [defined, {binary, {exactly, 5}}]})
         ),
+        ?_assertEqual(pass, test(5, {one_of, [{integer, any}, {binary, any}]})),
         ?_assertEqual(pass, test(5, {either, [{integer, any}, {binary, any}]})),
         ?_assertEqual(pass, test(5, {'∃!', [{integer, any}, {binary, any}]})),
         ?_assertMatch(
