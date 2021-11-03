@@ -100,9 +100,6 @@
     %% TODO More contracts:
     %%  - [x] txn
     %%  - [x] tuple
-    %%      no  {tuple_of, [t()]} --> invalid elements in positions I, J, K, ...
-    %%      yes {tuple, measure()} --> tuple_wrong_size
-    %%      no  {tuple, measure(), [t()]} --> what if [t()] conflicts with measure()?
     %%  - [ ] records as tuple with given head?
     %%      Can we automate mapping field names to positions?
     %%          Yes, and then record contracts don't seem that useful if we can
