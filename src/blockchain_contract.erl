@@ -225,7 +225,9 @@ test(V, {Q, Contracts}) when Q =:= forall; Q =:= '∀' ; Q =:= 'all_of' ->
 test(V, {Q, Contracts}) when Q =:= exists; Q =:= '∃' ; Q =:= 'any_of' ->
     test_exists(V, Contracts);
 test(V, {Q, Contracts}) when Q =:= either; Q =:= '∃!'; Q =:= 'one_of' ->
-    test_either(V, Contracts).
+    test_either(V, Contracts);
+test(_, BadContract) ->
+    error({bad_contract, BadContract}).
 
 -spec test_kvl(val(), [{key(), t()}]) -> test_result().
 test_kvl(KeyValues, KeyContracts) ->
