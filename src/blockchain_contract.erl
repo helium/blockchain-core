@@ -281,7 +281,7 @@ test_val(G, E) -> {fail, {unexpected_val, given, G, expected, E}}.
 -spec test_forall(val(), [t()]) -> test_result().
 test_forall(V, Contracts) ->
     lists:foldl(
-        fun (R, pass) -> test(V, R);
+        fun (C, pass) -> test(V, C);
             (_, {fail, _}=Failed) -> Failed
         end,
         pass,
@@ -292,7 +292,7 @@ test_forall(V, Contracts) ->
 test_exists(V, Contracts) ->
     lists:foldl(
         fun (_, pass) -> pass;
-            (R, {fail, _}) -> test(V, R)
+            (C, {fail, _}) -> test(V, C)
         end,
         case Contracts of
             [] ->
@@ -306,7 +306,7 @@ test_exists(V, Contracts) ->
 
 -spec test_either(val(), [t()]) -> test_result().
 test_either(V, Contracts) ->
-    Results = [test(V, R) || R <- Contracts],
+    Results = [test(V, C) || C <- Contracts],
     case lists:filter(fun res_to_bool/1, Results) of
         [] -> {fail, zero_contracts_satisfied};
         [_] -> pass;
