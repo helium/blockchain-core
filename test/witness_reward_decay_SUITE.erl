@@ -72,7 +72,7 @@ init_per_group(Group, Config) ->
             no_vars ->
                 #{};
             with_decay ->
-                #{?witness_reward_decay_exclusion => 3}
+                #{?witness_reward_decay_exclusion => 4}
         end,
 
     [{extra_vars, maps:merge(#{?poc_version => 10}, ExtraVars)} | Config].
@@ -98,7 +98,16 @@ init_per_suite(Config) ->
 %%--------------------------------------------------------------------
 
 end_per_suite(_Config) ->
+    ExpectedShares = #{
+                       0.6 => #{b => 4170712034, c => 751640587, d => 1503281174, e => 751640587, f => 751640587, g => 751640587},
+                       0.7 => #{b => 4150224857, c => 755055116, d => 1510110233, e => 755055116, f => 755055116, g => 755055116},
+                       0.8 => #{b => 4131526220, c => 758171556, d => 1516343112, e => 758171556, f => 758171556, g => 758171556},
+                       0.9 => #{b => 4114473474, c => 761013680, d => 1522027360, e => 761013680, f => 761013680, g => 761013680},
+                       1.0 => #{b => 4098932958, c => 763603766, d => 1527207533, e => 763603766, f => 763603766, g => 763603766},
+                       undefined => #{b => 4340277778, c => 723379630, d => 1446759259, e => 723379630, f => 723379630, g => 723379630}
+                      },
     WitnessShares = blockchain_test_reward_store:fetch(witness_shares),
+    ?assertEqual(WitnessShares, ExpectedShares),
     ct:print("Witness shares: ~p", [WitnessShares]),
     blockchain_test_reward_store:stop(),
     ok.
@@ -178,6 +187,10 @@ init_per_testcase(TestCase, Config0) ->
     Rx5 = blockchain_poc_receipt_v1:new(Beaconer5, 1004, 10, <<"fifth_rx">>, p2p),
     ConstructedWitnesses5 = construct_witnesses([b, f], GatewayLetterToAddrMap),
 
+    Beaconer6 = maps:get(h, GatewayLetterToAddrMap),
+    Rx6 = blockchain_poc_receipt_v1:new(Beaconer6, 1005, 10, <<"sixth_rx">>, p2p),
+    ConstructedWitnesses6 = construct_witnesses([b, g], GatewayLetterToAddrMap),
+
     meck:expect(blockchain_txn_poc_request_v1, is_valid, fun(_, _) -> ok end),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_, _) -> ok end),
     meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_, _) -> ok end),
@@ -230,6 +243,15 @@ init_per_testcase(TestCase, Config0) ->
         ConsensusMembers,
         Chain
     ),
+    ok = create_req_and_poc_blocks(
+        Challenger,
+        ChallengerSigFun,
+        Beaconer6,
+        Rx6,
+        ConstructedWitnesses6,
+        ConsensusMembers,
+        Chain
+    ),
 
     meck:expect(
         blockchain_txn_poc_receipts_v1,
@@ -245,7 +267,7 @@ init_per_testcase(TestCase, Config0) ->
     ),
 
     {ok, Height} = blockchain:height(Chain),
-    ?assertEqual({ok, 11}, blockchain:height(Chain)),
+    ?assertEqual({ok, 13}, blockchain:height(Chain)),
 
     {ok, RewardsMd} = blockchain_txn_rewards_v2:calculate_rewards_metadata(1, Height, Chain),
     WitnessRewards = format_results(maps:get(poc_witness, RewardsMd), GatewayAddrToLetterMap),
