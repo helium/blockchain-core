@@ -59,6 +59,7 @@
     | {string, measure()}
     | {iodata, measure()}
     | {binary, measure()}
+    | {tuple, [t()]}
     | {list, measure(), t()}
     | {kvl, [{key(), t()}]}
     %% TODO Reconsider semantics - how can we spec a looser contract than every key?
@@ -98,12 +99,14 @@
     .
     %% TODO More contracts:
     %%  - [x] txn
-    %%  - [ ] tuple of measure()
-    %%      {tuple, measure()} --> tuple_wrong_size
-    %%      {tuple_of, [t()]} --> invalid elements in positions I, J, K, ...
-    %%      {tuple, measure(), [t()]} --> what if [t()] conflicts with measure()?
-    %%  - [ ] records as tuple with given head
+    %%  - [x] tuple
+    %%      no  {tuple_of, [t()]} --> invalid elements in positions I, J, K, ...
+    %%      yes {tuple, measure()} --> tuple_wrong_size
+    %%      no  {tuple, measure(), [t()]} --> what if [t()] conflicts with measure()?
+    %%  - [ ] records as tuple with given head?
     %%      Can we automate mapping field names to positions?
+    %%          Yes, and then record contracts don't seem that useful if we can
+    %%          check them as kvls...
     %%  - [ ] atom. But, maybe not useful in light of {val, A}?
     %%  - [x] a concrete, given value, something like: -type() val(A) :: {val, A}.
 
@@ -131,6 +134,12 @@
       {not_a_list, val()}
     | {list_wrong_size, Actual :: non_neg_integer(), Required :: measure()}
     | {list_contains_invalid_elements, [term()]}
+    .
+
+-type failure_tuple() ::
+      {not_a_tuple, val()}
+    | {tuple_wrong_size, Actual :: non_neg_integer(), Required :: non_neg_integer()}
+    | {tuple_contract_breaches_in, [{Pos :: pos_integer(), failure()}]}
     .
 
 -type failure_kvl() ::
@@ -161,6 +170,7 @@
     | failure_int()
     | failure_float()
     | failure_list()
+    | failure_tuple()
     | failure_kvl()
     | {list_contains_duplicate_elements, [term()]}
     | {invalid_string, failure_list()}
@@ -203,6 +213,7 @@ test(V, undefined)                   -> test_undefined(V);
 test(V, {string, Measure})           -> test_string(V, Measure);
 test(V, {iodata, Measure})           -> test_iodata(V, Measure);
 test(V, {binary, Measure})           -> test_binary(V, Measure);
+test(V, {tuple, Contracts})          -> test_tuple(V, Contracts);
 test(V, {list, Measure, Contract})   -> test_list(V, Measure, Contract);
 test(V, {ordset, Measure, Contract}) -> test_ordset(V, Measure, Contract);
 test(V, {kvl, KeyContracts})         -> test_kvl(V, KeyContracts);
@@ -396,6 +407,38 @@ test_list(Xs, Measure, ElementContract) ->
                     {fail, {list_contains_invalid_elements, Invalid}}
             end
     end.
+
+-spec test_tuple(val(), [t()]) -> test_result().
+test_tuple(V, Contracts) when is_tuple(V) ->
+    NumElements = tuple_size(V),
+    NumContracts = length(Contracts),
+    case NumElements =:= NumContracts of
+        false ->
+            {fail, {tuple_wrong_size, NumElements, NumContracts}};
+        true ->
+            Elements = tuple_to_list(V),
+            Failures =
+                lists:foldl(
+                    fun ({I, E, C}, Failures) ->
+                        case test(E, C) of
+                            pass ->
+                                Failures;
+                            {fail, F} ->
+                                [{I, F} | Failures]
+                        end
+                    end,
+                    [],
+                    lists:zip3(lists:seq(1, NumElements), Elements, Contracts)
+                ),
+            case Failures of
+                [] ->
+                    pass;
+                [_|_] ->
+                    {fail, {tuple_contract_breaches_in, Failures}}
+            end
+    end;
+test_tuple(V, _) ->
+    {fail, {not_a_tuple, V}}.
 
 -spec test_ordset(val(), measure(), t()) -> test_result().
 test_ordset(Xs, Measure, ElementContract) ->
@@ -803,6 +846,20 @@ kvl_test_() ->
         ?_assertMatch(
            {fail, {kvl_keys_missing_a_value, [b]}},
             test([{a, 1}], {kvl, [{a, defined}, {b, defined}]})
+        )
+    ].
+
+tuple_test_() ->
+    [
+        ?_assertMatch(pass, test({a}, {tuple, [{val, a}]})),
+        ?_assertMatch(pass, test({a, 1}, {tuple, [{val, a}, {integer, {min, 0}}]})),
+        ?_assertMatch(
+            {fail, {tuple_wrong_size, 1, 2}},
+            test({a}, {tuple, [{val, a}, {integer, {min, 0}}]})
+        ),
+        ?_assertMatch(
+            {fail, {tuple_contract_breaches_in, [{2, {not_an_integer, b}}]}},
+            test({a, b}, {tuple, [{val, a}, {integer, {min, 0}}]})
         )
     ].
 
