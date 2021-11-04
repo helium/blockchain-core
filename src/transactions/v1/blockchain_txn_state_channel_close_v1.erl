@@ -6,12 +6,14 @@
 -module(blockchain_txn_state_channel_close_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
@@ -230,9 +232,61 @@ is_valid(Txn, Chain) ->
             end
     end.
 
--spec is_well_formed(txn_state_channel_close()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed_summary(#blockchain_state_channel_summary_v1_pb{}=S) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(blockchain_state_channel_summary_v1_pb, S),
+        {kvl, [
+            {client_pubkeybin, {address, libp2p}},
+            {num_packets     , {integer, {min, 0}}},
+            {num_dcs         , {integer, {min, 0}}}
+        ]}
+    );
+is_well_formed_summary(_) ->
+    false.
+
+blockchain_state_channel_v1_pb_contract() ->
+    {kvl, [
+        {id             , {binary, any}},
+        {owner          , {address, libp2p}},
+        {credits        , {integer, {min, 0}}},
+        {nonce          , {integer, {min, 1}}},
+        {summaries      , {list, any, {custom, fun is_well_formed_summary/1, invalid_summary}}},
+        {root_hash      , {binary, any}},
+        {skewed         , {binary, any}},
+        {state          , {either, [{val, open}, {val, closed}, {integer, any}]}},
+        {expire_at_block, {integer, {min, 0}}},
+        {signature      , {binary, any}}
+    ]}.
+
+-spec is_well_formed_blockchain_state_channel_v1(term()) -> boolean().
+is_well_formed_blockchain_state_channel_v1(#blockchain_state_channel_v1_pb{}=SC) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(blockchain_state_channel_v1_pb, SC),
+        blockchain_state_channel_v1_pb_contract()
+    );
+is_well_formed_blockchain_state_channel_v1(_) ->
+    false.
+
+-spec is_well_formed(txn_state_channel_close()) ->
+    blockchain_contract:result().
+is_well_formed(#blockchain_txn_state_channel_close_v1_pb{}=T) ->
+    SCContract =
+        {either, [
+            undefined,
+            {custom,
+                fun is_well_formed_blockchain_state_channel_v1/1,
+                invalid_state_channel}
+        ]},
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_state_channel_close_v1_pb, T),
+        {kvl, [
+            {state_channel , SCContract},
+            {closer        , {binary, any}},
+            {signature     , {binary, any}},
+            {fee           , {integer, {min, 0}}},
+            {conflicts_with, SCContract}
+        ]}
+    ).
 
 -spec is_absorbable(txn_state_channel_close(), blockchain:blockchain()) ->
     boolean().
@@ -382,6 +436,11 @@ to_json(Txn, _Opts) ->
                         end
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_state_channel_summary_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_state_channel_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_state_channel_close_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -433,7 +492,34 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, closer, state_channel])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    SC =
+        #blockchain_state_channel_v1_pb{
+            owner = Addr,
+            nonce = 1
+        },
+    T = #blockchain_txn_state_channel_close_v1_pb{},
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            ok,
+            blockchain_contract:check(
+                record_to_kvl(blockchain_state_channel_v1_pb, SC),
+                blockchain_state_channel_v1_pb_contract()
+            )
+        ),
+        ?_assert(is_well_formed_blockchain_state_channel_v1(SC)),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_state_channel_close_v1_pb{
+                state_channel = SC
+            })
+        )
+    ].
 
 -endif.
