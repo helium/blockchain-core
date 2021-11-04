@@ -153,6 +153,11 @@
     | txn_malformed
     .
 
+-type failure_either() ::
+      {zero_contracts_satisfied, [failure()]}
+    | {multiple_contracts_satisfied, [t()]}
+    .
+
 -type failure() ::
       invalid_address
     | invalid_h3_string
@@ -171,6 +176,7 @@
     | failure_kvl()
     | {list_contains_duplicate_elements, [term()]}
     | {invalid_string, failure_list()}
+    | failure_either()
     .
 
 -type result() ::
@@ -292,6 +298,7 @@ test_forall(V, Contracts) ->
 
 -spec test_exists(val(), [t()]) -> test_result().
 test_exists(V, Contracts) ->
+    %% TODO More-informative error, not simply the last failure.
     lists:foldl(
         fun (_, pass) -> pass;
             (C, {fail, _}) -> test(V, C)
@@ -308,11 +315,11 @@ test_exists(V, Contracts) ->
 
 -spec test_either(val(), [t()]) -> test_result().
 test_either(V, Contracts) ->
-    Results = [test(V, C) || C <- Contracts],
-    case lists:filter(fun res_to_bool/1, Results) of
-        [] -> {fail, zero_contracts_satisfied};
-        [_] -> pass;
-        [_|_] -> {fail, multiple_contracts_satisfied}
+    Results = [{C, test(V, C)} || C <- Contracts],
+    case lists:partition(fun ({_, R}) -> R =:= pass end, Results) of
+        {[]     , F} -> {fail, {zero_contracts_satisfied, [R || {_, {fail, R}} <- F]}};
+        {[_]    , _} -> pass;
+        {[_|_]=P, _} -> {fail, {multiple_contracts_satisfied, [C || {C, pass} <- P]}}
     end.
 
 -spec test_custom(val(), fun((val()) -> boolean()), term()) -> test_result().
@@ -581,15 +588,15 @@ logic_test_() ->
         ?_assertEqual(pass, test(5, {either, [{integer, any}, {binary, any}]})),
         ?_assertEqual(pass, test(5, {'∃!', [{integer, any}, {binary, any}]})),
         ?_assertMatch(
-            {fail, zero_contracts_satisfied},
+            {fail, {zero_contracts_satisfied, _}},
             test(5, {either, [{integer, {max, 1}}, {integer, {exactly, 10}}]})
         ),
         ?_assertMatch(
-            {fail, multiple_contracts_satisfied},
+            {fail, {multiple_contracts_satisfied, [{integer, any}, {integer, any}]}},
             test(5, {either, [{integer, any}, {integer, any}]})
         ),
         ?_assertMatch(
-            {fail, multiple_contracts_satisfied},
+            {fail, {multiple_contracts_satisfied, [{integer, any}, {integer, _}]}},
             test(5, {either, [{integer, any}, {integer, {range, 0, 10}}]})
         )
     ].
