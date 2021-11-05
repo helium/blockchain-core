@@ -92,6 +92,7 @@
 
     | {member, [any()]}
     | {address, libp2p}
+    %% TODO Custom test fun should return result:empty/1 instead of boolean, so we can propagate the error.
     | {custom, fun((val()) -> boolean()), Label :: term()} % TODO Maybe rename "custom" to "test"
     | h3_string
     | {txn, txn_type()}
