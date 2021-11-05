@@ -130,7 +130,7 @@
 -type failure_list() ::
       {not_a_list, val()}
     | {list_wrong_size, Actual :: non_neg_integer(), Required :: measure()}
-    | {list_contains_invalid_elements, [term()]}
+    | {list_contains_invalid_elements, [failure()]}
     .
 
 -type failure_tuple() ::
@@ -395,22 +395,22 @@ test_list(Xs, Measure, ElementContract) ->
         {fail, _}=Fail ->
             Fail;
         pass ->
-            Invalid =
+            Failures =
                 lists:foldl(
-                    fun (X, Invalid) ->
+                    fun (X, Failures) ->
                         case test(X, ElementContract) of
-                            pass -> Invalid;
-                            {fail, _} -> [X | Invalid]
+                            pass -> Failures;
+                            {fail, F} -> [F | Failures]
                         end
                     end,
                     [],
                     Xs
                 ),
-            case Invalid of
+            case Failures of
                 [] ->
                     pass;
                 [_|_] ->
-                    {fail, {list_contains_invalid_elements, Invalid}}
+                    {fail, {list_contains_invalid_elements, Failures}}
             end
     end.
 
@@ -707,7 +707,7 @@ list_test_() ->
         ?_assertEqual(pass, test([1, 2, 3], {list, {exactly, 3}, {integer, any}})),
         ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, {range, 1, 5}}})),
         ?_assertEqual(
-            {fail, {list_contains_invalid_elements, [30]}},
+            {fail, {list_contains_invalid_elements, [{integer_out_of_range, 30, {range, 1, 5}}]}},
             test([1, 2, 30], {list, any, {integer, {range, 1, 5}}})
         )
     ].
@@ -772,11 +772,11 @@ string_test_() ->
             test(<<"foo">>, {string, any})
         ),
         ?_assertEqual(
-            {fail, {invalid_string, {list_contains_invalid_elements, [?CHAR_MIN - 1]}}},
+            {fail, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MIN - 1, {range, 0, 255}}]}}},
             test("foo" ++ [?CHAR_MIN - 1], {string, any})
         ),
         ?_assertEqual(
-            {fail, {invalid_string, {list_contains_invalid_elements, [?CHAR_MAX + 1]}}},
+            {fail, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MAX + 1, {range, 0, 255}}]}}},
             test("foo" ++ [?CHAR_MAX + 1], {string, any})
         )
     ].
