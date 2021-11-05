@@ -6,12 +6,14 @@
 -module(blockchain_txn_validator_heartbeat_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_validator_heartbeat_v1_pb.hrl").
 
 -export([
@@ -137,8 +139,16 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_validator_heartbeat()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(#blockchain_txn_validator_heartbeat_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_validator_heartbeat_v1_pb, T),
+        {kvl, [
+            {address, {address, libp2p}},
+            {height, {integer, {min, 0}}},
+            {version, {integer, {min, 0}}},
+            {signature, {binary, any}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_validator_heartbeat(), blockchain:blockchain()) ->
     boolean().
@@ -189,6 +199,9 @@ to_json(Txn, _Opts) ->
       version => version(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_validator_heartbeat_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -200,7 +213,21 @@ to_json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T = #blockchain_txn_validator_heartbeat_v1_pb{},
+    [
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [
+                {address, invalid_address}
+            ]}}},
+            is_well_formed(T)
+        ),
+        ?_assertMatch(ok, is_well_formed(T#blockchain_txn_validator_heartbeat_v1_pb{address=Addr}))
+    ].
 
 -endif.
