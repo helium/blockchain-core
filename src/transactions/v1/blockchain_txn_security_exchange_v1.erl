@@ -6,12 +6,15 @@
 -module(blockchain_txn_security_exchange_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_security_exchange_v1_pb.hrl").
 
 -export([
@@ -223,8 +226,18 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(txn_security_exchange()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+is_well_formed(#blockchain_txn_security_exchange_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_security_exchange_v1_pb, T),
+        {kvl, [
+            {payer, {address, libp2p}},
+            {payee, {address, libp2p}},
+            {amount, {integer, {min, 0}}},
+            {fee, {integer, {min, 0}}},
+            {nonce, {integer, {min, 1}}},
+            {signature, {binary, any}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_security_exchange(), blockchain:blockchain()) ->
     boolean().
@@ -256,6 +269,9 @@ absorb(Txn, Chain) ->
         FeeError ->
             FeeError
     end.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_security_exchange_v1_pb).
 
 
 %% ------------------------------------------------------------------
@@ -313,7 +329,31 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T = #blockchain_txn_security_exchange_v1_pb{},
+    [
+        {"Defaults are invalid",
+            ?_assertMatch(
+                {error, {contract_breach, {invalid_kvl_pairs, [
+                    {payer, invalid_address},
+                    {payee, invalid_address},
+                    {nonce, {integer_out_of_range, 0, {min, 1}}}
+                ]}}},
+                is_well_formed(T)
+            )},
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_security_exchange_v1_pb{
+                payer = Addr,
+                payee = Addr,
+                nonce = 1
+            })
+        )
+    ].
 
 -endif.
