@@ -6,12 +6,14 @@
 -module(blockchain_txn_state_channel_open_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
@@ -147,9 +149,21 @@ is_valid(Txn, Chain) ->
             do_is_valid_checks(Txn, Chain)
     end.
 
--spec is_well_formed(txn_state_channel_open()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+-spec is_well_formed(txn_state_channel_open()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_state_channel_open_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_state_channel_open_v1_pb, T),
+        {kvl, [
+            {id           , {binary, any}},
+            {owner        , {address, libp2p}},
+            {amount       , {integer, {min, 0}}},
+            {expire_within, {integer, {min, 0}}},
+            {oui          , {integer, {min, 0}}},
+            {nonce        , {integer, {min, 1}}},
+            {signature    , {binary, any}},
+            {fee          , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_state_channel_open(), blockchain:blockchain()) ->
     boolean().
@@ -328,6 +342,9 @@ check_remaining(Txn, Ledger, Chain) ->
             Err
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_state_channel_open_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -385,7 +402,19 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_state_channel_open_v1_pb{
+            owner = Addr,
+            nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.
