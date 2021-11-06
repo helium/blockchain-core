@@ -1,4 +1,5 @@
 -module(blockchain_txn_transfer_hotspot_v1).
+
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
@@ -6,6 +7,8 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_transfer_hotspot_v1_pb.hrl").
 
 -define(STALE_POC_DEFAULT, 0).
@@ -197,9 +200,21 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                                           {error, buyer_insufficient_hnt_balance}}],
     blockchain_utils:fold_condition_checks(Conditions).
 
--spec is_well_formed(txn_transfer_hotspot()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+-spec is_well_formed(txn_transfer_hotspot()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_transfer_hotspot_v1_pb{buyer=B, seller=S}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_transfer_hotspot_v1_pb, T),
+        {kvl, [
+            {gateway         , {address, libp2p}},
+            {seller          , {forall, [{address, libp2p}, {'not', {val, B}}]}},
+            {seller_signature, {binary, any}},
+            {buyer           , {forall, [{address, libp2p}, {'not', {val, S}}]}},
+            {buyer_signature , {binary, any}},
+            {buyer_nonce     , {integer, {min, 1}}},
+            {amount_to_seller, {integer, {min, 0}}},
+            {fee             , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_transfer_hotspot(), blockchain:blockchain()) ->
     boolean().
@@ -313,6 +328,11 @@ get_config_or_default(?transfer_hotspot_stale_poc_blocks=Config, Ledger) ->
         Other -> Other
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_transfer_hotspot_v1_pb).
+
+%% Tests ======================================================================
+
 -ifdef(TEST).
 new_4_test() ->
     Tx = #blockchain_txn_transfer_hotspot_v1_pb{gateway= <<"gateway">>,
@@ -384,7 +404,36 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, seller, buyer, buyer_nonce, amount_to_seller, fee])).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        fun() ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Gateway = Addr(),
+    Buyer   = Addr(),
+    Seller  = Addr(),
+    T =
+        #blockchain_txn_transfer_hotspot_v1_pb{
+            gateway     = Gateway,
+            buyer       = Buyer,
+            seller      = Seller,
+            buyer_nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v1_pb{
+                buyer = Seller
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v1_pb{
+                seller = Buyer
+            })
+        )
+    ].
 
 -endif.
