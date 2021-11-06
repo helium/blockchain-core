@@ -16,6 +16,8 @@
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_price_oracle_v1_pb.hrl").
 
 -export([
@@ -198,9 +200,17 @@ is_valid(Txn, Chain) ->
             Error
     end.
 
--spec is_well_formed(txn_price_oracle()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+-spec is_well_formed(txn_price_oracle()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_price_oracle_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_price_oracle_v1_pb, T),
+        {kvl, [
+            {public_key, {address, libp2p}},
+            {price, {integer, {min, 1}}},
+            {block_height, {integer, {min, 1}}},
+            {signature, {binary, any}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_price_oracle(), blockchain:blockchain()) ->
     boolean().
@@ -272,6 +282,8 @@ validate_block_height(PK, MsgHeight, Current, MaxHeight, Ledger)
     end;
 validate_block_height(_PK, _MsgHeight, _Current, _MaxHeight, _Ledger) -> false.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_price_oracle_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -298,7 +310,20 @@ block_height_test() ->
     Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(2, block_height(Tx)).
 
-validation_test() ->
-    error('TODO-validation_test').
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_price_oracle_v1_pb{
+            public_key = Addr,
+            price = 1,
+            block_height = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.
