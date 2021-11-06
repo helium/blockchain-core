@@ -149,9 +149,9 @@
     .
 
 -type failure_txn() ::
-      not_a_txn
+      {not_a_txn, val()}
     | {txn_wrong_type, Actual :: atom(), Required :: atom()}
-    | txn_malformed
+    | {txn_malformed, val()}
     .
 
 -type failure_either() ::
@@ -515,7 +515,7 @@ test_h3_string(V) ->
 test_txn(V, TxnType) ->
     case blockchain_txn:type_check(V) of
         {error, not_a_known_txn_value} ->
-            {fail, not_a_txn};
+            {fail, {not_a_txn, V}};
         {ok, TypeActual} ->
             TypeRequired =
                 case TxnType of
@@ -530,7 +530,7 @@ test_txn(V, TxnType) ->
                         ok ->
                             pass;
                         {error, _} ->
-                            {fail, txn_malformed} % TODO Return more info?
+                            {fail, {txn_malformed, V}}
                     end;
                 false ->
                     {fail, {txn_wrong_type, TypeActual, TypeRequired}}
@@ -786,8 +786,9 @@ txn_test_() ->
     Addr = addr_gen(),
     Type = blockchain_txn_add_gateway_v1,
     Txn  = Type:new(Addr, Addr),
+    TxnMalformed = Type:new(<<"not addr">>, Addr),
     [
-        ?_assertEqual({fail, not_a_txn}, test(trust_me_im_a_txn, {txn, any})),
+        ?_assertEqual({fail, {not_a_txn, trust_me_im_a_txn}}, test(trust_me_im_a_txn, {txn, any})),
         ?_assertEqual(pass, test(Txn, {txn, any})),
         ?_assertEqual(pass, test(Txn, {txn, {type, Type}})),
         ?_assertEqual(
@@ -795,8 +796,8 @@ txn_test_() ->
             test(Txn, {txn, {type, not_a_txn_type}})
         ),
         ?_assertEqual(
-            {fail, txn_malformed},
-            test(Type:new(<<"not addr">>, Addr), {txn, any})
+            {fail, {txn_malformed, TxnMalformed}},
+            test(TxnMalformed, {txn, any})
         )
     ].
 
