@@ -647,8 +647,12 @@ sort(TxnA, TxnB) ->
 %%--------------------------------------------------------------------
 -spec type(txn()) -> atom().
 type(Txn) ->
-    {ok, Type} = type_check(Txn),
-    Type.
+    case type_check(Txn) of
+        {error, Reason} ->
+            error(Reason);
+        {ok, Type} ->
+            Type
+    end.
 
 -spec type_check(txn()) -> {ok, atom()} | {error, not_a_known_txn_value}.
 type_check(#blockchain_txn_assert_location_v1_pb{}) ->
