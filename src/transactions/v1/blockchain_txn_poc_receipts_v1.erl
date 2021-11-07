@@ -730,7 +730,7 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                        Res -> Res
                                catch _:_ ->
                                              Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
-                                             {undefined, [{<<"tagged_witnesses_crashed">>, Witness} || Witness <- Witnesses]}
+                                             {undefined, [{false, <<"tagged_witnesses_crashed">>, Witness} || Witness <- Witnesses]}
                                end,
 
                                 Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
