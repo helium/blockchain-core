@@ -208,7 +208,8 @@ sc_hotspot_cmd() ->
     ].
 
 sc_hotspot_cmd_usage() ->
-    [
+    [   
+        ["sc", "hotspot"],
         ["sc hotspot <hotspot name>\n\n",
             "  Show list of state channels where hotspot is in.\n"
         ]
