@@ -81,6 +81,7 @@
     % - list_set
     % - list_of_uniques
     | {ordset, measure(), t()}
+    | {ordset, measure(), t(), Cmp :: fun((val(), val()) -> boolean())}
 
     | {float, measure(float())}
     | {integer, measure(integer())}
@@ -219,7 +220,8 @@ test(V, {iodata, Measure})           -> test_iodata(V, Measure);
 test(V, {binary, Measure})           -> test_binary(V, Measure);
 test(V, {tuple, Contracts})          -> test_tuple(V, Contracts);
 test(V, {list, Measure, Contract})   -> test_list(V, Measure, Contract);
-test(V, {ordset, Measure, Contract}) -> test_ordset(V, Measure, Contract);
+test(V, {ordset, Measure, C})        -> test_ordset(V, Measure, C, fun erlang:'=<'/2);
+test(V, {ordset, Measure, C, F})     -> test_ordset(V, Measure, C, F);
 test(V, {kvl, KeyContracts})         -> test_kvl(V, KeyContracts);
 test(V, {integer, Measure})          -> test_int(V, Measure);
 test(V, {float, Measure})            -> test_float(V, Measure);
@@ -447,13 +449,14 @@ test_tuple(V, Contracts) when is_tuple(V) ->
 test_tuple(V, _) ->
     {fail, {not_a_tuple, V}}.
 
--spec test_ordset(val(), measure(), t()) -> test_result().
-test_ordset(Xs, Measure, ElementContract) ->
+-spec test_ordset(val(), measure(), t(), fun((val(), val()) -> boolean())) ->
+    test_result().
+test_ordset(Xs, Measure, ElementContract, Cmp) ->
     case test_list(Xs, Measure, ElementContract) of
         {fail, _}=Fail ->
             Fail;
         pass ->
-            case Xs -- lists:usort(Xs) of
+            case Xs -- lists:usort(Cmp, Xs) of
                 [] ->
                     pass;
                 [_|_]=Dups ->
