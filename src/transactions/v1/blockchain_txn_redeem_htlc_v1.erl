@@ -6,12 +6,14 @@
 -module(blockchain_txn_redeem_htlc_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_redeem_htlc_v1_pb.hrl").
 
 -export([
@@ -207,9 +209,18 @@ is_valid(Txn, Chain) ->
             Error
     end.
 
--spec is_well_formed(txn_redeem_htlc()) -> ok | {error, _}.
-is_well_formed(_Txn) ->
-    error(not_implemented).
+-spec is_well_formed(txn_redeem_htlc()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_redeem_htlc_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_redeem_htlc_v1_pb, T),
+        {kvl, [
+            {payee    , {address, libp2p}},
+            {address  , {any_of, [{address, libp2p}, {binary, {range, 32, 33}}]}},
+            {preimage , {binary, {range, 1, 32}}},
+            {fee      , {integer, {min, 0}}},
+            {signature, {binary, any}}
+        ]}
+    ).
 
 -spec is_absorbable(txn_redeem_htlc(), blockchain:blockchain()) ->
     boolean().
@@ -266,6 +277,9 @@ to_json(Txn, _Opts) ->
       preimage => ?BIN_TO_B64(preimage(Txn)),
       fee => fee(Txn)
      }.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_redeem_htlc_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -353,5 +367,51 @@ is_valid_with_extended_validation_test_() ->
              meck:unload(blockchain_ledger_v1),
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_redeem_htlc_v1_pb{
+            address = Addr,
+            payee = Addr,
+            preimage = <<"x">>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(31, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(32, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(33, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(33, 0))
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                preimage = <<>>
+            })
+        )
+    ].
 
 -endif.
