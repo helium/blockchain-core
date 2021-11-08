@@ -2996,30 +2996,6 @@ get_netids(Ledger) ->
             Error
     end.
 
--spec get_retired_netids(ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_retired_netids(Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?RETIRED_NETIDS, []) of
-        {ok, BinNetIDs} ->
-            binary_to_term(BinNetIDs);
-        not_found ->
-            [];
-        Error ->
-            Error
-    end.
-
--spec get_roaming_netids(ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_roaming_netids(Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?ROAMING_NETIDS, []) of
-        {ok, BinNetIDs} ->
-            binary_to_term(BinNetIDs);
-        not_found ->
-            [];
-        Error ->
-            Error
-    end.
-
 -spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 create_addr(Class, NetID, NwkAddr) ->
     Size = addr_class_width(Class),
@@ -3037,6 +3013,32 @@ addr_class_width(Class) ->
         5 -> 13;
         6 -> 10;
         7 -> 7
+    end.
+
+netid_width(NetID) ->
+    <<ID:21, NetClass:3>> = NetID,
+    case NetClass of
+        0 -> 25;
+        1 -> 24;
+        2 -> 20;
+        3 -> 17;
+        4 -> 15;
+        5 -> 13;
+        6 -> 10;
+        7 -> 7
+    end.
+
+netid_slab_count(NetID) ->
+    <<ID:21, NetClass:3>> = NetID,
+    case NetClass of
+        0 -> 8388608;
+        1 -> 4194304;
+        2 -> 262144;
+        3 -> 32768;
+        4 -> 8192;
+        5 -> 2048;
+        6 -> 256;
+        7 -> 32
     end.
 
 -spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
@@ -3218,18 +3220,19 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
             {ok, Res}
     end.
 
+
 -spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
                                Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_devaddr(DevAddr0, Ledger) ->
     NetID = get_net_id(DevAddr0),
     NwkAddr = get_nwk_addr(DevAddr0),
-    OfficialNetIDs = get_netids(Ledger), %% Official Helium NetIDs currently - 0x2D
-    RetiredNetIDs = get_retired_netids(Ledger), %% Retired NetIDs, i.e. $H
-    HeliumNetIDs = OfficialNetIDs ++ RetiredNetIDs,
-    FindAny = lists:any(fun(X) -> X == NetID end, HeliumNetIDs)
-    case FindAny of
-        true ->
-            Dest = find_dest(NwkAddr, Ledger);
+    Map = get_subnet_offset_map(Ledger),
+    Offset = maps:get(NetID, Map, 0),
+    case Offset of
+        0 ->
+            {error, {unknown_devaddr_prefix, NetID}}
+        _ ->
+            Dest = find_dest(NwkAddr, Offset, Ledger);
             case Dest of
             error ->
                {error, {subnet_not_found, NwkAddr}};
@@ -3244,15 +3247,46 @@ find_routing_via_devaddr(DevAddr0, Ledger) ->
             {error, {unknown_devaddr_prefix, NetID}}
     end.
 
+list_sum([], _, AccList) -> AccList;
+list_sum(List, Sum, AccList) ->
+    [H|T] = List,
+    Sum2 = H + Sum,
+    AccList2 = AccList ++ [Sum2],
+    list_sum(T, Sum2, AccList2).
+
+get_subnet_offset_map(Ledger) ->
+    OfficialNetIDs = get_netids(Ledger), %% Official Helium NetIDs currently - 0x2D
+    Offsets = [netid_slab_count(X) || X <- OfficialNetIDs],
+    OffsetSums = list_sum(Offsets, 0, []),
+    L = lists:zip(OfficialNetIDs, OffsetSums),
+    Map = maps:from_list(L),
+    Map.
+
 -spec find_dest(Key :: non_neg_integer(),
+                Offset :: non_neg_integer(),
                 Ledger :: ledger()) -> non_neg_integer() | error.
-find_dest(Key, Ledger) ->
+find_dest(Key, Offset, Ledger) ->
     %% iterate through the subnets
     {_Name, DB, SubnetCF} = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-    Dest = subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+    %% Dest = subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+    Dest = subnet_count_and_match(Itr, Key, Offset, rocksdb:iterator_move(Itr, {first, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
     catch rocksdb:iterator_close(Itr),
     Dest.
+
+subnet_count_and_match(Itr, Key, Offset, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
+    case Offset of
+        0 ->
+            case (Key band (Mask bsl 2)) == Base of
+                true ->
+                    Dest;
+                false ->
+                    error
+        _ ->
+            subnet_count_and_match(Itr, Key, Offset - 1, rocksdb:iterator_move(Itr, next))
+    end;
+subnet_count_and_match(_, _, _, _) ->
+    error.
 
 subnet_lookup(Itr, Key, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
     case (Key band (Mask bsl 2)) == Base of
