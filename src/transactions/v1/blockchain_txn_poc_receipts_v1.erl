@@ -723,8 +723,15 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                 end,
 
-                                FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-                                TaggedWitnesses = tagged_witnesses(Element, WitnessChannel, Ledger),
+                               %% if either crashes, the whole thing is invalid from a rewards perspective
+                               {FilteredReceipt, TaggedWitnesses} =
+                               try {valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                                    tagged_witnesses(Element, WitnessChannel, Ledger)} of
+                                       Res -> Res
+                               catch _:_ ->
+                                             Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
+                                             {undefined, [{false, <<"tagged_witnesses_crashed">>, Witness} || Witness <- Witnesses]}
+                               end,
 
                                 Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
