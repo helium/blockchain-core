@@ -525,3 +525,7 @@
 %% As an example, blockchain_txn_transfer_hotspot_v2, will get enabled
 %% when this value is set to >= 2.
 -define(transaction_validity_version, transaction_validity_version).    % pos_integer
+
+
+%% Boolean chain variable to discard witnesses with 0.0 frequency
+-define(discard_zero_freq_witness, discard_zero_freq_witness).
