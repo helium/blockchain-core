@@ -256,13 +256,13 @@ offer(
             of
                 {error, _Reason} ->
                     lager:warning(
-                        "dropping this packet because: ~p ~p",
-                        [_Reason, lager:pr(SC, blockchain_state_channel_v1)]
+                        "[~p] dropping this packet because: ~p",
+                        [blockchain_state_channel_v1:name(SC), _Reason]
                     ),
                     ok = send_offer_rejection(HandlerPid, Offer),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
-                    lager:debug("purchasing offer from ~p ~p", [HotspotName, PurchaseSC]),
+                    lager:debug("[~p] purchasing offer from ~p", [blockchain_state_channel_v1:name(PurchaseSC), HotspotName]),
                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
