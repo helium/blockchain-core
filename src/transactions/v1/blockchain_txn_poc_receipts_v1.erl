@@ -741,7 +741,7 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
             Path = ?MODULE:path(Txn),
             lists:foldl(fun({_ElementPos, Element}, Acc) ->
                                 Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
-                                Fun(Element, {undefined, [{false, list_to_binary(io_lib:format("missing_region_parameters_for_~p", [Region])), Witness} || Witness <- Witnesses]}, Acc)
+                                Fun(Element, {[{false, list_to_binary(io_lib:format("missing_region_parameters_for_~p", [Region])), Witness} || Witness <- Witnesses], undefined}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
 
     end.
