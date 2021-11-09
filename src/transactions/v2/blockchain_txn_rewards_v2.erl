@@ -164,16 +164,18 @@ is_well_formed(#blockchain_txn_rewards_v2_pb{}=T) ->
     blockchain_contract:check(
         record_to_kvl(blockchain_txn_rewards_v2_pb, T),
         {kvl, [
-            {start_epoch, {integer, {min, 0}}},
-            {end_epoch  , {integer, {min, 0}}},
-            {rewards    , {list, any, RewardContract}}
+            {start_epoch, {integer, {min, 0}}},  % TODO Require lt end?
+            {end_epoch  , {integer, {min, 0}}},  % TODO Require gt start?
+            {rewards    , {list, any, RewardContract}} % TODO Require non-empty?
         ]}
     ).
 
 -spec is_absorbable(txn_rewards_v2(), blockchain:blockchain()) ->
     boolean().
 is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+    %% XXX No nonce in this tx type, so what can we do?
+    %% TODO Perhaps non-zero chain height?
+    true.
 
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
