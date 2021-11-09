@@ -1453,7 +1453,7 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
                            %% [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
                 ValidWitnesses
             catch What:Why:ST ->
-                      lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
+                      lager:debug("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
                       []
             end;
         V when is_integer(V), V > 4 ->
