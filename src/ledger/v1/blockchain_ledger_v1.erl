@@ -1121,6 +1121,8 @@ save_threshold_txn(Txn, Ledger) ->
     DefaultCF = default_cf(Ledger),
     Bin = term_to_binary(Txn),
     Name = threshold_name(Txn),
+    %% This is done to invalidate the region cache on chain var txn absorption
+    _ = blockchain_region_v1:teardown_h3_to_region_cache(),
     cache_put(Ledger, DefaultCF, Name, Bin).
 
 threshold_name(Txn) ->

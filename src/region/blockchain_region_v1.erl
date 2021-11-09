@@ -7,7 +7,7 @@
 
 -include("blockchain_vars.hrl").
 
--export([get_all_regions/1, h3_to_region/2, h3_in_region/3]).
+-export([get_all_regions/1, h3_to_region/2, h3_in_region/3, teardown_h3_to_region_cache/0]).
 
 -type regions() :: [atom()].
 
@@ -107,3 +107,6 @@ h3_in_region_(H3, RegionVar, Ledger) ->
         _ ->
             {error, {region_var_not_set, RegionVar}}
     end.
+
+teardown_h3_to_region_cache() ->
+    e2qc:teardown(?H3_TO_REGION_CACHE).
