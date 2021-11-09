@@ -28,6 +28,8 @@
          proof/1, proof/2,
          multi_proofs/1, multi_proofs/2,
          vars/1,
+         to_var/2,
+         from_var/1,
          decoded_vars/1,
          version_predicate/1,
          unsets/1,
@@ -1324,6 +1326,12 @@ validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     end;
 validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
+validate_var(?discard_zero_freq_witness, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
+    end;
 
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
