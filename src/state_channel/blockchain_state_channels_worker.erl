@@ -239,7 +239,7 @@ offer(
                 "dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                 [DCAmount, NumDCs, TotalDCs]
             ),
-            %% This allow for packets (accepted offer) to come threw 
+            %% This allow for packets (accepted offer) to come threw
             _ = erlang:send_after(1000, self(), ?OVERSPENT),
             {noreply, State0};
         false ->
@@ -257,12 +257,12 @@ offer(
                 {error, _Reason} ->
                     lager:warning(
                         "[~p] dropping this packet because: ~p",
-                        [blockchain_state_channel_v1:name(SC), _Reason]
+                        [blockchain_state_channel_v1:id(SC), _Reason]
                     ),
                     ok = send_offer_rejection(HandlerPid, Offer),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
-                    lager:debug("[~p] purchasing offer from ~p", [blockchain_state_channel_v1:name(PurchaseSC), HotspotName]),
+                    lager:debug("[~p] purchasing offer from ~p", [blockchain_state_channel_v1:id(PurchaseSC), HotspotName]),
                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
