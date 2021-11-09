@@ -239,7 +239,7 @@ offer(
                 "dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                 [DCAmount, NumDCs, TotalDCs]
             ),
-            %% This allow for packets (accepted offer) to come threw
+            %% This allow for packets (accepted offer) to come through
             _ = erlang:send_after(1000, self(), ?OVERSPENT),
             {noreply, State0};
         false ->
