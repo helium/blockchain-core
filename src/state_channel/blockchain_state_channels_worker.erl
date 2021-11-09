@@ -355,6 +355,8 @@ maybe_update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
 
 -spec send_offer_rejection(HandlerPid :: pid(), Offer :: blockchain_state_channel_offer_v1:offer()) -> ok.
 send_offer_rejection(HandlerPid, Offer) ->
+    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    ok = blockchain_state_channels_cache:delete_hotspot(HotspotID),
     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
     RejectionMsg = blockchain_state_channel_rejection_v1:new(PacketHash),
     ok = blockchain_state_channel_common:send_rejection(HandlerPid, RejectionMsg).

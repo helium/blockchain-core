@@ -18,6 +18,7 @@
     dup_packets_test/1,
     cached_routing_test/1,
     max_actor_test/1,
+    max_actor_cache_eviction_test/1,
     replay_test/1,
     multiple_test/1,
     multi_owner_multi_sc_test/1,
@@ -61,6 +62,7 @@ test_cases() ->
         dup_packets_test,
         cached_routing_test,
         max_actor_test,
+        max_actor_cache_eviction_test,
         replay_test,
         multiple_test,
         multi_owner_multi_sc_test,
@@ -610,6 +612,143 @@ cached_routing_test(Config) ->
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
+
+max_actor_cache_eviction_test(Config) ->
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+
+    %% Check that the meck txn forwarding works
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+
+    %% Create OUI txn
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% Create state channel open txn
+    ID1 = crypto:strong_rand_bytes(24),
+    ExpireWithin = 11,
+    Nonce = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce, 10000),
+    ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
+
+     %% Create state channel open txn
+    ID2 = crypto:strong_rand_bytes(24),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce+1, 10000),
+    ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
+
+    %% Add block with oui and sc open txns
+    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn, SignedSCOpenTxn2]),
+    ct:pal("Block0: ~p", [Block0]),
+
+    %% Get sc open block hash for verification later
+    _SCOpenBlockHash = blockchain_block:hash_block(Block0),
+
+    %% Fake gossip block
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
+
+    %% Wait till the block is gossiped
+    ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
+
+    %% Checking that state channel got created properly
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
+
+    %% Check that the nonce of the sc server is okay
+    ok = expect_nonce_for_state_channel(RouterNode, ID1, 0),
+
+    ct:pal("ID1: ~p", [libp2p_crypto:bin_to_b58(ID1)]),
+    ct:pal("ID2: ~p", [libp2p_crypto:bin_to_b58(ID2)]),
+
+    MaxActorsAllowed = ct_rpc:call(RouterNode, blockchain_state_channel_v1, max_actors_allowed, [blockchain:ledger(RouterChain)]),
+    ct:pal("MaxActorsAllowed: ~p", [MaxActorsAllowed]),
+
+    %% Get active SC before sending MaxActorsAllowed + 1 packets from diff hotspots
+    ActiveSCIDs0 = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, []),
+    ?assertEqual([ID1], maps:keys(ActiveSCIDs0)),
+    {_StateChannel1, _SCState1, SCPid} = maps:get(ID1, ActiveSCIDs0),
+
+    CreateActorFun = fun() ->
+                             Actor=#{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+                             Actor#{
+                                    pubkey_bin => libp2p_crypto:pubkey_to_bin(PubKey),
+                                    sig_fun => libp2p_crypto:mk_sig_fun(PrivKey)
+                                   }
+                     end,
+
+    SendPacketFun = fun(#{pubkey_bin := PubKeyBin, sig_fun := SigFun} = _Actor) ->
+        Packet = blockchain_helium_packet_v1:new(
+            lorawan,
+            crypto:strong_rand_bytes(20),
+            erlang:system_time(millisecond),
+            -100.0,
+            915.2,
+            "SF8BW125",
+            -12.0,
+            {devaddr, 1207959553}
+        ),
+        Offer0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubKeyBin, 'US915'),
+        Offer1 = blockchain_state_channel_offer_v1:sign(Offer0, SigFun),
+        RouterLedger = blockchain:ledger(RouterChain),
+        ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, handle_offer, [Offer1, sc_packet_test_handler, RouterLedger, Self]),
+        {ok, Offer1}
+    end,
+
+    CreateActorAndSendPacketFun = fun(_Idx) ->
+        Actor = CreateActorFun(),
+        {ok, _} = SendPacketFun(Actor),
+        Actor
+    end,
+
+    %% Sending MaxActorsAllowed + 1 packets. Allowing a little time for second
+    %% state channel to be opened after filling the first with actors.
+    _ = lists:map(CreateActorAndSendPacketFun, lists:seq(1, MaxActorsAllowed)),
+    timer:sleep(100),
+    _ = CreateActorAndSendPacketFun(101),
+
+    %% Checking that new SC ID is not old SC ID
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ActiveSCIDs1 = maps:keys(ct_rpc:call(RouterNode, blockchain_state_channels_server, get_all, [])),
+        ct:pal("ActiveSCIDs1: ~p", [ActiveSCIDs1]),
+        lists:sort([ID1, ID2]) == lists:sort(ActiveSCIDs1)
+    end, 30, timer:seconds(1)),
+
+    %% ============================================================================
+    %% Test really starts here, let's make a known actor
+    #{pubkey_bin := KnownActorPubKeyBin} = KnownActor = CreateActorFun(),
+    ok = ct_rpc:call(RouterNode, blockchain_state_channels_cache, insert_hotspot, [KnownActorPubKeyBin, SCPid]),
+
+    %% Sending packet from gateway forced into the state channel cache of the already full SC, expecting a rejection.
+    {ok, Offer0} = SendPacketFun(KnownActor),
+    Rejection0 = blockchain_state_channel_rejection_v1:new(blockchain_state_channel_offer_v1:packet_hash(Offer0)),
+    ok =
+        receive
+             {send_rejection, Rejection0} ->
+                ok
+        after 1000 ->
+                ct:fail("Rejection not received, State channel should be full and reject this offer")
+        end,
+
+    %% Sending a packet from same previous gateway, should be purchased now, and in a different SC cache.
+    {ok, Offer1} = SendPacketFun(KnownActor),
+    Rejection1 = blockchain_state_channel_rejection_v1:new(blockchain_state_channel_offer_v1:packet_hash(Offer1)),
+    ok =
+        receive
+            {send_rejection, Rejection1} ->
+                ct:fail("Rejection received, Actor should have been moved to a different state channel with space")
+        after 1000 ->
+                ok
+        end,
+
+    %% Make sure the cached SC pid is not the same as the old one somehow
+    ?assertNotEqual(SCPid, ct_rpc:call(RouterNode, blockchain_state_channels_cache, lookup_hotspot, [KnownActorPubKeyBin])),
+
+    ok.
+
 
 max_actor_test(Config) ->
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
