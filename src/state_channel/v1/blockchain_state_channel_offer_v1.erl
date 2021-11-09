@@ -117,7 +117,7 @@ maybe_fix_region('region_au915') -> 'AU915';
 maybe_fix_region('region_cn470') -> 'CN470';
 maybe_fix_region('region_eu433') -> 'EU433';
 maybe_fix_region('region_eu868') -> 'EU868';
-maybe_fix_region('region_in868') -> 'IN865';
+maybe_fix_region('region_in865') -> 'IN865';
 maybe_fix_region('region_kr920') -> 'KR920';
 %% pre-poc 11 these will be correct
 maybe_fix_region(Other) -> Other.
