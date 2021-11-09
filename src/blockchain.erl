@@ -781,7 +781,8 @@ has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
             Error
     end.
 
-find_first_height_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}) ->
+find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
+    MinHeight = max(0, MinHeight0),
     {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
     rocksdb:iterator_move(Iter, {seek, <<(MinHeight):64/integer-unsigned-big>>}),
     case rocksdb:iterator_move(Iter, next) of
