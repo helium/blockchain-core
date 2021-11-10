@@ -854,19 +854,15 @@ absorb_aux(Block0, Chain0) ->
                                                   ok ->
                                                       case FollowAux of
                                                           true ->
-                                                              case blockchain_ledger_v1:commit_context(blockchain:ledger(Chain)) of
-                                                                  ok ->
-                                                                      case blockchain_ledger_v1:new_snapshot(AuxLedger0) of
-                                                                          {ok, AuxLedger2} ->
-                                                                              Hash = blockchain_block:hash_block(Block1),
-                                                                              blockchain_worker:notify({add_aux_block, Hash, false, AuxLedger2}),
-                                                                              AuxLedger3 = blockchain_ledger_v1:new_context(AuxLedger0),
-                                                                              Chain3 = blockchain:ledger(AuxLedger3, Chain),
-                                                                              {ok, Chain3};
-                                                                          E -> E
-                                                                      end;
-                                                                  E2 ->
-                                                                      E2
+                                                              ok = blockchain_ledger_v1:commit_context(blockchain:ledger(Chain)),
+                                                              case blockchain_ledger_v1:new_snapshot(AuxLedger0) of
+                                                                  {ok, AuxLedger2} ->
+                                                                      Hash = blockchain_block:hash_block(Block1),
+                                                                      blockchain_worker:notify({add_aux_block, Hash, false, AuxLedger2}),
+                                                                      AuxLedger3 = blockchain_ledger_v1:new_context(AuxLedger0),
+                                                                      Chain3 = blockchain:ledger(AuxLedger3, Chain),
+                                                                      {ok, Chain3};
+                                                                  E -> E
                                                               end;
                                                           false ->
                                                               {ok, Chain}
