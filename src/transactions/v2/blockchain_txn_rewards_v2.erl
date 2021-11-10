@@ -1202,10 +1202,11 @@ poc_witness_reward(Txn, AccIn,
                 Path)
     catch
         throw:{error, {unknown_region, Region}}:_ST ->
-            lager:error("Reported unknown_region: ~p", [Region]);
+            lager:error("Reported unknown_region: ~p", [Region]),
+            AccIn;
         What:Why:ST ->
             lager:error("failed to calculate poc_witness_rewards, error ~p:~p:~p", [What, Why, ST]),
-            []
+            AccIn
     end;
 poc_witness_reward(Txn, AccIn, _Chain, Ledger,
                    #{ poc_version := POCVersion } = Vars) when is_integer(POCVersion)
@@ -1456,7 +1457,8 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
                 ValidWitnesses
             catch
                 throw:{error, {unknown_region, Region}}:_ST ->
-                    lager:error("Reported unknown_region: ~p", [Region]);
+                    lager:error("Reported unknown_region: ~p", [Region]),
+                    [];
                 What:Why:ST ->
                     lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
                     []
