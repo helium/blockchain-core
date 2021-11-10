@@ -74,13 +74,11 @@ init(server, _Conn, [_Path, Blockchain]) ->
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:debug("sc_handler, empty banner: ~p", [SCBanner]),
-                    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
                     {ok, HandlerState,
                      blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSCs ->
                     [{SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
                     EncodedSCBanner =
                         e2qc:cache(
                             ?MODULE,
@@ -90,27 +88,27 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     {ok, HandlerState, EncodedSCBanner}
             end;
         _ ->
-            HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
             {ok, HandlerState}
     end.
 
 -spec handle_data(
-        Kind :: libp2p_framed_stream:kind(),
-        Data :: any(),
-        HandlerState :: any()
+    Kind :: libp2p_framed_stream:kind(),
+    Data :: any(),
+    HandlerState :: any()
 ) -> libp2p_framed_stream:handle_data_result().
 handle_data(client, Data, HandlerState) ->
     %% get ledger if we don't yet have one
-    Ledger = case blockchain_state_channel_common:ledger(HandlerState) of
-                 undefined ->
-                     case blockchain_worker:blockchain() of
-                         undefined ->
-                             undefined;
-                         Chain ->
-                             blockchain:ledger(Chain)
-                     end;
-                 L -> L
-             end,
+    Ledger = 
+        case blockchain_state_channel_common:ledger(HandlerState) of
+            undefined ->
+                case blockchain_worker:blockchain() of
+                    undefined ->
+                        undefined;
+                    Chain ->
+                        blockchain:ledger(Chain)
+                end;
+            L -> L
+        end,
     case blockchain_state_channel_message_v1:decode(Data) of
         {banner, Banner} ->
             case blockchain_state_channel_banner_v1:sc(Banner) of
@@ -214,10 +212,6 @@ handle_info(server, {send_purchase, PurchaseSC, Hotspot, PacketHash, Region, Own
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-    Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
-    {noreply, HandlerState, Data};
-handle_info(server, {send_diff, SignedDiff, Hotspot, PacketHash, Region}, HandlerState) ->
-    PurchaseMsg = blockchain_state_channel_purchase_v1:new_diff(SignedDiff, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
     {noreply, HandlerState, Data};
 handle_info(server, {send_response, Resp}, HandlerState) ->

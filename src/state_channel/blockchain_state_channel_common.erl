@@ -11,7 +11,8 @@
     handler_mod/1, handler_mod/2,
     pending_offer_limit/1, pending_offer_limit/2,
     chain/1, chain/2,
-    encode_pb/1, encode_pb/2
+    encode_pb/1, encode_pb/2,
+    state_channel/1, state_channel/2
 ]).
 
 %% API
@@ -32,14 +33,15 @@
 ]).
 
 -record(handler_state, {
-          chain :: undefined | blockchain:blockchain(),
-          ledger :: undefined | blockchain_ledger_v1:ledger(),
-          pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
-          offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
-          handler_mod = undefined :: atom(),
-          pending_offer_limit = undefined :: undefined | pos_integer(),
-          encode_pb = true :: boolean()
-         }).
+    chain :: undefined | blockchain:blockchain(),
+    ledger :: undefined | blockchain_ledger_v1:ledger(),
+    pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
+    offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
+    handler_mod = undefined :: atom(),
+    pending_offer_limit = undefined :: undefined | pos_integer(),
+    encode_pb = true :: boolean(),
+    state_channel = undefined :: undefined | blockchain_state_channel_v1:state_channel()
+}).
 
 
 -type handler_state() :: #handler_state{}.
@@ -99,6 +101,10 @@ pending_offer_limit(#handler_state{pending_offer_limit=V}) ->
 encode_pb(#handler_state{encode_pb=V}) ->
     V.
 
+-spec state_channel(handler_state()) -> blockchain_state_channel_v1:state_channel() | undefined.
+state_channel(#handler_state{state_channel=V}) ->
+    V.
+
 %%
 %% State setters
 %%
@@ -130,6 +136,9 @@ pending_offer_limit(NewV, HandlerState) ->
 encode_pb(NewV, HandlerState) ->
     HandlerState#handler_state{encode_pb=NewV}.
 
+-spec state_channel(blockchain_state_channel_v1:state_channel() | undefined, handler_state()) -> handler_state().
+state_channel(NewV, HandlerState) ->
+    HandlerState#handler_state{state_channel=NewV}.
 
 %%
 %% client API exports
@@ -149,27 +158,17 @@ send_offer(Pid, Offer) ->
 %%
 %% Server API exports
 %%
--spec send_purchase(Pid :: pid(),
-                    NewPurchaseSC :: blockchain_state_channel_v1:state_channel(),
-                    Hotspot :: libp2p_crypto:pubkey_bin(),
-                    PacketHash :: binary(),
-                    Region :: atom(),
-                    OwnerSigFun :: function()) -> ok.
+-spec send_purchase(
+    Pid :: pid(),
+    NewPurchaseSC :: blockchain_state_channel_v1:state_channel(),
+    Hotspot :: libp2p_crypto:pubkey_bin(),
+    PacketHash :: binary(),
+    Region :: atom(),
+    OwnerSigFun :: function()
+) -> ok.
 send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun) ->
     lager:debug("sending purchase: ~p, pid: ~p", [NewPurchaseSC, Pid]),
     Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun},
-    ok.
-
--spec send_diff(
-    Pid :: pid(),
-    SCDiff :: blockchain_state_channel_diff_v1:diff(),
-    Hotspot :: libp2p_crypto:pubkey_bin(),
-    PacketHash :: binary(),
-    Region :: atom()
-) -> ok.
-send_diff(Pid, SCDiff, Hotspot, PacketHash, Region) ->
-    lager:debug("sending diff: ~p, pid: ~p", [SCDiff, Pid]),
-    Pid ! {send_diff, SCDiff, Hotspot, PacketHash, Region},
     ok.
 
 -spec send_banner(pid(), blockchain_state_channel_banner_v1:banner()) -> ok.
@@ -190,11 +189,14 @@ send_response(Pid, Resp) ->
     Pid ! {send_response, Resp},
     ok.
 
-
-handle_server_msg(Msg, HandlerState = #handler_state{
-                                    ledger = Ledger,
-                                    pending_packet_offers = PendingOffers,
-                                    pending_offer_limit = PendingOfferLimit})->
+handle_server_msg(
+    Msg,
+    #handler_state{
+        ledger = Ledger,
+        pending_packet_offers = PendingOffers,
+        pending_offer_limit = PendingOfferLimit
+    }=HandlerState
+)->
     Time = erlang:system_time(millisecond),
     PendingOfferCount = maps:size(PendingOffers),
     case Msg of
@@ -329,34 +331,66 @@ handle_next_offer(HandlerState=#handler_state{offer_queue=[{NextOffer, OfferTime
         Time :: pos_integer(),
         HandlerState :: #handler_state{}
 ) -> {ok, State :: #handler_state{}, Msg :: any()} | {ok, State :: #handler_state{}}.
-handle_offer(Offer, Time, HandlerState) ->
+handle_offer(
+    Offer,
+    Time,
+    #handler_state{
+        ledger=Ledger,
+        pending_packet_offers=PendingOffers,
+        handler_mod=Mod,
+        encode_pb=MaybeEncodeMsg,
+        state_channel=CachedSC
+    }=HandlerState0
+) ->
     lager:debug("sc_handler server got offer: ~p", [Offer]),
-    MaybeEncodeMsg = HandlerState#handler_state.encode_pb,
-    case blockchain_state_channels_server:handle_offer(Offer, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()) of
+    case blockchain_state_channels_server:handle_offer(Offer, Mod, Ledger, self()) of
         ok ->
+            ReqDiff = blockchain_state_channel_offer_v1:req_diff(Offer),
+            lager:debug(
+                "offer req_diff=~p, state_channel=~p",
+                [ReqDiff, CachedSC =/= undefined]
+            ),
             %% offer is pending, just block the stream waiting for the purchase or rejection
             receive
                 {send_purchase, PurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun} ->
-                    % TODO: This is async and does not always return the right PacketHash for this offer
-                    PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
-                    %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
-                    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
-                    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-                    Msg = maybe_encode_msg(MaybeEncodeMsg, PurchaseMsg),
-                    {ok, HandlerState#handler_state{pending_packet_offers=maps:put(PacketHash, {Offer, Time}, HandlerState#handler_state.pending_packet_offers)}, Msg};
+                    HandlerState1 = 
+                        HandlerState0#handler_state{
+                            pending_packet_offers=maps:put(PacketHash, {Offer, Time}, PendingOffers),
+                            state_channel=PurchaseSC
+                        },
+                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
+                    case ReqDiff andalso CachedSC =/= undefined of
+                        false ->
+                            PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
+                            %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+                            PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
+                            Msg = maybe_encode_msg(MaybeEncodeMsg, PurchaseMsg),
+                            {ok, HandlerState1, Msg};
+                        true ->
+                            OldNonce = blockchain_state_channel_v1:nonce(CachedSC),
+                            lager:debug(
+                                "found cached diff @ nonce ~p (currently ~p)",
+                                [OldNonce,  blockchain_state_channel_v1:nonce(SignedPurchaseSC)]
+                            ),
+                            PurchaseSCDiff = blockchain_state_channel_diff_v1:new(CachedSC, SignedPurchaseSC),
+                            SignedSCDiff = blockchain_state_channel_diff_v1:sign(PurchaseSCDiff, OwnerSigFun),
+                            PurchaseMsg = blockchain_state_channel_purchase_v1:new_diff(SignedSCDiff, Hotspot, PacketHash, Region),
+                            Msg = maybe_encode_msg(MaybeEncodeMsg, PurchaseMsg),
+                            {ok, HandlerState1, Msg}
+                    end;
                 {send_rejection, Rejection} ->
                     Msg = maybe_encode_msg(MaybeEncodeMsg, Rejection),
-                    {ok, HandlerState, Msg}
+                    {ok, HandlerState0, Msg}
             after timer:seconds(15) ->
                     lager:error("sc handle_offer timeout for offer: ~p", [Offer]),
-                    {ok, HandlerState}
+                    {ok, HandlerState0}
             end;
         reject ->
             %% we were able to reject out of hand
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
             Rejection = blockchain_state_channel_rejection_v1:new(PacketHash),
             Msg = maybe_encode_msg(MaybeEncodeMsg, Rejection),
-            {ok, HandlerState, Msg}
+            {ok, HandlerState0, Msg}
     end.
 
 

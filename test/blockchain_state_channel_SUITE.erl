@@ -445,7 +445,6 @@ diff_test(Config) ->
     %% Checking state channel on server/client
     ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
-
     %% Sending 1 packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),

@@ -27,8 +27,6 @@
 %% ets:fun2ms(fun({_, Pid}) when Pid == self() -> true end).
 -define(SELECT_DELETE_PID(Pid), [{{'_', '$1'}, [{'==', '$1', {const, Pid}}], [true]}]).
 -define(ACTIVES_KEY, active_scs).
-%% ets:fun2ms(fun({{), SCID0}, _)}) when SCID == SCID0 -> true end).
--define(SELECT_DELETE_DIFF(SCID), [{{{'_', '$1'}, '_'}, [{'==', '$1', {const, SCID}}], [true]}]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions

@@ -81,7 +81,7 @@ sc_active(["sc", "active"], [], []) ->
         undefined ->
             [clique_status:text("none")];
         Actives ->
-            R = [blockchain_utils:addr2name(ID) || ID <- maps:keys(Actives)],
+            R = [blockchain_state_channel_v1:name(SC) || {SC, _, _} <- maps:values(Actives)],
             [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
@@ -120,8 +120,8 @@ format_sc_list(SCs) ->
     Chain = blockchain_worker:blockchain(),
     {ok, Height} = blockchain:height(Chain),
     {List, Total} = maps:fold(
-        fun(SCID, {SC, SCState, Pid}, {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}) ->
-            ID = blockchain_utils:addr2name(SCID),
+        fun(_SCID, {SC, SCState, Pid}, {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}) ->
+            ID = blockchain_state_channel_v1:name(SC),
             SCNonce = blockchain_state_channel_v1:nonce(SC),
             Amount = blockchain_state_channel_v1:amount(SC),
             State =  erlang:atom_to_list(SCState),
@@ -270,7 +270,7 @@ get_sc_for_hotspot(HotspotName) ->
                         {hotspot_b58, libp2p_crypto:bin_to_b58(PubKeyBin)},
                         {hotspot_num_dcs, blockchain_state_channel_summary_v1:num_dcs(Summary)},
                         {hotspot_num_packets, blockchain_state_channel_summary_v1:num_packets(Summary)},
-                        {sc_name, blockchain_utils:addr2name(blockchain_state_channel_v1:id(SC))},
+                        {sc_name, blockchain_state_channel_v1:name(SC)},
                         {sc_state, SCState},
                         {sc_expire_in, ExpireAtBlock - Height},
                         {sc_dc_left, Amount-NumDCs},

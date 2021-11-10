@@ -223,7 +223,7 @@ handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
     {noreply, State#state{state_channels=maps:without(SCIDs, SCs)}};
 handle_cast({update_state_channel, UpdatedSC}, #state{state_channels=SCs0}=State) ->
     ID = blockchain_state_channel_v1:id(UpdatedSC),
-    Name = blockchain_utils:addr2name(ID),
+    Name = blockchain_state_channel_v1:name(UpdatedSC),
     case maps:get(ID, SCs0, undefined) of
         undefined ->
             lager:warning("~p sent update_state_channel, but we don't know about it", [Name]),
@@ -320,7 +320,7 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{state_channels=SCs0}=St
                 _ -> ok
             end,
             ID = blockchain_state_channel_v1:id(SC),
-            Name = blockchain_utils:addr2name(ID),
+            Name = blockchain_state_channel_v1:name(SC),
             lager:info("state channel ~p @ ~p went down: ~p", [Name, Pid, Reason]),
             SCs1 = case Reason of
                 {shutdown, ?EXPIRED} ->
@@ -497,8 +497,8 @@ get_new_active(
                 Filtered ->
                     [{ID, {SC, _SCState, Pid}}|_] = Filtered,
                     ok = blockchain_state_channels_cache:insert_actives(Pid),
-                    lager:info("found in order ~p", [[blockchain_utils:addr2name(I) || {I, _} <- Filtered]]),
-                    lager:info("~p is now active", [blockchain_utils:addr2name(ID)]),
+                    lager:info("found in order ~p", [[blockchain_state_channel_v1:name(S) || {_, {S, _, _}} <- Filtered]]),
+                    lager:info("~p is now active", [blockchain_state_channel_v1:name(SC)]),
                     State0#state{state_channels=maps:put(ID, {SC, ?ACTIVE, Pid}, SCs)}
             end
     end.
@@ -536,7 +536,7 @@ opened_state_channel(
     SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
     Pid = start_worker(SignedSC, Skewed, State0),
-    SCName = blockchain_utils:addr2name(blockchain_state_channel_v1:id(SignedSC)),
+    SCName = blockchain_state_channel_v1:name(SignedSC),
     lager:info("opened state channel ~p (with ~p DC) will expire at block ~p", [SCName, Amt, ExpireAt]),
     FilterActives = fun(_ID, {_SC, SCState, _Pid}) ->
         SCState == ?ACTIVE
@@ -568,7 +568,7 @@ opened_state_channel(
 closed_state_channel(Txn, #state{state_channels=SCs}=State) ->
     ClosedSC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ClosedID = blockchain_state_channel_v1:id(ClosedSC),
-    SCName = blockchain_utils:addr2name(ClosedID),
+    SCName = blockchain_state_channel_v1:name(ClosedSC),
     case maps:get(ClosedID, SCs, undefined) of
         undefined ->
             lager:warning("unknown state channel ~p is now closed", [SCName]),

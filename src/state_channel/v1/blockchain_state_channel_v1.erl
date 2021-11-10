@@ -13,6 +13,7 @@
 -export([
     new/3, new/5,
     id/1,
+    name/1,
     owner/1,
     nonce/1, nonce/2,
     amount/1, amount/2,
@@ -92,6 +93,10 @@ new(ID, Owner, Amount, BlockHash, ExpireAtBlock) ->
 -spec id(state_channel()) -> binary().
 id(#blockchain_state_channel_v1_pb{id=ID}) ->
     ID.
+
+-spec name(state_channel()) -> string().
+name(#blockchain_state_channel_v1_pb{id=ID}) ->
+    blockchain_utils:addr2name(ID).
 
 -spec owner(state_channel()) -> libp2p_crypto:pubkey_bin().
 owner(#blockchain_state_channel_v1_pb{owner=Owner}) ->
