@@ -1316,13 +1316,19 @@ valid_witnesses(Element, Channel, Ledger) ->
                  SrcLoc :: h3:h3_index(),
                  DstLoc :: h3:h3_index()) -> {boolean(), float()}.
 is_too_far(Ledger, SrcLoc, DstLoc) ->
-  Distance = blockchain_utils:distance(SrcLoc, DstLoc),
-    case blockchain:config(?poc_distance_limit, Ledger) of
-        {ok, L} ->
-            Check = Distance > L,
-            {Check, Distance};
+    Distance = blockchain_utils:distance(SrcLoc, DstLoc),
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V > 10 ->
+            case blockchain:config(?poc_distance_limit, Ledger) of
+                {ok, L} ->
+                    Check = Distance > L,
+                    {Check, Distance};
+                _ ->
+                    %% var not set, it's not too far (don't consider it)
+                    {false, Distance}
+            end;
         _ ->
-            %% var not set, it's not too far (don't consider it)
+            %% var only applies to >= PoCv11
             {false, Distance}
     end.
 
