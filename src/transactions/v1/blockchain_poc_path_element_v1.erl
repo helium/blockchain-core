@@ -100,9 +100,8 @@ to_json(Elem, Opts) ->
                 [{W, []} || W <- witnesses(Elem)];
             {tagged_witnesses, TaggedWitnesses} ->
                 lists:map(fun
-                              ({true, ValidReason, W}) ->
-                                  %% XXX: Temporarily add invalid_reason for valid witnesses for explorer
-                                  {W, [{is_valid, true}, {invalid_reason, ValidReason}]};
+                              ({true, _, W}) ->
+                                  {W, [{is_valid, true}]};
                               ({false, InvalidReason, W}) ->
                                   {W, [{is_valid, false}, {invalid_reason, InvalidReason}]}
                           end, TaggedWitnesses)
