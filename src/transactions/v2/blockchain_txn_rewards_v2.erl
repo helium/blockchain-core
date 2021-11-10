@@ -1201,10 +1201,11 @@ poc_witness_reward(Txn, AccIn,
                 AccIn,
                 Path)
     catch
+        throw:{error, {unknown_region, Region}}:_ST ->
+            lager:error("Reported unknown_region: ~p", [Region]);
         What:Why:ST ->
-            lager:error("error: ~p", [Why]),
-            lager:debug("failed to calculate poc_witnesses_rewards, error ~p:~p", [What, ST]),
-            AccIn
+            lager:error("failed to calculate poc_witness_rewards, error ~p:~p:~p", [What, Why, ST]),
+            []
     end;
 poc_witness_reward(Txn, AccIn, _Chain, Ledger,
                    #{ poc_version := POCVersion } = Vars) when is_integer(POCVersion)
@@ -1453,10 +1454,12 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
                 %% lager:info("ValidWitnesses: ~p",
                            %% [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
                 ValidWitnesses
-            catch What:Why:ST ->
-                      lager:error("error: ~p", [Why]),
-                      lager:debug("failed to calculate poc_challengees_rewards, error ~p:~p", [What, ST]),
-                      []
+            catch
+                throw:{error, {unknown_region, Region}}:_ST ->
+                    lager:error("Reported unknown_region: ~p", [Region]);
+                What:Why:ST ->
+                    lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
+                    []
             end;
         V when is_integer(V), V > 4 ->
             blockchain_txn_poc_receipts_v1:good_quality_witnesses(Elem, Ledger);
