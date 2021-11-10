@@ -1395,11 +1395,6 @@ tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
     {ok, Source} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
 
-    ReceiptFreq = case blockchain_poc_path_element_v1:receipt(Element) of
-                      undefined -> undefined;
-                      Receipt -> blockchain_poc_receipt_v1:frequency(Receipt)
-                  end,
-
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
