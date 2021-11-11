@@ -850,11 +850,10 @@ absorb_aux(Block0, Chain0) ->
                     End = min(AuxHeight + 100, CurrentHeight - 1),
                     Res = lists:foldl(fun(H, {ok, Chain}) ->
                                               {ok, Block1} = blockchain:get_block(H, Chain),
-                                              {ok, Block1} = blockchain:get_block(H, Chain0),
                                               Transactions0 = blockchain_block:transactions(Block1),
                                               Transactions = lists:sort(fun sort/2, (Transactions0)),
                                               StartAuxValidate = erlang:monotonic_time(millisecond),
-                                              ValidateRes = ?MODULE:validate(Transactions, Chain1, blockchain_block:is_rescue_block(Block1)),
+                                              ValidateRes = ?MODULE:validate(Transactions, Chain, blockchain_block:is_rescue_block(Block1)),
                                               EndAuxValidate = erlang:monotonic_time(millisecond),
                                               case ValidateRes of
                                                   {_, []} ->
