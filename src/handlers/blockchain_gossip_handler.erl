@@ -118,14 +118,20 @@ find_missing_blocks(Hash, LastHeight, Chain) ->
                 false ->
                     %% some kind of wacky chain break, ignore the plausible block that does not fit
                     {ok, ChainHeight} = blockchain:height(Chain),
-                    lists:seq(ChainHeight+1, LastHeight - 1)
+                    block_range(ChainHeight+1, LastHeight - 1)
             end;
         _ ->
             %% found a break in the plausible chain, so now we know we need any
             %% missing heights between this block and the chain's HEAD block
             {ok, ChainHeight} = blockchain:height(Chain),
-            lists:seq(ChainHeight+1, LastHeight - 1)
+            block_range(ChainHeight+1, LastHeight - 1)
     end.
+
+block_range(A, B) when A >= B ->
+    %% race condition, plausible block got absorbed
+    [];
+block_range(A, B) ->
+    lists:seq(A, B).
 
 add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
