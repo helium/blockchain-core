@@ -24,6 +24,9 @@
 
 -export_type([region_params_v1/0]).
 
+% key: {has_aux, vars_nonce, region_var(atom)}
+-define(REGION_PARAM_CACHE, region_param_cache).
+
 -ifdef(TEST).
 -export([region_params/1]).
 -endif.
@@ -38,6 +41,22 @@
 ) ->
     {ok, [blockchain_region_param_v1:region_param_v1()]} | {error, any()}.
 for_region(RegionVar, Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    e2qc:cache(
+        ?REGION_PARAM_CACHE,
+        {HasAux, VarsNonce, RegionVar},
+        fun() ->
+            for_region_(RegionVar, Ledger)
+        end
+    ).
+
+-spec for_region_(
+    RegionVar :: blockchain_region_v1:region_var(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) ->
+    {ok, [blockchain_region_param_v1:region_param_v1()]} | {error, any()}.
+for_region_(RegionVar, Ledger) ->
     case blockchain:config(region_param(RegionVar), Ledger) of
         {ok, Bin} ->
             Deser = deserialize(Bin),
