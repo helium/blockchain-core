@@ -3220,19 +3220,16 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
             {ok, Res}
     end.
 
-
--spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
-                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
-find_routing_via_devaddr(DevAddr0, Ledger) ->
+-spec find_routing_via_subnet_v2(DevAddr0 :: non_neg_integer(),
+                                 Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_subnet_v2(DevAddr0, Ledger) ->
     NetID = get_net_id(DevAddr0),
     NwkAddr = get_nwk_addr(DevAddr0),
-    Map = get_subnet_offset_map(Ledger),
-    Offset = maps:get(NetID, Map, 0),
-    case Offset of
-        0 ->
-            {error, {unknown_devaddr_prefix, NetID}}
-        _ ->
-            Dest = find_dest(NwkAddr, Offset, Ledger);
+    OfficialNetIDs = get_netids(Ledger),
+    FindAny = lists:any(fun(X) -> X == NetID end, OfficialNetIDs)
+    case FindAny of
+        true ->
+            Dest = find_dest_subnet_v2(NetID, NwkAddr, Ledger);
             case Dest of
             error ->
                {error, {subnet_not_found, NwkAddr}};
@@ -3246,6 +3243,27 @@ find_routing_via_devaddr(DevAddr0, Ledger) ->
         false ->
             {error, {unknown_devaddr_prefix, NetID}}
     end.
+
+-spec find_dest_subnet_v2(NetID :: non_neg_integer(),
+                          Key :: non_neg_integer(),
+                          Ledger :: ledger()) -> non_neg_integer() | error.
+find_dest_subnet_v2(NetID, Key, Ledger) ->
+    %% iterate through the subnets_v2
+    {_Name, DB, SubnetCF} = subnets_cf_v2(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
+    Dest = subnet_lookup_v2(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:24/integer-unsigned-big, NetID:32/integer-unsigned-big, ?BITS_24:24/integer>>})),
+    catch rocksdb:iterator_close(Itr),
+    Dest.
+
+subnet_lookup_v2(Itr, Key, {ok, <<Base:24/integer-unsigned-big, NetID:32/integer-unsigned-big, Mask:24/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
+    case (Key band (Mask bsl 2)) == Base of
+        true ->
+            Dest;
+        false ->
+            subnet_lookup_v2(Itr, Key, rocksdb:iterator_move(Itr, prev))
+    end;
+subnet_lookup_v2(_, _, _) ->
+    error.
 
 list_sum([], _, AccList) -> AccList;
 list_sum(List, Sum, AccList) ->
@@ -3262,31 +3280,37 @@ get_subnet_offset_map(Ledger) ->
     Map = maps:from_list(L),
     Map.
 
+-spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
+                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_devaddr(DevAddr0, Ledger) ->
+    NetID = get_net_id(DevAddr0),
+    NwkAddr = get_nwk_addr(DevAddr0),
+    case NetID of
+        $H ->
+            Dest = find_dest(NwkAddr, Ledger);
+            case Dest of
+            error ->
+               {error, {subnet_not_found, NwkAddr}};
+            _ ->
+                case find_routing(Dest, Ledger) of
+                    {ok, Route} ->
+                        {ok, [Route]};
+                    Error ->
+                        Error
+                end
+        _ ->
+            {error, {unknown_devaddr_prefix, NetID}}
+    end.
+
 -spec find_dest(Key :: non_neg_integer(),
-                Offset :: non_neg_integer(),
                 Ledger :: ledger()) -> non_neg_integer() | error.
-find_dest(Key, Offset, Ledger) ->
+find_dest(Key, Ledger) ->
     %% iterate through the subnets
     {_Name, DB, SubnetCF} = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-    %% Dest = subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
-    Dest = subnet_count_and_match(Itr, Key, Offset, rocksdb:iterator_move(Itr, {first, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+    Dest = subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
     catch rocksdb:iterator_close(Itr),
     Dest.
-
-subnet_count_and_match(Itr, Key, Offset, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
-    case Offset of
-        0 ->
-            case (Key band (Mask bsl 2)) == Base of
-                true ->
-                    Dest;
-                false ->
-                    error
-        _ ->
-            subnet_count_and_match(Itr, Key, Offset - 1, rocksdb:iterator_move(Itr, next))
-    end;
-subnet_count_and_match(_, _, _, _) ->
-    error.
 
 subnet_lookup(Itr, Key, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
     case (Key band (Mask bsl 2)) == Base of
@@ -3804,6 +3828,11 @@ routing_cf(Ledger) ->
 subnets_cf(Ledger) ->
     SL = subledger(Ledger),
     {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
+
+-spec subnets_cf_v2(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+subnets_cf_v2(Ledger) ->
+    SL = subledger(Ledger),
+    {subnets, db(Ledger), SL#sub_ledger_v1.subnets_v2}.
 
 -spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 state_channels_cf(Ledger) ->
