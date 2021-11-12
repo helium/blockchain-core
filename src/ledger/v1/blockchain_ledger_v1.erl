@@ -3251,16 +3251,16 @@ find_dest_subnet_v2(NetID, Key, Ledger) ->
     %% iterate through the subnets_v2
     {_Name, DB, SubnetCF} = subnets_cf_v2(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-    Dest = subnet_lookup_v2(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:24/integer-unsigned-big, NetID:32/integer-unsigned-big, ?BITS_24:24/integer>>})),
+    Dest = subnet_lookup_v2(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer, NetID:32/integer-unsigned-big>>})),
     catch rocksdb:iterator_close(Itr),
     Dest.
 
-subnet_lookup_v2(Itr, Key, {ok, <<Base:24/integer-unsigned-big, NetID:32/integer-unsigned-big, Mask:24/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
-    case (Key band (Mask bsl 2)) == Base of
+subnet_lookup_v2(Itr, NetID, Key, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big, NetID2:32/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
+    case (NetID == NetID2  and ((Key band (Mask bsl 2)) == Base)) of
         true ->
             Dest;
         false ->
-            subnet_lookup_v2(Itr, Key, rocksdb:iterator_move(Itr, prev))
+            subnet_lookup_v2(Itr, NetID, Key, rocksdb:iterator_move(Itr, prev))
     end;
 subnet_lookup_v2(_, _, _) ->
     error.
