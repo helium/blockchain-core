@@ -23,7 +23,7 @@
 -spec get_all_regions(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, regions()} | {error, any()}.
 get_all_regions(Ledger) ->
-    case blockchain:config(?regulatory_regions, Ledger) of
+    case blockchain_ledger_v1:config(?regulatory_regions, Ledger) of
         {ok, Bin} ->
             {ok, [list_to_atom(I) || I <- string:tokens(binary:bin_to_list(Bin), ",")]};
         _ ->
@@ -88,7 +88,7 @@ h3_to_region_(H3, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> boolean() | {error, any()}.
 h3_in_region_(H3, RegionVar, Ledger) ->
-    case blockchain:config(RegionVar, Ledger) of
+    case blockchain_ledger_v1:config(RegionVar, Ledger) of
         {ok, Bin} ->
             try h3:contains(H3, Bin) of
                 false ->

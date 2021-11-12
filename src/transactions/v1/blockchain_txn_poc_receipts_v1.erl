@@ -1339,7 +1339,7 @@ check_valid_frequency(Location, Frequency, Ledger) ->
                     ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
                     lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
                 {error, Reason} ->
-                    lager:error("Unable to find region for H3: ~p, Reason: ~p", [Location, Reason]),
+                    lager:warning("Unable to find region for H3: ~p, Reason: ~p", [Location, Reason]),
                     false
             end;
         _ ->
@@ -1353,8 +1353,9 @@ check_valid_frequency(Location, Frequency, Ledger) ->
     DstLoc :: h3:h3_index()
 ) -> boolean().
 is_same_region(Ledger, SourceLoc, DstLoc) ->
-    case blockchain:config(?poc_version, Ledger) of
+    case blockchain_ledger_v1:config(?poc_version, Ledger) of
         {ok, V} when V > 10 ->
+            %% lager:info("on 11 path: ~p", [V]),
             case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
                 {ok, SrcRegionVar} ->
                     %% Check DstLoc is in the same region as SourceLoc

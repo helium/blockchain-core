@@ -1324,7 +1324,18 @@ config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
         {ok, ConfigVal} ->
-            {ok, binary_to_term(ConfigVal)};
+            case ConfigName of
+                ?regulatory_regions ->
+                    {ok, <<"region_as923_1,region_as923_2,region_as923_3,"
+                           "region_as923_4,region_au915,region_cn470,region_eu433,"
+                           "region_eu868,region_in865,region_kr920,region_ru864,region_us915">>};
+                ?poc_version ->
+                    Num = persistent_term:get(poc_version_var, binary_to_term(ConfigVal)),
+                    %% lager:info("returning ~p", [Num]),
+                    {ok, Num};
+                _ ->
+                    {ok, binary_to_term(ConfigVal)}
+            end;
         not_found ->
             {error, not_found};
         Error ->
