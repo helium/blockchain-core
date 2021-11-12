@@ -437,58 +437,80 @@ diff_test(Config) ->
         erlang:is_pid(SCWorkerPid) andalso ct_rpc:call(RouterNode, erlang, is_process_alive, [SCWorkerPid])
     end, 30, timer:seconds(1)),
 
-    %% Sending 1 packet
-    DevNonce0 = crypto:strong_rand_bytes(2),
-    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
+    GatewayNode1Swarm = ct_rpc:call(GatewayNode1, blockchain_swarm, swarm, []),
+    {GatewayNode1PubkeyBin, GatewayNode1SigFun} = ct_rpc:call(GatewayNode1, blockchain_utils, get_pubkeybin_sigfun, [GatewayNode1Swarm]),
+
+    %% Sending 1 packet from GW 1
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, crypto:strong_rand_bytes(2), 0.0),
+    OfferMsg1 = blockchain_state_channel_offer_v1:from_packet(Packet1, GatewayNode1PubkeyBin, 'US915', true),
+    Offer1 = blockchain_state_channel_offer_v1:sign(OfferMsg1, GatewayNode1SigFun),
+
+    RouterLedger = ct_rpc:call(RouterNode, blockchain, ledger, []),
+    HandlerState0 = blockchain_state_channel_common:new_handler_state(
+        RouterChain,
+        RouterLedger,
+        #{},
+        [],
+        sc_packet_test_handler,
+        10,
+        false %% We dont encore for simplicity
+    ),
+    {ok, HandlerState1, Msg1} = ct_rpc:call(
+        RouterNode,
+        blockchain_state_channel_common,
+        handle_offer,
+        [Offer1, 1, HandlerState0]
+    ),
+    {purchase, Purchase1} = unwrap_msg(Msg1),
+    %% No diff yet even if we requested because we did not have a SC saved for this handler
+    ?assertEqual(GatewayNode1PubkeyBin, blockchain_state_channel_purchase_v1:hotspot(Purchase1)),
+    ?assertEqual(blockchain_helium_packet_v1:packet_hash(Packet1), blockchain_state_channel_purchase_v1:packet_hash(Purchase1)),
+    ?assertEqual('US915', blockchain_state_channel_purchase_v1:region(Purchase1)),
+    ?assertEqual(undefined, blockchain_state_channel_purchase_v1:sc_diff(Purchase1)),
+    ?assert(blockchain_state_channel_common:state_channel(HandlerState1) =/= undefined),
 
     %% Checking state channel on server/client
     ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
 
     %% Sending 1 packet
-    DevNonce1 = crypto:strong_rand_bytes(2),
-    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
-    ok = ct_rpc:call(GatewayNode2, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
+    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, crypto:strong_rand_bytes(2), 0.0),
+    ok = ct_rpc:call(GatewayNode2, blockchain_state_channels_client, packet, [Packet2, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
 
-    %% Sending 1 packet
-    DevNonce2 = crypto:strong_rand_bytes(2),
-    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2, 0.0),
-    GatewayNode1Swarm = ct_rpc:call(GatewayNode1, blockchain_swarm, swarm, []),
-    {GatewayNode1PubkeyBin, GatewayNode1SigFun} = ct_rpc:call(GatewayNode1, blockchain_utils, get_pubkeybin_sigfun, [GatewayNode1Swarm]),
-    OfferMsg0 = blockchain_state_channel_offer_v1:from_packet(Packet2, GatewayNode1PubkeyBin, 'US915', true),
-    OfferMsg1 = blockchain_state_channel_offer_v1:sign(OfferMsg0, GatewayNode1SigFun),
+    %% REAL TEST START HERE Sending 1 packet from GW 1
+    Packet3 = blockchain_ct_utils:join_packet(?APPKEY, crypto:strong_rand_bytes(2), 0.0),
+    OfferMsg2 = blockchain_state_channel_offer_v1:from_packet(Packet3, GatewayNode1PubkeyBin, 'US915', true),
+    Offer2 = blockchain_state_channel_offer_v1:sign(OfferMsg2, GatewayNode1SigFun),
 
-    RouterLedger = ct_rpc:call(RouterNode, blockchain, ledger, []),
-    Self = self(),
-    ok = ct_rpc:call(
+    {ok, HandlerState2, Msg2} = ct_rpc:call(
         RouterNode,
-        blockchain_state_channels_server,
+        blockchain_state_channel_common,
         handle_offer,
-        [OfferMsg1, sc_packet_test_handler, RouterLedger, Self]
+        [Offer2, 1, HandlerState1]
     ),
+    %% This time we should get a diff
+    {purchase, Purchase2} = unwrap_msg(Msg2),
+    ?assertEqual(undefined, blockchain_state_channel_purchase_v1:sc(Purchase2)),
+    ?assertEqual(GatewayNode1PubkeyBin, blockchain_state_channel_purchase_v1:hotspot(Purchase2)),
+    ?assertEqual(blockchain_helium_packet_v1:packet_hash(Packet3), blockchain_state_channel_purchase_v1:packet_hash(Purchase2)),
+    ?assertEqual('US915', blockchain_state_channel_purchase_v1:region(Purchase2)),
+    ?assert(blockchain_state_channel_common:state_channel(HandlerState2) =/= undefined),
 
-    receive
-        {send_diff, SCDiff, Hotspot, PacketHash, Region} ->
-            ct:pal("Diff = ~p~n", [SCDiff]),
-            ?assertEqual(GatewayNode1PubkeyBin, Hotspot),
-            ?assertEqual(blockchain_helium_packet_v1:packet_hash(Packet2), PacketHash),
-            ?assertEqual('US915', Region),
-            ?assertEqual(ID, SCDiff#blockchain_state_channel_diff_v1_pb.id),
-            ?assertEqual(2, SCDiff#blockchain_state_channel_diff_v1_pb.add_nonce),
-            Diffs = SCDiff#blockchain_state_channel_diff_v1_pb.diffs,
-            ?assertEqual(2, erlang:length(Diffs)),
-            [Diff1, Diff2] = Diffs,
-            AddEntry = {add, #blockchain_state_channel_diff_update_summary_v1_pb{client_index=1, add_packets=1, add_dcs=1}},
-            ?assertEqual(AddEntry, Diff1#blockchain_state_channel_diff_entry_v1_pb.entry),
-            GatewayNode2PubkeyBin = ct_rpc:call(GatewayNode2, blockchain_swarm, pubkey_bin, []),
-            AppendEntry = {append, #blockchain_state_channel_diff_append_summary_v1_pb{client_pubkeybin=GatewayNode2PubkeyBin, num_packets=1, num_dcs=1}},
-            ?assertEqual(AppendEntry, Diff2#blockchain_state_channel_diff_entry_v1_pb.entry)
-    after 10000 ->
-        ct:fail("send_diff timeout")
-    end,
+    SCDiff = blockchain_state_channel_purchase_v1:sc_diff(Purchase2),
+
+    ct:pal("Diff = ~p~n", [SCDiff]),
+    ?assertEqual(ID, SCDiff#blockchain_state_channel_diff_v1_pb.id),
+    ?assertEqual(2, SCDiff#blockchain_state_channel_diff_v1_pb.add_nonce),
+    Diffs = SCDiff#blockchain_state_channel_diff_v1_pb.diffs,
+    ?assertEqual(2, erlang:length(Diffs)),
+    [Diff1, Diff2] = Diffs,
+    AddEntry = {add, #blockchain_state_channel_diff_update_summary_v1_pb{client_index=1, add_packets=1, add_dcs=1}},
+    ?assertEqual(AddEntry, Diff1#blockchain_state_channel_diff_entry_v1_pb.entry),
+    GatewayNode2PubkeyBin = ct_rpc:call(GatewayNode2, blockchain_swarm, pubkey_bin, []),
+    AppendEntry = {append, #blockchain_state_channel_diff_append_summary_v1_pb{client_pubkeybin=GatewayNode2PubkeyBin, num_packets=1, num_dcs=1}},
+    ?assertEqual(AppendEntry, Diff2#blockchain_state_channel_diff_entry_v1_pb.entry),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
 
@@ -2767,3 +2789,6 @@ get_active_state_channel(RouterNode, SCID) ->
         SCWorkerPid ->
             ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid, 10])
     end.
+
+unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
+    {Type, Msg}.
