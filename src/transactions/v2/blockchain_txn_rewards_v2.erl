@@ -138,7 +138,11 @@ is_valid(Txn, Chain) ->
                     CalRewardsHashes = [hash(R)|| R <- CalRewards],
                     TxnRewardsHashes = [hash(R)|| R <- TxnRewards],
                     case CalRewardsHashes == TxnRewardsHashes of
-                        false -> {error, invalid_rewards_v2};
+                        false ->
+                            lager:info("rewards diff ~p ~p ~p ~p", [length(CalRewards -- TxnRewards), length(TxnRewards -- CalRewards), length(CalRewards), length(TxnRewards)]),
+                            lager:info("~p", [hd(CalRewards -- TxnRewards)]),
+                            lager:info("~p", [hd(TxnRewards -- CalRewards)]),
+                            {error, invalid_rewards_v2};
                         true -> ok
                     end
             end
@@ -351,11 +355,9 @@ calculate_rewards_metadata(Start, End, Chain) ->
 -spec print(txn_rewards_v2()) -> iodata().
 print(undefined) -> <<"type=rewards_v2 undefined">>;
 print(#blockchain_txn_rewards_v2_pb{start_epoch=Start,
-                                    end_epoch=End,
-                                    rewards=Rewards}) ->
-    PrintableRewards = [ print_reward(R) || R <- Rewards],
-    io_lib:format("type=rewards_v2 start_epoch=~p end_epoch=~p rewards=~p",
-                  [Start, End, PrintableRewards]).
+                                    end_epoch=End}) ->
+    io_lib:format("type=rewards_v2 start_epoch=~p end_epoch=~p",
+                  [Start, End]).
 
 json_type() ->
     <<"rewards_v2">>.
@@ -425,10 +427,6 @@ to_json(Txn, Opts) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec print_reward( reward_v2() ) -> iodata().
-print_reward(#blockchain_txn_reward_v2_pb{account = Account, amount = Amt}) ->
-    io_lib:format("type=reward_v2 account=~p amount=~p",
-                  [Account, Amt]).
 
 -spec reward_to_json( Reward :: reward_v2(),
                       Opts :: blockchain_json:opts() ) -> blockchain_json:json_object().

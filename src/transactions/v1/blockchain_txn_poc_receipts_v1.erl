@@ -1386,7 +1386,7 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
-    {ok, Source} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
+    {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
@@ -1395,9 +1395,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
 
     lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
-                         {ok, Destination} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
-                         SourceLoc = blockchain_ledger_gateway_v2:location(Source),
-                         DestinationLoc = blockchain_ledger_gateway_v2:location(Destination),
+                         {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
