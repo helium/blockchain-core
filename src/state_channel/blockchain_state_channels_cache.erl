@@ -16,6 +16,7 @@
     start_link/1,
     lookup_hotspot/1,
     insert_hotspot/2,
+    delete_hotspot/1,
     delete_pids/1,
     lookup_actives/0,
     insert_actives/1,
@@ -67,6 +68,11 @@ lookup_hotspot(HotspotID) ->
 -spec insert_hotspot(HotspotID :: libp2p_crypto:pubkey_bin(), Pid :: pid()) -> ok.
 insert_hotspot(HotspotID, Pid) ->
     true = ets:insert(?ETS, {HotspotID, Pid}),
+    ok.
+
+-spec delete_hotspot(HotspotID :: libp2p_crypto:pubkey_bin()) -> ok.
+delete_hotspot(HotspotID)->
+    true = ets:delete(?ETS, HotspotID),
     ok.
 
 -spec delete_pids(Pid :: pid()) -> integer().

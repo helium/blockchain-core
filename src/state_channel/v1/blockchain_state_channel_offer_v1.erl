@@ -39,7 +39,7 @@ from_packet(Packet, Hotspot, Region) ->
                payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
                hotspot=Hotspot,
                signature = <<>>,
-               region=Region
+               region=maybe_fix_region(Region)
               };
         {devaddr, _}=Routing ->
             #blockchain_state_channel_offer_v1_pb{
@@ -48,7 +48,7 @@ from_packet(Packet, Hotspot, Region) ->
                payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
                hotspot=Hotspot,
                signature = <<>>,
-               region=Region
+               region=maybe_fix_region(Region)
               }
     end.
 
@@ -106,6 +106,23 @@ decode(BinaryOffer) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%% convert poc11 region names to protobuff enum names
+maybe_fix_region('region_us915') -> 'US915';
+maybe_fix_region('region_as923_1') -> 'AS923_1';
+maybe_fix_region('region_as923_2') -> 'AS923_2';
+maybe_fix_region('region_as923_3') -> 'AS923_3';
+maybe_fix_region('region_as923_4') -> 'AS923_4';
+maybe_fix_region('region_au915') -> 'AU915';
+maybe_fix_region('region_cn470') -> 'CN470';
+maybe_fix_region('region_eu433') -> 'EU433';
+maybe_fix_region('region_eu868') -> 'EU868';
+maybe_fix_region('region_in865') -> 'IN865';
+maybe_fix_region('region_kr920') -> 'KR920';
+%% pre-poc 11 these will be correct
+maybe_fix_region(Other) -> Other.
+
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

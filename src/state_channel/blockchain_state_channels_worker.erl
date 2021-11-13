@@ -239,7 +239,7 @@ offer(
                 "dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                 [DCAmount, NumDCs, TotalDCs]
             ),
-            %% This allow for packets (accepted offer) to come threw 
+            %% This allow for packets (accepted offer) to come through
             _ = erlang:send_after(1000, self(), ?OVERSPENT),
             {noreply, State0};
         false ->
@@ -256,13 +256,13 @@ offer(
             of
                 {error, _Reason} ->
                     lager:warning(
-                        "dropping this packet because: ~p ~p",
-                        [_Reason, lager:pr(SC, blockchain_state_channel_v1)]
+                        "[~p] dropping this packet because: ~p",
+                        [blockchain_state_channel_v1:id(SC), _Reason]
                     ),
                     ok = send_offer_rejection(HandlerPid, Offer),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
-                    lager:debug("purchasing offer from ~p ~p", [HotspotName, PurchaseSC]),
+                    lager:debug("[~p] purchasing offer from ~p", [blockchain_state_channel_v1:id(PurchaseSC), HotspotName]),
                     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
@@ -355,6 +355,8 @@ maybe_update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
 
 -spec send_offer_rejection(HandlerPid :: pid(), Offer :: blockchain_state_channel_offer_v1:offer()) -> ok.
 send_offer_rejection(HandlerPid, Offer) ->
+    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    ok = blockchain_state_channels_cache:delete_hotspot(HotspotID),
     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
     RejectionMsg = blockchain_state_channel_rejection_v1:new(PacketHash),
     ok = blockchain_state_channel_common:send_rejection(HandlerPid, RejectionMsg).
