@@ -74,21 +74,26 @@ get_all() ->
 -spec get_actives() -> state_channels().
 get_actives() ->
     maps:from_list(
-        blockchain_utils:pmap(
-            fun({SC, SCState, Pid}) ->
-                ID = blockchain_state_channel_v1:id(SC),
-                try blockchain_state_channels_worker:get(Pid) of
-                    UpToDateSC ->
-                        {ID, {UpToDateSC, SCState, Pid}}
-                    
-                catch _C:_E ->
-                    Name = blockchain_utils:addr2name(ID),
-                    lager:error("failed to get sc ~p(~p) ~p/~p", [Name, Pid, _C, _E]),
-                    lager:error("~p", [recon:info(Pid)]),
-                    {ID, {SC, SCState, Pid}}
-                end
+        lists:filter(
+            fun(Found) ->
+                Found =/= undefined
             end,
-            maps:values(gen_server:call(?SERVER, get_actives))
+            blockchain_utils:pmap(
+                fun({SC, SCState, Pid}) ->
+                    ID = blockchain_state_channel_v1:id(SC),
+                    try blockchain_state_channels_worker:get(Pid) of
+                        UpToDateSC ->
+                            {ID, {UpToDateSC, SCState, Pid}}
+                        
+                    catch _C:_E ->
+                        Name = blockchain_utils:addr2name(ID),
+                        lager:error("failed to get sc ~p(~p) ~p/~p", [Name, Pid, _C, _E]),
+                        lager:error("~p", [recon:info(Pid)]),
+                        undefined
+                    end
+                end,
+                maps:values(gen_server:call(?SERVER, get_actives))
+            )
         )
     ).
 
