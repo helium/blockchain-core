@@ -397,8 +397,11 @@ get_pubkeybin_sigfun(Swarm) ->
 
 -spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
-    Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
-    icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
+    Sum = lists:foldl(fun({_Node, Weight}, Acc) ->
+                              Acc + Weight
+                      end, 0, PopulationList),
+    OrigRnd = normalize_float(Rnd * Sum),
+    icdf_select_(PopulationList, OrigRnd).
 
 -spec find_txn(Block :: blockchain_block:block(),
                PredFun :: fun()) -> [blockchain_txn:txn()].
@@ -409,14 +412,14 @@ find_txn(Block, PredFun) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-icdf_select([{_Node, 0.0}], _Rnd, _OrigRnd) ->
+icdf_select_([{_Node, 0.0}], _Rnd) ->
     {error, zero_weight};
-icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->
+icdf_select_([{Node, _Weight}], _Rnd) ->
     {ok, Node};
-icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
+icdf_select_([{Node, Weight} | _], Rnd) when Rnd - Weight =< 0 ->
     {ok, Node};
-icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
-    icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
+icdf_select_([{_Node, Weight} | Tail], Rnd) ->
+    icdf_select_(Tail, normalize_float(Rnd - Weight)).
 
 
 
