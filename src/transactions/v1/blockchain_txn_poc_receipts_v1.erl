@@ -1240,7 +1240,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                          blockchain_utils:addr2name(DstPubkeyBin),
                                          SourceLoc, DestinationLoc, Distance]),
                             undefined;
-                        {false, _Distance} ->
+                        false ->
                             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                 Dist when Dist >= ExclusionCells ->
                                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
@@ -1314,16 +1314,16 @@ valid_witnesses(Element, Channel, Ledger) ->
 
 -spec is_too_far(Ledger:: blockchain_ledger_v1:ledger(),
                  SrcLoc :: h3:h3_index(),
-                 DstLoc :: h3:h3_index()) -> {boolean(), float()}.
+                 DstLoc :: h3:h3_index()) -> {true, float()} | false.
 is_too_far(Ledger, SrcLoc, DstLoc) ->
-  Distance = blockchain_utils:distance(SrcLoc, DstLoc),
     case blockchain:config(?poc_distance_limit, Ledger) of
         {ok, L} ->
+            Distance = blockchain_utils:distance(SrcLoc, DstLoc),
             Check = Distance > L,
             {Check, Distance};
         _ ->
             %% var not set, it's not too far (don't consider it)
-            {false, Distance}
+            false
     end.
 
 -spec check_valid_frequency(Location :: h3:h3_index(),
@@ -1421,7 +1421,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                               blockchain_utils:addr2name(DstPubkeyBin),
                                                               SourceLoc, DestinationLoc, Distance]),
                                                  [{false, <<"witness_too_far">>, Witness} | Acc];
-                                             {false, _Distance} ->
+                                             false ->
                                                  try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                                      Dist when Dist >= ExclusionCells ->
                                                          RSSI = blockchain_poc_witness_v1:signal(Witness),
