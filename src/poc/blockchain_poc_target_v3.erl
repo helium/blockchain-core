@@ -55,7 +55,7 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
             %% Sort the scaled probabilities in default order by gateway pubkey_bin
             %% make sure that we carry the rand_state through for determinism
             {RandVal, TargetRandState} = rand:uniform_s(HexRandState),
-            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, ProbTargets), RandVal),
+            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(ProbTargets, RandVal),
             {ok, {TargetPubkeybin, TargetRandState}};
         _ ->
             %% no eligible target in this zone
