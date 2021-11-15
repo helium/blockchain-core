@@ -2999,8 +2999,13 @@ get_netids(Ledger) ->
 
 -spec is_local_netid(non_net_integer(), ledger()) -> bool.
 is_local_netid(NetID, Ledger) ->
-    NetIDs = get_netids(Ledger),
-    lists:any(fun(X) -> X == NetID end, NetIDs).
+    case NetID of
+        $H ->
+            true;
+        _ ->
+            NetIDs = get_netids(Ledger),
+            lists:any(fun(X) -> X == NetID end, NetIDs)
+    end.
 
 -spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 create_addr(NetClass, NetID, NwkAddr) ->
