@@ -2992,7 +2992,7 @@ get_netids(Ledger) ->
         {ok, BinNetIDs} ->
             binary_to_term(BinNetIDs);
         not_found ->
-            [];
+            [ 16#2D ];
         Error ->
             Error
     end.
@@ -3003,14 +3003,14 @@ is_local_netid(NetID, Ledger) ->
     lists:any(fun(X) -> X == NetID end, NetIDs).
 
 -spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-create_addr(Class, NetID, NwkAddr) ->
-    Size = addr_class_width(Class),
+create_addr(NetClass, NetID, NwkAddr) ->
+    Size = addr_class_width(NetClass),
     IDSize = 32 - 3 - Size,
-    Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, Class:3/integer-unsigned>>),
+    Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>),
     Addr.
 
-addr_class_width(Class) ->
-    case Class of
+addr_class_width(NetClass) ->
+    case NetClass of
         0 -> 25;
         1 -> 24;
         2 -> 20;
@@ -5592,6 +5592,16 @@ find_scs_by_owner_test() ->
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
+netid_test() ->
+    DevAddr0 = create_addr(3, 16#2D, 16),
+    NwkAddr0 = get_nwk_addr(DevAddr0),
+    ?assertEqual(NwkAddr0, 16),
+    NetIDType0 = net_id_type(DevAddr0),
+    ?assertEqual(NetIDType0, 3),
+    NetID0 = net_id(DevAddr0),
+    ?assertEqual(NetID0, 16#2D),
+    ok.
+
 subnet_allocation_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation_test"),
     Ledger = new(BaseDir),
@@ -5601,40 +5611,73 @@ subnet_allocation_test() ->
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
     Mask64 = blockchain_ledger_routing_v1:subnet_size_to_mask(64),
     {ok, Subnet} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet),
+    Key1 = <<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key1, Subnet),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet, <<1:32/little-unsigned-integer>>, []),
 
     {ok, Subnet2} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<8:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet2),
+    Key2 = <<8:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key2, Subnet2),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<2:32/little-unsigned-integer>>, []),
 
     {ok, Subnet3} = allocate_subnet(32, Ledger),
-    ?assertEqual(<<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet3),
+    Key3 = <<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>,
+    ?assertEqual(Key3, Subnet3),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet3, <<3:32/little-unsigned-integer>>, []),
 
     {ok, Subnet4} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<16:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet4),
+    Key4 = <<16:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key4, Subnet4),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet4, <<4:32/little-unsigned-integer>>, []),
 
     {ok, Subnet5} = allocate_subnet(16, Ledger),
-    ?assertEqual(<<64:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>, Subnet5),
+    Key5 = <<64:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>,
+    ?assertEqual(Key5, Subnet5),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet5, <<5:32/little-unsigned-integer>>, []),
 
     {ok, Subnet6} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<24:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet6),
+    Key6 = <<24:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key6, Subnet6),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet6, <<6:32/little-unsigned-integer>>, []),
 
     {ok, Subnet7} = allocate_subnet(16, Ledger),
-    ?assertEqual(<<80:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>, Subnet7),
+    Key7 = <<80:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>,
+    ?assertEqual(Key7, Subnet7),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet7, <<7:32/little-unsigned-integer>>, []),
 
     {ok, Subnet8} = allocate_subnet(64, Ledger),
-    ?assertEqual(<<128:25/integer-unsigned-big, Mask64:23/integer-unsigned-big>>, Subnet8),
+    Key8 = <<128:25/integer-unsigned-big, Mask64:23/integer-unsigned-big>>,
+    ?assertEqual(Key8, Subnet8),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet8, <<8:32/little-unsigned-integer>>, []),
 
     {ok, Subnet9} = allocate_subnet(32, Ledger),
-    ?assertEqual(<<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet9),
+    Key9 = <<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>,
+    ?assertEqual(Key9, Subnet9),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet9, <<9:32/little-unsigned-integer>>, []),
+
+    R1 = find_dest(Key1, Ledger),
+    ?assertEqual(R1, <<1:32/little-unsigned-integer>>),
+    R2 = find_dest(Key2, Ledger),
+    ?assertEqual(R2, <<2:32/little-unsigned-integer>>),
+    R3 = find_dest(Key3, Ledger),
+    ?assertEqual(R3, <<3:32/little-unsigned-integer>>),
+    R4 = find_dest(Key4, Ledger),
+    ?assertEqual(R4, <<4:32/little-unsigned-integer>>),
+    R5 = find_dest(Key5, Ledger),
+    ?assertEqual(R5, <<5:32/little-unsigned-integer>>),
+    R6 = find_dest(Key6, Ledger),
+    ?assertEqual(R6, <<6:32/little-unsigned-integer>>),
+    R7 = find_dest(Key7, Ledger),
+    ?assertEqual(R7, <<7:32/little-unsigned-integer>>),
+    R8 = find_dest(Key8, Ledger),
+    ?assertEqual(R8, <<8:32/little-unsigned-integer>>),
+    R9 = find_dest(Key9, Ledger),
+    ?assertEqual(R9, <<9:32/little-unsigned-integer>>),
+
+    DevAddr0 = create_addr(3, 16#2D, 16),
+    Dest = find_routing_via_subnet(DevAddr0, Ledger),
+    ?assertEqual(Dest, <<4:32/little-unsigned-integer>>),
+
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
