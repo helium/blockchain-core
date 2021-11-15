@@ -3034,6 +3034,10 @@ netid_width(NetID) ->
         7 -> 7
     end.
 
+netid_size(NetID) ->
+    Size = 1 bsl netid_width(NetID),
+    Size.
+
 netid_slab_count(NetID) ->
     <<ID:21, NetClass:3>> = NetID,
     case NetClass of
@@ -3118,8 +3122,15 @@ get_nwk_addr(DevAddr) ->
     <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
     NwkAddr.
 
-get_netids_offset(NetID, NetIDList) ->
-    0.
+get_netids_offset(NetID, NetIDList0) ->
+    FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
+    case FoundNetID of
+        false ->
+            0;
+        true ->
+            NetIDList = lists:takewhile(fun(X) -> X =/= NetID end, NetIDList0),
+            OffsetSum = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
+            OffsetSum.
 
 -spec uint32(integer()) -> integer().
 uint32(Num) ->
