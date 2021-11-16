@@ -675,8 +675,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
         [] -> ok;
         [_|_] ->
             lists:foreach(
-              fun({Ht, #block_info{hash = Hash} = Info}) ->
-                      ok = blockchain:put_block_height(Hash, Ht, Chain),
+              fun({Ht, Info}) ->
                       ok = blockchain:put_block_info(Ht, Info, Chain)
               end,
               Infos)
