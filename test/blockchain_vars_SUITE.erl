@@ -271,10 +271,11 @@ cache_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Ledger = blockchain:ledger(Chain),
 
-    Hits0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
-    {ok, EV} = blockchain:config(?election_version, Ledger),
-    Hits1 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
-    ?assertEqual(1, Hits1 - Hits0),
+    %% XXX disabled for now because new e2qc has no stats
+    %Hits0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    %{ok, EV} = blockchain:config(?election_version, Ledger),
+    %Hits1 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    %?assertEqual(1, Hits1 - Hits0),
 
     AuxLedger0 = blockchain_aux_ledger_v1:bootstrap(
         filename:join([BaseDir, "cache_test.db"]),
@@ -288,7 +289,7 @@ cache_test(Config) ->
     %% This resets the cache
     ok = blockchain_aux_ledger_v1:set_vars(AuxVars, AuxLedger),
     %% This should be zero now
-    0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    %0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
 
     %% Main ledger should have the same election_version
     {ok, EV} = blockchain:config(?election_version, Ledger),
@@ -300,8 +301,8 @@ cache_test(Config) ->
     #{election_version := AuxEV} = blockchain_utils:get_vars([?election_version], AuxLedger),
 
     %% There should be some hits to cache by now
-    Hits2 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
-    true = Hits2 > 0,
+    %Hits2 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
+    %true = Hits2 > 0,
 
     ok.
 
