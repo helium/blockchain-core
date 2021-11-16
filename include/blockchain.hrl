@@ -48,3 +48,12 @@
          hash,
          pocs
         }).
+-record(block_info_v2,
+        {
+         time,
+         height,
+         hash,
+         pocs,
+         hbbft_round,
+         election_info
+        }).

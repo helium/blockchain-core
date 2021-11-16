@@ -734,13 +734,14 @@ put_block_info(Height, Info, #blockchain{db=DB, info=InfoCF}) ->
 get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
     case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
         {ok, BinInfo} ->
-            {ok, binary_to_term(BinInfo)};
+            {ok, deserialize_block_info(BinInfo, Chain)};
         not_found ->
             case get_block(Height, Chain) of
                 {ok, Block} ->
                     Hash = blockchain_block:hash_block(Block),
                     Info = mk_block_info(Hash, Block),
-                    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []),
+                    InfoBin = serialize_block_info(Info),
+                    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
                     {ok, Info};
                 Error ->
                     Error
@@ -760,10 +761,32 @@ mk_block_info(Hash, Block) ->
                      end
              end,
              blockchain_block:transactions(Block)),
-    #block_info{time = blockchain_block:time(Block),
-                hash = Hash,
-                height = blockchain_block:height(Block),
-                pocs = maps:from_list(PoCs)}.
+    #block_info_v2{time = blockchain_block:time(Block),
+                   hash = Hash,
+                   height = blockchain_block:height(Block),
+                   pocs = maps:from_list(PoCs),
+                   hbbft_round = blockchain_block:hbbft_round(Block),
+                   election_info = blockchain_block_v1:election_info(Block)}.
+
+-spec serialize_block_info(#block_info{}) -> binary().
+serialize_block_info(BlockInfo) ->
+    Bin = erlang:term_to_binary(BlockInfo),
+    <<2, Bin/binary>>.
+
+-spec deserialize_block_info(binary(), blockchain())-> #block_info_v2{}.
+deserialize_block_info(<<2, Bin/binary>>, _Chain) ->
+    erlang:binary_to_term(Bin);
+deserialize_block_info(Bin, Chain) ->
+    #block_info{height = Height} = V1BlockInfo = erlang:binary_to_term(Bin),
+    {ok, Block} = get_block(Height, Chain),
+    upgrade_block_info(1, V1BlockInfo, Block, Chain).
+
+-spec upgrade_block_info(pos_integer(), #block_info{}, blockchain_block_v1:block(),  blockchain()) -> #block_info_v2{}.
+upgrade_block_info(1, #block_info{hash = Hash, height = Height}, Block, Chain = #blockchain{db=DB, info=InfoCF}) ->
+    Info = mk_block_info(Hash, Block),
+    InfoBin = serialize_block_info(Info),
+    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
+    deserialize_block_info(InfoBin, Chain).
 
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
@@ -2004,7 +2027,7 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, 
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF,
                   SnapshotCF, ImplicitBurnsCF, InfoCF, HTLCReceiptsCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
@@ -2103,7 +2126,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 %% the gateway, and the given owner and payer
 %%
 %% NOTE: This is an alternative add_gateway creation that calculates the fee and
-%% staking fee from the current live blockchain. 
+%% staking fee from the current live blockchain.
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58) ->
@@ -2208,7 +2231,7 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", 
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks",
                   "plausible_blocks", "snapshots", "implicit_burns", "info", "htlc_receipts"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
