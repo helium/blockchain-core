@@ -9,7 +9,7 @@
 -export([
     new/4, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
-    head_hash/1, head_block/1,
+    head_hash/1, head_block/1, head_block_info/1,
     sync_hash/1,
     height/1,
     sync_height/1,
