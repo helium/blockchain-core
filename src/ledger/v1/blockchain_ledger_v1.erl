@@ -2415,7 +2415,7 @@ do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     case CurrentHeight rem Interval == 0 of
         false -> ok;
         true ->
-            {ok, #block_info{time = BlockT}} = blockchain:get_block_info(CurrentHeight, Blockchain),
+            {ok, #block_info_v2{time = BlockT}} = blockchain:get_block_info(CurrentHeight, Blockchain),
             {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
             cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(NewPriceList)),
             cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(NewPrice))
@@ -2988,7 +2988,7 @@ redeem_htlc(Address, Payee, Ledger, Chain) ->
                             blockchain:add_htlc_receipt(Address, HTLCReceipt, Chain);
                         false ->
                             ok
-                    end,    
+                    end,
 
                     %% Delete redeemed HTLC from DB
                     HTLCsCF = htlcs_cf(Ledger),
@@ -3426,7 +3426,7 @@ next_oracle_prices(Blockchain, Ledger) ->
 
     LastUpdate = CurrentHeight - (CurrentHeight rem Interval),
 
-    {ok, #block_info{time = BlockT}} = blockchain:get_block_info(LastUpdate, Blockchain),
+    {ok, #block_info_v2{time = BlockT}} = blockchain:get_block_info(LastUpdate, Blockchain),
     {ok, LastPrice} = current_oracle_price(Ledger),
 
     StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)

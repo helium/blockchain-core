@@ -37,7 +37,7 @@ init_gossip_data([SwarmTID, Blockchain]) ->
             {send, gossip_data_v1(SwarmTID, Block)};
         2 ->
             {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)),
-            {ok, #block_info{hash = Hash}} = blockchain:get_block_info(Height, Blockchain),
+            {ok, #block_info_v2{hash = Hash}} = blockchain:get_block_info(Height, Blockchain),
             lager:debug("gossiping block @ ht: ~p to peers on init", [Height]),
             {send, gossip_data_v2(SwarmTID, Hash, Height)}
     end;

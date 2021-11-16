@@ -444,7 +444,7 @@ head_block(Blockchain) ->
     end.
 
 -spec head_block_info(blockchain()) ->
-          {ok, #block_info{}} | {error, any()}.
+          {ok, #block_info_v2{}} | {error, any()}.
 head_block_info(Blockchain) ->
     case ?MODULE:head_hash(Blockchain) of
         {error, _}=Error ->
@@ -691,7 +691,7 @@ get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF} = Chain, Fallback) 
             {error, not_found};
         not_found when Fallback == true ->
             case get_block_info(Height, Chain) of
-                {ok, #block_info{hash = Hash}} ->
+                {ok, #block_info_v2{hash = Hash}} ->
                     {ok, Hash};
                 {error, not_found} ->
                     {error, not_found}
