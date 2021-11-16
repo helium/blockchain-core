@@ -405,7 +405,8 @@ handle_call({new_ledger, Dir}, _From, #state{blockchain=Chain}=State) ->
     Ledger1 = blockchain_ledger_v1:new(Dir,
                                        blockchain:db_handle(Chain),
                                        blockchain:blocks_cf(Chain),
-                                       blockchain:heights_cf(Chain)),
+                                       blockchain:heights_cf(Chain),
+                                       blockchain:info_cf(Chain)),
     {reply, {ok, Ledger1}, State};
 
 handle_call({install_snapshot, Hash, Snapshot}, _From,

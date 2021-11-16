@@ -74,7 +74,8 @@
 
     db_handle/1,
     blocks_cf/1,
-    heights_cf/1
+    heights_cf/1,
+    info_cf/1
 
 ]).
 
@@ -2047,7 +2048,7 @@ load(Dir, Mode) ->
             Ledger =
                 case Mode of
                     blessed_snapshot when HonorQuickSync == true ->
-                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF, InfoCF),
                         case blockchain_ledger_v1:current_height(L) of
                             {ok, _} ->
                                 %% no longer check height here, we will check the height elsewhere
@@ -2058,10 +2059,10 @@ load(Dir, Mode) ->
                             %% just reload
                             {error, _} ->
                                 blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF)
+                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF, InfoCF)
                         end;
                     _ ->
-                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF, InfoCF),
                         blockchain_ledger_v1:compact(L),
                         L
                 end,
@@ -2751,6 +2752,10 @@ blocks_cf(Chain) -> Chain#blockchain.blocks.
 
 -spec heights_cf(Chain :: blockchain()) -> rocksdb:cf_handle().
 heights_cf(Chain) -> Chain#blockchain.heights.
+
+-spec info_cf(Chain :: blockchain()) -> rocksdb:cf_handle().
+info_cf(Chain) -> Chain#blockchain.info.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

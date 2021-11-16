@@ -464,6 +464,7 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
                 blockchain:db_handle(Chain),
                 blockchain:blocks_cf(Chain),
                 blockchain:heights_cf(Chain),
+                blockchain:info_cf(Chain),
                 %% these options taken from rocksdb's PrepareForBulkLoad()
                 [
                     {disable_auto_compactions, true},
@@ -509,7 +510,8 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
       Dir,
       blockchain:db_handle(Chain),
       blockchain:blocks_cf(Chain),
-      blockchain:heights_cf(Chain)
+      blockchain:heights_cf(Chain),
+      blockchain:info_cf(Chain)
      ),
     %% and then compact the ledger
     blockchain_ledger_v1:compact(Ledger1),
@@ -717,8 +719,7 @@ get_blocks(Chain) ->
     DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, DHeight0} = blockchain_ledger_v1:current_height(DLedger),
 
-    {ok, DBlock} = blockchain:get_block(DHeight0, Chain),
-    {_, DHeight} = blockchain_block_v1:election_info(DBlock),
+    {ok, #block_info_v2{election_info={_, DHeight}}} = blockchain:get_block_info(DHeight0, Chain),
 
     %% We need _at least_ the grace blocks before current election or the delayed ledger height,
     %% whichever is lower.
