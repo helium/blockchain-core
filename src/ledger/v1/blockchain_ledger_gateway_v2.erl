@@ -808,33 +808,51 @@ mode_light_test() ->
     ?assertEqual(light, mode(Gw)),
     ?assertEqual(light, mode(mode(light, Gw))).
 
-score_test() ->
-    Gw = new(<<"owner_address">>, 12, full),
-    fake_config(),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
-    fake_config_cleanup(),
-    blockchain_score_cache:stop().
+score_test_() ->
+    {
+        timeout,
+        10,
+        fun() ->
+            Gw = new(<<"owner_address">>, 12, full),
+            fake_config(),
+            ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+            fake_config_cleanup(),
+            blockchain_score_cache:stop()
+        end
+    }.
 
-score_decay_test() ->
-    Gw0 = new(<<"owner_address">>, 1, full),
-    Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
-    fake_config(),
-    {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
-    ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
-    fake_config_cleanup(),
-    blockchain_score_cache:stop().
+score_decay_test_() ->
+    {
+        timeout,
+        10,
+        fun() ->
+            Gw0 = new(<<"owner_address">>, 1, full),
+            Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
+            fake_config(),
+            {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
+            ?assertEqual(normalize_float(A), A),
+            ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+            fake_config_cleanup(),
+            blockchain_score_cache:stop()
+        end
+    }.
 
-score_decay2_test() ->
-    Gw0 = new(<<"owner_address">>, 1, full),
-    Gw1 = set_alpha_beta_delta(1.1, 10.0, 300, Gw0),
-    fake_config(),
-    {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
-    ?assertEqual(1.0, Alpha),
-    ?assert(Beta < 10.0),
-    ?assert(Score < 0.25),
-    fake_config_cleanup(),
-    blockchain_score_cache:stop().
+score_decay2_test_() ->
+    {
+        timeout,
+        10,
+        fun() ->
+            Gw0 = new(<<"owner_address">>, 1, full),
+            Gw1 = set_alpha_beta_delta(1.1, 10.0, 300, Gw0),
+            fake_config(),
+            {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
+            ?assertEqual(1.0, Alpha),
+            ?assert(Beta < 10.0),
+            ?assert(Score < 0.25),
+            fake_config_cleanup(),
+            blockchain_score_cache:stop()
+        end
+    }.
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12, full),
