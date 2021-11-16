@@ -163,7 +163,7 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                             {stop, normal, State, Msg};
                         _ ->
                             {noreply, State#state{batches_sent=Sent+1,
-                                                  block=lists:last(Blocks),
+                                                  block=element(1, lists:last(Blocks)),
                                                   requested = Requested1},
                              Msg}
                     end
@@ -182,7 +182,7 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                             {stop, normal, State, Msg};
                         _ ->
                             {noreply, State#state{batches_sent=Sent+1,
-                                                  block=lists:last(Blocks),
+                                                  block=element(1, lists:last(Blocks)),
                                                   requested = Requested1},
                              Msg}
                     end
@@ -200,9 +200,9 @@ handle_info(_Type, _Msg, State) ->
     {noreply, State}.
 
 build_blocks([], Hash, Blockchain, BatchSize) when is_binary(Hash) ->
-    case blockchain:get_block(Hash, Blockchain) of
-        {ok, StartingBlock} ->
-            {blockchain:build(StartingBlock, Blockchain, BatchSize), []};
+    case blockchain:get_block_height(Hash, Blockchain) of
+        {ok, StartingBlockHeight} ->
+            {blockchain:build(StartingBlockHeight, Blockchain, BatchSize), []};
         {error, _Reason} ->
             {[], []}
     end;
@@ -214,7 +214,7 @@ build_blocks(R, _Hash, Blockchain, BatchSize) when is_list(R) ->
     R2 = lists:sublist(R, BatchSize),
     {lists:flatmap(
        fun(Height) ->
-               case blockchain:get_block(Height, Blockchain) of
+               case blockchain:get_raw_block(Height, Blockchain) of
                    {ok, B} -> [B];
                    _ -> []
                end
@@ -223,7 +223,7 @@ build_blocks(R, _Hash, Blockchain, BatchSize) when is_list(R) ->
      R -- R2}.
 
 mk_msg(Blocks, Path) ->
-    Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+    Msg1 = #blockchain_sync_blocks_pb{blocks= [B || {_H, B} <- Blocks]},
     Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
     Msg = case Path of
               ?SYNC_PROTOCOL_V1 -> Msg0;

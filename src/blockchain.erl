@@ -1332,18 +1332,20 @@ fees_since(_Height, _CurrentHeight, _Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build(blockchain_block:block(), blockchain(), non_neg_integer()) -> [blockchain_block:block()].
+-spec build(blockchain_block:block() | non_neg_integer(), blockchain(), non_neg_integer()) -> [{non_neg_integer(), binary()}].
+build(StartingHeight, Blockchain, Limit) when is_integer(StartingHeight) ->
+    build(StartingHeight + 1, Blockchain, Limit, []);
 build(StartingBlock, Blockchain, Limit) ->
-    build(StartingBlock, Blockchain, Limit, []).
-
--spec build(blockchain_block:block(), blockchain(), non_neg_integer(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build(_StartingBlock, _Blockchain, 0, Acc) ->
-    lists:reverse(Acc);
-build(StartingBlock, Blockchain, N, Acc) ->
     Height = blockchain_block:height(StartingBlock) + 1,
-    case ?MODULE:get_block(Height, Blockchain) of
+    build(Height, Blockchain, Limit, []).
+
+-spec build(non_neg_integer(), blockchain(), non_neg_integer(), [{non_neg_integer(), binary()}]) -> [{non_neg_integer(), binary()}].
+build(_Height, _Blockchain, 0, Acc) ->
+    lists:reverse(Acc);
+build(Height, Blockchain, N, Acc) ->
+    case ?MODULE:get_raw_block(Height, Blockchain) of
         {ok, NextBlock} ->
-            build(NextBlock, Blockchain, N-1, [NextBlock|Acc]);
+            build(Height + 1, Blockchain, N-1, [{Height, NextBlock}|Acc]);
         {error, _Reason} ->
             lists:reverse(Acc)
     end.

@@ -110,10 +110,10 @@ init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
 handle_data(client, Data, #state{blockchain=Blockchain}=State) ->
     #blockchain_sync_hash_pb{hash=Hash} =
     blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_hash_pb),
-    case blockchain:get_block(Hash, Blockchain) of
-        {ok, Block} ->
-            Blocks = blockchain:build(Block, Blockchain, 200),
-            Msg0 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+    case blockchain:get_block_height(Hash, Blockchain) of
+        {ok, Height} ->
+            Blocks = blockchain:build(Height, Blockchain, 200),
+            Msg0 = #blockchain_sync_blocks_pb{blocks=[B || {_H, B} <- Blocks]},
             Msg = blockchain_sync_handler_pb:encode_msg(Msg0),
 
             case State#state.path of
