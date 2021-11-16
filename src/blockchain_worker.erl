@@ -784,9 +784,8 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
     %% clock mostly increments this will eventually be true on a stuck node
     SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 60),
     SkewedSyncCooldownTime = application:get_env(blockchain, skewed_sync_cooldown_time, 300),
-    {ok, HeadBlock} = blockchain:head_block(Chain),
-    Height = blockchain_block:height(HeadBlock),
-    case erlang:system_time(seconds) - blockchain_block:time(HeadBlock) of
+    {ok, #block_info{time = Time, height = Height}} = blockchain:head_block_info(Chain),
+    case erlang:system_time(seconds) - Time of
         %% negative time means we're skewed, so rely on last add time
         %% until ntp fixes us.
         T when T < 0 ->

@@ -442,6 +442,17 @@ head_block(Blockchain) ->
             get_block(Hash, Blockchain)
     end.
 
+-spec head_block_info(blockchain()) ->
+          {ok, #block_info{}} | {error, any()}.
+head_block_info(Blockchain) ->
+    case ?MODULE:head_hash(Blockchain) of
+        {error, _}=Error ->
+            Error;
+        {ok, Hash} ->
+            get_block_info(Hash, Blockchain)
+    end.
+
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
