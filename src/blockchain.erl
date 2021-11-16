@@ -724,9 +724,8 @@ put_block_height(Hash, Height, #blockchain{db=DB, heights=HeightsCF}) ->
                      Info :: #block_info{} | #block_info_v2{},
                      Blockchain :: blockchain()) ->
           ok | {error, any()}.
-put_block_info(Height, Info, Chain = #blockchain{db=DB, info=InfoCF}) ->
-    InfoBin = serialize_block_info(Info, Chain),
-    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []).
+put_block_info(Height, Info, _Chain = #blockchain{db=DB, info=InfoCF}) ->
+    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, serialize_block_info(Info), []).
 
 -spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
           {ok, #block_info_v2{}} | {error, any()}.
@@ -771,24 +770,29 @@ mk_block_info(Hash, Block) ->
                    election_info = blockchain_block_v1:election_info(Block),
                    penalties = {blockchain_block_v1:bba_completion(Block), blockchain_block_v1:seen_votes(Block)}}.
 
--spec serialize_block_info(#block_info{}, blockchain()) -> binary().
-serialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
-    {ok, Block} = get_block(Height, Chain),
-    V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
-    serialize_block_info(V2BlockInfo);
-serialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
-    serialize_block_info(V2BlockInfo).
-
--spec serialize_block_info(#block_info_v2{}) -> binary().
-serialize_block_info(V2BlockInfo = #block_info_v2{}) ->
-    erlang:term_to_binary(V2BlockInfo).
+-spec serialize_block_info(#block_info{} | #block_info_v2{}) -> binary().
+serialize_block_info(BlockInfo) ->
+    erlang:term_to_binary(BlockInfo).
 
 -spec deserialize_block_info(binary() | #block_info{} | #block_info_v2{}, blockchain())-> #block_info_v2{}.
 deserialize_block_info(Bin, Chain) when is_binary(Bin)->
     deserialize_block_info(erlang:binary_to_term(Bin), Chain);
 deserialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
-    {ok, Block} = get_block(Height, Chain),
-    upgrade_block_info(V1BlockInfo, Block, Chain);
+    case get_block(Height, Chain) of
+        {ok, Block} ->
+            upgrade_block_info(V1BlockInfo, Block, Chain);
+        _Error ->
+            %% if we dont have the block stub out the upgraded fields
+            #block_info{time = Time, hash = Hash, pocs = PoCs} = V1BlockInfo,
+            #block_info_v2{time = Time,
+                           hash = Hash,
+                           height = Height,
+                           pocs = PoCs,
+                           hbbft_round = 0,
+                           election_info = {0,0},
+                           penalties = {<<>>, []}}
+
+    end;
 deserialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
     V2BlockInfo.
 
