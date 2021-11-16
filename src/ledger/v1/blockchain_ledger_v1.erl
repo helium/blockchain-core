@@ -112,14 +112,14 @@
     add_htlc/8,
     redeem_htlc/4,
 
+    create_devaddr/2,
     create_addr/1,
     get_netids/1,
-    get_retired_netids/1,
-    get_roaming_netids/1,
     net_id/1,
     addr_bit_width/1,
     net_id_type/1,
     get_nwk_addr/1,
+    get_subnet_addr/2,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
@@ -3007,6 +3007,15 @@ is_local_netid(NetID, Ledger) ->
             lists:any(fun(X) -> X == NetID end, NetIDs)
     end.
 
+-spec create_devaddr(non_neg_integer(), Ledger()) -> non_neg_integer().
+create_devaddr(NwkAddr, Ledger) ->
+    NetIDList = get_netids(Ledger),
+    CurrNetID = lists:last(NetIDList),
+    NetClass = get_netid_type(CurrNetID),
+    Offset = get_netids_offset(CurrNetID, NetIDList),
+    DevAddr = create_addr(NetClass, CurrNetID, NwkAddr - Offset),
+    DevAddr.
+
 -spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 create_addr(NetClass, NetID, NwkAddr) ->
     Size = addr_class_width(NetClass),
@@ -3123,6 +3132,12 @@ get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
 
 -spec get_nwk_addr(binary()) -> non_neg_integer().
 get_nwk_addr(DevAddr) ->
+    AddrBitWidth = addr_bit_width(DevAddr),
+    <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
+    NwkAddr.
+
+-spec get_subnet_addr(binary(), Ledger()) -> non_neg_integer().
+get_subnet_addr(DevAddr, Ledger) ->
     AddrBitWidth = addr_bit_width(DevAddr),
     <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
     NwkAddr.
