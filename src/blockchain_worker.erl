@@ -567,15 +567,11 @@ handle_cast({submit_txn, Txn, Callback}, State) ->
 handle_cast({peer_height, Height, Head, _Sender}, #state{blockchain=Chain}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
     NewState =
-        case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
-            {{error, _Reason}, _} ->
-                lager:error("could not get head hash ~p", [_Reason]),
+        case blockchain:head_block_info(Chain) of
+            {error, _Reason} ->
+                lager:error("could not get head info ~p", [_Reason]),
                 State;
-            {_, {error, _Reason}} ->
-                lager:error("could not get head block ~p", [_Reason]),
-                State;
-            {{ok, LocalHead}, {ok, LocalHeadBlock}} ->
-                LocalHeight = blockchain_block:height(LocalHeadBlock),
+            {ok, #block_info{hash = LocalHead, height = LocalHeight}} ->
                 case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
                     false ->
                         ok;
@@ -606,10 +602,9 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
-    case blockchain:head_block(Chain) of
-        {ok, Block} ->
+    case blockchain:head_block_info(Chain) of
+        {ok, #block_info{time = Time}} ->
             Now = erlang:system_time(seconds),
-            Time = blockchain_block:time(Block),
             case Now - Time of
                 N when N < 0 ->
                     %% if blocktimes are in the future, we're confused about
@@ -784,9 +779,8 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
     %% clock mostly increments this will eventually be true on a stuck node
     SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 60),
     SkewedSyncCooldownTime = application:get_env(blockchain, skewed_sync_cooldown_time, 300),
-    {ok, HeadBlock} = blockchain:head_block(Chain),
-    Height = blockchain_block:height(HeadBlock),
-    case erlang:system_time(seconds) - blockchain_block:time(HeadBlock) of
+    {ok, #block_info{time = Time, height = Height}} = blockchain:head_block_info(Chain),
+    case erlang:system_time(seconds) - Time of
         %% negative time means we're skewed, so rely on last add time
         %% until ntp fixes us.
         T when T < 0 ->

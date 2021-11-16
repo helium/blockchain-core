@@ -9,7 +9,7 @@
 -export([
     new/4, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
-    head_hash/1, head_block/1,
+    head_hash/1, head_block/1, head_block_info/1,
     sync_hash/1,
     height/1,
     sync_height/1,
@@ -442,6 +442,18 @@ head_block(Blockchain) ->
             get_block(Hash, Blockchain)
     end.
 
+-spec head_block_info(blockchain()) ->
+          {ok, #block_info{}} | {error, any()}.
+head_block_info(Blockchain) ->
+    case ?MODULE:head_hash(Blockchain) of
+        {error, _}=Error ->
+            Error;
+        {ok, Hash} ->
+            {ok, Height} = get_block_height(Hash, Blockchain),
+            get_block_info(Height, Blockchain)
+    end.
+
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -519,7 +531,13 @@ ledger_at(Height, Chain0) ->
 
 -spec ledger_at(pos_integer(), blockchain(), boolean()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 ledger_at(Height, Chain0, ForceRecalc) ->
-    Ledger = ?MODULE:ledger(Chain0),
+    Ledger0 = ?MODULE:ledger(Chain0),
+    Ledger = case blockchain_ledger_v1:mode(Ledger0) of
+        delayed ->
+            blockchain_ledger_v1:mode(active, Ledger0);
+        _ ->
+            Ledger0
+    end,
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, CurrentHeight} when Height > CurrentHeight andalso not ForceRecalc ->
             {error, invalid_height};

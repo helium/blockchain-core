@@ -2,6 +2,10 @@
 %%%% without using the macros defined here.  running:
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
+
+%% key: {is_aux, vars_nonce, var_name}
+-define(VAR_CACHE, var_cache).
+
 %%%
 %%% election vars
 %%%
