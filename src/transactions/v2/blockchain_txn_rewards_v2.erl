@@ -138,11 +138,7 @@ is_valid(Txn, Chain) ->
                     CalRewardsHashes = [hash(R)|| R <- CalRewards],
                     TxnRewardsHashes = [hash(R)|| R <- TxnRewards],
                     case CalRewardsHashes == TxnRewardsHashes of
-                        false ->
-                            lager:info("rewards diff ~p ~p ~p ~p", [length(CalRewards -- TxnRewards), length(TxnRewards -- CalRewards), length(CalRewards), length(TxnRewards)]),
-                            lager:info("~p", [hd(CalRewards -- TxnRewards)]),
-                            lager:info("~p", [hd(TxnRewards -- CalRewards)]),
-                            {error, invalid_rewards_v2};
+                        false -> {error, invalid_rewards_v2};
                         true -> ok
                     end
             end
