@@ -20,6 +20,7 @@
     get_block/2, get_block_hash/2, get_block_hash/3, get_block_height/2, get_raw_block/2,
     put_block_height/3,
     put_block_info/3, get_block_info/2,
+    mk_block_info/2,
     save_block/2,
     has_block/2,
     find_first_block_after/2,
@@ -750,6 +751,7 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             Error
     end.
 
+-spec mk_block_info(blockchain_block:hash(), blockchain_block:block()) -> #block_info_v2{}.
 mk_block_info(Hash, Block) ->
     PoCs = lists:flatmap(
              fun(Txn) ->
