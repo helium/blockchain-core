@@ -449,7 +449,8 @@ head_block_info(Blockchain) ->
         {error, _}=Error ->
             Error;
         {ok, Hash} ->
-            get_block_info(Hash, Blockchain)
+            {ok, Height} = get_block_height(Hash, Blockchain),
+            get_block_info(Height, Blockchain)
     end.
 
 
