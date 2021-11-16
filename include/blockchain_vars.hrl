@@ -529,3 +529,6 @@
 
 %% Boolean chain variable to discard witnesses with 0.0 frequency
 -define(discard_zero_freq_witness, discard_zero_freq_witness).
+
+%% Block size limit variable (in MB).
+-define(block_size_limit, block_size_limit).
