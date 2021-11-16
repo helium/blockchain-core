@@ -2915,4 +2915,40 @@ get_block_test_() ->
      end
     }.
 
+block_info_upgrade_test() ->
+    %% boilerplate to get a chain
+    #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
+    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+    Vars = #{chain_vars_version => 2},
+    Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
+    VarTxns = [blockchain_txn_vars_v1:key_proof(Txn, Proof)],
+    GenBlock = blockchain_block:new_genesis_block(VarTxns),
+    TmpDir = test_utils:tmp_dir("block_info_upgrade_test"),
+    {ok, Chain} = new(TmpDir, GenBlock, undefined, undefined),
+
+    Block = blockchain_block_v1:new(#{prev_hash => <<"prev_hash">>,
+                                      height => 1,
+                                      transactions => [],
+                                      signatures => [],
+                                      time => 1,
+                                      hbbft_round => 1,
+                                      election_epoch => 1,
+                                      epoch_start => 0,
+                                      seen_votes => [],
+                                      bba_completion => <<>>
+                                      }),
+    V1BlockInfo = #block_info{  height = 1,
+                                time = 1,
+                                hash = <<"blockhash">>,
+                                pocs = #{}},
+    ExpV2BlockInfo = #block_info_v2{height = 1,
+                                    time = 1,
+                                    hash = <<"blockhash">>,
+                                    pocs = #{},
+                                    hbbft_round = 1,
+                                    election_info = {1, 0}},
+    V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
+    ?assertMatch(V2BlockInfo, ExpV2BlockInfo).
+
 -endif.
