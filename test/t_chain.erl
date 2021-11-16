@@ -107,6 +107,8 @@ start(Cfg, Opts) when is_list(Cfg), is_map(Opts) ->
         [blockchain_txn_consensus_group_v1:new(Addrs(UsersInConsensus), <<"proof">>, 1, 0)],
     GenesisBlock = blockchain_block:new_genesis_block(GenesisTxns),
 
+    blockchain_utils:teardown_var_cache(),
+
     ok = application:set_env(blockchain, base_dir, DirForData),
     ?assertMatch(
         {ok, _},
