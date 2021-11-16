@@ -12,12 +12,16 @@
 ]).
 
 -export([
-    basic/1
+    lower_limit/1,
+    higher_limit/1,
+    at_limit/1
 ]).
 
 all() ->
     [
-        basic
+        lower_limit,
+        higher_limit,
+        at_limit
     ].
 
 init_per_suite(Config) ->
@@ -27,12 +31,13 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_TestCase, Config) ->
+    %% TODO: Remove duplication and do configuration here...
     Config.
 
 end_per_testcase(_, _Config) ->
     ok.
 
-basic(_Config) ->
+lower_limit(_Config) ->
     {SC1, SC2} = gen_sc(),
 
     {NewTime, Merged} = timer:tc(
@@ -43,6 +48,54 @@ basic(_Config) ->
     {OldTime, OldMerged} = timer:tc(
                        fun() ->
                                blockchain_state_channel_v1:old_merge(SC1, SC2, 2)
+                       end),
+    ct:pal("OldTime: ~p", [OldTime]),
+
+    case lists:sort(blockchain_state_channel_v1:summaries(Merged)) == lists:sort(blockchain_state_channel_v1:summaries(OldMerged)) of
+        false ->
+            ct:pal("~p ~p", [blockchain_state_channel_v1:summaries(Merged), blockchain_state_channel_v1:summaries(OldMerged)]),
+            ?assert(false);
+        true ->
+            ok
+    end,
+
+    ok.
+
+higher_limit(_Config) ->
+    {SC1, SC2} = gen_sc(),
+
+    {NewTime, Merged} = timer:tc(
+                       fun() ->
+                               blockchain_state_channel_v1:merge(SC1, SC2, 8)
+                       end),
+    ct:pal("NewTime: ~p", [NewTime]),
+    {OldTime, OldMerged} = timer:tc(
+                       fun() ->
+                               blockchain_state_channel_v1:old_merge(SC1, SC2, 8)
+                       end),
+    ct:pal("OldTime: ~p", [OldTime]),
+
+    case lists:sort(blockchain_state_channel_v1:summaries(Merged)) == lists:sort(blockchain_state_channel_v1:summaries(OldMerged)) of
+        false ->
+            ct:pal("~p ~p", [blockchain_state_channel_v1:summaries(Merged), blockchain_state_channel_v1:summaries(OldMerged)]),
+            ?assert(false);
+        true ->
+            ok
+    end,
+
+    ok.
+
+at_limit(_Config) ->
+    {SC1, SC2} = gen_sc(),
+
+    {NewTime, Merged} = timer:tc(
+                       fun() ->
+                               blockchain_state_channel_v1:merge(SC1, SC2, 6)
+                       end),
+    ct:pal("NewTime: ~p", [NewTime]),
+    {OldTime, OldMerged} = timer:tc(
+                       fun() ->
+                               blockchain_state_channel_v1:old_merge(SC1, SC2, 6)
                        end),
     ct:pal("OldTime: ~p", [OldTime]),
 
