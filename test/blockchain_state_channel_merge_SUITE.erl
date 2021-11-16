@@ -33,23 +33,34 @@ end_per_testcase(_, _Config) ->
     ok.
 
 basic(_Config) ->
-    {ok, Dir0} = file:get_cwd(),
-    Dir = filename:join(lists:reverse(lists:nthtail(4, lists:reverse(filename:split(Dir0))))),
-    PrivDir = filename:join([Dir, "priv"]),
-    ok = filelib:ensure_dir(PrivDir ++ "/"),
-    {ok, [SC1]} = file:consult(filename:join([PrivDir, "sc1.erl"])),
-    {ok, [SC2]} = file:consult(filename:join([PrivDir, "sc2.erl"])),
+    {SC1, SC2} = gen_sc(),
+
     {NewTime, Merged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:merge(SC1, SC2, 2000)
+                               blockchain_state_channel_v1:merge(SC1, SC2, 2)
                        end),
     ct:pal("NewTime: ~p", [NewTime]),
     {OldTime, OldMerged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:old_merge(SC1, SC2, 2000)
+                               blockchain_state_channel_v1:old_merge(SC1, SC2, 2)
                        end),
     ct:pal("OldTime: ~p", [OldTime]),
 
     true = lists:sort(blockchain_state_channel_v1:summaries(Merged)) == lists:sort(blockchain_state_channel_v1:summaries(OldMerged)),
 
     ok.
+
+gen_sc() ->
+
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(<<"p1">>))),
+    Summary2 = blockchain_state_channel_summary_v1:num_packets(4, blockchain_state_channel_summary_v1:num_dcs(4, blockchain_state_channel_summary_v1:new(<<"p1">>))),
+    Summary3 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(<<"p2">>))),
+    Summary4 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(<<"p3">>))),
+    Summary5 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(<<"p4">>))),
+    Summary6 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(<<"p4">>))),
+
+    BaseSC1 = blockchain_state_channel_v1:new(<<"1">>, crypto:strong_rand_bytes(4), 1),
+    BaseSC2 = blockchain_state_channel_v1:new(<<"2">>, crypto:strong_rand_bytes(4), 1),
+
+    {blockchain_state_channel_v1:summaries([Summary1, Summary3, Summary5], BaseSC1),
+     blockchain_state_channel_v1:summaries([Summary2, Summary4, Summary6], BaseSC2)}.
