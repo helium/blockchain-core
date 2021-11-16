@@ -730,7 +730,7 @@ put_block_info(Height, Info, #blockchain{db=DB, info=InfoCF}) ->
     rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []).
 
 -spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
-          {ok, #block_info{}} | {error, any()}.
+          {ok, #block_info_v2{}} | {error, any()}.
 get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
     case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
         {ok, BinInfo} ->
