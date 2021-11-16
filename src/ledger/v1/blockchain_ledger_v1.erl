@@ -3019,23 +3019,8 @@ get_netids(Ledger) ->
             Error
     end.
 
--spec is_local_netid(non_neg_integer(), ledger()) -> boolean().
-is_local_netid(NetID, Ledger) ->
-    case NetID of
-        $H ->
-            true;
-        _ ->
-            NetIDs = get_netids(Ledger),
-            lists:any(fun(X) -> X == NetID end, NetIDs)
-    end.
-
--spec create_devaddr(non_neg_integer(), ledger()) -> non_neg_integer().
-create_devaddr(_SubnetAddr, _Ledger) ->
-    0.
-
--spec create_devaddr2(non_neg_integer(), ledger()) -> non_neg_integer().
-create_devaddr2(SubnetAddr, Ledger) ->
-    NetIDList = get_netids(Ledger),
+-spec create_devaddr(non_neg_integer(), [non_neg_integer()] -> non_neg_integer().
+create_devaddr(SubnetAddr, NetIDList) ->
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
     DevAddr = create_addr(NetClass, NetID, NwkAddr - Lower),
@@ -3049,6 +3034,16 @@ subnet_addr_to_netid(NwkAddr, NetIDList) ->
 subnet_addr_within_range(NwkAddr, NetID, NetIDList) ->
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
     (NwkAddr >= Lower) and (NwkAddr < Upper).
+
+-spec is_local_netid(non_neg_integer(), ledger()) -> boolean().
+is_local_netid(NetID, Ledger) ->
+    case NetID of
+        $H ->
+            true;
+        _ ->
+            NetIDs = get_netids(Ledger),
+            lists:any(fun(X) -> X == NetID end, NetIDs)
+    end.
 
 -spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 create_addr(NetClass, NetID, NwkAddr) ->
