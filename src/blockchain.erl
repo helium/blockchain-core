@@ -770,19 +770,19 @@ mk_block_info(Hash, Block) ->
 
 -spec serialize_block_info(#block_info{}) -> binary().
 serialize_block_info(BlockInfo) ->
-    Bin = erlang:term_to_binary(BlockInfo),
-    <<2, Bin/binary>>.
+    erlang:term_to_binary(BlockInfo).
 
--spec deserialize_block_info(binary(), blockchain())-> #block_info_v2{}.
-deserialize_block_info(<<2, Bin/binary>>, _Chain) ->
-    erlang:binary_to_term(Bin);
-deserialize_block_info(Bin, Chain) ->
-    #block_info{height = Height} = V1BlockInfo = erlang:binary_to_term(Bin),
+-spec deserialize_block_info(binary() | #block_info{} | #block_info_v2{}, blockchain())-> #block_info_v2{}.
+deserialize_block_info(Bin, Chain) when is_binary(Bin)->
+    deserialize_block_info(erlang:binary_to_term(Bin), Chain);
+deserialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
     {ok, Block} = get_block(Height, Chain),
-    upgrade_block_info(1, V1BlockInfo, Block, Chain).
+    upgrade_block_info(V1BlockInfo, Block, Chain);
+deserialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
+    V2BlockInfo.
 
--spec upgrade_block_info(pos_integer(), #block_info{}, blockchain_block_v1:block(),  blockchain()) -> #block_info_v2{}.
-upgrade_block_info(1, #block_info{hash = Hash, height = Height}, Block, Chain = #blockchain{db=DB, info=InfoCF}) ->
+-spec upgrade_block_info(#block_info{}, blockchain_block_v1:block(),  blockchain()) -> #block_info_v2{}.
+upgrade_block_info(#block_info{hash = Hash, height = Height}, Block, Chain = #blockchain{db=DB, info=InfoCF}) ->
     Info = mk_block_info(Hash, Block),
     InfoBin = serialize_block_info(Info),
     ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
