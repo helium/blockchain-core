@@ -358,6 +358,9 @@
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
 
+%% Set this var to `true' to enable balance clearing txns
+-define(enable_balance_clearing, enable_balance_clearing). % boolean
+
 %% General txn vars
 
 %% Enable more robust validation on some legacy transactions with incorrect on-chain txns
