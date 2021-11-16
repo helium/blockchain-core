@@ -955,7 +955,7 @@ can_add_block(Block, Blockchain) ->
                 {error, Reason}=Error ->
                     lager:error("could not get head hash ~p", [Reason]),
                     Error;
-                {ok, #block_info{hash=HeadHash, height=HeadHeight}} ->
+                {ok, #block_info_v2{hash=HeadHash, height=HeadHeight}} ->
                     Height = blockchain_block:height(Block),
                     {ok, ChainHeight} = blockchain:height(Blockchain),
                     %% compute the ledger at the height of the chain in case we're
