@@ -742,7 +742,9 @@ get_state_channels_from_ledger(#state{chain=Chain, owner={Owner, OwnerSigFun}}) 
                     fun(Block, undefined) ->
                         case blockchain_utils:find_txn(Block, Filter) of
                             [_T] ->
-                                blockchain_block:hash_block(Block);
+                                Height = blockchain_block:height(Block),
+                                {ok, Hash} = blockchain:get_block_hash(Height, Chain),
+                                Hash;
                             _ ->
                                 undefined
                         end;
