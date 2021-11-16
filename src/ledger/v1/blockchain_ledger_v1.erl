@@ -112,9 +112,9 @@
     add_htlc/8,
     redeem_htlc/4,
 
+    get_netids/1,
     create_devaddr/2,
     create_addr/1,
-    get_netids/1,
     net_id/1,
     addr_bit_width/1,
     net_id_type/1,
@@ -3030,7 +3030,11 @@ is_local_netid(NetID, Ledger) ->
     end.
 
 -spec create_devaddr(non_neg_integer(), ledger()) -> non_neg_integer().
-create_devaddr(SubnetAddr, Ledger) ->
+create_devaddr(_SubnetAddr, _Ledger) ->
+    0.
+
+-spec create_devaddr2(non_neg_integer(), ledger()) -> non_neg_integer().
+create_devaddr2(SubnetAddr, Ledger) ->
     NetIDList = get_netids(Ledger),
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
@@ -3169,7 +3173,10 @@ get_nwk_addr(DevAddr) ->
     NwkAddr.
 
 -spec get_subnet_addr(binary(), ledger()) -> non_neg_integer().
-get_subnet_addr(DevAddr, Ledger) ->
+get_subnet_addr(_DevAddr, _Ledger) -> 0.
+
+-spec get_subnet_addr2(binary(), ledger()) -> non_neg_integer().
+get_subnet_addr2(DevAddr, Ledger) ->
     %% ToDo: Replace with correct get_netid
     NetID = net_id(DevAddr),
     NetIDList = get_netids(Ledger),
