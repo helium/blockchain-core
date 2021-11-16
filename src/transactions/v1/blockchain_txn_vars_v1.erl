@@ -1333,8 +1333,7 @@ validate_var(?discard_zero_freq_witness, Value) ->
         _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
     end;
 validate_var(?block_size_limit, Value) ->
-    %% We will set this to 25 for 25MB.
-    validate_int(Value, "block_size_limit", 1, 1024, false);
+    validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
 
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
