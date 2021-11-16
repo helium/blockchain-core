@@ -114,7 +114,6 @@
 
     get_netids/1,
     create_devaddr/2,
-    create_addr/1,
     net_id/1,
     addr_bit_width/1,
     net_id_type/1,
@@ -3023,7 +3022,7 @@ get_netids(Ledger) ->
 create_devaddr(SubnetAddr, NetIDList) ->
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
-    DevAddr = create_addr(NetClass, NetID, NwkAddr - Lower),
+    DevAddr = create_devaddr(NetClass, NetID, NwkAddr - Lower),
     DevAddr.
 
 -spec subnet_addr_to_netid(non_neg_integer(), ledger()) -> non_neg_integer().
@@ -3045,8 +3044,8 @@ is_local_netid(NetID, Ledger) ->
             lists:any(fun(X) -> X == NetID end, NetIDs)
     end.
 
--spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-create_addr(NetClass, NetID, NwkAddr) ->
+-spec create_devaddr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+create_devaddr(NetClass, NetID, NwkAddr) ->
     Size = addr_class_width(NetClass),
     IDSize = 32 - 3 - Size,
     Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>),
@@ -5664,7 +5663,7 @@ find_scs_by_owner_test() ->
     ok.
 
 netid_test() ->
-    DevAddr0 = create_addr(3, 16#2D, 16),
+    DevAddr0 = create_devaddr(3, 16#2D, 16),
     NwkAddr0 = get_nwk_addr(DevAddr0),
     ?assertEqual(NwkAddr0, 16),
     NetIDType0 = net_id_type(DevAddr0),
@@ -5745,7 +5744,7 @@ subnet_allocation_test() ->
     R9 = find_dest(Key9, Ledger),
     ?assertEqual(R9, <<9:32/little-unsigned-integer>>),
 
-    DevAddr0 = create_addr(3, 16#2D, 16),
+    DevAddr0 = create_devaddr(3, 16#2D, 16),
     Dest = find_routing_via_subnet(DevAddr0, Ledger),
     ?assertEqual(Dest, <<4:32/little-unsigned-integer>>),
 
