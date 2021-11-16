@@ -3167,10 +3167,7 @@ get_nwk_addr(DevAddr) ->
     NwkAddr.
 
 -spec get_subnet_addr(binary(), ledger()) -> non_neg_integer().
-get_subnet_addr(_DevAddr, _Ledger) -> 0.
-
--spec get_subnet_addr2(binary(), ledger()) -> non_neg_integer().
-get_subnet_addr2(DevAddr, Ledger) ->
+get_subnet_addr(DevAddr, Ledger) ->
     %% ToDo: Replace with correct get_netid
     NetID = net_id(DevAddr),
     NetIDList = get_netids(Ledger),
