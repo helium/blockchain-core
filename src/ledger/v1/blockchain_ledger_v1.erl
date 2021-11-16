@@ -3014,7 +3014,7 @@ get_netids(Ledger) ->
         {ok, BinNetIDs} ->
             binary_to_term(BinNetIDs);
         not_found ->
-            [ 16#2D ];
+            [ <<16#2D:24/integer-unsigned, 2#011:3/integer-unsigned>> ];
         Error ->
             Error
     end.
@@ -3053,6 +3053,7 @@ create_addr(NetClass, NetID, NwkAddr) ->
     Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>),
     Addr.
 
+-spec addr_class_width(0..7) -> non_neg_integer().
 addr_class_width(NetClass) ->
     case NetClass of
         0 -> 25;
@@ -3065,6 +3066,7 @@ addr_class_width(NetClass) ->
         7 -> 7
     end.
 
+-spec netid_width(non_neg_integer()) -> non_neg_integer().
 netid_width(NetID) ->
     <<ID:21, NetClass:3>> = NetID,
     case NetClass of
@@ -3168,9 +3170,12 @@ get_nwk_addr(DevAddr) ->
 
 -spec get_subnet_addr(binary(), ledger()) -> non_neg_integer().
 get_subnet_addr(DevAddr, Ledger) ->
-    AddrBitWidth = addr_bit_width(DevAddr),
-    <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
-    NwkAddr.
+    %% ToDo: Replace with correct get_netid
+    NetID = net_id(DevAddr),
+    NetIDList = get_netids(Ledger),
+    NwkAddr = get_nwk_addr(DevAddr),
+    {Lower, Upper} = netid_addr_range(NetID, NetIDList),
+    Lower + NwkAddr.
 
 -spec netid_addr_range(non_neg_integer(), [non_neg_integer()]) -> {non_neg_integer(), non_neg_integer()}.
 netid_addr_range(NetID, NetIDList0) ->
