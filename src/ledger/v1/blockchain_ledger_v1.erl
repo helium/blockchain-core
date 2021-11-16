@@ -5,7 +5,7 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/1, new/4, new/5, new/6,
+    new/1, new/5, new/6, new/7,
     dir/1,
     mode/1, mode/2,
 
@@ -26,7 +26,7 @@
     new_context/1, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
-    get_block/2,
+    get_block/2, get_block_info/2,
 
     new_snapshot/1, context_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
 
@@ -272,20 +272,20 @@
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
-    new(Dir, false, undefined, undefined, undefined).
+    new(Dir, false, undefined, undefined, undefined, undefined).
 
--spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
-new(Dir, BlocksDB, BlocksCF, HeightsCF) ->
+-spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
+new(Dir, BlocksDB, BlocksCF, HeightsCF, InfoCF) ->
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    new(Dir, false, BlocksDB, BlocksCF, HeightsCF, GlobalOpts).
+    new(Dir, false, BlocksDB, BlocksCF, HeightsCF, InfoCF, GlobalOpts).
 
--spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
-new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF) ->
+-spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
+new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF) ->
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, GlobalOpts).
+    new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF, GlobalOpts).
 
--spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_options()) -> ledger().
-new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, Options) ->
+-spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_options()) -> ledger().
+new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF, Options) ->
     L = new(Dir, ReadOnly, Options),
 
     %% allow config-set commit hooks in case we're worried about something being racy
@@ -297,6 +297,7 @@ new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, Options) ->
         blocks_db = BlocksDB,
         blocks_cf = BlocksCF,
         heights_cf = HeightsCF,
+        info_cf = InfoCF,
         commit_hooks = Hooks
     }),
     sweep_old_checkpoints(Ledger),
@@ -2101,9 +2102,8 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
 maybe_gc_scs(Chain, Ledger) ->
     {ok, Height} = current_height(Ledger),
 
-    case blockchain:get_block(Height, Chain) of
-        {ok, Block} ->
-            {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
+    case blockchain:get_block_info(Height, Chain) of
+        {ok, #block_info_v2{election_info={_Epoch, EpochStart}}} ->
             RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
                                 {ok, N} -> N;
                                 _ -> 1
@@ -3578,6 +3578,32 @@ get_block(Height, #ledger_v1{blocks_db = DB,
                     end;
                 not_found ->
                     {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
+get_block_info(Height, #ledger_v1{blocks_db = DB,
+                                  info_cf = InfoCF} = Ledger) ->
+    case Height > current_height(Ledger) of
+        true -> {error, too_new};
+        _ ->
+            case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
+                {ok, BinInfo} ->
+                    case binary_to_term(BinInfo) of
+                        BI = #block_info_v2{} ->
+                            {ok, BI};
+                        _ ->
+                            %% probably a stale one
+                            case get_block(Height, Ledger) of
+                                {ok, Block} ->
+                                    NewInfo = blockchain:mk_block_info(blockchain_block:hash_block(Block), Block),
+                                    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(NewInfo), []),
+                                    {ok, NewInfo};
+                                Error ->
+                                    Error
+                            end
+                    end;
                 Error ->
                     Error
             end

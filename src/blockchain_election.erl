@@ -10,6 +10,7 @@
          validator_penalties/2
         ]).
 
+-include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_caps.hrl").
 
@@ -844,10 +845,8 @@ election_info(Ledger) ->
     election_info(Height, Ledger).
 
 election_info(Height, Ledger) when is_integer(Height) ->
-    {ok, Block} = blockchain_ledger_v1:get_block(Height, Ledger),
-
     %% get the election info
-    {Epoch, StartHeight0} = blockchain_block_v1:election_info(Block),
+    {ok, #block_info_v2{election_info={Epoch, StartHeight0}}} = blockchain_ledger_v1:get_block_info(Height, Ledger),
 
     %% genesis block thinks that the start height is 0, but it is
     %% block 1, so force it.
@@ -856,7 +855,6 @@ election_info(Height, Ledger) when is_integer(Height) ->
     %% get the election txn
     {ok, StartBlock} = blockchain_ledger_v1:get_block(StartHeight, Ledger),
     {ok, Txn} = get_election_txn(StartBlock),
-    lager:debug("txn ~s", [blockchain_txn:print(Txn)]),
     ElectionHeight = blockchain_txn_consensus_group_v1:height(Txn),
     ElectionDelay = blockchain_txn_consensus_group_v1:delay(Txn),
 

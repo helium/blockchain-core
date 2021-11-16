@@ -13,6 +13,7 @@
     blocks_db :: rocksdb:db_handle(),
     blocks_cf :: rocksdb:cf_handle(),
     heights_cf :: rocksdb:cf_handle(),
+    info_cf :: rocksdb:cf_handle(),
     snapshots :: ets:tid(),
     mode = active :: mode(),
     active :: sub_ledger(),
