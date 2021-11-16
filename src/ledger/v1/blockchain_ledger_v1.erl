@@ -2997,7 +2997,7 @@ get_netids(Ledger) ->
             Error
     end.
 
--spec is_local_netid(non_net_integer(), ledger()) -> bool.
+-spec is_local_netid(non_neg_integer(), ledger()) -> bool.
 is_local_netid(NetID, Ledger) ->
     case NetID of
         $H ->
@@ -3007,7 +3007,7 @@ is_local_netid(NetID, Ledger) ->
             lists:any(fun(X) -> X == NetID end, NetIDs)
     end.
 
--spec create_devaddr(non_neg_integer(), Ledger()) -> non_neg_integer().
+-spec create_devaddr(non_neg_integer(), ledger()) -> non_neg_integer().
 create_devaddr(NwkAddr, Ledger) ->
     NetIDList = get_netids(Ledger),
     CurrNetID = lists:last(NetIDList),
@@ -3136,7 +3136,7 @@ get_nwk_addr(DevAddr) ->
     <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
     NwkAddr.
 
--spec get_subnet_addr(binary(), Ledger()) -> non_neg_integer().
+-spec get_subnet_addr(binary(), ledger()) -> non_neg_integer().
 get_subnet_addr(DevAddr, Ledger) ->
     AddrBitWidth = addr_bit_width(DevAddr),
     <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
