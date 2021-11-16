@@ -162,8 +162,9 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
-                                                  block=element(1, lists:last(Blocks)),
+                                                  block=LastHeight,
                                                   requested = Requested1},
                              Msg}
                     end
@@ -181,8 +182,9 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
-                                                  block=element(1, lists:last(Blocks)),
+                                                  block=LastHeight,
                                                   requested = Requested1},
                              Msg}
                     end
