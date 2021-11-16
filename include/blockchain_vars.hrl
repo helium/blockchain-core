@@ -2,6 +2,10 @@
 %%%% without using the macros defined here.  running:
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
+
+%% key: {is_aux, vars_nonce, var_name}
+-define(VAR_CACHE, var_cache).
+
 %%%
 %%% election vars
 %%%
@@ -537,3 +541,6 @@
 
 %% Boolean chain variable to discard witnesses with 0.0 frequency
 -define(discard_zero_freq_witness, discard_zero_freq_witness).
+
+%% Block size limit variable (in bytes). Set to 25 * 1024 * 1024.
+-define(block_size_limit, block_size_limit).

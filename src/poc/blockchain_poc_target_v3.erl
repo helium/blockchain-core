@@ -46,9 +46,9 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
     case filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
             %% Assign probabilities to each of these gateways
+            Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
             ProbTargets = lists:map(
                             fun(A) ->
-                                    Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
                                     {A, Prob}
                             end,
                             FilteredList),

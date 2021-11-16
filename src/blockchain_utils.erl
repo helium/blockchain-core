@@ -63,8 +63,6 @@
 -define(MAX_ANTENNA_GAIN, 6).
 -define(POC_PER_HOP_MAX_WITNESSES, 5).
 
-%% key: {is_aux, vars_nonce, var_name}
--define(VAR_CACHE, var_cache).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
@@ -399,8 +397,11 @@ get_pubkeybin_sigfun(Swarm) ->
 
 -spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
-    Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
-    icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
+    Sum = lists:foldl(fun({_Node, Weight}, Acc) ->
+                              Acc + Weight
+                      end, 0, PopulationList),
+    OrigRnd = normalize_float(Rnd * Sum),
+    icdf_select_(PopulationList, OrigRnd).
 
 -spec find_txn(Block :: blockchain_block:block(),
                PredFun :: fun()) -> [blockchain_txn:txn()].
@@ -411,14 +412,14 @@ find_txn(Block, PredFun) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-icdf_select([{_Node, 0.0}], _Rnd, _OrigRnd) ->
+icdf_select_([{_Node, 0.0}], _Rnd) ->
     {error, zero_weight};
-icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->
+icdf_select_([{Node, _Weight}], _Rnd) ->
     {ok, Node};
-icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
+icdf_select_([{Node, Weight} | _], Rnd) when Rnd - Weight =< 0 ->
     {ok, Node};
-icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
-    icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
+icdf_select_([{_Node, Weight} | Tail], Rnd) ->
+    icdf_select_(Tail, normalize_float(Rnd - Weight)).
 
 
 
@@ -606,25 +607,34 @@ do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
 majority(N) ->
     (N div 2) + 1.
 
-%% TODO: we can probably do this in ETS somehow, but e2qc is causing major issues when called like
-%% this. all of these are being edited into noops and passthroughs.
-
 -spec get_vars(VarList :: [atom()], Ledger :: blockchain_ledger_v1:ledger()) -> #{atom() => any()}.
 get_vars(VarList, Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    IsAux = blockchain_ledger_v1:is_aux(Ledger),
     lists:foldl(
       fun(VarName, Acc) ->
-              case get_var_(VarName, isaux, varsnonce, Ledger) of
+              %% NOTE: This isn't ideal but in order for get_var/2 to
+              %% correspond with blockchain:config/2, it returns {ok, ..} | {error, ..}
+              %% So we just put undefined for any error lookups here.
+              %% The callee must handle those situations.
+              case get_var_(VarName, IsAux, VarsNonce, Ledger) of
                   {ok, VarValue} -> maps:put(VarName, VarValue, Acc);
                   _ -> maps:put(VarName, undefined, Acc)
               end
       end, #{}, VarList).
 
 -spec get_var_(VarName :: atom(),
-               IsAux :: atom(),         % XXX: Temporary
-               VarsNonce :: atom(),     % XXX: Temporary
+               IsAux :: boolean(),
+               VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
-get_var_(VarName, _HasAux, _VarsNonce, Ledger) ->
-    get_var_(VarName, Ledger).
+get_var_(VarName, HasAux, VarsNonce, Ledger) ->
+    e2qc:cache(
+        ?VAR_CACHE,
+        {HasAux, VarsNonce, VarName},
+        fun() ->
+            get_var_(VarName, Ledger)
+        end
+    ).
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
@@ -641,13 +651,11 @@ var_cache_stats() ->
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
-    %% e2qc:teardown(?VAR_CACHE).
-    ok.
+    e2qc:teardown(?VAR_CACHE).
 
 init_var_cache() ->
     %% TODO could pull cache settings from app env here
-    %%e2qc:setup(?VAR_CACHE, []).
-    ok.
+    e2qc:setup(?VAR_CACHE, []).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -1240,7 +1240,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                          blockchain_utils:addr2name(DstPubkeyBin),
                                          SourceLoc, DestinationLoc, Distance]),
                             undefined;
-                        {false, _Distance} ->
+                        false ->
                             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                 Dist when Dist >= ExclusionCells ->
                                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
@@ -1314,16 +1314,16 @@ valid_witnesses(Element, Channel, Ledger) ->
 
 -spec is_too_far(Ledger:: blockchain_ledger_v1:ledger(),
                  SrcLoc :: h3:h3_index(),
-                 DstLoc :: h3:h3_index()) -> {boolean(), float()}.
+                 DstLoc :: h3:h3_index()) -> {true, float()} | false.
 is_too_far(Ledger, SrcLoc, DstLoc) ->
-  Distance = blockchain_utils:distance(SrcLoc, DstLoc),
     case blockchain:config(?poc_distance_limit, Ledger) of
         {ok, L} ->
+            Distance = blockchain_utils:distance(SrcLoc, DstLoc),
             Check = Distance > L,
             {Check, Distance};
         _ ->
             %% var not set, it's not too far (don't consider it)
-            {false, Distance}
+            false
     end.
 
 -spec check_valid_frequency(Location :: h3:h3_index(),
@@ -1386,7 +1386,7 @@ is_same_region(Ledger, SourceLoc, DstLoc) ->
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
-    {ok, Source} = blockchain_ledger_v1:find_gateway_info(SrcPubkeyBin, Ledger),
+    {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
@@ -1395,9 +1395,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
 
     lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
-                         {ok, Destination} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
-                         SourceLoc = blockchain_ledger_gateway_v2:location(Source),
-                         DestinationLoc = blockchain_ledger_gateway_v2:location(Destination),
+                         {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
@@ -1423,7 +1421,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                               blockchain_utils:addr2name(DstPubkeyBin),
                                                               SourceLoc, DestinationLoc, Distance]),
                                                  [{false, <<"witness_too_far">>, Witness} | Acc];
-                                             {false, _Distance} ->
+                                             false ->
                                                  try h3:grid_distance(SourceParentIndex, DestinationParentIndex) of
                                                      Dist when Dist >= ExclusionCells ->
                                                          RSSI = blockchain_poc_witness_v1:signal(Witness),
