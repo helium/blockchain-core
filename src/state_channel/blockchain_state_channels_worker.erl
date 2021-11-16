@@ -50,12 +50,10 @@
     sc_version :: non_neg_integer(),
     max_actors_allowed = ?SC_MAX_ACTORS :: pos_integer(),
     prevent_overspend = true,
-    bloom :: bloom_nif:bloom(),
-    handlers = #{} :: handlers()
+    bloom :: bloom_nif:bloom()
 }).
 
 -type state() :: #state{}.
--type handlers() :: #{libp2p_crypto:pubkey_bin() => {pid(), reference()}}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -180,15 +178,6 @@ handle_info(?OVERSPENT, State) ->
     {stop, {shutdown, ?OVERSPENT}, State};
 handle_info({'DOWN', _Ref, process, Parent, _}, #state{parent=Parent}=State) ->
     {stop, {shutdown, parent_down}, State};
-handle_info({'DOWN', _Ref, process, Pid, _}, #state{handlers=Handlers}=State) ->
-    FilteredHandlers =
-        maps:filter(
-            fun(_Name, {Handler, _}) ->
-                Handler /= Pid
-            end,
-            Handlers
-        ),
-    {noreply, State#state{handlers=FilteredHandlers}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -274,8 +263,7 @@ offer(
                         Region
                     ),
                     ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
-                    State1 = maybe_update_streams(HotspotID, HandlerPid, State0),
-                    {noreply, State1#state{state_channel=SignedPurchaseSC}}
+                    {noreply, State0#state{state_channel=SignedPurchaseSC}}
             end
     end.
 
@@ -286,7 +274,7 @@ offer(
 ) -> state().
 packet(
     SCPacket,
-    HandlerPid,
+    _HandlerPid,
     #state{
         state_channel=SC0,
         skewed=Skewed0,
@@ -304,7 +292,7 @@ packet(
     case SCVer > 1 andalso bloom:check_and_set(Bloom, Payload) of
         true ->
             lager:debug("skewed already updated with ~p (sc version=~p)", [Payload, SCVer]),
-            maybe_update_streams(HotspotID, HandlerPid, State0);
+            State0;
         false ->
             lager:debug("updating skewed with ~p", [Payload]),
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC0, Skewed0),
@@ -326,32 +314,9 @@ packet(
             end,
             SignedSC = blockchain_state_channel_v1:sign(SC2, OwnerSigFun),
             ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-            State1 = State0#state{state_channel=SignedSC, skewed=Skewed1},
-            maybe_update_streams(HotspotID, HandlerPid, State1)
+            State0#state{state_channel=SignedSC, skewed=Skewed1}
     end.
 
--spec maybe_update_streams(
-    HotspotID :: libp2p_crypto:pubkey_bin(),
-    Handler :: pid(),
-    State :: state()
-) -> state().
-maybe_update_streams(HotspotID, Handler, #state{handlers=Handlers0}=State) ->
-    Handlers1 =
-        case Handlers0 of
-            #{HotspotID := {Handler, _Ref}} = Map ->
-                %% found and still the same
-                Map;
-            #{HotspotID := {_OldHandler, OldRef}} = Map ->
-                %% found and changed
-                erlang:demonitor(OldRef),
-                NewRef = erlang:monitor(process, Handler),
-                Map#{HotspotID := {Handler, NewRef}};
-            Map ->
-                %% new
-                Ref = erlang:monitor(process, Handler),
-                Map#{HotspotID => {Handler, Ref}}
-        end,
-   State#state{handlers=Handlers1}.
 
 -spec send_offer_rejection(HandlerPid :: pid(), Offer :: blockchain_state_channel_offer_v1:offer()) -> ok.
 send_offer_rejection(HandlerPid, Offer) ->
