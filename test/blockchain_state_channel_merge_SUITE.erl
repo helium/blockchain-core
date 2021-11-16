@@ -46,7 +46,13 @@ basic(_Config) ->
                        end),
     ct:pal("OldTime: ~p", [OldTime]),
 
-    true = lists:sort(blockchain_state_channel_v1:summaries(Merged)) == lists:sort(blockchain_state_channel_v1:summaries(OldMerged)),
+    case lists:sort(blockchain_state_channel_v1:summaries(Merged)) == lists:sort(blockchain_state_channel_v1:summaries(OldMerged)) of
+        false ->
+            ct:pal("~p ~p", [blockchain_state_channel_v1:summaries(Merged), blockchain_state_channel_v1:summaries(OldMerged)]),
+            ?assert(false);
+        true ->
+            ok
+    end,
 
     ok.
 
