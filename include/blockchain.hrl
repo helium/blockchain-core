@@ -43,8 +43,18 @@
 
 -record(block_info,
         {
-         time,
-         height,
-         hash,
-         pocs
+         time :: non_neg_integer(),
+         height :: non_neg_integer(),
+         hash :: blockchain_block:hash(),
+         pocs :: map()
+        }).
+-record(block_info_v2,
+        {
+         time :: non_neg_integer(),
+         height :: non_neg_integer(),
+         hash :: blockchain_block:hash(),
+         pocs :: map(),
+         hbbft_round :: non_neg_integer(),
+         election_info :: {non_neg_integer(), non_neg_integer()},
+         penalties :: {binary(), [{pos_integer(), binary()}]}
         }).

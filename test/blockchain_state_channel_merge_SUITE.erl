@@ -42,12 +42,12 @@ lower_limit(_Config) ->
 
     {NewTime, Merged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:merge(SC1, SC2, 2)
+                               blockchain_state_channel_v1:new_merge(SC1, SC2, 2)
                        end),
     ct:pal("NewTime: ~p", [NewTime]),
     {OldTime, OldMerged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:old_merge(SC1, SC2, 2)
+                               blockchain_state_channel_v1:merge(SC1, SC2, 2)
                        end),
     ct:pal("OldTime: ~p", [OldTime]),
 
@@ -66,12 +66,12 @@ higher_limit(_Config) ->
 
     {NewTime, Merged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:merge(SC1, SC2, 8)
+                               blockchain_state_channel_v1:new_merge(SC1, SC2, 8)
                        end),
     ct:pal("NewTime: ~p", [NewTime]),
     {OldTime, OldMerged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:old_merge(SC1, SC2, 8)
+                               blockchain_state_channel_v1:merge(SC1, SC2, 8)
                        end),
     ct:pal("OldTime: ~p", [OldTime]),
 
@@ -90,12 +90,12 @@ at_limit(_Config) ->
 
     {NewTime, Merged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:merge(SC1, SC2, 6)
+                               blockchain_state_channel_v1:new_merge(SC1, SC2, 6)
                        end),
     ct:pal("NewTime: ~p", [NewTime]),
     {OldTime, OldMerged} = timer:tc(
                        fun() ->
-                               blockchain_state_channel_v1:old_merge(SC1, SC2, 6)
+                               blockchain_state_channel_v1:merge(SC1, SC2, 6)
                        end),
     ct:pal("OldTime: ~p", [OldTime]),
 

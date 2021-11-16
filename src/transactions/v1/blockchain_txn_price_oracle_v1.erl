@@ -196,7 +196,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, #block_info{time = Time}} = blockchain:get_block_info(LedgerHeight, Chain),
+    {ok, #block_info_v2{time = Time}} = blockchain:get_block_info(LedgerHeight, Chain),
 
     Entry = blockchain_ledger_oracle_price_entry:new(
               Time,

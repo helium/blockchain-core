@@ -10,6 +10,7 @@
          validator_penalties/2
         ]).
 
+-include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_caps.hrl").
 
@@ -345,10 +346,15 @@ adjust_old_group(Group, Ledger) ->
           {1, #{}},
           OldGroup),
 
-    Blocks = [begin {ok, Block} = blockchain_ledger_v1:get_block(Ht, Ledger), Block end
-              || Ht <- lists:seq(Start + 1, End)],
+    PenaltyTuples =
+        [begin
+             {ok, #block_info_v2{penalties = PenaltyTuple}} =
+                 blockchain_ledger_v1:get_block_info(Ht, Ledger),
+             PenaltyTuple
+         end
+         || Ht <- lists:seq(Start + 1, End)],
 
-    Penalties = get_penalties(Blocks, length(Group), Ledger),
+    Penalties = get_penalties(PenaltyTuples, length(Group), Ledger),
     lager:debug("penalties ~p", [Penalties]),
 
     %% now that we've accumulated all of the penalties, apply them to
@@ -388,10 +394,16 @@ validator_penalties(Group, Ledger) ->
 
     #{start_height := Start,
       curr_height := End} = election_info(Ledger),
-    Blocks = [begin {ok, Block} = blockchain_ledger_v1:get_block(Ht, Ledger), Block end
-              || Ht <- lists:seq(Start + 2, End)],
+    PenaltyTuples =
+        [begin
+             {ok, #block_info_v2{height = Height,
+                                 penalties = PenaltyTuple}}
+                 = blockchain_ledger_v1:get_block_info(Ht, Ledger),
+             {PenaltyTuple, Height}
+         end
+         || Ht <- lists:seq(Start + 2, End)],
 
-    IndexedPenalties = get_penalties_v2(Blocks, length(Group), Ledger),
+    IndexedPenalties = get_penalties_v2(PenaltyTuples, length(Group), Ledger),
     maps:fold(fun(I, Pen, Acc) ->
                       Addr = maps:get(I, Addrs),
                       Acc#{Addr => Pen}
@@ -414,25 +426,23 @@ calc_age_weighted_penalty(Amt, Limit, Height, Instances) ->
           Instances),
     blockchain_utils:normalize_float(Tot).
 
-get_penalties(Blocks, Sz, Ledger) ->
+get_penalties(Tuples, Sz, Ledger) ->
     {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
     {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
 
-    BBAs = [begin
-                BBA0 = blockchain_block_v1:bba_completion(Block),
-                blockchain_utils:bitvector_to_map(Sz, BBA0)
-            end || Block <- Blocks],
+    {BBAs0, Seens0} = lists:unzip(Tuples),
 
-    Seens = [begin
-                 Seen0 = blockchain_block_v1:seen_votes(Block),
-                 %% votes here are lists of per-participant seen
-                 %% information. condense here summarizes them, and a
-                 %% node is only voted against if there are 2f+1
-                 %% votes against it.
-                 condense_votes(Sz, Seen0)
-             end || Block <- Blocks],
+    BBAs = [blockchain_utils:bitvector_to_map(Sz, BBA0)
+            || BBA0 <- BBAs0],
 
-    lager:debug("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
+    Seens = [%% votes here are lists of per-participant seen
+             %% information. condense here summarizes them, and a
+             %% node is only voted against if there are 2f+1
+             %% votes against it.
+             condense_votes(Sz, Seen0)
+             || Seen0 <- Seens0],
+
+    lager:debug("ct ~p bbas ~p seens ~p", [length(BBAs0), BBAs, Seens]),
 
     Penalties0 =
         lists:foldl(
@@ -465,17 +475,17 @@ get_penalties(Blocks, Sz, Ledger) ->
       Penalties0,
       Seens).
 
-get_penalties_v2(Blocks, Sz, Ledger) ->
+get_penalties_v2(Tuples, Sz, Ledger) ->
     {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
     {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
     {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
-    BBAs = [begin
-                BBA0 = blockchain_block_v1:bba_completion(Block),
-                Ht = blockchain_block_v1:height(Block),
-                {Ht, blockchain_utils:bitvector_to_map(Sz, BBA0)}
-            end || Block <- Blocks],
+    {PenaltyTuples, Heights} = lists:unzip(Tuples),
+    {BBAs0, Seens0} = lists:unzip(PenaltyTuples),
+
+    BBAs = [blockchain_utils:bitvector_to_map(Sz, BBA0)
+            || BBA0 <- BBAs0],
 
     BBAPenalties =
         lists:foldl(
@@ -489,7 +499,7 @@ get_penalties_v2(Blocks, Sz, Ledger) ->
                     end, Acc, BBA)
           end,
           maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
-          BBAs),
+          lists:zip(Heights, BBAs)),
 
     lager:debug("bba pens ~p", [BBAPenalties]),
 
@@ -500,15 +510,12 @@ get_penalties_v2(Blocks, Sz, Ledger) ->
           end,
           BBAPenalties),
 
-    Seens = [begin
-                 Seen0 = blockchain_block_v1:seen_votes(Block),
-                 Ht = blockchain_block_v1:height(Block),
-                 %% votes here are lists of per-participant seen
-                 %% information. condense here summarizes them, and a
-                 %% node is only voted against if there are 2f+1
-                 %% votes against it.
-                 {Ht, condense_votes(Sz, Seen0)}
-             end || Block <- Blocks],
+    Seens = [%% votes here are lists of per-participant seen
+             %% information. condense here summarizes them, and a
+             %% node is only voted against if there are 2f+1
+             %% votes against it.
+             condense_votes(Sz, Seen0)
+             || Seen0 <- Seens0],
 
     SeenPenalties =
         lists:foldl(
@@ -522,9 +529,9 @@ get_penalties_v2(Blocks, Sz, Ledger) ->
                     end, Acc, Seen)
           end,
           maps:from_list([{I, []} || I <- lists:seq(1, Sz)]),
-          Seens),
+          lists:zip(Heights, Seens)),
 
-    lager:debug("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
+    lager:debug("ct ~p bbas ~p seens ~p", [length(Heights), BBAs, Seens]),
     lager:debug("penalties0 ~p", [Penalties0]),
 
     maps:fold(
@@ -844,10 +851,8 @@ election_info(Ledger) ->
     election_info(Height, Ledger).
 
 election_info(Height, Ledger) when is_integer(Height) ->
-    {ok, Block} = blockchain_ledger_v1:get_block(Height, Ledger),
-
     %% get the election info
-    {Epoch, StartHeight0} = blockchain_block_v1:election_info(Block),
+    {ok, #block_info_v2{election_info={Epoch, StartHeight0}}} = blockchain_ledger_v1:get_block_info(Height, Ledger),
 
     %% genesis block thinks that the start height is 0, but it is
     %% block 1, so force it.
@@ -856,7 +861,6 @@ election_info(Height, Ledger) when is_integer(Height) ->
     %% get the election txn
     {ok, StartBlock} = blockchain_ledger_v1:get_block(StartHeight, Ledger),
     {ok, Txn} = get_election_txn(StartBlock),
-    lager:debug("txn ~s", [blockchain_txn:print(Txn)]),
     ElectionHeight = blockchain_txn_consensus_group_v1:height(Txn),
     ElectionDelay = blockchain_txn_consensus_group_v1:delay(Txn),
 
