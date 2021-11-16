@@ -9,6 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
+-include("blockchain.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_v1_pb.hrl").
 
@@ -136,7 +137,7 @@ is_valid(Txn, Chain) ->
             {ok, 0} ->
                 ok;
             {ok, CurrHeight} ->
-                {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+                {ok, #block_info_v2{election_info={_, LastElectionHeight}}} = blockchain:get_block_info(CurrHeight, Chain),
 
                 case blockchain_ledger_v1:election_height(Ledger) of
                     %% no chain, genesis block
@@ -147,7 +148,6 @@ is_valid(Txn, Chain) ->
                     {ok, BaseHeight} ->
                         throw({error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}})
                 end,
-                {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
                 {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
                 %% The next election should be at least ElectionInterval blocks past the last election
                 %% This check prevents elections ahead of schedule

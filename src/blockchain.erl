@@ -20,6 +20,7 @@
     get_block/2, get_block_hash/2, get_block_hash/3, get_block_height/2, get_raw_block/2,
     put_block_height/3,
     put_block_info/3, get_block_info/2,
+    mk_block_info/2,
     save_block/2,
     has_block/2,
     find_first_block_after/2,
@@ -73,7 +74,8 @@
 
     db_handle/1,
     blocks_cf/1,
-    heights_cf/1
+    heights_cf/1,
+    info_cf/1
 
 ]).
 
@@ -443,7 +445,7 @@ head_block(Blockchain) ->
     end.
 
 -spec head_block_info(blockchain()) ->
-          {ok, #block_info{}} | {error, any()}.
+          {ok, #block_info_v2{}} | {error, any()}.
 head_block_info(Blockchain) ->
     case ?MODULE:head_hash(Blockchain) of
         {error, _}=Error ->
@@ -690,7 +692,7 @@ get_block_hash(Height, #blockchain{db=DB, heights=HeightsCF} = Chain, Fallback) 
             {error, not_found};
         not_found when Fallback == true ->
             case get_block_info(Height, Chain) of
-                {ok, #block_info{hash = Hash}} ->
+                {ok, #block_info_v2{hash = Hash}} ->
                     {ok, Hash};
                 {error, not_found} ->
                     {error, not_found}
@@ -723,24 +725,26 @@ put_block_height(Hash, Height, #blockchain{db=DB, heights=HeightsCF}) ->
     rocksdb:put(DB, HeightsCF, Hash, <<Height:64/integer-unsigned-big>>, []).
 
 -spec put_block_info(Height :: pos_integer(),
-                     Info :: #block_info{},
+                     Info :: #block_info{} | #block_info_v2{},
                      Blockchain :: blockchain()) ->
           ok | {error, any()}.
-put_block_info(Height, Info, #blockchain{db=DB, info=InfoCF}) ->
-    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []).
+put_block_info(Height, Info, Chain = #blockchain{db=DB, info=InfoCF}) ->
+    InfoBin = serialize_block_info(Info, Chain),
+    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []).
 
 -spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
-          {ok, #block_info{}} | {error, any()}.
+          {ok, #block_info_v2{}} | {error, any()}.
 get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
     case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
         {ok, BinInfo} ->
-            {ok, binary_to_term(BinInfo)};
+            {ok, deserialize_block_info(BinInfo, Chain)};
         not_found ->
             case get_block(Height, Chain) of
                 {ok, Block} ->
                     Hash = blockchain_block:hash_block(Block),
                     Info = mk_block_info(Hash, Block),
-                    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info), []),
+                    InfoBin = serialize_block_info(Info),
+                    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
                     {ok, Info};
                 Error ->
                     Error
@@ -749,6 +753,8 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             Error
     end.
 
+
+-spec mk_block_info(blockchain_block:hash(), blockchain_block:block()) -> #block_info_v2{}.
 mk_block_info(Hash, Block) ->
     PoCs = lists:flatmap(
              fun(Txn) ->
@@ -760,10 +766,42 @@ mk_block_info(Hash, Block) ->
                      end
              end,
              blockchain_block:transactions(Block)),
-    #block_info{time = blockchain_block:time(Block),
-                hash = Hash,
-                height = blockchain_block:height(Block),
-                pocs = maps:from_list(PoCs)}.
+
+    #block_info_v2{time = blockchain_block:time(Block),
+                   hash = Hash,
+                   height = blockchain_block:height(Block),
+                   pocs = maps:from_list(PoCs),
+                   hbbft_round = blockchain_block:hbbft_round(Block),
+                   election_info = blockchain_block_v1:election_info(Block),
+                   penalties = {blockchain_block_v1:bba_completion(Block), blockchain_block_v1:seen_votes(Block)}}.
+
+-spec serialize_block_info(#block_info{}, blockchain()) -> binary().
+serialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
+    {ok, Block} = get_block(Height, Chain),
+    V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
+    serialize_block_info(V2BlockInfo);
+serialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
+    serialize_block_info(V2BlockInfo).
+
+-spec serialize_block_info(#block_info_v2{}) -> binary().
+serialize_block_info(V2BlockInfo = #block_info_v2{}) ->
+    erlang:term_to_binary(V2BlockInfo).
+
+-spec deserialize_block_info(binary() | #block_info{} | #block_info_v2{}, blockchain())-> #block_info_v2{}.
+deserialize_block_info(Bin, Chain) when is_binary(Bin)->
+    deserialize_block_info(erlang:binary_to_term(Bin), Chain);
+deserialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
+    {ok, Block} = get_block(Height, Chain),
+    upgrade_block_info(V1BlockInfo, Block, Chain);
+deserialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
+    V2BlockInfo.
+
+-spec upgrade_block_info(#block_info{}, blockchain_block_v1:block(),  blockchain()) -> #block_info_v2{}.
+upgrade_block_info(#block_info{hash = Hash, height = Height}, Block, Chain = #blockchain{db=DB, info=InfoCF}) ->
+    Info = mk_block_info(Hash, Block),
+    InfoBin = serialize_block_info(Info),
+    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
+    deserialize_block_info(InfoBin, Chain).
 
 %% @doc read blocks from the db without deserializing them
 -spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
@@ -2004,13 +2042,13 @@ load(Dir, Mode) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, 
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF,
                   SnapshotCF, ImplicitBurnsCF, InfoCF, HTLCReceiptsCF]} ->
             HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
                 case Mode of
                     blessed_snapshot when HonorQuickSync == true ->
-                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF, InfoCF),
                         case blockchain_ledger_v1:current_height(L) of
                             {ok, _} ->
                                 %% no longer check height here, we will check the height elsewhere
@@ -2021,10 +2059,10 @@ load(Dir, Mode) ->
                             %% just reload
                             {error, _} ->
                                 blockchain_ledger_v1:clean(L),
-                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF)
+                                blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF, InfoCF)
                         end;
                     _ ->
-                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF),
+                        L = blockchain_ledger_v1:new(Dir, DB, BlocksCF, HeightsCF, InfoCF),
                         blockchain_ledger_v1:compact(L),
                         L
                 end,
@@ -2103,7 +2141,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 %% the gateway, and the given owner and payer
 %%
 %% NOTE: This is an alternative add_gateway creation that calculates the fee and
-%% staking fee from the current live blockchain. 
+%% staking fee from the current live blockchain.
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58) ->
@@ -2208,7 +2246,7 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", 
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks",
                   "plausible_blocks", "snapshots", "implicit_burns", "info", "htlc_receipts"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
@@ -2715,6 +2753,10 @@ blocks_cf(Chain) -> Chain#blockchain.blocks.
 -spec heights_cf(Chain :: blockchain()) -> rocksdb:cf_handle().
 heights_cf(Chain) -> Chain#blockchain.heights.
 
+-spec info_cf(Chain :: blockchain()) -> rocksdb:cf_handle().
+info_cf(Chain) -> Chain#blockchain.info.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -2891,5 +2933,42 @@ get_block_test_() ->
              test_utils:cleanup_tmp_dir(TmpDir)
      end
     }.
+
+block_info_upgrade_test() ->
+    %% boilerplate to get a chain
+    #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
+    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+    Vars = #{chain_vars_version => 2},
+    Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
+    VarTxns = [blockchain_txn_vars_v1:key_proof(Txn, Proof)],
+    GenBlock = blockchain_block:new_genesis_block(VarTxns),
+    TmpDir = test_utils:tmp_dir("block_info_upgrade_test"),
+    {ok, Chain} = new(TmpDir, GenBlock, undefined, undefined),
+
+    Block = blockchain_block_v1:new(#{prev_hash => <<"prev_hash">>,
+                                      height => 1,
+                                      transactions => [],
+                                      signatures => [],
+                                      time => 1,
+                                      hbbft_round => 1,
+                                      election_epoch => 1,
+                                      epoch_start => 0,
+                                      seen_votes => [],
+                                      bba_completion => <<>>
+                                      }),
+    V1BlockInfo = #block_info{  height = 1,
+                                time = 1,
+                                hash = <<"blockhash">>,
+                                pocs = #{}},
+    ExpV2BlockInfo = #block_info_v2{height = 1,
+                                    time = 1,
+                                    hash = <<"blockhash">>,
+                                    pocs = #{},
+                                    hbbft_round = 1,
+                                    election_info = {1, 0},
+                                    penalties = {<<>>, []}},
+    V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
+    ?assertMatch(V2BlockInfo, ExpV2BlockInfo).
 
 -endif.

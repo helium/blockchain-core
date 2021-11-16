@@ -254,7 +254,7 @@ check_is_valid_poc(Txn, Chain) ->
                                           "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
                                           [LastChallenge, Reason]),
                             Error;
-                        {ok, #block_info{height = BlockHeight,
+                        {ok, #block_info_v2{height = BlockHeight,
                                          time = BlockTime,
                                          pocs = BlockPoCs}} ->
                             PoCInterval = blockchain_utils:challenge_interval(Ledger),
@@ -914,12 +914,12 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                     lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p",
                                                 [LastChallenge, Reason]),
                                     Error3;
-                                {ok, #block_info{time = TimeLower}} ->
+                                {ok, #block_info_v2{time = TimeLower}} ->
                                     {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
                                     case blockchain:get_block_info(HH, Chain) of
                                         {error, _}=Error4 ->
                                             Error4;
-                                        {ok, #block_info{time = TimeUpper}} ->
+                                        {ok, #block_info_v2{time = TimeUpper}} ->
                                             %% Convert lower and upper bounds to be in nanoseconds
                                             LowerBound = TimeLower * 1000000000,
                                             UpperBound = TimeUpper * 1000000000,

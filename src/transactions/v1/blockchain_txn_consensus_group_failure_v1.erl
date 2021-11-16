@@ -137,7 +137,7 @@ is_valid(Txn, Chain) ->
 
         %% is the proof reasonable?
         {ok, OldLedger} = blockchain:ledger_at(ReportHeight, Chain),
-        {ok, #block_info{hash = Hash}} = blockchain:get_block_info(ReportHeight, Chain),
+        {ok, #block_info_v2{hash = Hash}} = blockchain:get_block_info(ReportHeight, Chain),
         case verify_proof(Txn, Hash, OldLedger) of
             ok -> ok;
             {error, VerifyErr} -> throw(VerifyErr)
