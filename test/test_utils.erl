@@ -29,6 +29,7 @@ init(BaseDir) ->
     init(BaseDir, {PrivKey, PubKey}).
 
 init(BaseDir, {PrivKey, PubKey}) ->
+    blockchain_utils:teardown_var_cache(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     ECDHFun = libp2p_crypto:mk_ecdh_fun(PrivKey),
     Opts = [
