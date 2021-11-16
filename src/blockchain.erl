@@ -768,7 +768,7 @@ mk_block_info(Hash, Block) ->
                    hbbft_round = blockchain_block:hbbft_round(Block),
                    election_info = blockchain_block_v1:election_info(Block)}.
 
--spec serialize_block_info(#block_info{}) -> binary().
+-spec serialize_block_info(#block_info_v2{}) -> binary().
 serialize_block_info(BlockInfo) ->
     erlang:term_to_binary(BlockInfo).
 
