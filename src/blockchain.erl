@@ -466,11 +466,7 @@ height(Blockchain) ->
         {error, _}=Error ->
             Error;
         {ok, Hash} ->
-            case get_block(Hash, Blockchain) of
-                {error, _Reason}=Error -> Error;
-                {ok, Block} ->
-                    {ok, blockchain_block:height(Block)}
-            end
+            get_block_height(Hash, Blockchain)
     end.
 
 %% like height/1 but takes accumulated 'assumed valid' blocks into account
@@ -955,12 +951,11 @@ can_add_block(Block, Blockchain) ->
         true ->
             {error, unknown_genesis_block};
         false ->
-            case blockchain:head_block(Blockchain) of
+            case blockchain:head_block_info(Blockchain) of
                 {error, Reason}=Error ->
                     lager:error("could not get head hash ~p", [Reason]),
                     Error;
-                {ok, HeadBlock} ->
-                    HeadHash = blockchain_block:hash_block(HeadBlock),
+                {ok, #block_info{hash=HeadHash, height=HeadHeight}} ->
                     Height = blockchain_block:height(Block),
                     {ok, ChainHeight} = blockchain:height(Blockchain),
                     %% compute the ledger at the height of the chain in case we're
@@ -969,7 +964,7 @@ can_add_block(Block, Blockchain) ->
                     {ok, Ledger} = blockchain:ledger_at(ChainHeight, Blockchain),
                     case
                         blockchain_block:prev_hash(Block) =:= HeadHash andalso
-                         Height =:= blockchain_block:height(HeadBlock) + 1
+                         Height =:= HeadHeight + 1
                     of
                         false when HeadHash =:= Hash ->
                             lager:debug("Already have this block"),
@@ -988,12 +983,12 @@ can_add_block(Block, Blockchain) ->
                                                 true -> plausible;
                                                 false ->
                                                     lager:warning("higher block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                                                                                blockchain_block:height(HeadBlock)]),
+                                                                                                                                                HeadHeight]),
                                                     {error, disjoint_chain}
                                             end;
                                         false ->
                                             lager:warning("lower block doesn't fit with our chain, block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                                                                              blockchain_block:height(HeadBlock)]),
+                                                                                                                                              HeadHeight]),
                                             %% if the block height is lower we probably don't care about it
                                             {error, disjoint_chain}
                                     end
@@ -1375,19 +1370,21 @@ fees_since(_Height, _CurrentHeight, _Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build(blockchain_block:block(), blockchain(), non_neg_integer()) -> [blockchain_block:block()].
+-spec build(blockchain_block:block() | non_neg_integer(), blockchain(), non_neg_integer()) -> [{non_neg_integer(), binary()}].
+build(StartingHeight, Blockchain, Limit) when is_integer(StartingHeight) ->
+    build(StartingHeight + 1, Blockchain, Limit, []);
 build(StartingBlock, Blockchain, Limit) ->
-    build(StartingBlock, Blockchain, Limit, []).
-
--spec build(blockchain_block:block(), blockchain(), non_neg_integer(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build(_StartingBlock, _Blockchain, 0, Acc) ->
-    lists:reverse(Acc);
-build(StartingBlock, Blockchain, N, Acc) ->
     Height = blockchain_block:height(StartingBlock) + 1,
-    case ?MODULE:get_block(Height, Blockchain) of
+    build(Height, Blockchain, Limit, []).
+
+-spec build(non_neg_integer(), blockchain(), non_neg_integer(), [{non_neg_integer(), binary()}]) -> [{non_neg_integer(), binary()}].
+build(_Height, _Blockchain, 0, Acc) ->
+    lists:reverse(Acc);
+build(Height, Blockchain, N, Acc) ->
+    case ?MODULE:get_raw_block(Height, Blockchain) of
         {ok, NextBlock} ->
-            build(NextBlock, Blockchain, N-1, [NextBlock|Acc]);
-        {error, _Reason} ->
+            build(Height + 1, Blockchain, N-1, [{Height, NextBlock}|Acc]);
+        _ ->
             lists:reverse(Acc)
     end.
 

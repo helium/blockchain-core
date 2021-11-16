@@ -32,7 +32,7 @@
 
 -record(state, {
     blockchain :: blockchain:blochain(),
-    block :: undefined | blockchain_block:block(),
+    last_block_height :: undefined | non_neg_integer(),
     batch_size :: pos_integer(),
     batch_limit :: pos_integer(),
     batches_sent = 0 :: non_neg_integer(),
@@ -162,16 +162,17 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
-                                                  block=lists:last(Blocks),
+                                                  last_block_height=LastHeight,
                                                   requested = Requested1},
                              Msg}
                     end
             end;
-        #blockchain_sync_req_pb{msg={response, true}} when Sent < Limit, State#state.block /= undefined ->
-            StartingBlock = State#state.block,
+        #blockchain_sync_req_pb{msg={response, true}} when Sent < Limit, State#state.last_block_height /= undefined ->
+            StartingBlockHeight = State#state.last_block_height,
             {Blocks, Requested1} =
-                build_blocks(StRequested, StartingBlock, Blockchain, BatchSize),
+                build_blocks(StRequested, StartingBlockHeight, Blockchain, BatchSize),
             case Blocks of
                 [] ->
                     {stop, normal, State};
@@ -181,8 +182,9 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
-                                                  block=lists:last(Blocks),
+                                                  last_block_height=LastHeight,
                                                   requested = Requested1},
                              Msg}
                     end
@@ -200,21 +202,21 @@ handle_info(_Type, _Msg, State) ->
     {noreply, State}.
 
 build_blocks([], Hash, Blockchain, BatchSize) when is_binary(Hash) ->
-    case blockchain:get_block(Hash, Blockchain) of
-        {ok, StartingBlock} ->
-            {blockchain:build(StartingBlock, Blockchain, BatchSize), []};
+    case blockchain:get_block_height(Hash, Blockchain) of
+        {ok, StartingBlockHeight} ->
+            {blockchain:build(StartingBlockHeight, Blockchain, BatchSize), []};
         {error, _Reason} ->
             {[], []}
     end;
-build_blocks([], StartingBlock, Blockchain, BatchSize) when is_tuple(StartingBlock) ->
-    {blockchain:build(StartingBlock, Blockchain, BatchSize), []};
+build_blocks([], StartingBlockHeight, Blockchain, BatchSize) when is_integer(StartingBlockHeight) ->
+    {blockchain:build(StartingBlockHeight, Blockchain, BatchSize), []};
 build_blocks(R, _Hash, Blockchain, BatchSize) when is_list(R) ->
     %% just send these.  if there are more of them than the batch size, then just
     %% send the batch and remove them from the list
     R2 = lists:sublist(R, BatchSize),
     {lists:flatmap(
        fun(Height) ->
-               case blockchain:get_block(Height, Blockchain) of
+               case blockchain:get_raw_block(Height, Blockchain) of
                    {ok, B} -> [B];
                    _ -> []
                end
@@ -223,7 +225,7 @@ build_blocks(R, _Hash, Blockchain, BatchSize) when is_list(R) ->
      R -- R2}.
 
 mk_msg(Blocks, Path) ->
-    Msg1 = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+    Msg1 = #blockchain_sync_blocks_pb{blocks= [B || {_H, B} <- Blocks]},
     Msg0 = blockchain_sync_handler_pb:encode_msg(Msg1),
     Msg = case Path of
               ?SYNC_PROTOCOL_V1 -> Msg0;
