@@ -1346,7 +1346,7 @@ build(Height, Blockchain, N, Acc) ->
     case ?MODULE:get_raw_block(Height, Blockchain) of
         {ok, NextBlock} ->
             build(Height + 1, Blockchain, N-1, [{Height, NextBlock}|Acc]);
-        {error, _Reason} ->
+        _ ->
             lists:reverse(Acc)
     end.
 
