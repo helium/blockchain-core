@@ -571,7 +571,7 @@ handle_cast({peer_height, Height, Head, _Sender}, #state{blockchain=Chain}=State
             {error, _Reason} ->
                 lager:error("could not get head info ~p", [_Reason]),
                 State;
-            {ok, #block_info{hash = LocalHead, height = LocalHeight}} ->
+            {ok, #block_info_v2{hash = LocalHead, height = LocalHeight}} ->
                 case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
                     false ->
                         ok;
@@ -603,7 +603,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
     case blockchain:head_block_info(Chain) of
-        {ok, #block_info{time = Time}} ->
+        {ok, #block_info_v2{time = Time}} ->
             Now = erlang:system_time(seconds),
             case Now - Time of
                 N when N < 0 ->
@@ -779,7 +779,7 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
     %% clock mostly increments this will eventually be true on a stuck node
     SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 60),
     SkewedSyncCooldownTime = application:get_env(blockchain, skewed_sync_cooldown_time, 300),
-    {ok, #block_info{time = Time, height = Height}} = blockchain:head_block_info(Chain),
+    {ok, #block_info_v2{time = Time, height = Height}} = blockchain:head_block_info(Chain),
     case erlang:system_time(seconds) - Time of
         %% negative time means we're skewed, so rely on last add time
         %% until ntp fixes us.
