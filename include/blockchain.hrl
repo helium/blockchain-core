@@ -55,5 +55,6 @@
          hash :: blockchain_block:hash(),
          pocs :: map(),
          hbbft_round :: non_neg_integer(),
-         election_info :: {non_neg_integer(), non_neg_integer()}
+         election_info :: {non_neg_integer(), non_neg_integer()},
+         penalties :: {binary(), [{pos_integer(), binary()}]}
         }).

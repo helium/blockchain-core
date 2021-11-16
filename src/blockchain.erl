@@ -752,6 +752,7 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             Error
     end.
 
+
 -spec mk_block_info(blockchain_block:hash(), blockchain_block:block()) -> #block_info_v2{}.
 mk_block_info(Hash, Block) ->
     PoCs = lists:flatmap(
@@ -764,12 +765,14 @@ mk_block_info(Hash, Block) ->
                      end
              end,
              blockchain_block:transactions(Block)),
+
     #block_info_v2{time = blockchain_block:time(Block),
                    hash = Hash,
                    height = blockchain_block:height(Block),
                    pocs = maps:from_list(PoCs),
                    hbbft_round = blockchain_block:hbbft_round(Block),
-                   election_info = blockchain_block_v1:election_info(Block)}.
+                   election_info = blockchain_block_v1:election_info(Block),
+                   penalties = {blockchain_block_v1:bba_completion(Block), blockchain_block_v1:seen_votes(Block)}}.
 
 -spec serialize_block_info(#block_info{}, blockchain()) -> binary().
 serialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
@@ -2958,7 +2961,8 @@ block_info_upgrade_test() ->
                                     hash = <<"blockhash">>,
                                     pocs = #{},
                                     hbbft_round = 1,
-                                    election_info = {1, 0}},
+                                    election_info = {1, 0},
+                                    penalties = {<<>>, []}},
     V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
     ?assertMatch(V2BlockInfo, ExpV2BlockInfo).
 
