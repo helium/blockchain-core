@@ -120,6 +120,7 @@
     net_id_type/1,
     get_nwk_addr/1,
     get_subnet_addr/2,
+    netid_addr_range/2,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
@@ -3033,8 +3034,8 @@ create_devaddr(NwkAddr, Ledger) ->
     NetIDList = get_netids(Ledger),
     CurrNetID = lists:last(NetIDList),
     NetClass = get_netid_type(CurrNetID),
-    Offset = get_netids_offset(CurrNetID, NetIDList),
-    DevAddr = create_addr(NetClass, CurrNetID, NwkAddr - Offset),
+    {Lower, _Upper} = netid_addr_range(CurrNetID, NetIDList),
+    DevAddr = create_addr(NetClass, CurrNetID, NwkAddr - Lower),
     DevAddr.
 
 -spec create_addr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
@@ -3163,15 +3164,18 @@ get_subnet_addr(DevAddr, Ledger) ->
     <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
     NwkAddr.
 
-get_netids_offset(NetID, NetIDList0) ->
+-spec netid_addr_range(non_neg_integer(), [non_neg_integer()]) -> {non_neg_integer(), non_neg_integer()}.
+netid_addr_range(NetID, NetIDList0) ->
     FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
     case FoundNetID of
         false ->
-            0;
+            {0, 0};
         true ->
             NetIDList = lists:takewhile(fun(X) -> X =/= NetID end, NetIDList0),
-            OffsetSum = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
-            OffsetSum.
+            Lower = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
+            NetIDPlusList = NetIDList ++ [NetID],
+            Upper = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDPlusList),
+            {Lower, Upper}.
 
 -spec uint32(integer()) -> integer().
 uint32(Num) ->
@@ -3286,8 +3290,8 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 find_routing_via_subnet(DevAddr, Ledger) ->
     NetID = get_net_id(DevAddr),
     NetIDList = get_netids(Ledger),
-    Offset = get_netids_offset(NetID, NetIDList),
-    NwkAddr = Offset + get_nwk_addr(DevAddr),
+    {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
+    NwkAddr = Lower + get_nwk_addr(DevAddr),
     case is_local_netid(NetID, Ledger) of
         true ->
             Dest = find_dest(NwkAddr, Ledger),
