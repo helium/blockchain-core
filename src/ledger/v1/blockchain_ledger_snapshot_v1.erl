@@ -620,17 +620,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
     lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
-    case Infos of
-        [] -> ok;
-        [_|_] ->
-            lists:foreach(
-              fun({Ht, #block_info{hash = Hash} = Info}) ->
-                      ok = blockchain:put_block_height(Hash, Ht, Chain),
-                      ok = blockchain:put_block_info(Ht, Info, Chain)
-              end,
-              Infos)
-    end,
-
     case Blocks of
         [] ->
             %% ignore blocks in testing
@@ -680,6 +669,17 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       end
               end,
               Blocks)
+    end,
+
+    case Infos of
+        [] -> ok;
+        [_|_] ->
+            lists:foreach(
+              fun({Ht, #block_info{hash = Hash} = Info}) ->
+                      ok = blockchain:put_block_height(Hash, Ht, Chain),
+                      ok = blockchain:put_block_info(Ht, Info, Chain)
+              end,
+              Infos)
     end.
 
 -spec get_infos(blockchain:blockchain()) ->
