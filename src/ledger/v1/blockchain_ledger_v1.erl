@@ -3035,14 +3035,13 @@ subnet_addr_within_range(NwkAddr, NetID, NetIDList) ->
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
     (NwkAddr >= Lower) and (NwkAddr < Upper).
 
--spec is_local_netid(non_neg_integer(), ledger()) -> boolean().
-is_local_netid(NetID, Ledger) ->
+-spec is_local_netid(non_neg_integer(), [non_neg_integer()]) -> boolean().
+is_local_netid(NetID, NetIDList) ->
     case NetID of
         $H ->
             true;
         _ ->
-            NetIDs = get_netids(Ledger),
-            lists:any(fun(X) -> X == NetID end, NetIDs)
+            lists:any(fun(X) -> X == NetID end, NetIDList)
     end.
 
 -spec create_devaddr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
@@ -3167,11 +3166,10 @@ get_nwk_addr(DevAddr) ->
     <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
     NwkAddr.
 
--spec get_subnet_addr(binary(), ledger()) -> non_neg_integer().
-get_subnet_addr(DevAddr, Ledger) ->
+-spec get_subnet_addr(binary(), [non_neg_integer()]) -> non_neg_integer().
+get_subnet_addr(DevAddr, NetIDList) ->
     %% ToDo: Replace with correct get_netid
     NetID = net_id(DevAddr),
-    NetIDList = get_netids(Ledger),
     NwkAddr = get_nwk_addr(DevAddr),
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
     Lower + NwkAddr.
@@ -3304,7 +3302,7 @@ find_routing_via_subnet(DevAddr, Ledger) ->
     NetIDList = get_netids(Ledger),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     NwkAddr = Lower + get_nwk_addr(DevAddr),
-    case is_local_netid(NetID, Ledger) of
+    case is_local_netid(NetID, NetIDList) of
         true ->
             Dest = find_dest(NwkAddr, Ledger),
             case find_routing(Dest, Ledger) of
