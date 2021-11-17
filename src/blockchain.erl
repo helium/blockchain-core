@@ -2625,9 +2625,10 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
     {ok, Batch} = rocksdb:batch(),
     Result = lists:foldl(fun({BinBlock, Block}, Acc) ->
                           Hash = blockchain_block:hash_block(Block),
+                          Height = blockchain_block:height(Block),
                           case has_block(Block, Chain) == false andalso is_block_plausible(Block, Chain) of
                               true ->
-                                  save_plausible_block(Batch, BinBlock, Hash, Chain),
+                                  save_plausible_block(Batch, BinBlock, Height, Hash, Chain),
                                   case Acc of
                                       error ->
                                           %% no highest block yet
@@ -2653,24 +2654,25 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
 save_plausible_block(Block, Hash, #blockchain{db=DB}=Chain) ->
     true = blockchain_lock:check(), %% we need the lock for this
     {ok, Batch} = rocksdb:batch(),
-    save_plausible_block(Batch, Block, Hash, Chain),
+    Height = blockchain_block:height(Block),
+    save_plausible_block(Batch, blockchain_block:serialize(Block), Height, Hash, Chain),
     rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 
-save_plausible_block(Batch, Block, Hash, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
+-spec save_plausible_block(rocksdb:batch_handle(), binary(), non_neg_integer(), blockchain_block:hash(), blockchain()) -> ok.
+save_plausible_block(Batch, BinBlock, Height, Hash, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
     case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
         {ok, _} ->
             %% already got it, thanks
             exists;
         _ ->
-            Height = blockchain_block:height(Block),
             PlausiblesAtThisHeight = case rocksdb:get(DB, PlausibleBlocks, <<Height:64/integer-unsigned-big>>, []) of
                 {ok, BinList} ->
                     binary_to_term(BinList);
                 _ ->
                     []
             end,
-            rocksdb:batch_put(Batch, PlausibleBlocks, Hash, blockchain_block:serialize(Block)),
+            rocksdb:batch_put(Batch, PlausibleBlocks, Hash, BinBlock),
             rocksdb:batch_put(Batch, PlausibleBlocks, <<Height:64/integer-unsigned-big>>, term_to_binary([Hash|PlausiblesAtThisHeight]))
     end.
 
