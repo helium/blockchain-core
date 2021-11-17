@@ -2722,7 +2722,7 @@ check_plausible_blocks(Chain) ->
     check_plausible_blocks(Chain, <<>>).
 
 check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
-    true = blockchain_lock:check(), %% we need the lock for this
+    blockchain_lock:acquire(), %% need the lock and we can get called without holding it
     Blocks = get_plausible_blocks(Chain),
     SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
     {ok, Batch} = rocksdb:batch(),
