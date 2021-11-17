@@ -1392,6 +1392,7 @@ build(Height, Blockchain, N, Acc) ->
                 [] ->
                     lists:reverse(Acc);
                 Plausibles ->
+                    lager:info("Found ~p plausibles at height ~p", [length(Plausibles), Height]),
                     build(Height + 1, Blockchain, N - length(Plausibles), [{Height, Plausible} || Plausible <- Plausibles] ++ Acc)
             end
     end.

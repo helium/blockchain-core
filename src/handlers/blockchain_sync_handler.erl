@@ -134,7 +134,12 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=Gos
     %% store these ASAP as plausible blocks and
     %% eagerly re-gossip the last plausible block we saw
     case blockchain:save_plausible_blocks(Blocks, Chain) of
-        {ok, HighestPlausible} ->
+        error ->
+            lager:info("no plausible blocks in batch"),
+            %% nothing was plausible, see if it has anything else
+            {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
+        HighestPlausible ->
+            lager:info("Eagerly re-gossiping ~p", [blockchain_block:height(HighestPlausible)]),
             blockchain_gossip_handler:regossip_block(HighestPlausible, SwarmTID),
             %% do this in a spawn so that the connection dying does not stop adding blocks
             {Pid, Ref} = spawn_monitor(fun() ->
@@ -147,10 +152,7 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=Gos
                 {'DOWN', Ref, process, Pid, _Error} ->
                     %% TODO: maybe dial for sync again?
                     {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
-            end;
-        _ ->
-            %% nothing was plausible, see if it has anything else
-            {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})}
+            end
     end;
  
 handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
@@ -255,6 +257,8 @@ build_blocks(R, Hash, Blockchain, BatchSize) when is_list(R) ->
             %% no room
             []
     end,
+
+    lager:info("returned extra blocks for sparse sync ~p", [ [H || {H, _} <- ExtraBlocks ] ]),
 
     {Blocks ++ ExtraBlocks,
      R -- R2}.
