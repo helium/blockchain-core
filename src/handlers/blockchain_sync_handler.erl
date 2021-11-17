@@ -38,7 +38,8 @@
     batches_sent = 0 :: non_neg_integer(),
     path :: string(),
     requested = [] :: [pos_integer()],
-    gossiped_hash :: binary()
+    gossiped_hash :: binary(),
+    swarm :: ets:tab() | undefined
 }).
 
 %% ------------------------------------------------------------------
@@ -97,12 +98,12 @@ dial(SwarmTID, Chain, Peer, ProtocolVersion, Requested, GossipedHash)->
       Peer,
       ProtocolVersion,
       ?MODULE,
-      [ProtocolVersion, Requested, GossipedHash, Chain]).
+      [ProtocolVersion, SwarmTID, Requested, GossipedHash, Chain]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [Path, Requested, GossipedHash, Blockchain]) ->
+init(client, _Conn, [Path, SwarmTID, Requested, GossipedHash, Blockchain]) ->
     case blockchain_worker:sync_paused() of
         true ->
             {stop, normal};
@@ -110,7 +111,7 @@ init(client, _Conn, [Path, Requested, GossipedHash, Blockchain]) ->
             BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
             BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
             {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit,
-                        path=Path, requested=Requested, gossiped_hash=GossipedHash}}
+                        path=Path, requested=Requested, gossiped_hash=GossipedHash, swarm=SwarmTID}}
     end;
 init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
     BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
@@ -118,7 +119,7 @@ init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
     {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit,
                 path=Path, gossiped_hash= <<>>}}.
 
-handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=GossipedHash}=State) ->
+handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=GossipedHash, swarm=SwarmTID}=State) ->
     Data =
         case Path of
             ?SYNC_PROTOCOL_V1 -> Data0;
@@ -129,23 +130,31 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=Gos
 
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     lager:info("adding sync blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
-    %% do this in a spawn so that the connection dying does not stop adding blocks
-    {Pid, Ref} = spawn_monitor(fun() ->
-                          case blockchain:add_blocks(Blocks, GossipedHash, Chain) of
-                              Res when Res == ok; Res == exists ->
-                                  ok;
-                              Error ->
-                                  lager:info("Error adding blocks ~p", [Error]),
-                                  erlang:error(Error)
-                          end
-                  end),
-    receive
-        {'DOWN', Ref, process, Pid, normal} ->
+
+    %% store these ASAP as plausible blocks and
+    %% eagerly re-gossip the last plausible block we saw
+    case blockchain:save_plausible_blocks(lists:zip(BinBlocks, Blocks), Chain) of
+        error ->
+            lager:info("no plausible blocks in batch"),
+            %% nothing was plausible, see if it has anything else
             {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
-        {'DOWN', Ref, process, Pid, _Error} ->
-            %% TODO: maybe dial for sync again?
-            {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
+        HighestPlausible ->
+            lager:info("Eagerly re-gossiping ~p", [blockchain_block:height(HighestPlausible)]),
+            blockchain_gossip_handler:regossip_block(HighestPlausible, SwarmTID),
+            %% do this in a spawn so that the connection dying does not stop adding blocks
+            {Pid, Ref} = spawn_monitor(fun() ->
+                                               %% this will check any plausible blocks we have and add them to the chain if possible
+                                               blockchain:check_plausible_blocks(Chain, GossipedHash)
+                                       end),
+            receive
+                {'DOWN', Ref, process, Pid, normal} ->
+                    {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
+                {'DOWN', Ref, process, Pid, _Error} ->
+                    %% TODO: maybe dial for sync again?
+                    {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
+            end
     end;
+ 
 handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                                  batches_sent=Sent, batch_limit=Limit,
                                  path=Path, requested=StRequested}=State) ->
@@ -164,6 +173,7 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            lager:info("sending blocks ~p to sync peer", [element(1, lists:unzip(Blocks))]),
                             {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
                                                   last_block_height=LastHeight,
@@ -184,6 +194,7 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            lager:info("sending blocks ~p to sync peer", [element(1, lists:unzip(Blocks))]),
                             {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
                                                   last_block_height=LastHeight,
@@ -212,18 +223,46 @@ build_blocks([], Hash, Blockchain, BatchSize) when is_binary(Hash) ->
     end;
 build_blocks([], StartingBlockHeight, Blockchain, BatchSize) when is_integer(StartingBlockHeight) ->
     {blockchain:build(StartingBlockHeight, Blockchain, BatchSize), []};
-build_blocks(R, _Hash, Blockchain, BatchSize) when is_list(R) ->
+build_blocks(R, Hash, Blockchain, BatchSize) when is_list(R) ->
     %% just send these.  if there are more of them than the batch size, then just
     %% send the batch and remove them from the list
     R2 = lists:sublist(R, BatchSize),
-    {lists:flatmap(
+    Blocks = lists:flatmap(
        fun(Height) ->
                case blockchain:get_raw_block(Height, Blockchain) of
                    {ok, B} -> [B];
-                   _ -> []
+                   _ ->
+                       %% see if we have it as a plausible block, this returns a list
+                       blockchain:get_raw_plausibles(Height, Blockchain)
                end
        end,
        R2),
+
+    %% if we have room, attempt to provide "following blocks" beyond the peer's head hash
+    ExtraBlocks = case length(Blocks) < BatchSize of
+        true ->
+            %% get some more blocks that appear after the peer's "head hash"
+            case blockchain:get_block_height(Hash, Blockchain) of
+                {ok, Height} ->
+                    blockchain:build(Height, Blockchain, BatchSize - length(Blocks));
+                _ ->
+                    %% maybe we have it as a plausible
+                    case blockchain:get_plausible_block(Hash, Blockchain) of
+                        {ok, Plausible} ->
+                            Height = blockchain_block:height(Plausible),
+                            blockchain:build(Height, Blockchain, BatchSize - length(Blocks));
+                        _ ->
+                            []
+                    end
+            end;
+        false ->
+            %% no room
+            []
+    end,
+
+    lager:info("returned extra blocks for sparse sync ~p", [ [H || {H, _} <- ExtraBlocks ] ]),
+
+    {Blocks ++ ExtraBlocks,
      R -- R2}.
 
 mk_msg(Blocks, Path) ->

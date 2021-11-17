@@ -35,7 +35,10 @@
 
     is_block_plausible/2,
     get_plausible_block/2,
+    get_raw_plausibles/2,
     have_plausible_block/2,
+    save_plausible_blocks/2,
+    check_plausible_blocks/2,
 
     last_block_add_time/1,
 
@@ -818,10 +821,10 @@ get_raw_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %% checks if we have this block in any of the places we store blocks
 %% note that if we only use this for gossip we will never see assume valid blocks
 %% so we don't need to check for them
-has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
-                             plausible_blocks=PlausibleBlocks}) ->
-    Hash = blockchain_block:hash_block(Block),
-    case rocksdb:get(DB, BlocksCF, Hash, []) of
+-spec has_block(BlockOrHash :: blockchain_block:block() | blockchain_block:hash(), blockchain()) -> boolean().
+has_block(Hash, #blockchain{db=DB, info=InfoCF,
+                             plausible_blocks=PlausibleBlocks}) when is_binary(Hash) ->
+    case rocksdb:get(DB, InfoCF, Hash, []) of
         {ok, _} ->
             true;
         not_found ->
@@ -830,12 +833,16 @@ has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
                     true;
                 not_found ->
                     false;
-                Error ->
-                    Error
+                _Error ->
+                    false
             end;
-        Error ->
-            Error
-    end.
+        _Error ->
+            false
+    end;
+has_block(Block, Chain) ->
+    Hash = blockchain_block:hash_block(Block),
+    has_block(Hash, Chain).
+
 
 find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
     MinHeight = max(0, MinHeight0),
@@ -1075,7 +1082,6 @@ add_block_(Block, Blockchain, Syncing) ->
                     Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
                     MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
-                    SwarmTID = blockchain_swarm:tid(),
                     BeforeCommit = fun(FChain, FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
@@ -1086,7 +1092,6 @@ add_block_(Block, Blockchain, Syncing) ->
                               true -> unvalidated_absorb_and_commit;
                               _ -> absorb_and_commit
                           end,
-                    Ledger = blockchain:ledger(Blockchain),
                     %% 0 can never be true below
                     SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 0),
                     case blockchain_block_v1:snapshot_hash(Block) of
@@ -1111,15 +1116,11 @@ add_block_(Block, Blockchain, Syncing) ->
                             end,
                             Error;
                         ok ->
-                            blockchain_gossip_handler:regossip_block(Block, Height, Hash, SwarmTID),
                             run_absorb_block_hooks(Syncing, Hash, Blockchain)
                     end;
                 plausible ->
                     %% regossip plausible blocks
-                    Height = blockchain_block:height(Block),
                     Hash = blockchain_block:hash_block(Block),
-                    SwarmTID = blockchain_swarm:tid(),
-                    blockchain_gossip_handler:regossip_block(Block, Height, Hash, SwarmTID),
                     case save_plausible_block(Block, Hash, Blockchain) of
                         exists -> ok; %% already have it
                         ok -> plausible %% tell the gossip handler
@@ -1390,7 +1391,14 @@ build(Height, Blockchain, N, Acc) ->
         {ok, NextBlock} ->
             build(Height + 1, Blockchain, N-1, [{Height, NextBlock}|Acc]);
         _ ->
-            lists:reverse(Acc)
+            %% ran out of verified blocks, see if we have any plausible ones
+            case get_raw_plausibles(Height, Blockchain) of
+                [] ->
+                    lists:reverse(Acc);
+                Plausibles ->
+                    lager:info("Found ~p plausibles at height ~p", [length(Plausibles), Height]),
+                    build(Height + 1, Blockchain, N - length(Plausibles), [{Height, Plausible} || Plausible <- Plausibles] ++ Acc)
+            end
     end.
 
 
@@ -2610,16 +2618,80 @@ is_block_plausible(Block, Chain) ->
             false
     end.
 
+-spec save_plausible_blocks([{binary(), blockchain_block:block()}], blockchain()) -> blockchain_block:block() | error.
+save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
+    %% XXX ASSUMPTION this is only called from the sync pid and thus we won't check
+    %% for a blockchain lock
+    {ok, Batch} = rocksdb:batch(),
+    Result = lists:foldl(fun({BinBlock, Block}, Acc) ->
+                          Hash = blockchain_block:hash_block(Block),
+                          Height = blockchain_block:height(Block),
+                          case has_block(Block, Chain) == false andalso is_block_plausible(Block, Chain) of
+                              true ->
+                                  save_plausible_block(Batch, BinBlock, Height, Hash, Chain),
+                                  case Acc of
+                                      error ->
+                                          %% no highest block yet
+                                          Block;
+                                      OtherBlock ->
+                                          case blockchain_block:height(Block) > blockchain_block:height(OtherBlock) of
+                                              true ->
+                                                  %% this is newer
+                                                  Block;
+                                              false ->
+                                                  %% other block is newer
+                                                  Acc
+                                          end
+                                  end;
+                              _ ->
+                                  %% block was not plausible or we have it already
+                                  Acc
+                          end
+                end, error, Blocks),
+    rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    Result.
 
-save_plausible_block(Block, Hash, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
+save_plausible_block(Block, Hash, #blockchain{db=DB}=Chain) ->
     true = blockchain_lock:check(), %% we need the lock for this
+    {ok, Batch} = rocksdb:batch(),
+    Height = blockchain_block:height(Block),
+    save_plausible_block(Batch, blockchain_block:serialize(Block), Height, Hash, Chain),
+    rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+
+-spec save_plausible_block(rocksdb:batch_handle(), binary(), non_neg_integer(), blockchain_block:hash(), blockchain()) -> ok.
+save_plausible_block(Batch, BinBlock, Height, Hash, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
     case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
         {ok, _} ->
             %% already got it, thanks
             exists;
         _ ->
-            rocksdb:put(DB, PlausibleBlocks, Hash, blockchain_block:serialize(Block), [{sync, true}])
+            PlausiblesAtThisHeight = case rocksdb:get(DB, PlausibleBlocks, <<Height:64/integer-unsigned-big>>, []) of
+                {ok, BinList} ->
+                    binary_to_term(BinList);
+                _ ->
+                    []
+            end,
+            rocksdb:batch_put(Batch, PlausibleBlocks, Hash, BinBlock),
+            rocksdb:batch_put(Batch, PlausibleBlocks, <<Height:64/integer-unsigned-big>>, term_to_binary([Hash|PlausiblesAtThisHeight]))
     end.
+
+-spec remove_plausible_block(blockchain(), Batch :: rockdb:batch_handle(), Hash :: binary(), Height :: non_neg_integer()) -> ok.
+remove_plausible_block(#blockchain{db=DB, plausible_blocks=CF}, Batch, Hash, Height) ->
+    true = blockchain_lock:check(), %% we need the lock for this
+    case rocksdb:get(DB, CF, <<Height:64/integer-unsigned-big>>, []) of
+        {ok, BinList} ->
+            case binary_to_term(BinList) -- [Hash] of
+                [] ->
+                    %% no more plausibles at this height
+                    rocksdb:batch_delete(Batch, CF, <<Height:64/integer-unsigned-big>>);
+                OtherHashes ->
+                    rocksdb:batch_put(Batch, CF, <<Height:64/integer-unsigned-big>>, term_to_binary(OtherHashes))
+            end;
+        _ ->
+            ok
+    end,
+    rocksdb:batch_delete(Batch, CF, Hash).
 
 -spec have_plausible_block(Hash :: blockchain_block:hash(), Chain :: blockchain()) -> boolean().
 have_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
@@ -2637,35 +2709,56 @@ get_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
         Error -> Error
     end.
 
+-spec get_raw_plausibles(Height :: non_neg_integer(), blockchain()) -> [binary()].
+get_raw_plausibles(Height, #blockchain{db=DB, plausible_blocks=CF}) ->
+    case rocksdb:get(DB, CF, <<Height:64/integer-unsigned-big>>, []) of
+        {ok, BinList} ->
+            Hashes = binary_to_term(BinList),
+            lists:foldl(fun(Hash, Acc) ->
+                                case rocksdb:get(DB, CF, Hash, []) of
+                                    {ok, BinBlock} ->
+                                        [BinBlock|Acc];
+                                    _ ->
+                                        Acc
+                                end
+                        end, [], Hashes);
+        _ ->
+            []
+    end.
 
+-spec check_plausible_blocks(blockchain()) -> ok.
 check_plausible_blocks(Chain) ->
     check_plausible_blocks(Chain, <<>>).
 
-check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain, GossipedHash) ->
-    true = blockchain_lock:check(), %% we need the lock for this
+-spec check_plausible_blocks(blockchain(), binary()) -> ok.
+check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
+    blockchain_lock:acquire(), %% need the lock and we can get called without holding it
     Blocks = get_plausible_blocks(Chain),
     SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(fun(Block) ->
+                          Hash = blockchain_block:hash_block(Block),
                           case can_add_block(Block, Chain) of
                               {true, _IsRescue} ->
-                                  %% set the sync flag to true as we've already gossiped these blocks on
-                                  add_block_(Block, Chain, GossipedHash /= blockchain_block:hash_block(Block)),
-                                  rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
+                                  %% TODO try to retain the binary block through here and pass it into add_block to
+                                  %% save on another serialize() call
+                                  add_block_(Block, Chain, GossipedHash /= Hash),
+                                  remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block));
                               exists ->
                                   case is_block_plausible(Block, Chain) of
                                       true ->
                                           %% still plausible, leave it alone
                                           ok;
                                       false ->
-                                          rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                                          remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                                   end;
                               _Error ->
-                                  rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                                  remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                           end
                   end, SortedBlocks),
     rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
+-spec get_plausible_blocks(blockchain()) -> [blockchain_block:block()].
 get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
     {ok, Itr} = rocksdb:iterator(DB, CF, []),
     Res = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
@@ -2674,6 +2767,8 @@ get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
 
 get_plausible_blocks(_Itr, {error, _}, Acc) ->
     Acc;
+get_plausible_blocks(Itr, {ok, <<_Height:64/integer-unsigned-big>>, _BinBlock}, Acc) ->
+    get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), Acc);
 get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
     NewAcc = try blockchain_block:deserialize(BinBlock) of
                  Block ->
