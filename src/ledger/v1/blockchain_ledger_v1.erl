@@ -3868,11 +3868,6 @@ subnets_cf(Ledger) ->
     SL = subledger(Ledger),
     {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
 
--spec subnets_cf_v2(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
-subnets_cf_v2(Ledger) ->
-    SL = subledger(Ledger),
-    {subnets, db(Ledger), SL#sub_ledger_v1.subnets_v2}.
-
 -spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 state_channels_cf(Ledger) ->
     SL = subledger(Ledger),
@@ -5685,10 +5680,18 @@ find_scs_by_owner_test() ->
     ok.
 
 netid_test() ->
+    LegacyID = $H,
     NetID00 = 16#E00001,
     NetID01 = 16#C00053,
     NetID02 = 16#60002D,
+    NetIDExt = 16#C00050,
     NetIDList = [NetID0, NetID1, NetID2],
+    LocalTrue = is_local_netid(NetID01, NetIDList),
+    LocalFalse = is_local_netid(NetIDExt, NetIDList),
+    LegacyLocal = is_local_netid(LegacyID, NetIDList),
+    ?assertEqual(LocalTrue, true),
+    ?assertEqual(LocalFalse, false),
+    ?assertEqual(LegacyLocal, true),
     DevAddr1 = create_devaddr(3, 16#2D, 16),
     DevAddr2 = create_devaddr(6, 16#53, 8),
     Width1 = addr_bit_width(DevAddr1),
