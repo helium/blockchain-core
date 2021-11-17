@@ -2620,7 +2620,7 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
     Result = lists:foldl(fun(Block, Acc) ->
                           case has_block(Block, Chain) == false andalso is_block_plausible(Block, Chain) of
                               true ->
-                                  save_plausible_block(Block, blockchain_block:hash_block(Block), Chain),
+                                  save_plausible_block(Batch, Block, blockchain_block:hash_block(Block), Chain),
                                   case Acc of
                                       error ->
                                           %% no highest block yet
