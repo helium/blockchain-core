@@ -2754,7 +2754,7 @@ get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
 
 get_plausible_blocks(_Itr, {error, _}, Acc) ->
     Acc;
-get_plausible_blocks(Itr, {ok, <<_Height:64/integer-unsigned-big>>, BinBlock}, Acc) ->
+get_plausible_blocks(Itr, {ok, <<_Height:64/integer-unsigned-big>>, _BinBlock}, Acc) ->
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), Acc);
 get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
     NewAcc = try blockchain_block:deserialize(BinBlock) of
