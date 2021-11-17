@@ -9,6 +9,8 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 -define(TXN_CACHE, txn_cache).
+-define(RECENT_BLOCK_AGE, 30 * 60).  %% 30 mins
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -371,7 +373,7 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             Now = erlang:system_time(seconds),
             BlockTime = blockchain_block:time(Block),
             BlockAge = Now - BlockTime,
-            HasBeenSynced = (Sync == false orelse BlockAge < (30 * 60)) orelse State#state.has_been_synced,
+            HasBeenSynced = (Sync == false orelse BlockAge < ?RECENT_BLOCK_AGE) orelse State#state.has_been_synced,
             BlockHeight = blockchain_block:height(Block),
             %% purge any txns included in the new block from our cache
             ok = purge_block_txns_from_cache(Block),
