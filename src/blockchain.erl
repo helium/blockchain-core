@@ -25,7 +25,7 @@
     has_block/2,
     find_first_block_after/2,
 
-    add_blocks/2, add_block/2, add_block/3,
+    add_blocks/2, add_blocks/3, add_block/2, add_block/3,
     delete_block/2,
     config/2,
     fees_since/2,
@@ -867,10 +867,13 @@ find_first_block_after(MinHeight, Blockchain) ->
 %%--------------------------------------------------------------------
 -spec add_blocks([blockchain_block:block()], blockchain()) -> ok | exists | plausible | {error, any()}.
 add_blocks(Blocks, Chain) ->
+    add_blocks(Blocks, <<>>, Chain).
+
+add_blocks(Blocks, GossipedHash, Chain) ->
     blockchain_lock:acquire(),
     try
-        Res = add_blocks_(Blocks, Chain),
-        check_plausible_blocks(Chain),
+        Res = add_blocks_(Blocks, GossipedHash, Chain),
+        check_plausible_blocks(Chain, GossipedHash),
         Res
     catch C:E:S ->
             lager:warning("crash adding blocks: ~p:~p ~p", [C, E, S]),
@@ -879,13 +882,11 @@ add_blocks(Blocks, Chain) ->
         blockchain_lock:release()
     end.
 
-add_blocks_([], _Chain) ->  ok;
-add_blocks_([LastBlock | []], Chain) ->
-    ?MODULE:add_block(LastBlock, Chain, true);
-add_blocks_([Block | Blocks], Chain) ->
-    case ?MODULE:add_block(Block, Chain, true) of
+add_blocks_([], _, _Chain) ->  ok;
+add_blocks_([Block | Blocks], GossipedHash, Chain) ->
+    case ?MODULE:add_block(Block, Chain, GossipedHash /= blockchain_block:hash_block(Block)) of
         Res when Res == ok; Res == plausible; Res == exists ->
-            add_blocks_(Blocks, Chain);
+            add_blocks_(Blocks, GossipedHash, Chain);
         Error ->
             Error
     end.
@@ -2637,7 +2638,10 @@ get_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
     end.
 
 
-check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
+check_plausible_blocks(Chain) ->
+    check_plausible_blocks(Chain, <<>>).
+
+check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain, GossipedHash) ->
     true = blockchain_lock:check(), %% we need the lock for this
     Blocks = get_plausible_blocks(Chain),
     SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
@@ -2646,7 +2650,7 @@ check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
                           case can_add_block(Block, Chain) of
                               {true, _IsRescue} ->
                                   %% set the sync flag to true as we've already gossiped these blocks on
-                                  add_block_(Block, Chain, true),
+                                  add_block_(Block, Chain, GossipedHash /= blockchain_block:hash_block(Block)),
                                   rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
                               exists ->
                                   case is_block_plausible(Block, Chain) of
