@@ -18,7 +18,7 @@
     server/4,
     client/2,
     dial/3,
-    dial/4, dial/5
+    dial/5, dial/6
 ]).
 
 %% ------------------------------------------------------------------
@@ -37,7 +37,8 @@
     batch_limit :: pos_integer(),
     batches_sent = 0 :: non_neg_integer(),
     path :: string(),
-    requested = [] :: [pos_integer()]
+    requested = [] :: [pos_integer()],
+    gossiped_hash :: binary()
 }).
 
 %% ------------------------------------------------------------------
@@ -54,21 +55,22 @@ server(Connection, _Path, _TID, Args) ->
 -spec dial(SwarmTID :: ets:tab(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin())->
         {ok, pid()} | {error, any()}.
 dial(SwarmTID, Chain, Peer) ->
-    dial(SwarmTID, Chain, Peer, []).
+    dial(SwarmTID, Chain, Peer, [], <<>>).
 
 -spec dial(SwarmTID :: ets:tab(),
            Chain::blockchain:blockchain(),
            Peer::libp2p_crypto:pubkey_bin(),
-           Heights::[pos_integer()])->
+           Heights::[pos_integer()],
+           GossipedHash::binary())->
         {ok, pid()} | {error, any()}.
-dial(SwarmTID, Chain, Peer, Heights) ->
+dial(SwarmTID, Chain, Peer, Heights, GossipedHash) ->
     DialFun =
         fun
             Dial([])->
                 lager:debug("dialing Sync stream failed, no compatible protocol versions",[]),
                 {error, no_supported_protocols};
             Dial([ProtocolVersion | Rest]) ->
-                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer, ProtocolVersion, Heights) of
+                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer, ProtocolVersion, Heights, GossipedHash) of
                         {ok, Stream} ->
                             lager:debug("dialing Sync stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
                             {ok, Stream};
@@ -86,20 +88,21 @@ dial(SwarmTID, Chain, Peer, Heights) ->
            Chain :: blockchain:blockchain(),
            Peer :: libp2p_crypto:pubkey_bin(),
            ProtocolVersion :: string(),
-           Requested :: [pos_integer()]) ->
+           Requested :: [pos_integer()],
+           GossipedHash :: binary()) ->
           {ok, pid()} | {error, any()}.
-dial(SwarmTID, Chain, Peer, ProtocolVersion, Requested)->
+dial(SwarmTID, Chain, Peer, ProtocolVersion, Requested, GossipedHash)->
     libp2p_swarm:dial_framed_stream(
       SwarmTID,
       Peer,
       ProtocolVersion,
       ?MODULE,
-      [ProtocolVersion, Requested, Chain]).
+      [ProtocolVersion, Requested, GossipedHash, Chain]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [Path, Requested, Blockchain]) ->
+init(client, _Conn, [Path, Requested, GossipedHash, Blockchain]) ->
     case blockchain_worker:sync_paused() of
         true ->
             {stop, normal};
@@ -107,15 +110,15 @@ init(client, _Conn, [Path, Requested, Blockchain]) ->
             BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
             BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
             {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit,
-                        path=Path, requested=Requested}}
+                        path=Path, requested=Requested, gossiped_hash=GossipedHash}}
     end;
 init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
     BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
     BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
     {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit,
-                path=Path}}.
+                path=Path, gossiped_hash= <<>>}}.
 
-handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
+handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=GossipedHash}=State) ->
     Data =
         case Path of
             ?SYNC_PROTOCOL_V1 -> Data0;
@@ -123,14 +126,13 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
         end,
     #blockchain_sync_blocks_pb{blocks=BinBlocks} =
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
+
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     lager:info("adding sync blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
     %% do this in a spawn so that the connection dying does not stop adding blocks
     {Pid, Ref} = spawn_monitor(fun() ->
-                          case blockchain:add_blocks(Blocks, Chain) of
-                              ok ->
-                                  ok;
-                              exists ->
+                          case blockchain:add_blocks(Blocks, GossipedHash, Chain) of
+                              Res when Res == ok; Res == exists ->
                                   ok;
                               Error ->
                                   lager:info("Error adding blocks ~p", [Error]),

@@ -63,11 +63,11 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                                 case find_missing_blocks(Hash, Blockchain) of
                                     [] -> ok;
                                     Missing ->
-                                        blockchain_worker:target_sync(From, Missing)
+                                        blockchain_worker:target_sync(From, Missing, Hash)
                                 end;
                             false ->
                                 %% don't have it in plausible either, try to sync it from the sender.
-                                blockchain_worker:target_sync(From)
+                                blockchain_worker:target_sync(From, [], Hash)
                         end
                 end;
             #blockchain_gossip_block_pb{from=From, block=BinBlock} ->
