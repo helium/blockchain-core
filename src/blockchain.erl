@@ -2668,6 +2668,7 @@ save_plausible_block(Batch, Block, Hash, #blockchain{db=DB, plausible_blocks=Pla
             rocksdb:batch_put(Batch, PlausibleBlocks, <<Height:64/integer-unsigned-big>>, term_to_binary([Hash|PlausiblesAtThisHeight]))
     end.
 
+-spec remove_plausible_block(blockchain(), Batch :: rockdb:batch_handle(), Hash :: binary(), Height :: non_neg_integer()) -> ok.
 remove_plausible_block(#blockchain{db=DB, plausible_blocks=CF}, Batch, Hash, Height) ->
     true = blockchain_lock:check(), %% we need the lock for this
     case rocksdb:get(DB, CF, <<Height:64/integer-unsigned-big>>, []) of
