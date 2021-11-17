@@ -366,9 +366,12 @@ initialize_with_chain(State, Chain)->
 handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain = Chain,
                                                                            cur_block_height = CurBlockHeight})->
     #state{submit_f = SubmitF, chain = Chain} = State,
-    HasBeenSynced = Sync == false orelse State#state.has_been_synced,
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
+            Now = erlang:system_time(seconds),
+            BlockTime = blockchain_block:time(Block),
+            BlockAge = Now - BlockTime,
+            HasBeenSynced = (Sync == false orelse BlockAge < (30 * 60)) orelse State#state.has_been_synced,
             BlockHeight = blockchain_block:height(Block),
             %% purge any txns included in the new block from our cache
             ok = purge_block_txns_from_cache(Block),
