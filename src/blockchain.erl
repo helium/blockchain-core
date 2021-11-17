@@ -25,7 +25,7 @@
     has_block/2,
     find_first_block_after/2,
 
-    add_blocks/2, add_block/2, add_block/3,
+    add_blocks/2, add_blocks/3, add_block/2, add_block/3,
     delete_block/2,
     config/2,
     fees_since/2,
@@ -724,9 +724,8 @@ put_block_height(Hash, Height, #blockchain{db=DB, heights=HeightsCF}) ->
                      Info :: #block_info{} | #block_info_v2{},
                      Blockchain :: blockchain()) ->
           ok | {error, any()}.
-put_block_info(Height, Info, Chain = #blockchain{db=DB, info=InfoCF}) ->
-    InfoBin = serialize_block_info(Info, Chain),
-    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []).
+put_block_info(Height, Info, _Chain = #blockchain{db=DB, info=InfoCF}) ->
+    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, serialize_block_info(Info), []).
 
 -spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
           {ok, #block_info_v2{}} | {error, any()}.
@@ -771,24 +770,29 @@ mk_block_info(Hash, Block) ->
                    election_info = blockchain_block_v1:election_info(Block),
                    penalties = {blockchain_block_v1:bba_completion(Block), blockchain_block_v1:seen_votes(Block)}}.
 
--spec serialize_block_info(#block_info{}, blockchain()) -> binary().
-serialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
-    {ok, Block} = get_block(Height, Chain),
-    V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
-    serialize_block_info(V2BlockInfo);
-serialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
-    serialize_block_info(V2BlockInfo).
-
--spec serialize_block_info(#block_info_v2{}) -> binary().
-serialize_block_info(V2BlockInfo = #block_info_v2{}) ->
-    erlang:term_to_binary(V2BlockInfo).
+-spec serialize_block_info(#block_info{} | #block_info_v2{}) -> binary().
+serialize_block_info(BlockInfo) ->
+    erlang:term_to_binary(BlockInfo).
 
 -spec deserialize_block_info(binary() | #block_info{} | #block_info_v2{}, blockchain())-> #block_info_v2{}.
 deserialize_block_info(Bin, Chain) when is_binary(Bin)->
     deserialize_block_info(erlang:binary_to_term(Bin), Chain);
 deserialize_block_info(V1BlockInfo = #block_info{height = Height}, Chain) ->
-    {ok, Block} = get_block(Height, Chain),
-    upgrade_block_info(V1BlockInfo, Block, Chain);
+    case get_block(Height, Chain) of
+        {ok, Block} ->
+            upgrade_block_info(V1BlockInfo, Block, Chain);
+        _Error ->
+            %% if we dont have the block stub out the upgraded fields
+            #block_info{time = Time, hash = Hash, pocs = PoCs} = V1BlockInfo,
+            #block_info_v2{time = Time,
+                           hash = Hash,
+                           height = Height,
+                           pocs = PoCs,
+                           hbbft_round = 0,
+                           election_info = {0,0},
+                           penalties = {<<>>, []}}
+
+    end;
 deserialize_block_info(V2BlockInfo = #block_info_v2{}, _Chain) ->
     V2BlockInfo.
 
@@ -863,10 +867,13 @@ find_first_block_after(MinHeight, Blockchain) ->
 %%--------------------------------------------------------------------
 -spec add_blocks([blockchain_block:block()], blockchain()) -> ok | exists | plausible | {error, any()}.
 add_blocks(Blocks, Chain) ->
+    add_blocks(Blocks, <<>>, Chain).
+
+add_blocks(Blocks, GossipedHash, Chain) ->
     blockchain_lock:acquire(),
     try
-        Res = add_blocks_(Blocks, Chain),
-        check_plausible_blocks(Chain),
+        Res = add_blocks_(Blocks, GossipedHash, Chain),
+        check_plausible_blocks(Chain, GossipedHash),
         Res
     catch C:E:S ->
             lager:warning("crash adding blocks: ~p:~p ~p", [C, E, S]),
@@ -875,13 +882,11 @@ add_blocks(Blocks, Chain) ->
         blockchain_lock:release()
     end.
 
-add_blocks_([], _Chain) ->  ok;
-add_blocks_([LastBlock | []], Chain) ->
-    ?MODULE:add_block(LastBlock, Chain, true);
-add_blocks_([Block | Blocks], Chain) ->
-    case ?MODULE:add_block(Block, Chain, true) of
+add_blocks_([], _, _Chain) ->  ok;
+add_blocks_([Block | Blocks], GossipedHash, Chain) ->
+    case ?MODULE:add_block(Block, Chain, GossipedHash /= blockchain_block:hash_block(Block)) of
         Res when Res == ok; Res == plausible; Res == exists ->
-            add_blocks_(Blocks, Chain);
+            add_blocks_(Blocks, GossipedHash, Chain);
         Error ->
             Error
     end.
@@ -2633,7 +2638,10 @@ get_plausible_block(Hash, #blockchain{db=DB, plausible_blocks=CF}) ->
     end.
 
 
-check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
+check_plausible_blocks(Chain) ->
+    check_plausible_blocks(Chain, <<>>).
+
+check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain, GossipedHash) ->
     true = blockchain_lock:check(), %% we need the lock for this
     Blocks = get_plausible_blocks(Chain),
     SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
@@ -2642,7 +2650,7 @@ check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
                           case can_add_block(Block, Chain) of
                               {true, _IsRescue} ->
                                   %% set the sync flag to true as we've already gossiped these blocks on
-                                  add_block_(Block, Chain, true),
+                                  add_block_(Block, Chain, GossipedHash /= blockchain_block:hash_block(Block)),
                                   rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
                               exists ->
                                   case is_block_plausible(Block, Chain) of
