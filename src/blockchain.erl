@@ -821,9 +821,9 @@ get_raw_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %% checks if we have this block in any of the places we store blocks
 %% note that if we only use this for gossip we will never see assume valid blocks
 %% so we don't need to check for them
-has_block(Block, #blockchain{db=DB, info=InfoCF,
-                             plausible_blocks=PlausibleBlocks}) ->
-    Hash = blockchain_block:hash_block(Block),
+-spec has_block(BlockOrHash :: blockchain_block:block() | blockchain_block:hash(), blockchain()) -> boolean().
+has_block(Hash, #blockchain{db=DB, info=InfoCF,
+                             plausible_blocks=PlausibleBlocks}) when is_binary(Hash) ->
     case rocksdb:get(DB, InfoCF, Hash, []) of
         {ok, _} ->
             true;
@@ -833,12 +833,16 @@ has_block(Block, #blockchain{db=DB, info=InfoCF,
                     true;
                 not_found ->
                     false;
-                Error ->
-                    Error
+                _Error ->
+                    false
             end;
-        Error ->
-            Error
-    end.
+        _Error ->
+            false
+    end;
+has_block(Block, Chain) ->
+    Hash = blockchain_block:hash_block(Block),
+    has_block(Hash, Chain).
+
 
 find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
     MinHeight = max(0, MinHeight0),
@@ -2614,14 +2618,16 @@ is_block_plausible(Block, Chain) ->
             false
     end.
 
+-spec save_plausible_blocks([{binary(), blockchain_block:block()}], blockchain()) -> blockchain_block:block() | error.
 save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
     %% XXX ASSUMPTION this is only called from the sync pid and thus we won't check
     %% for a blockchain lock
     {ok, Batch} = rocksdb:batch(),
-    Result = lists:foldl(fun(Block, Acc) ->
+    Result = lists:foldl(fun({BinBlock, Block}, Acc) ->
+                          Hash = blockchain_block:hash_block(Block),
                           case has_block(Block, Chain) == false andalso is_block_plausible(Block, Chain) of
                               true ->
-                                  save_plausible_block(Batch, Block, blockchain_block:hash_block(Block), Chain),
+                                  save_plausible_block(Batch, BinBlock, Hash, Chain),
                                   case Acc of
                                       error ->
                                           %% no highest block yet
@@ -2718,10 +2724,11 @@ get_raw_plausibles(Height, #blockchain{db=DB, plausible_blocks=CF}) ->
             []
     end.
 
-
+-spec check_plausible_blocks(blockchain()) -> ok.
 check_plausible_blocks(Chain) ->
     check_plausible_blocks(Chain, <<>>).
 
+-spec check_plausible_blocks(blockchain(), binary()) -> ok.
 check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
     blockchain_lock:acquire(), %% need the lock and we can get called without holding it
     Blocks = get_plausible_blocks(Chain),
@@ -2731,7 +2738,8 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
                           Hash = blockchain_block:hash_block(Block),
                           case can_add_block(Block, Chain) of
                               {true, _IsRescue} ->
-                                  %% set the sync flag to true as we've already gossiped these blocks on
+                                  %% TODO try to retain the binary block through here and pass it into add_block to
+                                  %% save on another serialize() call
                                   add_block_(Block, Chain, GossipedHash /= Hash),
                                   remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block));
                               exists ->
@@ -2748,6 +2756,7 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
                   end, SortedBlocks),
     rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
+-spec get_plausible_blocks(blockchain()) -> [blockchain_block:block()].
 get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
     {ok, Itr} = rocksdb:iterator(DB, CF, []),
     Res = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),

@@ -133,7 +133,7 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=Gos
 
     %% store these ASAP as plausible blocks and
     %% eagerly re-gossip the last plausible block we saw
-    case blockchain:save_plausible_blocks(Blocks, Chain) of
+    case blockchain:save_plausible_blocks(lists:zip(BinBlocks, Blocks), Chain) of
         error ->
             lager:info("no plausible blocks in batch"),
             %% nothing was plausible, see if it has anything else
