@@ -173,6 +173,7 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            lager:info("sending blocks ~p to sync peer", [element(1, lists:unzip(Blocks))]),
                             {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
                                                   last_block_height=LastHeight,
@@ -193,6 +194,7 @@ handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                         true ->
                             {stop, normal, State, Msg};
                         _ ->
+                            lager:info("sending blocks ~p to sync peer", [element(1, lists:unzip(Blocks))]),
                             {LastHeight, _LastBlock} = lists:last(Blocks),
                             {noreply, State#state{batches_sent=Sent+1,
                                                   last_block_height=LastHeight,
