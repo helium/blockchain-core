@@ -63,6 +63,7 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                                 case find_missing_blocks(Hash, Blockchain) of
                                     [] -> ok;
                                     Missing ->
+                                        lager:info("requesting missing blocks ~p from ~p", [Missing, blockchain_utils:addr2name(From)]),
                                         blockchain_worker:target_sync(From, Missing, Hash)
                                 end;
                             false ->
