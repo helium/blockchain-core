@@ -451,36 +451,41 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
 -spec import(blockchain:blockchain(), binary(), snapshot()) ->
     blockchain_ledger_v1:ledger().
 import(Chain, SHA, #{version := v6}=Snapshot) ->
+    print_memory(),
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
+
+    %% potentially open ledger with compaction disabled so
+    %% we can bulk load
+
     %% clean the ledger in case we had a partial snapshot load
     blockchain_ledger_v1:clean(CLedger),
 
-    %% open ledger with compaction disabled so
-    %% we can bulk load
     Ledger0 = blockchain_ledger_v1:new(
-                Dir,
-                false,
-                blockchain:db_handle(Chain),
-                blockchain:blocks_cf(Chain),
-                blockchain:heights_cf(Chain),
-                blockchain:info_cf(Chain),
-                %% these options taken from rocksdb's PrepareForBulkLoad()
-                [
-                    {disable_auto_compactions, true},
-                    {num_levels, 2},
-                    {max_write_buffer_number, 10},
-                    {min_write_buffer_number_to_merge, 1},
-                    {max_background_flushes, 4},
-                    {level0_file_num_compaction_trigger, 1 bsl 30},
-                    {level0_slowdown_writes_trigger, 1 bsl 30},
-                    {level0_stop_writes_trigger, 1 bsl 30},
-                    {max_compaction_bytes, 1 bsl 60},
-                    {target_file_size_base, 8388608},
-                    {atomic_flush, false},
-                    {write_buffer_size, 8388608}
-                ]
-               ),
+      Dir,
+      false,
+      blockchain:db_handle(Chain),
+      blockchain:blocks_cf(Chain),
+      blockchain:heights_cf(Chain),
+      blockchain:info_cf(Chain),
+      %% these options taken from rocksdb's PrepareForBulkLoad()
+      %% and are only used if allow_bulk_snapshot_loads is true
+      lists:flatten([
+                     [
+                      {disable_auto_compactions, true},
+                      {num_levels, 2},
+                      {max_write_buffer_number, 10},
+                      {min_write_buffer_number_to_merge, 1},
+                      {max_background_flushes, 4},
+                      {level0_file_num_compaction_trigger, 1 bsl 30},
+                      {level0_slowdown_writes_trigger, 1 bsl 30},
+                      {level0_stop_writes_trigger, 1 bsl 30},
+                      {max_compaction_bytes, 1 bsl 60},
+                      {target_file_size_base, 8388608},
+                      {atomic_flush, false},
+                      {write_buffer_size, 8388608}
+                     ] || application:get_env(blockchain, allow_bulk_snapshot_loads, true) ])
+     ),
 
     %% we load up both with the same snapshot here, then sync the next N
     %% blocks and check that we're valid.
@@ -496,6 +501,7 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
     end,
     {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
     lager:info("ledger height is ~p after absorbing blocks", [Curr3]),
+    print_memory(),
 
     %% store the snapshot if we don't have it already
     case blockchain:get_snapshot(SHA, Chain) of
@@ -522,85 +528,86 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
     L :: blockchain_ledger_v1:ledger(),
     M :: blockchain_ledger_v1:mode().
 load_into_ledger(Snapshot, L0, Mode) ->
+    lager:info("loading snapshot into ~p ledger", [Mode]),
+    print_memory(),
     Get = fun (K) -> deserialize_field(K, maps:get(K, Snapshot)) end,
     L1 = blockchain_ledger_v1:mode(Mode, L0),
     %% don't cache the writes to this context, do direct rocksdb writes
     %% for performance and to save memory
     L = blockchain_ledger_v1:new_direct_context(L1),
 
-    ok = blockchain_ledger_v1:consensus_members(Get(consensus_members), L),
-    ok = blockchain_ledger_v1:election_height(Get(election_height), L),
-    ok = blockchain_ledger_v1:election_epoch(Get(election_epoch), L),
-    ok = blockchain_ledger_v1:load_delayed_vars(Get(delayed_vars), L),
-    ok = blockchain_ledger_v1:load_threshold_txns(Get(threshold_txns), L),
-    ok = blockchain_ledger_v1:master_key(Get(master_key), L),
-    ok = blockchain_ledger_v1:multi_keys(Get(multi_keys), L),
-    ok = blockchain_ledger_v1:vars_nonce(Get(vars_nonce), L),
-    ok = blockchain_ledger_v1:load_vars(Get(vars), L),
-
-    ok = blockchain_ledger_v1:load_raw_gateways(Get(gateways), L),
-
-    %% optional validator era stuff will be missing in pre validator snaps
-    case maps:find(validators, Snapshot) of
-        error ->
-            ok;
-        {ok, Validators} ->
-            ok = blockchain_ledger_v1:load_validators(deserialize_field(validators, Validators), L)
-    end,
-    case maps:find(delayed_hnt, Snapshot) of
-        error ->
-            ok;
-        {ok, DelayedHNT} ->
-            ok = blockchain_ledger_v1:load_delayed_hnt(deserialize_field(delayed_hnt, DelayedHNT), L)
-    end,
-
-    case maps:find(upgrades, Snapshot) of
-        error ->
-            ok;
-        {ok, Upgrades} ->
-            ok = blockchain:mark_upgrades(deserialize_field(upgrades, Upgrades), L)
-    end,
-
-    ok = blockchain_ledger_v1:load_raw_pocs(Get(pocs), L),
-    ok = blockchain_ledger_v1:load_raw_accounts(Get(accounts), L),
-    ok = blockchain_ledger_v1:load_raw_dc_accounts(Get(dc_accounts), L),
-    ok = blockchain_ledger_v1:load_raw_security_accounts(Get(security_accounts), L),
-
-    ok = blockchain_ledger_v1:load_htlcs(Get(htlcs), L),
-
-    ok = blockchain_ledger_v1:load_ouis(Get(ouis), L),
-    ok = blockchain_ledger_v1:load_subnets(Get(subnets), L),
-    ok = blockchain_ledger_v1:set_oui_counter(Get(oui_counter), L),
-
-    ok = blockchain_ledger_v1:load_hexes(Get(hexes), L),
-    ok = blockchain_ledger_v1:load_h3dex(Get(h3dex), L),
-
-    ok = blockchain_ledger_v1:load_state_channels(Get(state_channels), L),
-
-    ok = blockchain_ledger_v1:load_oracle_price(Get(oracle_price), L),
-    ok = blockchain_ledger_v1:load_oracle_price_list(Get(oracle_price_list), L),
-
-    case maps:find(net_overage, Snapshot) of
-        error -> ok;
-        {ok, NO} ->
-            ok = blockchain_ledger_v1:net_overage(binary_to_term(NO), L)
-    end,
-
-    case maps:find(hnt_burned, Snapshot) of
-        error -> ok;
-        {ok, HB} ->
-            ok = blockchain_ledger_v1:clear_hnt_burned(L),
-            ok = blockchain_ledger_v1:add_hnt_burned(binary_to_term(HB), L)
-    end,
-
-
-    %% keep this at the end so incomplete ledger loads are very obvious
-    ok = blockchain_ledger_v1:current_height(Get(current_height), L),
+    %% list of snapshot keys and the ledger functions used to load them
+    %% because they're not all the same, for reasons?
+    %% format is [Key, {Key, Function} or {Key, Module, Function}].
+    %% Stop adding new weird kinds of loads, please
+    load_into_ledger_([consensus_members,
+                       election_height,
+                       election_epoch,
+                       {delayed_vars, load_delayed_vars},
+                       {threshold_txns, load_threshold_txns},
+                        master_key,
+                        multi_keys,
+                        vars_nonce,
+                        {vars, load_vars},
+                        {gateways, load_raw_gateways},
+                        {pocs, load_raw_pocs},
+                        {accounts, load_raw_accounts},
+                        {dc_accounts, load_raw_dc_accounts},
+                        {security_accounts, load_raw_security_accounts},
+                        {htlcs, load_htlcs},
+                        {ouis, load_ouis},
+                        {subnets, load_subnets},
+                        {oui_counter, set_oui_counter},
+                        {hexes, load_hexes},
+                        {h3dex, load_h3dex},
+                        {state_channels, load_state_channels},
+                        {oracle_price, load_oracle_price},
+                        {oracle_price_list, load_oracle_price_list}] ++
+                      [{validators, load_validators} || maps:is_key(validators, Snapshot)] ++
+                      [{delayed_hnt, load_delayed_hnt} || maps:is_key(delayed_hnt, Snapshot)] ++
+                      [{upgrades, blockchain, mark_upgrades} || maps:is_key(upgrades, Snapshot)] ++
+                      [net_overage || maps:is_key(net_overage, Snapshot)] ++
+                      [begin
+                           ok = blockchain_ledger_v1:clear_hnt_burned(L),
+                           {hnt_burned, add_hnt_burned}
+                       end || maps:is_key(hnt_burned, Snapshot)] ++
+                      %% keep this last so incomplete loads are obvious
+                      [current_height], Get, L),
     blockchain_ledger_v1:commit_context(L).
+
+
+load_into_ledger_([], _, _) ->
+    ok;
+load_into_ledger_([{K,F}|T], Get, L) ->
+    Start = erlang:monotonic_time(millisecond),
+    ok = blockchain_ledger_v1:F(Get(K), L),
+    End = erlang:monotonic_time(millisecond),
+    lager:info("loaded ~p from snapshot in ~p ms", [K, End - Start]),
+    print_memory(),
+    load_into_ledger_(T, Get, L);
+load_into_ledger_([{K,M,F}|T], Get, L) ->
+    Start = erlang:monotonic_time(millisecond),
+    ok = M:F(Get(K), L),
+    End = erlang:monotonic_time(millisecond),
+    lager:info("loaded ~p from snapshot in ~p ms", [K, End - Start]),
+    print_memory(),
+    load_into_ledger_(T, Get, L);
+load_into_ledger_([K|T], Get, L) ->
+    Start = erlang:monotonic_time(millisecond),
+    ok = blockchain_ledger_v1:K(Get(K), L),
+    End = erlang:monotonic_time(millisecond),
+    lager:info("loaded ~p from snapshot in ~p ms", [K, End - Start]),
+    print_memory(),
+    load_into_ledger_(T, Get, L).
+
+print_memory() ->
+    lager:info("memory ~p ~p", [erlang:process_info(self(), total_heap_size), erlang:memory(binary)]).
 
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
+    lager:info("loading blocks"),
+    print_memory(),
     Infos =
         case maps:find(infos, Snapshot) of
             {ok, Is} ->
@@ -611,10 +618,15 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     Blocks =
         case maps:find(blocks, Snapshot) of
             {ok, Bs} ->
-                binary_to_term(Bs);
+                lager:info("blocks binary is ~p", [byte_size(Bs)]),
+                print_memory(),
+                binary_to_list_of_binaries(Bs);
             error ->
                 []
         end,
+
+    lager:info("block head is ~p", [hd(Blocks)]),
+    print_memory(),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
@@ -662,6 +674,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                               lager:info("saving block ~p", [Ht]),
                               ok = blockchain:save_block(Block, Chain)
                       end,
+                      print_memory(),
                       case Ht > Curr2 of
                           %% we need some blocks before for history, only absorb if they're
                           %% not on the ledger already
@@ -678,13 +691,30 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                               ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
                               %% TODO Q: Why no match result?
                               blockchain_ledger_v1:commit_context(Ledger2),
-                              blockchain_ledger_v1:new_snapshot(Ledger0);
+                              blockchain_ledger_v1:new_snapshot(Ledger0),
+                              print_memory();
                           _ ->
                               ok
                       end
               end,
               Blocks)
     end.
+
+
+%% attempt to deserialized a t2b list of binaries while preserving sub binaries
+%% <131,108,0,0,0,67,109,0,8,158,52,10,176,188,34,10,32,255,217,4,161,91,57,91,235,181,102,170,40
+%% 131 is erlang external term format byte
+%% 108 is start of list
+%% 106 is end of list
+%% 109 is start of binary
+%% https://www.erlang.org/doc/apps/erts/erl_ext_dist.html
+binary_to_list_of_binaries(<<131, 108, _Length:32/integer-unsigned-integer, Rest/binary>>) ->
+    binary_to_list_of_binaries(Rest, []).
+
+binary_to_list_of_binaries(<<106>>, Acc) ->
+    lists:reverse(Acc);
+binary_to_list_of_binaries(<<109, Length:32/integer-unsigned-integer, Bin:Length/binary, Rest/binary>>, Acc) ->
+    binary_to_list_of_binaries(Rest, [Bin | Acc]).
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
@@ -1299,7 +1329,7 @@ deserialize_pairs(<<Bin/binary>>) ->
 -spec deserialize_field(key(), binary()) -> term().
 deserialize_field(K, <<Bin/binary>>) ->
     case is_raw_field(K) of
-        true -> bin_pairs_from_bin(Bin);
+        true -> mk_bin_iterator(Bin);
         false -> binary_to_term(Bin)
     end.
 
@@ -1322,6 +1352,16 @@ bin_pair_to_iolist({<<K/binary>>, V}) ->
         <<(iolist_size(V)):32/little-unsigned-integer>>,
         V
     ].
+
+mk_bin_iterator(<<>>) ->
+    fun() -> ok end;
+mk_bin_iterator(<<SizK:32/little-unsigned-integer, K:SizK/binary,
+                  SizV:32/little-unsigned-integer, V:SizV/binary,
+                  Rest/binary>>) ->
+    fun() ->
+            {K, V, mk_bin_iterator(Rest)}
+    end.
+
 
 -spec bin_pairs_from_bin(binary()) -> [{binary(), binary()}].
 bin_pairs_from_bin(<<Bin/binary>>) ->
