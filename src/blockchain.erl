@@ -1047,41 +1047,61 @@ can_add_block(Block, Blockchain) ->
                                     blockchain_ledger_v1:delete_context(Ledger),
                                     Txns = blockchain_block:transactions(Block),
                                     Sigs = blockchain_block:signatures(Block),
-                                    case blockchain_block:verify_signatures(Block,
-                                                                            ConsensusAddrs,
-                                                                            Sigs,
-                                                                            N - F,
-                                                                            KeyOrKeys)
-                                    of
-                                        false ->
-                                            {error, failed_verify_signatures};
-                                        {true, _, IsRescue} ->
-                                            SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
-                                            case Txns == SortedTxns of
-                                                false ->
-                                                    %% this double check is for just one block as
-                                                    %% far as we know; there was a bug with a few
-                                                    %% txns not being in the sorting order and they
-                                                    %% got in there wrong in that one block
-                                                    Filter =
-                                                        fun(T) ->
-                                                                blockchain_txn:type(T) /= blockchain_txn_state_channel_close_v1
-                                                        end,
-                                                    Txns2 = lists:filter(Filter, Txns),
-                                                    Sorted2 = lists:filter(Filter, SortedTxns),
-                                                    SortedTxns2 = lists:sort(fun blockchain_txn:sort/2, Sorted2),
-                                                    case Txns2 == SortedTxns2 of
-                                                        false ->
-                                                            {error, wrong_txn_order};
-                                                        true ->
-                                                            {true, IsRescue}
-                                                    end;
-                                                true ->
-                                                    {true, IsRescue}
-                                            end
-                                    end
+                                    {OldTime, OldValue} = timer:tc(fun() -> verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns, old) end),
+                                    {NewTime, NewValue} = timer:tc(fun() -> verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns, new) end),
+                                    lager:info("Signature Verification, OldTime: ~p, NewTime: ~p, OldValue: ~p, NewValue: ~p",
+                                               [OldTime, NewTime, OldValue, NewValue]),
+                                    %% XXX: Returning the OldValue for now just to keep things moving
+                                    %% If it works switch everything to new style
+                                    OldValue
                             end
                     end
+            end
+    end.
+
+verify_signatures(Block, ConsensusAddrs, Sigs, X, KeyOrKeys, Txns, Style) ->
+
+    VerifySigResult = case Style of
+                          old ->
+                              blockchain_block:verify_signatures(Block,
+                                                                 ConsensusAddrs,
+                                                                 Sigs,
+                                                                 X,
+                                                                 KeyOrKeys);
+                          new ->
+                              blockchain_block:verify_signatures_new(Block,
+                                                                     ConsensusAddrs,
+                                                                     Sigs,
+                                                                     X,
+                                                                     KeyOrKeys)
+                      end,
+
+    case VerifySigResult of
+        false ->
+            {error, failed_verify_signatures};
+        {true, _, IsRescue} ->
+            SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
+            case Txns == SortedTxns of
+                false ->
+                    %% this double check is for just one block as
+                    %% far as we know; there was a bug with a few
+                    %% txns not being in the sorting order and they
+                    %% got in there wrong in that one block
+                    Filter =
+                    fun(T) ->
+                            blockchain_txn:type(T) /= blockchain_txn_state_channel_close_v1
+                    end,
+                    Txns2 = lists:filter(Filter, Txns),
+                    Sorted2 = lists:filter(Filter, SortedTxns),
+                    SortedTxns2 = lists:sort(fun blockchain_txn:sort/2, Sorted2),
+                    case Txns2 == SortedTxns2 of
+                        false ->
+                            {error, wrong_txn_order};
+                        true ->
+                            {true, IsRescue}
+                    end;
+                true ->
+                    {true, IsRescue}
             end
     end.
 

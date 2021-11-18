@@ -35,6 +35,20 @@
                             Key :: ignore | binary() | [binary()]) ->
     false | {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
 
+%% XXX: This is temporary to gauge performance differences if any
+-callback verify_signatures_new(Block::binary() | block(),
+                                ConsensueMembers::[libp2p_crypto:pubkey_bin()],
+                                Signatures::[signature()],
+                                Threshold::pos_integer()) ->
+    false | {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+
+-callback verify_signatures_new(Block::binary() | block(),
+                                ConsensueMembers::[libp2p_crypto:pubkey_bin()],
+                                Signatures::[signature()],
+                                Threshold::pos_integer(),
+                                Key :: ignore | binary() | [binary()]) ->
+    false | {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
+
 -include_lib("helium_proto/include/blockchain_block_pb.hrl").
 
 -behavior(blockchain_json).
@@ -50,6 +64,7 @@
          type/1,
          signatures/1, set_signatures/2,
          verify_signatures/4, verify_signatures/5,
+         verify_signatures_new/4, verify_signatures_new/5,
          transactions/1,
          serialize/1,
          deserialize/1,
@@ -131,6 +146,17 @@ signatures(Block) ->
 -spec set_signatures(block(), [signature()]) -> block().
 set_signatures(Block, Signatures) ->
     (type(Block)):set_signatures(Block, Signatures).
+
+-spec verify_signatures_new(Block::binary() | block(),
+                            ConsensueMembers::[libp2p_crypto:pubkey_bin()],
+                            Signatures::[signature()],
+                            Threshold::pos_integer()) -> false |
+                                                         {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold) ->
+    (type(Block)):verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold).
+
+verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, Key) ->
+    (type(Block)):verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, Key).
 
 -spec verify_signatures(Block::binary() | block(),
                         ConsensueMembers::[libp2p_crypto:pubkey_bin()],

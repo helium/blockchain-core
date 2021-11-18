@@ -30,6 +30,7 @@
     bba_completion/1,
     snapshot_hash/1,
     verify_signatures/4, verify_signatures/5,
+    verify_signatures_new/4, verify_signatures_new/5,
     is_rescue_block/1,
     is_election_block/1,
     json_type/0,
@@ -258,7 +259,6 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
         Else -> Else
     end.
 
-
 -spec verify_signatures(Block::binary() | block(),
                         ConsensusMembers::[libp2p_crypto:pubkey_bin()],
                         Signatures::[blockchain_block:signature()],
@@ -291,6 +291,79 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
                 Block
         end,
     verify_normal_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold).
+
+-spec verify_signatures_new(Block::binary() | block(),
+                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
+                        Signatures::[blockchain_block:signature()],
+                        Threshold::pos_integer()
+                       ) ->
+                               false |
+                               {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold) ->
+    case verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, ignore) of
+        {true, Sigs, _Rescue} ->
+            {true, Sigs};
+        Else -> Else
+    end.
+
+-spec verify_signatures_new(Block::binary() | block(),
+                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
+                        Signatures::[blockchain_block:signature()],
+                        Threshold::pos_integer(),
+                        ignore | binary() | [binary()]
+                       ) ->
+                               false |
+                               {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
+%% rescue blocks have no signatures and a rescue signature.
+verify_signatures_new(#blockchain_block_v1_pb{}=Block, ConsensusMembers, [], _Threshold, Key)
+  when ConsensusMembers /= [] -> % force the other path for old tests :/
+    EncodedBlock =
+        case is_list(Key) of
+            true -> blockchain_block:serialize(?MODULE:set_signatures(Block, [], []));
+            false -> blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>))
+        end,
+    RescueSig =
+        case is_list(Key) of
+            true -> blockchain_block_v1:rescue_signatures(Block);
+            false -> blockchain_block_v1:rescue_signature(Block)
+        end,
+    verify_rescue_signature(EncodedBlock, RescueSig, Key);
+%% normal blocks should never have a rescue signature.
+verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, _) ->
+    EncodedBlock =
+        case Block of
+            #blockchain_block_v1_pb{} ->
+                blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>));
+            _ ->
+                Block
+        end,
+    verify_normal_signatures_new(EncodedBlock, ConsensusMembers, Signatures, Threshold).
+
+verify_normal_signatures_new(Artifact, ConsensusMembers, Signatures, Threshold) ->
+
+    %% Conditions:
+    %% - Threshold number of Signatures should be verifiable
+    %% - The Signees must be in the ConsensusMembers
+    %% - The size of the threshold_signatures must be lower than 3F + 1 if they are verified
+
+    F = (length(ConsensusMembers) - 1) div 3,
+    ThresholdSignatures = lists:sublist(blockchain_utils:shuffle(Signatures), Threshold),
+
+    Addrs = [Addr || {Addr, _} <- ThresholdSignatures],
+    MaybeValidSignatures = lists:map(fun({Addr, Sig}) -> {Sig, libp2p_crypto:bin_to_pubkey(Addr)} end, ThresholdSignatures),
+    Batch = [{Artifact, MaybeValidSignatures}],
+    C1 = lists:all(fun(Addr) -> lists:member(Addr, ConsensusMembers) end, Addrs),
+    C2 = libp2p_crypto:verify(Batch),
+    C3 = length(MaybeValidSignatures) =< 3*F + 1,
+
+    case {C1, C2, C3} of
+        {true, true, true} ->
+            %% at least `Threshold' consensus members signed the block
+            {true, MaybeValidSignatures, false};
+        _ ->
+            %% missing some signatures?
+            false
+    end.
 
 verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
     ValidSignatures0 =
