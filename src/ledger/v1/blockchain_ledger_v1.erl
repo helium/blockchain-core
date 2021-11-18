@@ -3170,19 +3170,38 @@ get_subnet_addr(DevAddr, NetIDList) ->
     Lower + NwkAddr.
 
 -spec netid_addr_range(non_neg_integer(), [non_neg_integer()]) -> {non_neg_integer(), non_neg_integer()}.
-netid_addr_range(_NetID, _NetIDList0) ->
-    {0, 0}.
-    % FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
-    % case FoundNetID of
-    %     false ->
-    %         {0, 0};
-    %     true ->
-    %         NetIDList = lists:takewhile(fun(X) -> X =/= NetID end, NetIDList0),
-    %         Lower = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
-    %         NetIDPlusList = NetIDList ++ [NetID],
-    %         Upper = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDPlusList),
-    %         {Lower, Upper}
-    % end.
+netid_addr_range(NetID, NetIDList0) ->
+    FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
+    case FoundNetID of
+        false ->
+            {0, 0};
+        true ->
+            NetIDList = lists:takewhile(fun(X) -> X =/= NetID end, NetIDList0),
+            Lower = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
+            NetIDPlusList = NetIDList ++ [NetID],
+            Upper = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDPlusList),
+            {Lower, Upper}
+    end.
+
+-spec netid_width(non_neg_integer()) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
+netid_width(NetID) ->
+    NetClass = NetID bsr 21,
+    % <<_ID:21, NetClass:3, _Ignore:8>> = NetID,
+    case NetClass of
+        0 -> 25;
+        1 -> 24;
+        2 -> 20;
+        3 -> 17;
+        4 -> 15;
+        5 -> 13;
+        6 -> 10;
+        7 -> 7
+    end.
+
+-spec netid_size(non_neg_integer()) -> non_neg_integer().
+netid_size(NetID) ->
+    Size = 1 bsl netid_width(NetID),
+    Size.
 
 -spec uint32(integer()) -> integer().
 uint32(Num) ->
