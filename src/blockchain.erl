@@ -1,4 +1,3 @@
-
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Blockchain ==
@@ -973,7 +972,8 @@ can_add_block(Block, Blockchain) ->
                     %% compute the ledger at the height of the chain in case we're
                     %% re-adding a missing block (that was absorbed into the ledger)
                     %% that's on the wrong side of an election or a chain var
-                    DelayedHeight = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
+                    DelayedLedger = blockchain_ledger_v1:mode(delayed, blockchain:ledger(Blockchain)),
+                    {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger),
                     {ok, Ledger} = case Height < ChainHeight andalso Height >= DelayedHeight of
                                        true -> blockchain:ledger_at(ChainHeight, Blockchain);
                                        false -> {ok, blockchain:ledger(Blockchain)}
