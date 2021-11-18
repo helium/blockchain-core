@@ -3027,6 +3027,15 @@ create_devaddr_from_subnet(SubnetAddr, NetIDList) ->
     DevAddr = create_devaddr(NetID, SubnetAddr - Lower),
     DevAddr.
 
+-spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+create_devaddr(NetID, NwkAddr) ->
+    NetClass = NetID bsr 21,
+    ID = NetID band 2#111111111111111111111,
+    % <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
+    Addr0 = var_net_class(NetClass) bor ID,
+    DevAddr = var_netid(NetClass, Addr0) bor NwkAddr,
+    DevAddr.
+
 -spec subnet_addr_to_netid(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
 subnet_addr_to_netid(NwkAddr, NetIDList) ->
     subnet_addr_to_netid_search(NwkAddr, NetIDList, NetIDList).
@@ -3055,13 +3064,6 @@ is_local_netid(NetID, NetIDList) ->
         _ ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
     end.
-
--spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-create_devaddr(NetID, NwkAddr) ->
-    <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
-    Addr0 = var_net_class(NetClass) bor ID,
-    DevAddr = var_netid(NetClass, Addr0) bor NwkAddr,
-    DevAddr.
 
 -spec var_net_class(non_neg_integer()) -> non_neg_integer().
 var_net_class(NetClass) ->
@@ -3258,8 +3260,7 @@ find_routing_for_packet(Packet, Ledger) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, DevEUI, AppEUI} ->
             find_routing_via_eui(DevEUI, AppEUI, Ledger);
-        {devaddr, DevAddr0} ->
-            DevAddr = <<DevAddr0:32/integer-unsigned>>,
+        {devaddr, DevAddr} ->
             find_routing_via_subnet(DevAddr, Ledger)
     end.
 
@@ -3291,7 +3292,7 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
             {ok, Res}
     end.
 
--spec find_routing_via_subnet(DevAddr :: <<_:8,_:_*8>>,
+-spec find_routing_via_subnet(DevAddr :: non_neg_integer(),
                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_subnet(DevAddr, Ledger) ->
     {ok, NetID} = net_id(DevAddr),
@@ -5677,10 +5678,10 @@ find_scs_by_owner_test() ->
 
 netid_test() ->
     LegacyID = $H,
-    NetID00 = <<16#E00001:32/integer-unsigned>>,
-    NetID01 = <<16#C00053:32/integer-unsigned>>,
-    NetID02 = <<16#60002D:32/integer-unsigned>>,,
-    NetIDExt = <<16#C00050:32/integer-unsigned>>,,
+    NetID00 = 16#E00001,
+    NetID01 = 16#C00053,
+    NetID02 = 16#60002D,
+    NetIDExt = 16#C00050,
     NetIDList = [NetID0, NetID1, NetID2],
     LocalTrue = is_local_netid(NetID01, NetIDList),
     LocalFalse = is_local_netid(NetIDExt, NetIDList),
@@ -5786,7 +5787,7 @@ subnet_allocation_test() ->
     R9 = find_dest(Key9, Ledger),
     ?assertEqual(R9, <<9:32/little-unsigned-integer>>),
 
-    DevAddr0 = create_devaddr(<<16#60002D:32/integer-unsigned>>, 16),
+    DevAddr0 = create_devaddr(16#60002D, 16),
     {ok, Dest} = find_routing_via_subnet(DevAddr0, Ledger),
     ?assertEqual(Dest, <<4:32/little-unsigned-integer>>),
 
