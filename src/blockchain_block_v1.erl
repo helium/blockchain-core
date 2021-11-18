@@ -260,7 +260,6 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
         Else -> Else
     end.
 
-
 -spec verify_signatures(Block::binary() | block(),
                         ConsensusMembers::[libp2p_crypto:pubkey_bin()],
                         Signatures::[blockchain_block:signature()],
@@ -294,39 +293,30 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
         end,
     verify_normal_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold).
 
+
 verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
-    ValidSignatures0 =
-        blockchain_utils:pmap(
-          fun({Addr, Sig}) ->
-                  case
-                      lists:member(Addr, ConsensusMembers)
-                      andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
-                  of
-                      true -> {Addr, Sig};
-                      false ->
-                          error
-                  end
-          end, lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
-    ValidSignatures =
-        case lists:any(fun(error) -> true; (_) -> false end, ValidSignatures0) of
-            true ->
-                error;
-            _ ->
-                case lists:sort(ValidSignatures0) == lists:usort(ValidSignatures0) of
-                    true ->
-                        ValidSignatures0;
-                    _ ->
-                        error
-                end
-        end,
+    %% Conditions:
+    %% - Threshold number of Signatures should be verifiable
+    %% - The Signees must be in the ConsensusMembers
+    %% - The size of the incoming signatures must be lower than 3F + 1 if they are verified
+
     F = (length(ConsensusMembers) - 1) div 3,
-    case length(Signatures) =< (3*F)+1 andalso
-         ValidSignatures /= error andalso
-         length(ValidSignatures) >= Threshold of
-        true ->
+    %% Take threshold number of signatures and ensure that the signatories are unique
+    ThresholdSignatures = lists:sublist(blockchain_utils:shuffle(lists:ukeysort(2, Signatures)), Threshold),
+    {Addrs, MaybeValidSignatures} = lists:foldl(
+                                      fun({Addr, Sig}, {Acc1, Acc2}) ->
+                                              {[Addr | Acc1], [{Sig, Addr} | Acc2]}
+                                      end, {[], []}, ThresholdSignatures),
+    Batch = [{Artifact, MaybeValidSignatures}],
+    C1 = lists:all(fun(Addr) -> lists:member(Addr, ConsensusMembers) end, Addrs),
+    C2 = libp2p_crypto:verify(Batch),
+    C3 = length(Signatures) =< 3*F + 1,
+
+    case {C1, C2, C3} of
+        {true, true, true} ->
             %% at least `Threshold' consensus members signed the block
-            {true, ValidSignatures, false};
-        false ->
+            {true, MaybeValidSignatures, false};
+        _ ->
             %% missing some signatures?
             false
     end.
