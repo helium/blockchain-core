@@ -3296,10 +3296,10 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 find_routing_via_subnet(DevAddr, Ledger) ->
     {ok, NetID} = net_id(DevAddr),
     {ok, NetIDList} = get_netids(Ledger),
-    {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
-    NwkAddr = Lower + get_nwk_addr(DevAddr),
     case is_local_netid(NetID, NetIDList) of
         true ->
+            {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
+            NwkAddr = Lower + get_nwk_addr(DevAddr),
             Dest = find_dest(NwkAddr, Ledger),
             case find_routing(Dest, Ledger) of
                 {ok, Route} ->
