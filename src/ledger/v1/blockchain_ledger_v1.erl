@@ -5718,7 +5718,7 @@ netid_test() ->
     Width1 = addr_bit_width(DevAddr1),
     ?assertEqual(Width1, 17),
     Width2 = addr_bit_width(DevAddr2),
-    ?assertEqual(Width1, 17),
+    ?assertEqual(Width2, 17),
     NwkAddr1 = get_nwk_addr(DevAddr1),
     ?assertEqual(NwkAddr1, 16),
     NwkAddr2 = get_nwk_addr(DevAddr2),
