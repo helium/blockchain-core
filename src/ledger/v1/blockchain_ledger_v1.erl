@@ -3163,7 +3163,6 @@ get_nwk_addr(DevAddr) ->
 
 -spec get_subnet_addr(binary(), [non_neg_integer()]) -> non_neg_integer().
 get_subnet_addr(DevAddr, NetIDList) ->
-    %% ToDo: Replace with correct get_netid
     {ok, NetID} = net_id(DevAddr),
     NwkAddr = get_nwk_addr(DevAddr),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
