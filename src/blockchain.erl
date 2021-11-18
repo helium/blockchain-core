@@ -973,7 +973,10 @@ can_add_block(Block, Blockchain) ->
                     %% compute the ledger at the height of the chain in case we're
                     %% re-adding a missing block (that was absorbed into the ledger)
                     %% that's on the wrong side of an election or a chain var
-                    {ok, Ledger} = blockchain:ledger_at(ChainHeight, Blockchain),
+                    {ok, Ledger} = case Height < ChainHeight of
+                                       true -> blockchain:ledger_at(ChainHeight, Blockchain);
+                                       false -> {ok, blockchain:ledger(Blockchain)}
+                                   end,
                     case
                         blockchain_block:prev_hash(Block) =:= HeadHash andalso
                          Height =:= HeadHeight + 1
