@@ -2756,7 +2756,8 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
                                   remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                           end
                   end, SortedBlocks),
-    rocksdb:write_batch(DB, Batch, [{sync, true}]).
+    rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    blockchain_lock:release().
 
 -spec get_plausible_blocks(blockchain()) -> [blockchain_block:block()].
 get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
