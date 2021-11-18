@@ -279,6 +279,12 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
+-type netid() :: non_neg_integer().
+-type netclass() :: non_neg_integer().
+-type devaddr() :: non_neg_integer().
+-type nwkaddr() :: non_neg_integer().
+-type subnetaddr() :: non_neg_integer().
+
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -3008,7 +3014,7 @@ redeem_htlc(Address, Payee, Ledger, Chain) ->
             end
     end.
 
--spec get_netids(ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+-spec get_netids(ledger()) -> {ok, [netid()]} | {error, any()}.
 get_netids(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?NETIDS, []) of
@@ -3020,14 +3026,14 @@ get_netids(Ledger) ->
             Error
     end.
 
--spec create_devaddr_from_subnet(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
+-spec create_devaddr_from_subnet(subnetaddr(), [netid()]) -> devaddr().
 create_devaddr_from_subnet(SubnetAddr, NetIDList) ->
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     DevAddr = create_devaddr(NetID, SubnetAddr - Lower),
     DevAddr.
 
--spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+-spec create_devaddr(netid(), nwkaddr()) -> non_neg_integer().
 create_devaddr(NetID, NwkAddr) ->
     NetClass = NetID bsr 21,
     ID = NetID band 2#111111111111111111111,
@@ -3036,7 +3042,7 @@ create_devaddr(NetID, NwkAddr) ->
     DevAddr = var_netid(NetClass, Addr0) bor NwkAddr,
     DevAddr.
 
--spec subnet_addr_to_netid(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
+-spec subnet_addr_to_netid(subnetaddr(), [netid()]) -> netid().
 subnet_addr_to_netid(NwkAddr, NetIDList) ->
     subnet_addr_to_netid_search(NwkAddr, NetIDList, NetIDList).
 
@@ -3051,12 +3057,12 @@ subnet_addr_to_netid_search(NwkAddr, SList, NetIDList) ->
             subnet_addr_to_netid_search(NwkAddr, T, NetIDList)
     end.
 
--spec subnet_addr_within_range(non_neg_integer(), non_neg_integer(), [non_neg_integer()]) -> boolean().
-subnet_addr_within_range(NwkAddr, NetID, NetIDList) ->
+-spec subnet_addr_within_range(subnetaddr(), netid(), [netid()]) -> boolean().
+subnet_addr_within_range(Addr, NetID, NetIDList) ->
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
-    (NwkAddr >= Lower) and (NwkAddr < Upper).
+    (Addr >= Lower) and (Addr < Upper).
 
--spec is_local_netid(non_neg_integer(), [non_neg_integer()]) -> boolean().
+-spec is_local_netid(netid(), [netid()]) -> boolean().
 is_local_netid(NetID, NetIDList) ->
     case NetID of
         $H ->
@@ -3065,7 +3071,7 @@ is_local_netid(NetID, NetIDList) ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
     end.
 
--spec var_net_class(non_neg_integer()) -> non_neg_integer().
+-spec var_net_class(netclass()) -> non_neg_integer().
 var_net_class(NetClass) ->
     case NetClass of
         0 -> 0;
@@ -3078,7 +3084,7 @@ var_net_class(NetClass) ->
         7 -> 2#11111110 bsl 17
     end.
 
--spec var_netid(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+-spec var_netid(netclass(), netid()) -> non_neg_integer().
 var_netid(NetClass, NetID) ->
     case NetClass of
         0 -> NetID bsl 25;
@@ -3155,20 +3161,20 @@ get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
     <<_:IgnoreSize, NetID:NwkIDBits/integer-unsigned>> = <<Two:32/integer-unsigned>>,
     NetID.
 
--spec get_nwk_addr(binary()) -> non_neg_integer().
+-spec get_nwk_addr(binary()) -> nwkaddr().
 get_nwk_addr(DevAddr) ->
     AddrBitWidth = addr_bit_width(DevAddr),
     <<NwkAddr:AddrBitWidth/integer-unsigned, _/binary>> = DevAddr,
     NwkAddr.
 
--spec get_subnet_addr(binary(), [non_neg_integer()]) -> non_neg_integer().
+-spec get_subnet_addr(binary(), [netid()]) -> subnetaddr().
 get_subnet_addr(DevAddr, NetIDList) ->
     {ok, NetID} = net_id(DevAddr),
     NwkAddr = get_nwk_addr(DevAddr),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     Lower + NwkAddr.
 
--spec netid_addr_range(non_neg_integer(), [non_neg_integer()]) -> {non_neg_integer(), non_neg_integer()}.
+-spec netid_addr_range(netid(), [netid()]) -> {non_neg_integer(), non_neg_integer()}.
 netid_addr_range(NetID, NetIDList0) ->
     FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
     case FoundNetID of
@@ -3182,7 +3188,7 @@ netid_addr_range(NetID, NetIDList0) ->
             {Lower, Upper}
     end.
 
--spec netid_width(non_neg_integer()) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
+-spec netid_width(netid()) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
 netid_width(NetID) ->
     NetClass = NetID bsr 21,
     % <<_ID:21, NetClass:3, _Ignore:8>> = NetID,
@@ -3197,7 +3203,7 @@ netid_width(NetID) ->
         7 -> 7
     end.
 
--spec netid_size(non_neg_integer()) -> non_neg_integer().
+-spec netid_size(netid()) -> non_neg_integer().
 netid_size(NetID) ->
     Size = 1 bsl netid_width(NetID),
     Size.
@@ -5700,7 +5706,7 @@ netid_test() ->
     NetID01 = 16#C00053,
     NetID02 = 16#60002D,
     NetIDExt = 16#C00050,
-    NetIDList = [NetID0, NetID1, NetID2],
+    NetIDList = [NetID00, NetID01, NetID02],
     LocalTrue = is_local_netid(NetID01, NetIDList),
     LocalFalse = is_local_netid(NetIDExt, NetIDList),
     LegacyLocal = is_local_netid(LegacyID, NetIDList),
