@@ -5716,7 +5716,7 @@ netid_test() ->
     DevAddr1 = create_devaddr(NetID02, 16),
     DevAddr2 = create_devaddr(NetID01, 8),
     Width1 = addr_bit_width(DevAddr1),
-    ?assertEqual(Width1, 17),
+    ?assertEqual(Width1, 10),
     Width2 = addr_bit_width(DevAddr2),
     ?assertEqual(Width2, 17),
     NwkAddr1 = get_nwk_addr(DevAddr1),
