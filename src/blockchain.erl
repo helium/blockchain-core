@@ -973,7 +973,8 @@ can_add_block(Block, Blockchain) ->
                     %% compute the ledger at the height of the chain in case we're
                     %% re-adding a missing block (that was absorbed into the ledger)
                     %% that's on the wrong side of an election or a chain var
-                    {ok, Ledger} = case Height < ChainHeight of
+                    DelayedHeight = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
+                    {ok, Ledger} = case Height < ChainHeight andalso Height >= DelayedHeight of
                                        true -> blockchain:ledger_at(ChainHeight, Blockchain);
                                        false -> {ok, blockchain:ledger(Blockchain)}
                                    end,
@@ -2741,7 +2742,7 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(fun(Block) ->
                           Hash = blockchain_block:hash_block(Block),
-                          case can_add_block(Block, Chain) of
+                          try can_add_block(Block, Chain) of
                               {true, _IsRescue} ->
                                   %% TODO try to retain the binary block through here and pass it into add_block to
                                   %% save on another serialize() call
@@ -2756,6 +2757,9 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
                                           remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                                   end;
                               _Error ->
+                                  remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
+                          catch
+                              _:_ ->
                                   remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                           end
                   end, SortedBlocks),
