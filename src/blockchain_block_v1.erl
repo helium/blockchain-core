@@ -351,7 +351,7 @@ verify_normal_signatures_new(Artifact, ConsensusMembers, Signatures, Threshold) 
 
     Addrs = [Addr || {Addr, _} <- ThresholdSignatures],
     MaybeValidSignatures = lists:map(fun({Addr, Sig}) -> {Sig, libp2p_crypto:bin_to_pubkey(Addr)} end, ThresholdSignatures),
-    Batch = [{Artifact, MaybeValidSignatures}],
+    Batch = [{Artifact, ThresholdSignatures}],
     C1 = lists:all(fun(Addr) -> lists:member(Addr, ConsensusMembers) end, Addrs),
     C2 = libp2p_crypto:verify(Batch),
     C3 = length(MaybeValidSignatures) =< 3*F + 1,
