@@ -3042,17 +3042,6 @@ subnet_addr_to_netid_search(NwkAddr, SList, NetIDList) ->
             subnet_addr_to_netid_search(NwkAddr, T, NetIDList)
     end.
 
-
-% -spec subnet_addr_to_netid(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
-% subnet_addr_to_netid(NwkAddr, NetIDList) ->
-%     Result = lists:search(fun(X) -> subnet_addr_within_range(NwkAddr, X, NetIDList) end, NetIDList),
-%     case Result of
-%         false ->
-%             0;
-%         {value, NetID} ->
-%             NetID
-%     end.
-
 -spec subnet_addr_within_range(non_neg_integer(), non_neg_integer(), [non_neg_integer()]) -> boolean().
 subnet_addr_within_range(NwkAddr, NetID, NetIDList) ->
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
@@ -3067,7 +3056,6 @@ is_local_netid(NetID, NetIDList) ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
     end.
 
-%-spec create_devaddr(<<_:32>>, integer()) -> integer().
 -spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 create_devaddr(NetID, NwkAddr) ->
     <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
@@ -3100,65 +3088,6 @@ var_netid(NetClass, NetID) ->
         6 -> NetID bsl 10;
         7 -> NetID bsl 7
     end.
-
-% -spec create_devaddr(<<_:32>>, integer()) -> non_neg_integer().
-% %-spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-% create_devaddr(NetID, NwkAddr) ->
-%     <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
-%     AddrWidth = netid_width(NetID),
-%     IDSize = 32 - 3 - AddrWidth,
-%     Addr0 = <<NwkAddr:AddrWidth/integer-unsigned, ID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>,
-%     Addr = <<Addr0:32/integer-unsigned>>,
-%     Addr.
-
-% -spec addr_class_width(0..7) -> non_neg_integer().
-% addr_class_width(NetClass) ->
-%     case NetClass of
-%         0 -> 25;
-%         1 -> 24;
-%         2 -> 20;
-%         3 -> 17;
-%         4 -> 15;
-%         5 -> 13;
-%         6 -> 10;
-%         7 -> 7
-%     end.
-
-% -spec netid_class(non_neg_integer()) -> non_neg_integer().
-% netid_class(NetID) ->
-%     <<_ID:21, NetClass:3>> = NetID,
-%     NetClass.
-
-% -spec netid_width(<<_:32>>) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
-% netid_width(NetID) ->
-%     <<_ID:21, NetClass:3, _Ignore:8>> = NetID,
-%     case NetClass of
-%         0 -> 25;
-%         1 -> 24;
-%         2 -> 20;
-%         3 -> 17;
-%         4 -> 15;
-%         5 -> 13;
-%         6 -> 10;
-%         7 -> 7
-%     end.
-
-% netid_size(NetID) ->
-%     Size = 1 bsl netid_width(NetID),
-%     Size.
-
-% netid_slab_count(NetID) ->
-%     <<_ID:21, NetClass:3>> = NetID,
-%     case NetClass of
-%         0 -> 8388608;
-%         1 -> 4194304;
-%         2 -> 262144;
-%         3 -> 32768;
-%         4 -> 8192;
-%         5 -> 2048;
-%         6 -> 256;
-%         7 -> 32
-%     end.
 
 -spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
 net_id(DevNum) when erlang:is_number(DevNum) ->
