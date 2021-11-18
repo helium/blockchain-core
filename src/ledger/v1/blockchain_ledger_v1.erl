@@ -114,6 +114,7 @@
 
     get_netids/1,
     create_devaddr/2,
+    create_devaddr_from_subnet/2,
     net_id/1,
     addr_bit_width/1,
     net_id_type/1,
@@ -3019,19 +3020,40 @@ get_netids(Ledger) ->
             Error
     end.
 
--spec create_devaddr(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
-create_devaddr(SubnetAddr, NetIDList) ->
+-spec create_devaddr_from_subnet(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
+create_devaddr_from_subnet(SubnetAddr, NetIDList) ->
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
-    <<NetClass:3/integer-unsigned, _/binary>> = NetID,
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
-    DevAddr = create_devaddr(NetClass, NetID, SubnetAddr - Lower),
+    DevAddr = create_devaddr(NetID, SubnetAddr - Lower),
     DevAddr.
 
--spec subnet_addr_to_netid(non_neg_integer(), ledger()) -> non_neg_integer().
+-spec subnet_addr_to_netid(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
 subnet_addr_to_netid(NwkAddr, NetIDList) ->
-    lists:search(fun(X) -> subnet_addr_within_range(NwkAddr, X, NetIDList) end, NetIDList).
+    subnet_addr_to_netid_search(NwkAddr, NetIDList, NetIDList).
 
--spec subnet_addr_within_range(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> boolean().
+subnet_addr_to_netid_search(_, [], _) -> 0;
+subnet_addr_to_netid_search(NwkAddr, SList, NetIDList) ->
+    [H | T] = SList,
+    WithinRange = subnet_addr_within_range(NwkAddr, H, NetIDList),
+    case WithinRange of
+        true ->
+            H;
+        false ->
+            subnet_addr_to_netid_search(NwkAddr, T, NetIDList)
+    end.
+
+
+% -spec subnet_addr_to_netid(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
+% subnet_addr_to_netid(NwkAddr, NetIDList) ->
+%     Result = lists:search(fun(X) -> subnet_addr_within_range(NwkAddr, X, NetIDList) end, NetIDList),
+%     case Result of
+%         false ->
+%             0;
+%         {value, NetID} ->
+%             NetID
+%     end.
+
+-spec subnet_addr_within_range(non_neg_integer(), non_neg_integer(), [non_neg_integer()]) -> boolean().
 subnet_addr_within_range(NwkAddr, NetID, NetIDList) ->
     {Lower, Upper} = netid_addr_range(NetID, NetIDList),
     (NwkAddr >= Lower) and (NwkAddr < Upper).
@@ -3045,43 +3067,85 @@ is_local_netid(NetID, NetIDList) ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
     end.
 
--spec create_devaddr(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-create_devaddr(NetClass, NetID, NwkAddr) ->
-    Size = addr_class_width(NetClass),
-    IDSize = 32 - 3 - Size,
-    Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>,
-    Addr.
+%-spec create_devaddr(<<_:32>>, integer()) -> integer().
+-spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+create_devaddr(NetID, NwkAddr) ->
+    <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
+    Addr0 = var_net_class(NetClass) bor ID,
+    DevAddr = var_netid(NetClass, Addr0) bor NwkAddr,
+    DevAddr.
 
--spec addr_class_width(0..7) -> non_neg_integer().
-addr_class_width(NetClass) ->
+-spec var_net_class(non_neg_integer()) -> non_neg_integer().
+var_net_class(NetClass) ->
     case NetClass of
-        0 -> 25;
-        1 -> 24;
-        2 -> 20;
-        3 -> 17;
-        4 -> 15;
-        5 -> 13;
-        6 -> 10;
-        7 -> 7
+        0 -> 0;
+        1 -> 2#10 bsl 6;
+        2 -> 2#110 bsl 9;
+        3 -> 2#1110 bsl 11;
+        4 -> 2#11110 bsl 12;
+        5 -> 2#111110 bsl 13;
+        6 -> 2#1111110 bsl 15;
+        7 -> 2#11111110 bsl 17
     end.
 
--spec netid_width(non_neg_integer()) -> non_neg_integer().
-netid_width(NetID) ->
-    <<_ID:21, NetClass:3>> = NetID,
+-spec var_netid(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+var_netid(NetClass, NetID) ->
     case NetClass of
-        0 -> 25;
-        1 -> 24;
-        2 -> 20;
-        3 -> 17;
-        4 -> 15;
-        5 -> 13;
-        6 -> 10;
-        7 -> 7
+        0 -> NetID bsl 25;
+        1 -> NetID bsl 24;
+        2 -> NetID bsl 20;
+        3 -> NetID bsl 17;
+        4 -> NetID bsl 15;
+        5 -> NetID bsl 13;
+        6 -> NetID bsl 10;
+        7 -> NetID bsl 7
     end.
 
-netid_size(NetID) ->
-    Size = 1 bsl netid_width(NetID),
-    Size.
+% -spec create_devaddr(<<_:32>>, integer()) -> non_neg_integer().
+% %-spec create_devaddr(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+% create_devaddr(NetID, NwkAddr) ->
+%     <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
+%     AddrWidth = netid_width(NetID),
+%     IDSize = 32 - 3 - AddrWidth,
+%     Addr0 = <<NwkAddr:AddrWidth/integer-unsigned, ID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>,
+%     Addr = <<Addr0:32/integer-unsigned>>,
+%     Addr.
+
+% -spec addr_class_width(0..7) -> non_neg_integer().
+% addr_class_width(NetClass) ->
+%     case NetClass of
+%         0 -> 25;
+%         1 -> 24;
+%         2 -> 20;
+%         3 -> 17;
+%         4 -> 15;
+%         5 -> 13;
+%         6 -> 10;
+%         7 -> 7
+%     end.
+
+% -spec netid_class(non_neg_integer()) -> non_neg_integer().
+% netid_class(NetID) ->
+%     <<_ID:21, NetClass:3>> = NetID,
+%     NetClass.
+
+% -spec netid_width(<<_:32>>) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
+% netid_width(NetID) ->
+%     <<_ID:21, NetClass:3, _Ignore:8>> = NetID,
+%     case NetClass of
+%         0 -> 25;
+%         1 -> 24;
+%         2 -> 20;
+%         3 -> 17;
+%         4 -> 15;
+%         5 -> 13;
+%         6 -> 10;
+%         7 -> 7
+%     end.
+
+% netid_size(NetID) ->
+%     Size = 1 bsl netid_width(NetID),
+%     Size.
 
 % netid_slab_count(NetID) ->
 %     <<_ID:21, NetClass:3>> = NetID,
@@ -3169,24 +3233,25 @@ get_nwk_addr(DevAddr) ->
 -spec get_subnet_addr(binary(), [non_neg_integer()]) -> non_neg_integer().
 get_subnet_addr(DevAddr, NetIDList) ->
     %% ToDo: Replace with correct get_netid
-    NetID = net_id(DevAddr),
+    {ok, NetID} = net_id(DevAddr),
     NwkAddr = get_nwk_addr(DevAddr),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     Lower + NwkAddr.
 
 -spec netid_addr_range(non_neg_integer(), [non_neg_integer()]) -> {non_neg_integer(), non_neg_integer()}.
-netid_addr_range(NetID, NetIDList0) ->
-    FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
-    case FoundNetID of
-        false ->
-            {0, 0};
-        true ->
-            NetIDList = lists:takewhile(fun(X) -> X =/= NetID end, NetIDList0),
-            Lower = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
-            NetIDPlusList = NetIDList ++ [NetID],
-            Upper = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDPlusList),
-            {Lower, Upper}
-    end.
+netid_addr_range(_NetID, _NetIDList0) ->
+    {0, 0}.
+    % FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
+    % case FoundNetID of
+    %     false ->
+    %         {0, 0};
+    %     true ->
+    %         NetIDList = lists:takewhile(fun(X) -> X =/= NetID end, NetIDList0),
+    %         Lower = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
+    %         NetIDPlusList = NetIDList ++ [NetID],
+    %         Upper = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDPlusList),
+    %         {Lower, Upper}
+    % end.
 
 -spec uint32(integer()) -> integer().
 uint32(Num) ->
@@ -3265,7 +3330,8 @@ find_routing_for_packet(Packet, Ledger) ->
         {eui, DevEUI, AppEUI} ->
             find_routing_via_eui(DevEUI, AppEUI, Ledger);
         {devaddr, DevAddr0} ->
-            find_routing_via_subnet(DevAddr0, Ledger)
+            DevAddr = <<DevAddr0:32/integer-unsigned>>,
+            find_routing_via_subnet(DevAddr, Ledger)
     end.
 
 -spec find_routing_via_eui(DevEUI :: non_neg_integer(),
@@ -3296,11 +3362,11 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
             {ok, Res}
     end.
 
--spec find_routing_via_subnet(DevAddr :: non_neg_integer(),
+-spec find_routing_via_subnet(DevAddr :: <<_:8,_:_*8>>,
                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_subnet(DevAddr, Ledger) ->
-    NetID = net_id(DevAddr),
-    NetIDList = get_netids(Ledger),
+    {ok, NetID} = net_id(DevAddr),
+    {ok, NetIDList} = get_netids(Ledger),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     NwkAddr = Lower + get_nwk_addr(DevAddr),
     case is_local_netid(NetID, NetIDList) of
@@ -5682,10 +5748,10 @@ find_scs_by_owner_test() ->
 
 netid_test() ->
     LegacyID = $H,
-    NetID00 = 16#E00001,
-    NetID01 = 16#C00053,
-    NetID02 = 16#60002D,
-    NetIDExt = 16#C00050,
+    NetID00 = <<16#E00001:32/integer-unsigned>>,
+    NetID01 = <<16#C00053:32/integer-unsigned>>,
+    NetID02 = <<16#60002D:32/integer-unsigned>>,,
+    NetIDExt = <<16#C00050:32/integer-unsigned>>,,
     NetIDList = [NetID0, NetID1, NetID2],
     LocalTrue = is_local_netid(NetID01, NetIDList),
     LocalFalse = is_local_netid(NetIDExt, NetIDList),
@@ -5693,8 +5759,8 @@ netid_test() ->
     ?assertEqual(LocalTrue, true),
     ?assertEqual(LocalFalse, false),
     ?assertEqual(LegacyLocal, true),
-    DevAddr1 = create_devaddr(3, 16#2D, 16),
-    DevAddr2 = create_devaddr(6, 16#53, 8),
+    DevAddr1 = create_devaddr(NetID02, 16),
+    DevAddr2 = create_devaddr(NetID01, 8),
     Width1 = addr_bit_width(DevAddr1),
     ?assertEqual(Width1, 17),
     Width2 = addr_bit_width(DevAddr2),
@@ -5707,9 +5773,9 @@ netid_test() ->
     ?assertEqual(NetIDType1, 3),
     NetIDType2 = net_id_type(DevAddr2),
     ?assertEqual(NetIDType2, 6),
-    NetID1 = net_id(DevAddr1),
+    {ok, NetID1} = net_id(DevAddr1),
     ?assertEqual(NetID1, NetID01),
-    NetID2 = net_id(DevAddr2),
+    {ok, NetID2} = net_id(DevAddr2),
     ?assertEqual(NetID2, NetID02),
     Subnet0 = get_subnet_addr(DevAddr1, NetIDList),
     Subnet1 = (1 bsl 7) + (1 bsl 10) + 16,
@@ -5791,8 +5857,8 @@ subnet_allocation_test() ->
     R9 = find_dest(Key9, Ledger),
     ?assertEqual(R9, <<9:32/little-unsigned-integer>>),
 
-    DevAddr0 = create_devaddr(3, 16#2D, 16),
-    Dest = find_routing_via_subnet(DevAddr0, Ledger),
+    DevAddr0 = create_devaddr(<<16#60002D:32/integer-unsigned>>, 16),
+    {ok, Dest} = find_routing_via_subnet(DevAddr0, Ledger),
     ?assertEqual(Dest, <<4:32/little-unsigned-integer>>),
 
     test_utils:cleanup_tmp_dir(BaseDir),
