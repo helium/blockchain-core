@@ -3019,16 +3019,17 @@ get_netids(Ledger) ->
             Error
     end.
 
--spec create_devaddr(non_neg_integer(), [non_neg_integer()] -> non_neg_integer().
+-spec create_devaddr(non_neg_integer(), [non_neg_integer()]) -> non_neg_integer().
 create_devaddr(SubnetAddr, NetIDList) ->
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
-    {Lower, Upper} = netid_addr_range(NetID, NetIDList),
-    DevAddr = create_devaddr(NetClass, NetID, NwkAddr - Lower),
+    <<NetClass:3/integer-unsigned, _/binary>> = NetID,
+    {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
+    DevAddr = create_devaddr(NetClass, NetID, SubnetAddr - Lower),
     DevAddr.
 
 -spec subnet_addr_to_netid(non_neg_integer(), ledger()) -> non_neg_integer().
 subnet_addr_to_netid(NwkAddr, NetIDList) ->
-    NetID = lists:search(fun(X) -> subnet_addr_within_range(NwkAddr, X, NetIDList) end, NetIDList).
+    lists:search(fun(X) -> subnet_addr_within_range(NwkAddr, X, NetIDList) end, NetIDList).
 
 -spec subnet_addr_within_range(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> boolean().
 subnet_addr_within_range(NwkAddr, NetID, NetIDList) ->
@@ -3048,7 +3049,7 @@ is_local_netid(NetID, NetIDList) ->
 create_devaddr(NetClass, NetID, NwkAddr) ->
     Size = addr_class_width(NetClass),
     IDSize = 32 - 3 - Size,
-    Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>),
+    Addr = <<NwkAddr:Size/integer-unsigned, NetID:IDSize/integer-unsigned, NetClass:3/integer-unsigned>>,
     Addr.
 
 -spec addr_class_width(0..7) -> non_neg_integer().
@@ -3066,7 +3067,7 @@ addr_class_width(NetClass) ->
 
 -spec netid_width(non_neg_integer()) -> non_neg_integer().
 netid_width(NetID) ->
-    <<ID:21, NetClass:3>> = NetID,
+    <<_ID:21, NetClass:3>> = NetID,
     case NetClass of
         0 -> 25;
         1 -> 24;
@@ -3082,18 +3083,18 @@ netid_size(NetID) ->
     Size = 1 bsl netid_width(NetID),
     Size.
 
-netid_slab_count(NetID) ->
-    <<ID:21, NetClass:3>> = NetID,
-    case NetClass of
-        0 -> 8388608;
-        1 -> 4194304;
-        2 -> 262144;
-        3 -> 32768;
-        4 -> 8192;
-        5 -> 2048;
-        6 -> 256;
-        7 -> 32
-    end.
+% netid_slab_count(NetID) ->
+%     <<_ID:21, NetClass:3>> = NetID,
+%     case NetClass of
+%         0 -> 8388608;
+%         1 -> 4194304;
+%         2 -> 262144;
+%         3 -> 32768;
+%         4 -> 8192;
+%         5 -> 2048;
+%         6 -> 256;
+%         7 -> 32
+%     end.
 
 -spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
 net_id(DevNum) when erlang:is_number(DevNum) ->
@@ -3123,7 +3124,6 @@ addr_bit_width(DevNum) when erlang:is_number(DevNum) ->
     addr_bit_width(<<DevNum:32/integer-unsigned>>);
 addr_bit_width(DevAddr) ->
     Type = net_id_type(DevAddr),
-    NetID =
     case Type of
         0 -> 25;
         1 -> 24;
@@ -3163,7 +3163,7 @@ get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
 -spec get_nwk_addr(binary()) -> non_neg_integer().
 get_nwk_addr(DevAddr) ->
     AddrBitWidth = addr_bit_width(DevAddr),
-    <<NwkAddr:AddrBitWidth/integer-unsigned, _:IgnoreNetIDPrefix>> = DevAddr,
+    <<NwkAddr:AddrBitWidth/integer-unsigned, _/binary>> = DevAddr,
     NwkAddr.
 
 -spec get_subnet_addr(binary(), [non_neg_integer()]) -> non_neg_integer().
@@ -3171,7 +3171,7 @@ get_subnet_addr(DevAddr, NetIDList) ->
     %% ToDo: Replace with correct get_netid
     NetID = net_id(DevAddr),
     NwkAddr = get_nwk_addr(DevAddr),
-    {Lower, Upper} = netid_addr_range(NetID, NetIDList),
+    {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     Lower + NwkAddr.
 
 -spec netid_addr_range(non_neg_integer(), [non_neg_integer()]) -> {non_neg_integer(), non_neg_integer()}.
@@ -3185,7 +3185,8 @@ netid_addr_range(NetID, NetIDList0) ->
             Lower = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDList),
             NetIDPlusList = NetIDList ++ [NetID],
             Upper = lists:foldl(fun(X, Sum) -> netid_size(X) + Sum end, 0, NetIDPlusList),
-            {Lower, Upper}.
+            {Lower, Upper}
+    end.
 
 -spec uint32(integer()) -> integer().
 uint32(Num) ->
@@ -3298,7 +3299,7 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 -spec find_routing_via_subnet(DevAddr :: non_neg_integer(),
                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_subnet(DevAddr, Ledger) ->
-    NetID = get_net_id(DevAddr),
+    NetID = net_id(DevAddr),
     NetIDList = get_netids(Ledger),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     NwkAddr = Lower + get_nwk_addr(DevAddr),
@@ -3307,10 +3308,10 @@ find_routing_via_subnet(DevAddr, Ledger) ->
             Dest = find_dest(NwkAddr, Ledger),
             case find_routing(Dest, Ledger) of
                 {ok, Route} ->
-                        {ok, [Route]};
-                    Error ->
-                        Error
-                end
+                    {ok, [Route]};
+                Error ->
+                    Error
+            end;
         false ->
             {error, {unknown_devaddr_prefix, NetID}}
     end.
