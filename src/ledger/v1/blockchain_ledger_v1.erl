@@ -3136,7 +3136,9 @@ addr_bit_width(DevAddr) ->
         7 -> 7
     end.
 
--spec net_id_type(binary()) -> 0..7.
+-spec net_id_type(number() | binary()) -> 0..7.
+net_id_type(NetID) when erlang:is_number(NetID) ->
+    net_id_type(<<NetID:32/integer-unsigned>>);
 net_id_type(<<First:8/integer-unsigned, _/binary>>) ->
     net_id_type(First, 7).
 
