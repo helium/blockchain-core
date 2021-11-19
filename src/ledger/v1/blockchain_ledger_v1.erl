@@ -5795,7 +5795,7 @@ netid_test() ->
     ?assertEqual(NetID1, NetID01),
     {ok, NetID2} = net_id(DevAddr2),
     ?assertEqual(NetID2, NetID02),
-    Width0 = addr_bit_width(LegacyDevAddr),
+    Width0 = addr_bit_width(DevAddrLegacy),
     ?assertEqual(25, Width0),
     Width1 = addr_bit_width(DevAddr1),
     ?assertEqual(10, Width1),
