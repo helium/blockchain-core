@@ -722,8 +722,8 @@ get_state_channels_from_ledger(#state{chain=Chain, owner={Owner, OwnerSigFun}}) 
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerSCs} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
     {ok, Head} = blockchain:head_block(Chain),
-    maps:map(
-        fun(ID, LedgerStateChannel) ->
+    SCList = blockchain_utils:pmap(
+        fun({ID, LedgerStateChannel}) ->
             SCMod = blockchain_ledger_v1:get_sc_mod(LedgerStateChannel, Ledger),
             Owner = SCMod:owner(LedgerStateChannel),
             ExpireAt = SCMod:expire_at_block(LedgerStateChannel),
@@ -763,7 +763,8 @@ get_state_channels_from_ledger(#state{chain=Chain, owner={Owner, OwnerSigFun}}) 
             SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
             SignedSC = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
             Skewed = skewed:new(BlockHash),
-            {SignedSC, Skewed}
+            {ID, {SignedSC, Skewed}}
         end,
-        LedgerSCs
-    ).
+        maps:to_list(LedgerSCs)
+    ),
+    maps:from_list(SCList).
