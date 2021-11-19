@@ -5702,6 +5702,56 @@ find_scs_by_owner_test() ->
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
+net_id_test() ->
+    %% CP data
+    ?assertEqual({ok, 16#00002D}, net_id(<<91, 255, 255, 255>>), "[45] == 2D == 45 type 0"),
+    ?assertEqual({ok, 16#20002D}, net_id(<<173, 255, 255, 255>>), "[45] == 2D == 45 type 1"),
+    ?assertEqual({ok, 16#40016D}, net_id(<<214, 223, 255, 255>>), "[1,109] == 16D == 365 type 2"),
+    ?assertEqual({ok, 16#6005B7}, net_id(<<235, 111, 255, 255>>), "[5,183] == 5B7 == 1463 type 3"),
+    ?assertEqual(
+        {ok, 16#800B6D},
+        net_id(<<245, 182, 255, 255>>),
+        "[11, 109] == B6D == 2925 type 4"
+    ),
+    ?assertEqual(
+        {ok, 16#A016DB},
+        net_id(<<250, 219, 127, 255>>),
+        "[22,219] == 16DB == 5851 type 5"
+    ),
+    ?assertEqual(
+        {ok, 16#C05B6D},
+        net_id(<<253, 109, 183, 255>>),
+        "[91, 109] == 5B6D == 23405 type 6"
+    ),
+    ?assertEqual(
+        {ok, 16#E16DB6},
+        net_id(<<254, 182, 219, 127>>),
+        "[1,109,182] == 16DB6 == 93622 type 7"
+    ),
+    ?assertEqual(
+        {error, invalid_net_id_type},
+        net_id(<<255, 255, 255, 255>>),
+        "Invalid DevAddr"
+    ),
+
+    % Actility spreadsheet examples
+    ?assertEqual({ok, 0}, net_id(<<0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 0:25>>)),
+    ?assertEqual({ok, 1}, net_id(<<0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 1:1, 0:25>>)),
+    ?assertEqual({ok, 2}, net_id(<<0:1, 0:1, 0:1, 0:1, 0:1, 1:1, 0:1, 0:25>>)),
+
+    %% Mis-parsed as netid 4 of type 3
+    ?assertEqual({ok, 16#600004}, net_id(<<224, 9, 171, 205>>), "hex_to_binary(<<'E009ABCD'>>)"),
+    %% Valid DevAddr, NetID not assigned
+    ?assertEqual({ok, 16#20002D}, net_id(<<173, 255, 255, 255>>), "hex_to_binary(<<'ADFFFFFF'>>)"),
+    %% Less than 32 bit number
+    ?assertEqual({ok, 0}, net_id(46377)),
+
+    % Louis test data
+    ?assertEqual({ok, 16#600002}, net_id(<<224, 4, 0, 1>>)),
+    ?assertEqual({ok, 16#600002}, net_id(<<224, 5, 39, 132>>)),
+    ?assertEqual({ok, 16#000002}, net_id(<<4, 16, 190, 163>>)),
+    ok.
+
 netid_test() ->
     LegacyNetID = $H,
     NetID00 = 16#E00001,
@@ -5727,22 +5777,32 @@ netid_test() ->
     ?assertEqual(true, LocalTrue),
     ?assertEqual(false, LocalFalse),
     ?assertEqual(true, LegacyLocal),
+    DevAddrLegacy = create_devaddr(LegacyNetID, 32),
+    % ?assertEqual(16#FC00D410, DevAddrLegacy),
     DevAddr1 = create_devaddr(NetID01, 16),
     % ?assertEqual(16#FC00D410, DevAddr1),
     DevAddr2 = create_devaddr(NetID02, 8),
     % ?assertEqual(16#E05A0008, DevAddr2),
+    NetIDType0 = net_id_type(DevAddrLegacy),
+    ?assertEqual(0, NetIDType0),
     NetIDType1 = net_id_type(DevAddr1),
     ?assertEqual(3, NetIDType1),
     NetIDType2 = net_id_type(DevAddr2),
     ?assertEqual(6, NetIDType2),
+    {ok, NetID0} = net_id(DevAddrLegacy),
+    ?assertEqual(NetID0, LegacyNetID),
     {ok, NetID1} = net_id(DevAddr1),
     ?assertEqual(NetID1, NetID01),
     {ok, NetID2} = net_id(DevAddr2),
     ?assertEqual(NetID2, NetID02),
+    Width0 = addr_bit_width(LegacyDevAddr),
+    ?assertEqual(25, Width0),
     Width1 = addr_bit_width(DevAddr1),
     ?assertEqual(10, Width1),
     Width2 = addr_bit_width(DevAddr2),
     ?assertEqual(17, Width2),
+    NwkAddr0 = get_nwk_addr(DevAddrLegacy),
+    ?assertEqual(32, NwkAddr0),
     NwkAddr1 = get_nwk_addr(DevAddr1),
     ?assertEqual(16, NwkAddr1),
     NwkAddr2 = get_nwk_addr(DevAddr2),
@@ -5753,6 +5813,9 @@ netid_test() ->
     Subnet2 = get_subnet_addr(DevAddr2, NetIDList),
     Subnet3 = (1 bsl 7) + 8,
     ?assertEqual(Subnet2, Subnet3),
+    Subnet4 = get_subnet_addr(DevAddrLegacy, NetIDList),
+    Subnet5 = 32,
+    ?assertEqual(Subnet4, Subnet5),
     ok.
 
 subnet_allocation_test() ->
