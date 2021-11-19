@@ -2628,30 +2628,45 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
     %% for a blockchain lock
     {ok, Batch} = rocksdb:batch(),
     Result = lists:foldl(fun({BinBlock, Block}, Acc) ->
-                          Hash = blockchain_block:hash_block(Block),
-                          Height = blockchain_block:height(Block),
-                          case has_block(Block, Chain) == false andalso is_block_plausible(Block, Chain) of
-                              true ->
-                                  save_plausible_block(Batch, BinBlock, Height, Hash, Chain),
-                                  case Acc of
-                                      error ->
-                                          %% no highest block yet
-                                          Block;
-                                      OtherBlock ->
-                                          case blockchain_block:height(Block) > blockchain_block:height(OtherBlock) of
-                                              true ->
-                                                  %% this is newer
-                                                  Block;
-                                              false ->
-                                                  %% other block is newer
-                                                  Acc
-                                          end
-                                  end;
-                              _ ->
-                                  %% block was not plausible or we have it already
-                                  Acc
-                          end
-                end, error, Blocks),
+                                 Hash = blockchain_block:hash_block(Block),
+                                 Height = blockchain_block:height(Block),
+                                 case get_block_height(Hash, Chain) of
+                                     {ok, _} ->
+                                         %% block is already in the main chain
+                                         error;
+                                     _ ->
+                                         %% ok block is not in the main chain, check if it looks plausible
+                                         case is_block_plausible(Block, Chain) of
+                                             true ->
+                                                 %% check if we already have stored it
+                                                 case get_plausible_block(Hash, Chain) of
+                                                     {ok, _} ->
+                                                         %% no need to save it
+                                                         ok;
+                                                     _ ->
+                                                         save_plausible_block(Batch, BinBlock, Height, Hash, Chain)
+                                                 end,
+
+                                                 case Acc of
+                                                     error ->
+                                                         %% no highest block yet, so this one wins by default
+                                                         Block;
+                                                     OtherBlock ->
+                                                         case blockchain_block:height(Block) > blockchain_block:height(OtherBlock) of
+                                                             true ->
+                                                                 %% this is newer
+                                                                 Block;
+                                                             false ->
+                                                                 %% other block is newer
+                                                                 Acc
+                                                         end
+                                                 end;
+                                             _ ->
+                                                 %% block was not plausible
+                                                 Acc
+                                         end
+                                 end
+                         end, error, Blocks),
     rocksdb:write_batch(DB, Batch, [{sync, true}]),
     Result.
 
