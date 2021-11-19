@@ -3120,7 +3120,7 @@ net_id(DevAddr) ->
             {error, invalid_net_id_type}
     end.
 
--spec addr_bit_width(number() | binary()) -> non_neg_integer().
+-spec addr_bit_width(number() | binary()) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
 addr_bit_width(DevNum) when erlang:is_number(DevNum) ->
     addr_bit_width(<<DevNum:32/integer-unsigned>>);
 addr_bit_width(DevAddr) ->
@@ -3165,7 +3165,8 @@ get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
 get_nwk_addr(DevAddr) ->
     AddrBitWidth = addr_bit_width(DevAddr),
     DevAddr2 = <<DevAddr:32/integer-unsigned>>,
-    <<NwkAddr:AddrBitWidth/integer-unsigned, _Ignore:(32 - AddrBitWidth)>> = DevAddr2,
+    IgnoreLen = 32 - AddrBitWidth,
+    <<NwkAddr:AddrBitWidth/integer-unsigned, _Ignore:IgnoreLen>> = DevAddr2,
     NwkAddr.
 
 -spec get_subnet_addr(devaddr(), [netid()]) -> subnetaddr().
