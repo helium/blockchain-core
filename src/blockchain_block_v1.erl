@@ -340,24 +340,21 @@ verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, _) ->
     verify_normal_signatures_new(EncodedBlock, ConsensusMembers, Signatures, Threshold).
 
 verify_normal_signatures_new(Artifact, ConsensusMembers, Signatures, Threshold) ->
-
     %% Conditions:
     %% - Threshold number of Signatures should be verifiable
     %% - The Signees must be in the ConsensusMembers
-    %% - The size of the threshold_signatures must be lower than 3F + 1 if they are verified
+    %% - The size of the incoming signatures must be lower than 3F + 1 if they are verified
 
     F = (length(ConsensusMembers) - 1) div 3,
     ThresholdSignatures = lists:sublist(blockchain_utils:shuffle(Signatures), Threshold),
-
     {Addrs, MaybeValidSignatures} = lists:foldl(
                                       fun({Addr, Sig}, {Acc1, Acc2}) ->
                                               {[Addr | Acc1], [{Sig, Addr} | Acc2]}
                                       end, {[], []}, ThresholdSignatures),
-
     Batch = [{Artifact, MaybeValidSignatures}],
     C1 = lists:all(fun(Addr) -> lists:member(Addr, ConsensusMembers) end, Addrs),
     C2 = libp2p_crypto:verify(Batch),
-    C3 = length(MaybeValidSignatures) =< 3*F + 1,
+    C3 = length(Signatures) =< 3*F + 1,
 
     case {C1, C2, C3} of
         {true, true, true} ->
