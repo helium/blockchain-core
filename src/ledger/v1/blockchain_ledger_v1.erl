@@ -3161,13 +3161,14 @@ get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
     <<_:IgnoreSize, NetID:NwkIDBits/integer-unsigned>> = <<Two:32/integer-unsigned>>,
     NetID.
 
--spec get_nwk_addr(binary()) -> nwkaddr().
+-spec get_nwk_addr(devaddr()) -> nwkaddr().
 get_nwk_addr(DevAddr) ->
     AddrBitWidth = addr_bit_width(DevAddr),
-    <<NwkAddr:AddrBitWidth/integer-unsigned, _/binary>> = DevAddr,
+    DevAddr2 = <<DevAddr:32/integer-unsigned>>,
+    <<NwkAddr:AddrBitWidth/integer-unsigned, _Ignore:(32 - AddrBitWidth)>> = DevAddr2,
     NwkAddr.
 
--spec get_subnet_addr(binary(), [netid()]) -> subnetaddr().
+-spec get_subnet_addr(devaddr(), [netid()]) -> subnetaddr().
 get_subnet_addr(DevAddr, NetIDList) ->
     {ok, NetID} = net_id(DevAddr),
     NwkAddr = get_nwk_addr(DevAddr),
