@@ -5712,7 +5712,7 @@ netid_test() ->
     ?assertEqual(7, NetWidth0),
     NetWidth1 = netid_width(NetID01),
     ?assertEqual(10, NetWidth1),
-    NetWidth1 = netid_width(NetID02),
+    NetWidth2 = netid_width(NetID02),
     ?assertEqual(17, NetWidth2),
     NetSize0 = netid_size(NetID00),
     ?assertEqual(7, NetSize0),
