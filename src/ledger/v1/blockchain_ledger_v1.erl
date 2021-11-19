@@ -5800,11 +5800,11 @@ netid_test() ->
     NetIDType02 = net_id_type(DevAddr02),
     ?assertEqual(3, NetIDType02),
 
-    NetIDType0 = net_id_type(DevAddrLegacy),
+    _NetIDType0 = net_id_type(DevAddrLegacy),
     %?assertEqual(0, NetIDType0),
-    NetIDType1 = net_id_type(DevAddr1),
+    _NetIDType1 = net_id_type(DevAddr1),
     %?assertEqual(6, NetIDType1),
-    NetIDType2 = net_id_type(DevAddr2),
+    _NetIDType2 = net_id_type(DevAddr2),
     %?assertEqual(3, NetIDType2),
 
     {ok, NetID_0} = net_id(DevAddr00),
@@ -5814,11 +5814,11 @@ netid_test() ->
     {ok, NetID_2} = net_id(DevAddr02),
     ?assertEqual(NetID_2, NetID02),
 
-    {ok, NetID0} = net_id(DevAddrLegacy),
+    {ok, _NetID0} = net_id(DevAddrLegacy),
     %?assertEqual(NetID0, LegacyNetID),
-    {ok, NetID1} = net_id(DevAddr1),
+    {ok, _NetID1} = net_id(DevAddr1),
     %?assertEqual(NetID1, NetID01),
-    {ok, NetID2} = net_id(DevAddr2),
+    {ok, _NetID2} = net_id(DevAddr2),
     %?assertEqual(NetID2, NetID02),
 
     Width_0 = addr_bit_width(DevAddr00),
@@ -5828,11 +5828,11 @@ netid_test() ->
     Width_2 = addr_bit_width(DevAddr02),
     ?assertEqual(17, Width_2),
 
-    Width0 = addr_bit_width(DevAddrLegacy),
+    _Width0 = addr_bit_width(DevAddrLegacy),
     %?assertEqual(25, Width0),
-    Width1 = addr_bit_width(DevAddr1),
+    _Width1 = addr_bit_width(DevAddr1),
     %?assertEqual(10, Width1),
-    Width2 = addr_bit_width(DevAddr2),
+    _Width2 = addr_bit_width(DevAddr2),
     %?assertEqual(17, Width2),
 
     NwkAddr0 = get_nwk_addr(DevAddr00),
