@@ -346,7 +346,8 @@ verify_normal_signatures_new(Artifact, ConsensusMembers, Signatures, Threshold) 
     %% - The size of the incoming signatures must be lower than 3F + 1 if they are verified
 
     F = (length(ConsensusMembers) - 1) div 3,
-    ThresholdSignatures = lists:sublist(blockchain_utils:shuffle(Signatures), Threshold),
+    %% Take threshold number of signatures and ensure that the signatories are unique
+    ThresholdSignatures = lists:sublist(blockchain_utils:shuffle(lists:ukeysort(2, Signatures)), Threshold),
     {Addrs, MaybeValidSignatures} = lists:foldl(
                                       fun({Addr, Sig}, {Acc1, Acc2}) ->
                                               {[Addr | Acc1], [{Sig, Addr} | Acc2]}
