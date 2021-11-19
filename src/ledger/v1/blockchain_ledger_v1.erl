@@ -5761,7 +5761,7 @@ netid_test() ->
     NetID02 = 16#60002D,
     NetIDExt = 16#C00050,
 
-    DevAddr00 = 16#E05A0008,
+    DevAddr00 = 16#48000032,
     DevAddr01 = 16#FC00D410,
     DevAddr02 = 16#E05A0008,
 
