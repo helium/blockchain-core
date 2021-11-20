@@ -5759,17 +5759,19 @@ netid_test() ->
     LegacyNum = 16#90000000,
     LegacyID = $H,
     LegacyNetID = $H,
-    <<H1:7, _/binary>> = LegacyDevAddr,
-    H2 = <<LegacyNum:32/integer-unsigned>>,
+    <<H1:7, _/bitstring>> = LegacyDevAddr,
+    <<H2:7, _:25>> = LegacyDevAddr,
+    H3 = <<LegacyNum:32/integer-unsigned>>,
     ?assertEqual(H1, LegacyID),
-    ?assertEqual(H2, LegacyDevAddr),
+    ?assertEqual(H2, LegacyID),
+    ?assertEqual(H3, LegacyDevAddr),
 
     NetID00 = 16#E00001,
     NetID01 = 16#C00053,
     NetID02 = 16#60002D,
     NetIDExt = 16#C00050,
 
-    DevAddr00 = 16#48000032,
+    DevAddr00 = 16#90000000,
     DevAddr01 = 16#FC00D410,
     DevAddr02 = 16#E05A0008,
 
