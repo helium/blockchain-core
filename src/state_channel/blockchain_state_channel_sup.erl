@@ -41,6 +41,7 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
+    ok = blockchain_state_channels_cache:init(),
     Swarm = blockchain_swarm:swarm(),
     ServerOpts = #{swarm => Swarm},
     ClientOpts = #{swarm => Swarm},
@@ -54,7 +55,6 @@ init([BaseDir]) ->
     },
     ChildSpecs = [
         ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
-        ?WORKER(blockchain_state_channels_cache, [#{}]),
         ?WORKER(blockchain_state_channels_server, [ServerOpts]),
         ?WORKER(blockchain_state_channels_client, [ClientOpts])
     ],

@@ -324,6 +324,7 @@ handle_offer(Offer, Time, HandlerState) ->
             %% offer is pending, just block the stream waiting for the purchase or rejection
             receive
                 {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region} ->
+                    % TODO: This is async and does not always return the right PacketHash for this offer
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
                     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
