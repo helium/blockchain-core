@@ -5755,7 +5755,15 @@ net_id_test() ->
     ok.
 
 netid_test() ->
+    LegacyDevAddr = <<$H:7, 0:25>>,
+    LegacyNum = 16#90000000,
+    LegacyID = $H,
     LegacyNetID = $H,
+    <<H1:7, _/binary>> = LegacyDevAddr,
+    H2 = <<LegacyNum:32/integer-unsigned>>,
+    ?assertEqual(H1, LegacyID),
+    ?assertEqual(H2, LegacyDevAddr),
+
     NetID00 = 16#E00001,
     NetID01 = 16#C00053,
     NetID02 = 16#60002D,
