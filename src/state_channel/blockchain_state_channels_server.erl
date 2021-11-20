@@ -88,7 +88,7 @@ get_actives() ->
                     catch _C:_E ->
                         Name = blockchain_utils:addr2name(ID),
                         lager:error("failed to get sc ~p(~p) ~p/~p", [Name, Pid, _C, _E]),
-                        lager:error("~p", [recon:info(Pid)]),
+                        lager:error("~p ~p", [Name, recon:info(Pid)]),
                         undefined
                     end
                 end,
@@ -628,7 +628,8 @@ get_state_channel_txns_from_block(Chain, BlockHash, #state{owner={Owner, _}}) ->
                             blockchain_txn_state_channel_open_v1:owner(Txn) == Owner;
                         blockchain_txn_state_channel_close_v1 ->
                             SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
-                            blockchain_state_channel_v1:owner(SC) == Owner;
+                            blockchain_state_channel_v1:owner(SC) == Owner andalso
+                                blockchain_txn_state_channel_close_v1:closer(Txn) == Owner;
                         _ ->
                             false
                     end

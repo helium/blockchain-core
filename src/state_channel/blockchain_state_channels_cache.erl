@@ -39,6 +39,7 @@ init() ->
         {read_concurrency, true}
     ],
     _ = ets:new(?ETS, Opts),
+    lager:info("init cache"),
     ok.
 
 -spec lookup_hotspot(HotspotID :: libp2p_crypto:pubkey_bin()) -> pid() | undefined.
