@@ -118,8 +118,8 @@
     netid/1,
     addr_bit_len/1,
     netid_type/1,
-    get_nwk_addr/1,
-    get_subnet_addr/2,
+    nwk_addr/1,
+    subnet_addr/2,
     netid_addr_range/2,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
@@ -3039,7 +3039,7 @@ devaddr_from_subnet(SubnetAddr, NetIDList) ->
 subnet_from_devaddr(DevAddr, NetIDList) ->
     {ok, NetID} = netid(DevAddr),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
-    SubnetAddr = Lower + get_nwk_addr(DevAddr),
+    SubnetAddr = Lower + nwk_addr(DevAddr),
     SubnetAddr.
 
 -spec devaddr(netid(), nwkaddr()) -> devaddr().
@@ -3172,18 +3172,18 @@ get_netid(DevAddr, PrefixLength, NwkIDBits) ->
     <<_:IgnoreSize, NetID:NwkIDBits/integer-unsigned>> = <<Two:32/integer-unsigned>>,
     NetID.
 
--spec get_nwk_addr(devaddr()) -> nwkaddr().
-get_nwk_addr(DevAddr) ->
+-spec nwk_addr(devaddr()) -> nwkaddr().
+nwk_addr(DevAddr) ->
     AddrBitLen = addr_bit_len(DevAddr),
     IgnoreLen = 32 - AddrBitLen,
     DevAddr2 = <<DevAddr:32/integer-unsigned>>,
     <<_:IgnoreLen, NwkAddr:AddrBitLen/integer-unsigned>> = DevAddr2,
     NwkAddr.
 
--spec get_subnet_addr(devaddr(), [netid()]) -> subnetaddr().
-get_subnet_addr(DevAddr, NetIDList) ->
+-spec subnet_addr(devaddr(), [netid()]) -> subnetaddr().
+subnet_addr(DevAddr, NetIDList) ->
     {ok, NetID} = netid(DevAddr),
-    NwkAddr = get_nwk_addr(DevAddr),
+    NwkAddr = nwk_addr(DevAddr),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     Lower + NwkAddr.
 
@@ -5855,20 +5855,20 @@ netid_test() ->
     Width2 = addr_bit_len(DevAddr2),
     ?assertEqual(17, Width2),
 
-    NwkAddr0 = get_nwk_addr(DevAddr00),
+    NwkAddr0 = nwk_addr(DevAddr00),
     ?assertEqual(0, NwkAddr0),
-    NwkAddr1 = get_nwk_addr(DevAddr01),
+    NwkAddr1 = nwk_addr(DevAddr01),
     ?assertEqual(16, NwkAddr1),
-    NwkAddr2 = get_nwk_addr(DevAddr02),
+    NwkAddr2 = nwk_addr(DevAddr02),
     ?assertEqual(8, NwkAddr2),
 
-    Subnet4 = get_subnet_addr(DevAddr00, NetIDList),
+    Subnet4 = subnet_addr(DevAddr00, NetIDList),
     ?assertEqual(0, Subnet4),
 
-    Subnet0 = get_subnet_addr(DevAddr01, NetIDList),
+    Subnet0 = subnet_addr(DevAddr01, NetIDList),
     ?assertEqual((1 bsl 7) + 16, Subnet0),
 
-    Subnet2 = get_subnet_addr(DevAddr02, NetIDList),
+    Subnet2 = subnet_addr(DevAddr02, NetIDList),
     ?assertEqual((1 bsl 7) + (1 bsl 10) + 8, Subnet2),
     ok.
 
