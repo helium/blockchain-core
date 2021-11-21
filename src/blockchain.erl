@@ -2615,7 +2615,7 @@ is_block_plausible(Block, Chain) ->
                     Received = sets:size(sets:intersection(sets:from_list(ConsensusAddrs),
                                                            sets:from_list(Signees))),
 
-                    Received >= SigThreshold
+                    Received >= SigThreshold orelse blockchain_block:is_rescue_block(Block)
 
             end;
         false ->
