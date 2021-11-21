@@ -114,7 +114,7 @@
 
     get_netids/1,
     devaddr/2,
-    devaddr_from_subnet/2,
+    devaddr_from_subnet/2, subnet_from_devaddr/2,
     netid/1,
     addr_bit_len/1,
     netid_type/1,
@@ -3074,7 +3074,7 @@ subnet_addr_within_range(Addr, NetID, NetIDList) ->
 -spec is_local_netid(netid(), [netid()]) -> boolean().
 is_local_netid(NetID, NetIDList) ->
     case NetID of
-        RETIRED_NETID ->
+        ?RETIRED_NETID ->
             true;
         _ ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
