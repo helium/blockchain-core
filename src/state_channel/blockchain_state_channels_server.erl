@@ -377,24 +377,22 @@ handle_offer(Offer, Ledger, HandlerPid) ->
 select_best_active(HotspotID, Ledger) ->
     GetTimeout = 10,
     Actives = 
-        maps:from_list(
-            lists:filter(
-                fun(Found) ->
-                    Found =/= undefined
+        lists:filter(
+            fun(Found) ->
+                Found =/= undefined
+            end,
+            blockchain_utils:pmap(
+                fun(Pid) ->
+                    try blockchain_state_channels_worker:get(Pid, GetTimeout) of
+                        SC ->
+                            {Pid, SC}
+                    catch _C:_E ->
+                        lager:error("failed to get sc ~p ~p/~p", [Pid, _C, _E]),
+                        lager:error("~p", [recon:info(Pid)]),
+                        undefined
+                    end
                 end,
-                blockchain_utils:pmap(
-                    fun(Pid) ->
-                        try blockchain_state_channels_worker:get(Pid, GetTimeout) of
-                            SC ->
-                                {Pid, SC}
-                        catch _C:_E ->
-                            lager:error("failed to get sc ~p ~p/~p", [Pid, _C, _E]),
-                            lager:error("~p", [recon:info(Pid)]),
-                            undefined
-                        end
-                    end,
-                    get_actives_from_cache()
-                )
+                get_actives_from_cache()
             )
         ),
     MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
@@ -406,7 +404,7 @@ select_best_active(HotspotID, Ledger) ->
                 found -> {true, {0, Pid}}
             end
         end,
-        maps:values(Actives)
+        Actives
     ),
     Sorted = lists:sort(fun({A, _}, {B, _}) -> A < B end, Filtered),
     case Sorted of
