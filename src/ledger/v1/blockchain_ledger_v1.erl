@@ -3065,7 +3065,7 @@ subnet_addr_within_range(Addr, NetID, NetIDList) ->
 -spec is_local_netid(netid(), [netid()]) -> boolean().
 is_local_netid(NetID, NetIDList) ->
     case NetID of
-        $H ->
+        16#200010 ->
             true;
         _ ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
@@ -5757,13 +5757,12 @@ net_id_test() ->
 netid_test() ->
     LegacyDevAddr = <<$H:7, 0:25>>,
     LegacyNum = 16#90000000,
-    LegacyID = $H,
-    LegacyNetID = $H,
+    _LegacyID = 8,
+    LegacyNetID = 16#200010,
     <<H1:7, _/bitstring>> = LegacyDevAddr,
     <<H2:7, _:25>> = LegacyDevAddr,
     H3 = <<LegacyNum:32/integer-unsigned>>,
-    ?assertEqual(H1, LegacyID),
-    ?assertEqual(H2, LegacyID),
+    ?assertEqual(H1, H2),
     ?assertEqual(H3, LegacyDevAddr),
 
     NetID00 = 16#E00001,
@@ -5796,30 +5795,29 @@ netid_test() ->
     ?assertEqual(false, LocalFalse),
     ?assertEqual(true, LegacyLocal),
 
-    DevAddrLegacy = create_devaddr(LegacyNetID, 32),
-    % ?assertEqual(DevAddr00, DevAddrLegacy),
+    DevAddrLegacy = create_devaddr(LegacyNetID, 0),
+    ?assertEqual(DevAddr00, DevAddrLegacy),
     DevAddr1 = create_devaddr(NetID01, 16),
-    % ?assertEqual(DevAddr01, DevAddr1),
+    ?assertEqual(DevAddr01, DevAddr1),
     DevAddr2 = create_devaddr(NetID02, 8),
-    % ?assertEqual(DevAddr02, DevAddr2),
+    ?assertEqual(DevAddr02, DevAddr2),
 
     NetIDType00 = net_id_type(DevAddr00),
-    %% FixME
     ?assertEqual(1, NetIDType00),
     NetIDType01 = net_id_type(DevAddr01),
     ?assertEqual(6, NetIDType01),
     NetIDType02 = net_id_type(DevAddr02),
     ?assertEqual(3, NetIDType02),
 
-    _NetIDType0 = net_id_type(DevAddrLegacy),
-    %?assertEqual(0, NetIDType0),
-    _NetIDType1 = net_id_type(DevAddr1),
-    %?assertEqual(6, NetIDType1),
-    _NetIDType2 = net_id_type(DevAddr2),
-    %?assertEqual(3, NetIDType2),
+    NetIDType0 = net_id_type(DevAddrLegacy),
+    ?assertEqual(1, NetIDType0),
+    NetIDType1 = net_id_type(DevAddr1),
+    ?assertEqual(6, NetIDType1),
+    NetIDType2 = net_id_type(DevAddr2),
+    ?assertEqual(3, NetIDType2),
 
-    {ok, _NetID_0} = net_id(DevAddr00),
-    %% ?assertEqual(NetID_0, LegacyNetID),
+    {ok, NetID_0} = net_id(DevAddr00),
+    ?assertEqual(NetID_0, LegacyNetID),
     {ok, NetID_1} = net_id(16#FC00D410),
     ?assertEqual(NetID_1, 16#C00035),
     {ok, NetID_1} = net_id(DevAddr01),
@@ -5827,27 +5825,26 @@ netid_test() ->
     {ok, NetID_2} = net_id(DevAddr02),
     ?assertEqual(NetID_2, NetID02),
 
-    {ok, _NetID0} = net_id(DevAddrLegacy),
-    %?assertEqual(NetID0, LegacyNetID),
-    {ok, _NetID1} = net_id(DevAddr1),
-    %?assertEqual(NetID1, NetID01),
-    {ok, _NetID2} = net_id(DevAddr2),
-    %?assertEqual(NetID2, NetID02),
+    {ok, NetID0} = net_id(DevAddrLegacy),
+    ?assertEqual(NetID0, LegacyNetID),
+    {ok, NetID1} = net_id(DevAddr1),
+    ?assertEqual(NetID1, NetID01),
+    {ok, NetID2} = net_id(DevAddr2),
+    ?assertEqual(NetID2, NetID02),
 
     Width_0 = addr_bit_width(DevAddr00),
-    %% FixMe - should be 25
     ?assertEqual(24, Width_0),
     Width_1 = addr_bit_width(DevAddr01),
     ?assertEqual(10, Width_1),
     Width_2 = addr_bit_width(DevAddr02),
     ?assertEqual(17, Width_2),
 
-    _Width0 = addr_bit_width(DevAddrLegacy),
-    %?assertEqual(25, Width0),
-    _Width1 = addr_bit_width(DevAddr1),
-    %?assertEqual(10, Width1),
-    _Width2 = addr_bit_width(DevAddr2),
-    %?assertEqual(17, Width2),
+    Width0 = addr_bit_width(DevAddrLegacy),
+    ?assertEqual(24, Width0),
+    Width1 = addr_bit_width(DevAddr1),
+    ?assertEqual(10, Width1),
+    Width2 = addr_bit_width(DevAddr2),
+    ?assertEqual(17, Width2),
 
     NwkAddr0 = get_nwk_addr(DevAddr00),
     ?assertEqual(0, NwkAddr0),
