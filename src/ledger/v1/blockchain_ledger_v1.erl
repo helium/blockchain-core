@@ -268,6 +268,8 @@
 -export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
 -endif.
 
+-define(RETIRED_NETID, 16#200010).
+
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
@@ -3072,7 +3074,7 @@ subnet_addr_within_range(Addr, NetID, NetIDList) ->
 -spec is_local_netid(netid(), [netid()]) -> boolean().
 is_local_netid(NetID, NetIDList) ->
     case NetID of
-        16#200010 ->
+        RETIRED_NETID ->
             true;
         _ ->
             lists:any(fun(X) -> X == NetID end, NetIDList)
@@ -5764,7 +5766,8 @@ netid_test() ->
     LegacyDevAddr = <<$H:7, 0:25>>,
     LegacyNum = 16#90000000,
     _LegacyID = 8,
-    LegacyNetID = 16#200010,
+    %% 16#200010,
+    LegacyNetID = RETIRED_NETID,
     <<H1:7, _/bitstring>> = LegacyDevAddr,
     <<H2:7, _:25>> = LegacyDevAddr,
     H3 = <<LegacyNum:32/integer-unsigned>>,
