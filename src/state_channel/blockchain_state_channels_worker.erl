@@ -15,7 +15,7 @@
 %% ------------------------------------------------------------------
 -export([
     start/1,
-    get/1,
+    get/2,
     handle_offer/3,
     handle_packet/3
 ]).
@@ -62,9 +62,9 @@
 start(Args) ->
     gen_server:start(?SERVER, Args, []).
 
--spec get(Pid :: pid()) -> blockchain_state_channel_v1:state_channel().
-get(Pid) ->
-    gen_server:call(Pid, get).
+-spec get(Pid :: pid(), Timeout :: non_neg_integer()) -> blockchain_state_channel_v1:state_channel().
+get(Pid, Timeout) ->
+    gen_server:call(Pid, get, Timeout).
 
 -spec handle_offer(
     Pid :: pid(),

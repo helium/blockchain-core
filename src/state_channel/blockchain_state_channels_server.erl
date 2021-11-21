@@ -81,7 +81,7 @@ get_actives() ->
             blockchain_utils:pmap(
                 fun({SC, SCState, Pid}) ->
                     ID = blockchain_state_channel_v1:id(SC),
-                    try blockchain_state_channels_worker:get(Pid) of
+                    try blockchain_state_channels_worker:get(Pid, timer:seconds(1000)) of
                         UpToDateSC ->
                             {ID, {UpToDateSC, SCState, Pid}}
                         
@@ -155,10 +155,10 @@ handle_packet(SCPacket, PacketTime, SCPacketHandler, Ledger, HandlerPid) ->
                             lager:debug("found ~p for ~p without an offer", [Pid, HotspotName]),
                             ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
                             blockchain_state_channels_worker:handle_packet(
-                              Pid,
-                              SCPacket,
-                              HandlerPid
-                             );
+                                Pid,
+                                SCPacket,
+                                HandlerPid
+                            );
                         {error, _Reason} ->
                             lager:debug("could not find any state channels for ~p", [HotspotName]),
                             ok
@@ -343,14 +343,6 @@ terminate(_Reason, _State) ->
     HandlerPid :: pid()
 ) -> ok | reject.
 handle_offer(Offer, Ledger, HandlerPid) ->
-    handle_offer_(Offer, Ledger, HandlerPid, 2).
-
-handle_offer_(Offer, _Ledger, _HandlerPid, 0) ->
-    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
-    HotspotName = blockchain_utils:addr2name(HotspotID),
-    lager:debug("could not handle offer too many retries for ~p", [HotspotName]),
-    reject;
-handle_offer_(Offer, Ledger, HandlerPid, Retry) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
     HotspotName = blockchain_utils:addr2name(HotspotID),
     case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
@@ -366,10 +358,8 @@ handle_offer_(Offer, Ledger, HandlerPid, Retry) ->
                         HandlerPid
                     );
                 {error, _Reason} ->
-                    lager:debug("count not find any state channel for ~p", [HotspotName]),
-                    ok = get_new_active(),
-                    ok = timer:sleep(100),
-                    handle_offer_(Offer, Ledger, HandlerPid, Retry-1)
+                    lager:warning("count not find any state channel for ~p", [HotspotName]),
+                    reject
             end;
         Pid ->
             lager:debug("found ~p for ~p", [Pid, HotspotName]),
@@ -385,26 +375,49 @@ handle_offer_(Offer, Ledger, HandlerPid, Retry) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> {ok, pid()} | {error, not_found}.
 select_best_active(HotspotID, Ledger) ->
-    Actives = get_actives_from_cache(),
-    Fun = fun(Pid, HID, Max) ->
-        %% Only blocking call so far but done in parallel 
-        SC = blockchain_state_channels_worker:get(Pid),
-        case blockchain_state_channel_v1:can_fit(HID, SC, Max) of
-            false -> false;
-            {true, 1} ->
-                ok = get_new_active(),
-                {true, Pid};
-            {true, _Spots} ->
-                {true, Pid};
-            %% we don't care about found ones because if process was alive it should have been in ets cache
-            found -> {true, Pid}
-        end
-    end,
+    GetTimeout = 10,
+    Actives = 
+        maps:from_list(
+            lists:filter(
+                fun(Found) ->
+                    Found =/= undefined
+                end,
+                blockchain_utils:pmap(
+                    fun(Pid) ->
+                        try blockchain_state_channels_worker:get(Pid, GetTimeout) of
+                            SC ->
+                                {Pid, SC}
+                        catch _C:_E ->
+                            lager:error("failed to get sc ~p ~p/~p", [Pid, _C, _E]),
+                            lager:error("~p", [recon:info(Pid)]),
+                            undefined
+                        end
+                    end,
+                    get_actives_from_cache()
+                )
+            )
+        ),
     MaxActorsAllowed = blockchain_ledger_v1:get_sc_max_actors(Ledger),
-    Todos = [[Pid, HotspotID, MaxActorsAllowed] || Pid <- Actives],
-    case blockchain_utils:pfind(Fun, Todos) of
-        false -> {error, not_found};
-        {true, Pid} -> {ok, Pid}
+    Filtered = lists:filtermap(
+        fun({Pid, SC}) ->
+            case blockchain_state_channel_v1:can_fit(HotspotID, SC, MaxActorsAllowed) of
+                false -> false;
+                {true, Spots} -> {true, {Spots, Pid}};
+                found -> {true, {0, Pid}}
+            end
+        end,
+        maps:values(Actives)
+    ),
+    Sorted = lists:sort(fun({A, _}, {B, _}) -> A < B end, Filtered),
+    case Sorted of
+        [] ->
+            {error, not_found};
+        [{Spots, Pid}|[]] when Spots < MaxActorsAllowed/10 ->
+            %% Looks like we might run out of SC active SC soon lets get a new active
+            ok = get_new_active(),
+            {ok, Pid};
+        [{_, Pid}|_] ->
+            {ok, Pid}
     end.
 
 -spec get_actives_from_cache() -> list(pid()).
