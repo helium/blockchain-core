@@ -4685,7 +4685,15 @@ snapshot_raw(CF, L) ->
     %% Since rocks folds are lexicographic - we can just reverse:
     lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
 
--spec load_raw([{binary(), binary()}], rocksdb:cf_handle(), ledger()) -> ok.
+-spec load_raw([{binary(), binary()}] | function(), rocksdb:cf_handle(), ledger()) -> ok.
+load_raw(Iter, {Name, DB, CF}, Ledger) when is_function(Iter, 0) ->
+    case Iter() of
+        {K, V, NewIter} ->
+            rocksdb:put(DB, CF, K, V, []),
+            load_raw(NewIter, {Name, DB, CF}, Ledger);
+        ok ->
+            ok
+    end;
 load_raw(KVL, {_Name, DB, CF}, _Ledger) ->
     %% you can probably make this much larger on larger machines
     BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
