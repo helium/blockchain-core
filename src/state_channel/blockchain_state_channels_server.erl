@@ -409,6 +409,8 @@ select_best_active(HotspotID, Ledger) ->
     Sorted = lists:sort(fun({A, _}, {B, _}) -> A < B end, Filtered),
     case Sorted of
         [] ->
+            %% We don't do it here to avoid spamming once we are out of SC
+            %% When a new SC open it will get activated if need be
             {error, not_found};
         [{Spots, Pid}|[]] when Spots < MaxActorsAllowed/10 ->
             %% Looks like we might run out of SC active SC soon lets get a new active
@@ -510,6 +512,7 @@ opened_state_channel(
     Block,
     #state{
         db=DB,
+        chain=Chain,
         owner={Owner, OwnerSigFun},
         state_channels=SCs
     }=State0
@@ -541,6 +544,17 @@ opened_state_channel(
             ok = blockchain_state_channels_cache:insert_actives(Pid),
             State0#state{state_channels=maps:put(ID, {SignedSC, ?ACTIVE, Pid}, SCs)};
         _ ->
+            _ = erlang:spawn(fun() ->
+                %% Lets test that we still have room in all of our SCs otherwize lets activate the new one
+                Ledger = blockchain:ledger(Chain),
+                case select_best_active(<<>>, Ledger) of
+                    {ok, _} ->
+                        ok;
+                    {error, _} ->
+                        ok = get_new_active()
+                end
+            end),
+
             State0#state{state_channels=maps:put(ID, {SignedSC, ?PASSIVE, Pid}, SCs)}
     end.
 
