@@ -5775,7 +5775,7 @@ netid_test() ->
     LegacyNum = 16#90000000,
     _LegacyID = 8,
     %% 16#200010,
-    LegacyNetID = RETIRED_NETID,
+    LegacyNetID = ?RETIRED_NETID,
     <<H1:7, _/bitstring>> = LegacyDevAddr,
     <<H2:7, _:25>> = LegacyDevAddr,
     H3 = <<LegacyNum:32/integer-unsigned>>,
