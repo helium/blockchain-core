@@ -3033,6 +3033,13 @@ devaddr_from_subnet(SubnetAddr, NetIDList) ->
     DevAddr = devaddr(NetID, SubnetAddr - Lower),
     DevAddr.
 
+-spec subnet_from_devaddr(devaddr(), [netid()]) -> subnetaddr().
+subnet_from_devaddr(DevAddr, NetIDList) ->
+    {ok, NetID} = netid(DevAddr),
+    {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
+    SubnetAddr = Lower + get_nwk_addr(DevAddr),
+    SubnetAddr.
+
 -spec devaddr(netid(), nwkaddr()) -> devaddr().
 devaddr(NetID, NwkAddr) ->
     NetClass = NetID bsr 21,
@@ -3320,16 +3327,15 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
             {ok, Res}
     end.
 
--spec find_routing_via_subnet(DevAddr :: non_neg_integer(),
+-spec find_routing_via_subnet(DevAddr :: devaddr(),
                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_subnet(DevAddr, Ledger) ->
     {ok, NetID} = netid(DevAddr),
     {ok, NetIDList} = get_netids(Ledger),
     case is_local_netid(NetID, NetIDList) of
         true ->
-            {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
-            NwkAddr = Lower + get_nwk_addr(DevAddr),
-            Dest = find_dest(NwkAddr, Ledger),
+            SubnetAddr = subnet_from_devaddr(DevAddr, NetIDList),
+            Dest = find_dest(SubnetAddr, Ledger),
             case find_routing(Dest, Ledger) of
                 {ok, Route} ->
                     {ok, [Route]};
