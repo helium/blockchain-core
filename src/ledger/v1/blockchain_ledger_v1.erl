@@ -113,11 +113,11 @@
     redeem_htlc/4,
 
     get_netids/1,
-    create_devaddr/2,
-    create_devaddr_from_subnet/2,
-    net_id/1,
-    addr_bit_width/1,
-    net_id_type/1,
+    devaddr/2,
+    devaddr_from_subnet/2,
+    netid/1,
+    addr_bit_len/1,
+    netid_type/1,
     get_nwk_addr/1,
     get_subnet_addr/2,
     netid_addr_range/2,
@@ -3021,20 +3021,20 @@ get_netids(Ledger) ->
         {ok, BinNetIDs} ->
             binary_to_term(BinNetIDs);
         not_found ->
-            [ <<16#2D:24/integer-unsigned, 2#011:3/integer-unsigned>> ];
+            [ <<2#011:3/integer-unsigned, 16#2D:24/integer-unsigned>> ];
         Error ->
             Error
     end.
 
--spec create_devaddr_from_subnet(subnetaddr(), [netid()]) -> devaddr().
-create_devaddr_from_subnet(SubnetAddr, NetIDList) ->
+-spec devaddr_from_subnet(subnetaddr(), [netid()]) -> devaddr().
+devaddr_from_subnet(SubnetAddr, NetIDList) ->
     NetID = subnet_addr_to_netid(SubnetAddr, NetIDList),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
-    DevAddr = create_devaddr(NetID, SubnetAddr - Lower),
+    DevAddr = devaddr(NetID, SubnetAddr - Lower),
     DevAddr.
 
--spec create_devaddr(netid(), nwkaddr()) -> non_neg_integer().
-create_devaddr(NetID, NwkAddr) ->
+-spec devaddr(netid(), nwkaddr()) -> devaddr().
+devaddr(NetID, NwkAddr) ->
     NetClass = NetID bsr 21,
     ID = NetID band 2#111111111111111111111,
     % <<ID:21/integer-unsigned, NetClass:3/integer-unsigned, _Ignore:8/integer-unsigned>> = NetID,
@@ -3097,34 +3097,34 @@ var_netid(NetClass, NetID) ->
         7 -> NetID bsl 7
     end.
 
--spec net_id(number() | binary()) -> {ok, non_neg_integer()} | {error, invalid_net_id_type}.
-net_id(DevNum) when erlang:is_number(DevNum) ->
-    net_id(<<DevNum:32/integer-unsigned>>);
-net_id(DevAddr) ->
+-spec netid(number() | binary()) -> {ok, netid()} | {error, invalid_netid_type}.
+netid(DevNum) when erlang:is_number(DevNum) ->
+    netid(<<DevNum:32/integer-unsigned>>);
+netid(DevAddr) ->
     try
-        Type = net_id_type(DevAddr),
+        Type = netid_type(DevAddr),
         NetID =
             case Type of
-                0 -> get_net_id(DevAddr, 1, 6);
-                1 -> get_net_id(DevAddr, 2, 6);
-                2 -> get_net_id(DevAddr, 3, 9);
-                3 -> get_net_id(DevAddr, 4, 11);
-                4 -> get_net_id(DevAddr, 5, 12);
-                5 -> get_net_id(DevAddr, 6, 13);
-                6 -> get_net_id(DevAddr, 7, 15);
-                7 -> get_net_id(DevAddr, 8, 17)
+                0 -> get_netid(DevAddr, 1, 6);
+                1 -> get_netid(DevAddr, 2, 6);
+                2 -> get_netid(DevAddr, 3, 9);
+                3 -> get_netid(DevAddr, 4, 11);
+                4 -> get_netid(DevAddr, 5, 12);
+                5 -> get_netid(DevAddr, 6, 13);
+                6 -> get_netid(DevAddr, 7, 15);
+                7 -> get_netid(DevAddr, 8, 17)
             end,
         {ok, NetID bor (Type bsl 21)}
     catch
-        throw:invalid_net_id_type:_ ->
-            {error, invalid_net_id_type}
+        throw:invalid_netid_type:_ ->
+            {error, invalid_netid_type}
     end.
 
--spec addr_bit_width(number() | binary()) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
-addr_bit_width(DevNum) when erlang:is_number(DevNum) ->
-    addr_bit_width(<<DevNum:32/integer-unsigned>>);
-addr_bit_width(DevAddr) ->
-    Type = net_id_type(DevAddr),
+-spec addr_bit_len(number() | binary()) -> 7 | 10 | 13 | 15 | 17 | 20 | 24 | 25.
+addr_bit_len(DevNum) when erlang:is_number(DevNum) ->
+    addr_bit_len(<<DevNum:32/integer-unsigned>>);
+addr_bit_len(DevAddr) ->
+    Type = netid_type(DevAddr),
     case Type of
         0 -> 25;
         1 -> 24;
@@ -3136,23 +3136,23 @@ addr_bit_width(DevAddr) ->
         7 -> 7
     end.
 
--spec net_id_type(number() | binary()) -> 0..7.
-net_id_type(NetID) when erlang:is_number(NetID) ->
-    net_id_type(<<NetID:32/integer-unsigned>>);
-net_id_type(<<First:8/integer-unsigned, _/binary>>) ->
-    net_id_type(First, 7).
+-spec netid_type(number() | binary()) -> 0..7.
+netid_type(NetID) when erlang:is_number(NetID) ->
+    netid_type(<<NetID:32/integer-unsigned>>);
+netid_type(<<First:8/integer-unsigned, _/binary>>) ->
+    netid_type(First, 7).
 
--spec net_id_type(non_neg_integer(), non_neg_integer()) -> 0..7.
-net_id_type(_, -1) ->
-    throw(invalid_net_id_type);
-net_id_type(Prefix, Index) ->
+-spec netid_type(non_neg_integer(), non_neg_integer()) -> 0..7.
+netid_type(_, -1) ->
+    throw(invalid_netid_type);
+netid_type(Prefix, Index) ->
     case Prefix band (1 bsl Index) of
         0 -> 7 - Index;
-        _ -> net_id_type(Prefix, Index - 1)
+        _ -> netid_type(Prefix, Index - 1)
     end.
 
--spec get_net_id(binary(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
+-spec get_netid(binary(), non_neg_integer(), non_neg_integer()) -> netid().
+get_netid(DevAddr, PrefixLength, NwkIDBits) ->
     <<Temp:32/integer-unsigned>> = DevAddr,
     %% Remove type prefix
     One = uint32(Temp bsl PrefixLength),
@@ -3165,15 +3165,15 @@ get_net_id(DevAddr, PrefixLength, NwkIDBits) ->
 
 -spec get_nwk_addr(devaddr()) -> nwkaddr().
 get_nwk_addr(DevAddr) ->
-    AddrBitWidth = addr_bit_width(DevAddr),
-    IgnoreLen = 32 - AddrBitWidth,
+    AddrBitLen = addr_bit_len(DevAddr),
+    IgnoreLen = 32 - AddrBitLen,
     DevAddr2 = <<DevAddr:32/integer-unsigned>>,
-    <<_:IgnoreLen, NwkAddr:AddrBitWidth/integer-unsigned>> = DevAddr2,
+    <<_:IgnoreLen, NwkAddr:AddrBitLen/integer-unsigned>> = DevAddr2,
     NwkAddr.
 
 -spec get_subnet_addr(devaddr(), [netid()]) -> subnetaddr().
 get_subnet_addr(DevAddr, NetIDList) ->
-    {ok, NetID} = net_id(DevAddr),
+    {ok, NetID} = netid(DevAddr),
     NwkAddr = get_nwk_addr(DevAddr),
     {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
     Lower + NwkAddr.
@@ -3323,7 +3323,7 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 -spec find_routing_via_subnet(DevAddr :: non_neg_integer(),
                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing_via_subnet(DevAddr, Ledger) ->
-    {ok, NetID} = net_id(DevAddr),
+    {ok, NetID} = netid(DevAddr),
     {ok, NetIDList} = get_netids(Ledger),
     case is_local_netid(NetID, NetIDList) of
         true ->
@@ -5706,52 +5706,52 @@ find_scs_by_owner_test() ->
 
 net_id_test() ->
     %% CP data
-    ?assertEqual({ok, 16#00002D}, net_id(<<91, 255, 255, 255>>), "[45] == 2D == 45 type 0"),
-    ?assertEqual({ok, 16#20002D}, net_id(<<173, 255, 255, 255>>), "[45] == 2D == 45 type 1"),
-    ?assertEqual({ok, 16#40016D}, net_id(<<214, 223, 255, 255>>), "[1,109] == 16D == 365 type 2"),
-    ?assertEqual({ok, 16#6005B7}, net_id(<<235, 111, 255, 255>>), "[5,183] == 5B7 == 1463 type 3"),
+    ?assertEqual({ok, 16#00002D}, netid(<<91, 255, 255, 255>>), "[45] == 2D == 45 type 0"),
+    ?assertEqual({ok, 16#20002D}, netid(<<173, 255, 255, 255>>), "[45] == 2D == 45 type 1"),
+    ?assertEqual({ok, 16#40016D}, netid(<<214, 223, 255, 255>>), "[1,109] == 16D == 365 type 2"),
+    ?assertEqual({ok, 16#6005B7}, netid(<<235, 111, 255, 255>>), "[5,183] == 5B7 == 1463 type 3"),
     ?assertEqual(
         {ok, 16#800B6D},
-        net_id(<<245, 182, 255, 255>>),
+        netid(<<245, 182, 255, 255>>),
         "[11, 109] == B6D == 2925 type 4"
     ),
     ?assertEqual(
         {ok, 16#A016DB},
-        net_id(<<250, 219, 127, 255>>),
+        netid(<<250, 219, 127, 255>>),
         "[22,219] == 16DB == 5851 type 5"
     ),
     ?assertEqual(
         {ok, 16#C05B6D},
-        net_id(<<253, 109, 183, 255>>),
+        netid(<<253, 109, 183, 255>>),
         "[91, 109] == 5B6D == 23405 type 6"
     ),
     ?assertEqual(
         {ok, 16#E16DB6},
-        net_id(<<254, 182, 219, 127>>),
+        netid(<<254, 182, 219, 127>>),
         "[1,109,182] == 16DB6 == 93622 type 7"
     ),
     ?assertEqual(
-        {error, invalid_net_id_type},
-        net_id(<<255, 255, 255, 255>>),
+        {error, invalid_netid_type},
+        netid(<<255, 255, 255, 255>>),
         "Invalid DevAddr"
     ),
 
     % Actility spreadsheet examples
-    ?assertEqual({ok, 0}, net_id(<<0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 0:25>>)),
-    ?assertEqual({ok, 1}, net_id(<<0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 1:1, 0:25>>)),
-    ?assertEqual({ok, 2}, net_id(<<0:1, 0:1, 0:1, 0:1, 0:1, 1:1, 0:1, 0:25>>)),
+    ?assertEqual({ok, 0}, netid(<<0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 0:25>>)),
+    ?assertEqual({ok, 1}, netid(<<0:1, 0:1, 0:1, 0:1, 0:1, 0:1, 1:1, 0:25>>)),
+    ?assertEqual({ok, 2}, netid(<<0:1, 0:1, 0:1, 0:1, 0:1, 1:1, 0:1, 0:25>>)),
 
     %% Mis-parsed as netid 4 of type 3
-    ?assertEqual({ok, 16#600004}, net_id(<<224, 9, 171, 205>>), "hex_to_binary(<<'E009ABCD'>>)"),
+    ?assertEqual({ok, 16#600004}, netid(<<224, 9, 171, 205>>), "hex_to_binary(<<'E009ABCD'>>)"),
     %% Valid DevAddr, NetID not assigned
-    ?assertEqual({ok, 16#20002D}, net_id(<<173, 255, 255, 255>>), "hex_to_binary(<<'ADFFFFFF'>>)"),
+    ?assertEqual({ok, 16#20002D}, netid(<<173, 255, 255, 255>>), "hex_to_binary(<<'ADFFFFFF'>>)"),
     %% Less than 32 bit number
-    ?assertEqual({ok, 0}, net_id(46377)),
+    ?assertEqual({ok, 0}, netid(46377)),
 
     % Louis test data
-    ?assertEqual({ok, 16#600002}, net_id(<<224, 4, 0, 1>>)),
-    ?assertEqual({ok, 16#600002}, net_id(<<224, 5, 39, 132>>)),
-    ?assertEqual({ok, 16#000002}, net_id(<<4, 16, 190, 163>>)),
+    ?assertEqual({ok, 16#600002}, netid(<<224, 4, 0, 1>>)),
+    ?assertEqual({ok, 16#600002}, netid(<<224, 5, 39, 132>>)),
+    ?assertEqual({ok, 16#000002}, netid(<<4, 16, 190, 163>>)),
     ok.
 
 netid_test() ->
@@ -5795,55 +5795,55 @@ netid_test() ->
     ?assertEqual(false, LocalFalse),
     ?assertEqual(true, LegacyLocal),
 
-    DevAddrLegacy = create_devaddr(LegacyNetID, 0),
+    DevAddrLegacy = devaddr(LegacyNetID, 0),
     ?assertEqual(DevAddr00, DevAddrLegacy),
-    DevAddr1 = create_devaddr(NetID01, 16),
+    DevAddr1 = devaddr(NetID01, 16),
     ?assertEqual(DevAddr01, DevAddr1),
-    DevAddr2 = create_devaddr(NetID02, 8),
+    DevAddr2 = devaddr(NetID02, 8),
     ?assertEqual(DevAddr02, DevAddr2),
 
-    NetIDType00 = net_id_type(DevAddr00),
+    NetIDType00 = netid_type(DevAddr00),
     ?assertEqual(1, NetIDType00),
-    NetIDType01 = net_id_type(DevAddr01),
+    NetIDType01 = netid_type(DevAddr01),
     ?assertEqual(6, NetIDType01),
-    NetIDType02 = net_id_type(DevAddr02),
+    NetIDType02 = netid_type(DevAddr02),
     ?assertEqual(3, NetIDType02),
 
-    NetIDType0 = net_id_type(DevAddrLegacy),
+    NetIDType0 = netid_type(DevAddrLegacy),
     ?assertEqual(1, NetIDType0),
-    NetIDType1 = net_id_type(DevAddr1),
+    NetIDType1 = netid_type(DevAddr1),
     ?assertEqual(6, NetIDType1),
-    NetIDType2 = net_id_type(DevAddr2),
+    NetIDType2 = netid_type(DevAddr2),
     ?assertEqual(3, NetIDType2),
 
-    {ok, NetID_0} = net_id(DevAddr00),
+    {ok, NetID_0} = netid(DevAddr00),
     ?assertEqual(NetID_0, LegacyNetID),
-    {ok, NetID_1} = net_id(16#FC00D410),
+    {ok, NetID_1} = netid(16#FC00D410),
     ?assertEqual(NetID_1, 16#C00035),
-    {ok, NetID_1} = net_id(DevAddr01),
+    {ok, NetID_1} = netid(DevAddr01),
     ?assertEqual(NetID_1, NetID01),
-    {ok, NetID_2} = net_id(DevAddr02),
+    {ok, NetID_2} = netid(DevAddr02),
     ?assertEqual(NetID_2, NetID02),
 
-    {ok, NetID0} = net_id(DevAddrLegacy),
+    {ok, NetID0} = netid(DevAddrLegacy),
     ?assertEqual(NetID0, LegacyNetID),
-    {ok, NetID1} = net_id(DevAddr1),
+    {ok, NetID1} = netid(DevAddr1),
     ?assertEqual(NetID1, NetID01),
-    {ok, NetID2} = net_id(DevAddr2),
+    {ok, NetID2} = netid(DevAddr2),
     ?assertEqual(NetID2, NetID02),
 
-    Width_0 = addr_bit_width(DevAddr00),
+    Width_0 = addr_bit_len(DevAddr00),
     ?assertEqual(24, Width_0),
-    Width_1 = addr_bit_width(DevAddr01),
+    Width_1 = addr_bit_len(DevAddr01),
     ?assertEqual(10, Width_1),
-    Width_2 = addr_bit_width(DevAddr02),
+    Width_2 = addr_bit_len(DevAddr02),
     ?assertEqual(17, Width_2),
 
-    Width0 = addr_bit_width(DevAddrLegacy),
+    Width0 = addr_bit_len(DevAddrLegacy),
     ?assertEqual(24, Width0),
-    Width1 = addr_bit_width(DevAddr1),
+    Width1 = addr_bit_len(DevAddr1),
     ?assertEqual(10, Width1),
-    Width2 = addr_bit_width(DevAddr2),
+    Width2 = addr_bit_len(DevAddr2),
     ?assertEqual(17, Width2),
 
     NwkAddr0 = get_nwk_addr(DevAddr00),
@@ -5935,7 +5935,7 @@ subnet_allocation_test() ->
     % R9 = find_dest(Key9, Ledger),
     % ?assertEqual(<<9:32/little-unsigned-integer>>, R9),
 
-    % DevAddr0 = create_devaddr(16#60002D, 16),
+    % DevAddr0 = devaddr(16#60002D, 16),
     % {ok, Dest} = find_routing_via_subnet(DevAddr0, Ledger),
     % ?assertEqual(<<4:32/little-unsigned-integer>>, Dest),
 
