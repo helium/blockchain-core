@@ -119,7 +119,6 @@
     addr_bit_len/1,
     netid_type/1,
     nwk_addr/1,
-    subnet_addr/2,
     netid_addr_range/2,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
@@ -3180,13 +3179,6 @@ nwk_addr(DevAddr) ->
     <<_:IgnoreLen, NwkAddr:AddrBitLen/integer-unsigned>> = DevAddr2,
     NwkAddr.
 
--spec subnet_addr(devaddr(), [netid()]) -> subnetaddr().
-subnet_addr(DevAddr, NetIDList) ->
-    {ok, NetID} = netid(DevAddr),
-    NwkAddr = nwk_addr(DevAddr),
-    {Lower, _Upper} = netid_addr_range(NetID, NetIDList),
-    Lower + NwkAddr.
-
 -spec netid_addr_range(netid(), [netid()]) -> {non_neg_integer(), non_neg_integer()}.
 netid_addr_range(NetID, NetIDList0) ->
     FoundNetID = lists:any(fun(X) -> X == NetID end, NetIDList0),
@@ -5870,14 +5862,19 @@ netid_test() ->
     NwkAddr2 = nwk_addr(DevAddr02),
     ?assertEqual(8, NwkAddr2),
 
-    Subnet4 = subnet_addr(DevAddr00, NetIDList),
-    ?assertEqual(0, Subnet4),
+    Subnet0 = subnet_from_devaddr(DevAddr00, NetIDList),
+    ?assertEqual(0, Subnet0),
 
-    Subnet0 = subnet_addr(DevAddr01, NetIDList),
-    ?assertEqual((1 bsl 7) + 16, Subnet0),
+    Subnet1 = subnet_from_devaddr(DevAddr01, NetIDList),
+    ?assertEqual((1 bsl 7) + 16, Subnet1),
+    DevAddr001 = devaddr_from_subnet(Subnet1, NetIDList),
+    ?assertEqual(DevAddr001, DevAddr01),
 
-    Subnet2 = subnet_addr(DevAddr02, NetIDList),
+    Subnet2 = subnet_from_devaddr(DevAddr02, NetIDList),
     ?assertEqual((1 bsl 7) + (1 bsl 10) + 8, Subnet2),
+    DevAddr002 = devaddr_from_subnet(Subnet2, NetIDList),
+    ?assertEqual(DevAddr002, DevAddr02),
+
     ok.
 
 subnet_allocation_test() ->
