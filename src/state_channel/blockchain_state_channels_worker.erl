@@ -186,10 +186,10 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 terminate(Reason, #state{id=ID, state_channel=SC, skewed=Skewed, db=DB, owner={_Owner, OwnerSigFun}}=_State) ->
-    Deleted = blockchain_state_channels_cache:delete_pids(self()),
     SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
     ok = blockchain_state_channels_server:update_state_channel(SignedSC),
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
+    Deleted = blockchain_state_channels_cache:delete_pids(self()),
     lager:info("terminate ~p for : ~p, deleted ~p from cache", [blockchain_utils:addr2name(ID), Reason, Deleted]),
     ok.
 
