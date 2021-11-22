@@ -51,7 +51,7 @@
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
 
--export_type([hash/0, txn/0, txns/0]).
+-export_type([hash/0, txn/0, txns/0, is_cromulent/0]).
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
@@ -65,7 +65,10 @@
 
 %% Check the txn has the right causal information (nonce, block height, etc) to
 %% be absorbed.  This should be quick.
--callback is_absorbable(txn(), blockchain:blockchain()) -> boolean().
+-type is_cromulent() ::
+    yes | no | {maybe_later, Delta :: pos_integer()}.
+-callback is_cromulent(txn(), blockchain:blockchain()) ->
+    {ok, is_cromulent()} | {error, term()}.
 
 %% Final heavy-weight validity checks, including signature verification and
 %% other complex calculations:
@@ -106,7 +109,8 @@
     is_valid/2,
     depends_on/2,
     json_type/1,
-    to_json/2
+    to_json/2,
+    is_cromulent_nonce/2
 ]).
 
 -ifdef(TEST).
@@ -605,8 +609,7 @@ print(Txn, Verbose) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn(), blockchain:blockchain()) ->
-    ok | {error, not_absorbable | any()}.
+-spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
@@ -616,11 +619,17 @@ is_valid(Txn, Chain) ->
                     {error, _}=Err ->
                         Err;
                     ok ->
-                        case Type:is_absorbable(Txn, Chain) of
-                            false ->
-                                {error, not_absorbable};
-                            true ->
-                                Type:is_valid(Txn, Chain)
+                        case Type:is_cromulent() of
+                            {ok, yes} ->
+                                Type:is_valid(Txn, Chain);
+                            {ok, no} ->
+                                {error, not_cromulent};
+                            {ok, {maybe_later, _Delta}} ->
+                                % TODO Bound delta?
+                                % TODO Anything more interesting that can be done here?
+                                {error, not_yet_cromulent};
+                            {error, _}=Err ->
+                                Err
                         end
                 end
             catch
@@ -631,6 +640,17 @@ is_valid(Txn, Chain) ->
         false ->
             lager:warning("txn not in sort order ~p : ~s", [Type, print(Txn)]),
             {error, missing_sort_order}
+    end.
+
+-spec is_cromulent_nonce(Given :: non_neg_integer(), Current :: non_neg_integer()) ->
+    is_cromulent().
+is_cromulent_nonce(NonceGiven, NonceCurrent) ->
+    NonceExpected = NonceCurrent + 1,
+    Delta = NonceGiven - NonceExpected,
+    if
+        Delta   < 0 -> no;
+        Delta =:= 0 -> yes;
+        Delta   > 0 -> {maybe_later, Delta}
     end.
 
 %%--------------------------------------------------------------------

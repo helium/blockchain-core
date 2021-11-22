@@ -30,7 +30,7 @@
     is_valid/2,
     is_valid_owner/1,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -171,10 +171,19 @@ is_well_formed(#blockchain_txn_transfer_hotspot_v2_pb{owner=O1, new_owner=O2}=T)
         ]}
     ).
 
--spec is_absorbable(txn_transfer_hotspot_v2(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_transfer_hotspot_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    GWAddr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, G} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_gateway_v2:nonce(G),
+            {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+    end.
 
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->

@@ -5,8 +5,8 @@
 -module(blockchain_txn_reward_v1).
 
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v1_pb.hrl").
 

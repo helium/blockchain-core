@@ -23,7 +23,7 @@
          fee_payer/2,
          is_valid/2,
          is_well_formed/1,
-         is_absorbable/2,
+         is_cromulent/2,
          master_key/1,
          multi_keys/1,
          key_proof/1, key_proof/2,
@@ -390,10 +390,26 @@ is_well_formed(#blockchain_txn_vars_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_vars(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_vars(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            case blockchain_ledger_v1:vars_nonce(Ledger) of
+                {error, not_found} ->
+                    {error, missing_ledger_nonce};
+                {error, _}=Err ->
+                    Err;
+                {ok, Current} ->
+                    Given = nonce(T),
+                    {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+            end
+    end.
 
 -spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 legacy_is_valid(Txn, Chain) ->

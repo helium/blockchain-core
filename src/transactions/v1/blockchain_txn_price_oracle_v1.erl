@@ -32,7 +32,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -157,48 +157,36 @@ sign(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, _}.
-is_valid(Txn, Chain) ->
+is_valid(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Price = ?MODULE:price(Txn),
-    Signature = ?MODULE:signature(Txn),
-    RawTxnPK = ?MODULE:public_key(Txn),
-    TxnPK = libp2p_crypto:bin_to_pubkey(RawTxnPK),
-    BlockHeight = ?MODULE:block_height(Txn),
-    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
-    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
-    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
-    OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
-
-    case
-        blockchain_contract:check(
-            [
-                {oracle_public_key, RawTxnPK},
-                {price, Price}
-            ],
-            {kvl, [
-                {oracle_public_key, {member, OracleKeys}},
-                {price, {integer, {min, 0}}}
-            ]}
-        )
-    of
-        ok ->
-            case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of
+    case is_valid_oracle(T, Ledger) of
+        true ->
+            case is_valid_signature(T) of
                 false ->
                     {error, bad_signature};
                 true ->
-                    case validate_block_height(RawTxnPK, BlockHeight,
-                                               LedgerHeight, MaxHeight, Ledger) of
-                        false ->
-                            {error, bad_block_height};
-                        true ->
-                            ok
-                    end
+                    ok
             end;
-        {error, _}=Error ->
-            Error
+        false ->
+            %% TODO Better error message?
+            {error, not_in_the_list_of_known_oracles}
     end.
+
+-spec is_valid_signature(txn_price_oracle()) -> boolean().
+is_valid_signature(T) ->
+    Signature = ?MODULE:signature(T),
+    PubKeyBin = ?MODULE:public_key(T),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    BaseTxn = T#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+
+-spec is_valid_oracle(txn_price_oracle(), blockchain_ledger_v1:ledger()) ->
+    boolean().
+is_valid_oracle(T, Ledger) ->
+    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
+    OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
+    lists:member(?MODULE:public_key(T), OracleKeys).
 
 -spec is_well_formed(txn_price_oracle()) -> blockchain_contract:result().
 is_well_formed(#blockchain_txn_price_oracle_v1_pb{}=T) ->
@@ -212,10 +200,22 @@ is_well_formed(#blockchain_txn_price_oracle_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_price_oracle(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_price_oracle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
+    BlockHeight = ?MODULE:block_height(Txn),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    PubKey = ?MODULE:public_key(Txn),
+    case
+        validate_block_height(PubKey, BlockHeight, LedgerHeight, MaxHeight, Ledger)
+    of
+        false ->
+            {ok, no};
+        true ->
+            {ok, yes}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -37,7 +37,7 @@
          is_valid_seller/1,
          is_valid_buyer/1,
          is_well_formed/1,
-         is_absorbable/2,
+         is_cromulent/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -192,8 +192,6 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                                           {error, gateway_too_stale}},
                   {fun() -> seller_owns_gateway(Txn, Ledger) end,
                                           {error, gateway_not_owned_by_seller}},
-                  {fun() -> buyer_nonce_correct(Txn, Ledger) end,
-                                          {error, wrong_buyer_nonce}},
                   {fun() -> txn_fee_valid(Txn, Chain, AreFeesEnabled) end,
                                           {error, wrong_txn_fee}},
                   {fun() -> buyer_has_enough_hnt(Txn, Ledger) end,
@@ -216,10 +214,18 @@ is_well_formed(#blockchain_txn_transfer_hotspot_v1_pb{buyer=B, seller=S}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_transfer_hotspot(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_transfer_hotspot(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(buyer(T), Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Given = buyer_nonce(T),
+            Current = blockchain_ledger_entry_v1:nonce(Entry),
+            {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+    end.
 
 -spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -311,15 +317,6 @@ buyer_has_enough_hnt(#blockchain_txn_transfer_hotspot_v1_pb{fee=Fee,
 txn_fee_valid(#blockchain_txn_transfer_hotspot_v1_pb{fee=Fee}=Txn, Chain, AreFeesEnabled) ->
     ExpectedTxnFee = calculate_fee(Txn, Chain),
     ExpectedTxnFee =< Fee orelse not AreFeesEnabled.
-
--spec buyer_nonce_correct(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
-buyer_nonce_correct(#blockchain_txn_transfer_hotspot_v1_pb{buyer_nonce=Nonce,
-                                                           buyer=Buyer}, Ledger) ->
-    case blockchain_ledger_v1:find_entry(Buyer, Ledger) of
-        {error, _} -> false;
-        {ok, Entry} ->
-            Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1
-    end.
 
 get_config_or_default(?transfer_hotspot_stale_poc_blocks=Config, Ledger) ->
     case blockchain_ledger_v1:config(Config, Ledger) of

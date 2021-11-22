@@ -26,7 +26,7 @@
     txns/1,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     print/1,
     json_type/0,
     to_json/2
@@ -66,8 +66,8 @@ txns(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
     Txns.
 
 -spec is_valid(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
-    TxnBundleSize = length(Txns),
+is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txs}=T, Chain) ->
+    TxnBundleSize = length(Txs),
     MaxBundleSize = max_bundle_size(Chain),
 
     %% check that the bundle size doesn't exceed allowed max_bundle_size var
@@ -76,14 +76,20 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
             {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
         false ->
             %% check that there are no bundles in the bundle txn
-            case lists:any(fun(T) ->
-                                   blockchain_txn:type(T) == blockchain_txn_bundle_v1
+            case lists:any(fun(Tx) ->
+                                   blockchain_txn:type(Tx) == blockchain_txn_bundle_v1
                            end,
-                           Txns) of
+                           Txs) of
                 true ->
-                    {error, {invalid_bundleception, Txn}};
+                    {error, {invalid_bundleception, T}};
                 false ->
-                    ok
+                    %% speculative check whether the bundle is valid
+                    case speculative_absorb(T, Chain) of
+                        [] ->
+                            ok;
+                        [_|_]=TxsInvalid ->
+                            {error, {invalid_bundled_txns, TxsInvalid}}
+                    end
             end
     end.
 
@@ -93,23 +99,28 @@ is_well_formed(#blockchain_txn_bundle_v1_pb{}=T) ->
     %% max size check has to be deferred for later, since we first need to
     %% lookup the current max in a chain var, for which we need the chain param.
     blockchain_contract:check(
-		record_to_kvl(blockchain_txn_bundle_v1_pb, T),
-		{kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
-	).
+        record_to_kvl(blockchain_txn_bundle_v1_pb, T),
+        {kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
+    ).
 
--spec is_absorbable(txn_bundle(), blockchain:blockchain()) -> boolean().
-is_absorbable(Tx, Chain) ->
-    %% speculative check whether the bundle is valid
-    case speculative_absorb(Tx, Chain) of
-        [] ->
-            true;
-        [_|_]=Invalid ->
-            InvalidStrings = [blockchain_txn:print(I) || I <- Invalid],
-            %% Eaxh printed tx can be a binary or a string/list:
-            InvalidString = iolist_to_binary(list:join("|", InvalidStrings)),
-            lager:error("Invalid bundled transactions: ~p", [InvalidString]),
-            false
-    end.
+-spec is_cromulent(txn_bundle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(#blockchain_txn_bundle_v1_pb{transactions=[_, _]=Txs}, Chain) ->
+    %% TODO Maybe something more sophisticated than this brutal all-or-nothing?
+    lists:foldl(
+        fun (_, {error, _}=Err) ->
+                Err;
+            (_, {ok, no}=No) ->
+                No;
+            (_, {ok, {maybe_later, _}}) ->
+                {ok, no};
+            (Tx, {ok, yes}) ->
+                TxType = blockchain_txn:type(Tx),
+                TxType:is_cromulent(Tx, Chain)
+        end,
+        {ok, yes},
+        Txs
+    ).
 
 -spec print(txn_bundle()) -> iodata().
 print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->

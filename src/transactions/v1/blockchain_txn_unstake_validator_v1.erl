@@ -29,7 +29,7 @@
          sign/2,
          is_valid/2,
          is_well_formed/1,
-         is_absorbable/2,
+         is_cromulent/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -122,7 +122,7 @@ is_valid_owner(#blockchain_txn_unstake_validator_v1_pb{owner=PubKeyBin,
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid(txn_unstake_validator(), blockchain:blockchain()) ->
-          ok | {error, atom()} | {error, {atom(), any()}}.
+    ok | {error, _}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Validator = address(Txn),
@@ -204,10 +204,11 @@ is_well_formed(#blockchain_txn_unstake_validator_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_unstake_validator(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_unstake_validator(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_Txn, _Chain) ->
+    %% TODO Can something be moved here?
+    {ok, yes}.
 
 -spec absorb(txn_unstake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

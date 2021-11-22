@@ -30,7 +30,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     create_secret_hash/2,
     connections/1,
@@ -325,16 +325,17 @@ is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
         ]}
     ).
 
+-spec is_cromulent(txn_poc_receipts(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, _Chain) ->
+    %% TODO No nonce in this tx. What else can be done/moved here?
+    {ok, yes}.
+
 -spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
 ?DEFINE_RECORD_TO_KVL(blockchain_poc_receipt_v1_pb);
 ?DEFINE_RECORD_TO_KVL(blockchain_poc_witness_v1_pb);
 ?DEFINE_RECORD_TO_KVL(blockchain_poc_path_element_v1_pb);
 ?DEFINE_RECORD_TO_KVL(blockchain_txn_poc_receipts_v1_pb).
-
--spec is_absorbable(txn_poc_receipts(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
 
 -spec check_is_valid_poc(Txn :: txn_poc_receipts(),
                          Chain :: blockchain:blockchain()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.

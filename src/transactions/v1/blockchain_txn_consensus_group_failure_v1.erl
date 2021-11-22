@@ -31,7 +31,7 @@
     set_signatures/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -217,11 +217,11 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_consensus_group_failure(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
+-spec is_cromulent(txn_consensus_group_failure(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_Txn, _Chain) ->
     %% TODO Revisit
-    true.
+    {ok, yes}.
 
 verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list

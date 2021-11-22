@@ -29,7 +29,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -115,11 +115,7 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_redeem_htlc_v1_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, _}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Redeemer = ?MODULE:payee(Txn),
@@ -222,10 +218,13 @@ is_well_formed(#blockchain_txn_redeem_htlc_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_redeem_htlc(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_redeem_htlc(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_Txn, _Chain) ->
+    %% TODO What can be done/move-to here?
+    %% - Maybe the Timelock >= (Height+1),
+    %%   which implies an additional HTLC lookup - is that acceptable? Expensive?
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

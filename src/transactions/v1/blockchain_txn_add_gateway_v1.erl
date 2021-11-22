@@ -37,7 +37,7 @@
     is_valid_staking_key/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -388,17 +388,19 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_add_gateway(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(Txn, Chain) ->
+-spec is_cromulent(txn_add_gateway(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Gateway = gateway(Txn),
+    Gateway = gateway(T),
     %% Only new gateways allowed:
     case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
         {ok, _} ->
-            false;
-        {error, _} ->
-            true
+            {ok, no};
+        {error, not_found} ->
+            {ok, yes};
+        {error, _}=Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------

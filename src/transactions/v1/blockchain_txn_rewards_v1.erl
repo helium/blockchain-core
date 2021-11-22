@@ -25,7 +25,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     calculate_rewards/3,
     print/1,
@@ -140,15 +140,16 @@ is_well_formed_reward(#blockchain_txn_reward_v1_pb{}=T) ->
             {account, {address, libp2p}},
             {gateway, {address, libp2p}},
             {amount , {integer, {min, 0}}},
-            {type   , {either, [
-                {val, securities},
-                {val, data_credits},
-                {val, poc_challengees},
-                {val, poc_challengers},
-                {val, poc_witnesses},
-                {val, consensus},
-                {integer, any}
-            ]}}
+            {type   ,
+                {either, [
+                    {val, securities},
+                    {val, data_credits},
+                    {val, poc_challengees},
+                    {val, poc_challengers},
+                    {val, poc_witnesses},
+                    {val, consensus},
+                    {integer, any}
+                ]}}
         ]}
     );
 is_well_formed_reward(_) ->
@@ -156,19 +157,22 @@ is_well_formed_reward(_) ->
 
 -spec is_well_formed(txn_rewards()) -> blockchain_contract:result().
 is_well_formed(#blockchain_txn_rewards_v1_pb{}=T) ->
+    Start = ?MODULE:start_epoch(T),
+    End = ?MODULE:end_epoch(T),
     blockchain_contract:check(
         record_to_kvl(blockchain_txn_rewards_v1_pb, T),
         {kvl, [
-            {start_epoch, {integer, {min, 0}}},
-            {end_epoch, {integer, {min, 0}}},
+            {start_epoch, {integer, {range, 0, End}}},
+            {end_epoch, {integer, {min, Start}}},
             {rewards, {list, any, {custom, fun is_well_formed_reward/1, invalid_reward}}}
         ]}
     ).
 
--spec is_absorbable(txn_rewards(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_rewards(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, _Chain) ->
+    %% TODO Anything else can be done/moved-to here?
+    {ok,  yes}.
 
 %%--------------------------------------------------------------------
 %% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)

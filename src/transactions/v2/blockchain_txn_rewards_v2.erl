@@ -38,7 +38,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     calculate_rewards/3,
     calculate_rewards_metadata/3,
@@ -170,12 +170,12 @@ is_well_formed(#blockchain_txn_rewards_v2_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_rewards_v2(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
+-spec is_cromulent(txn_rewards_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, _Chain) ->
     %% XXX No nonce in this tx type, so what can we do?
     %% TODO Perhaps non-zero chain height?
-    true.
+    {ok, yes}.
 
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

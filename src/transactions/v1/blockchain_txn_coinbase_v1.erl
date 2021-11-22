@@ -23,7 +23,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     sign/2,
     print/1,
@@ -110,16 +110,18 @@ is_well_formed(#blockchain_txn_coinbase_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_coinbase(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, Chain) ->
+-spec is_cromulent(txn_coinbase(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, 0} ->
-            true;
-        _ ->
+            {ok, yes};
+        {ok, _} ->
             lager:error("Coinbase txn cannot be absorbed because chain is not in genesis block."),
-            false
+            {ok, no};
+        {error, _}=Err ->
+            Err
     end.
 
 %%--------------------------------------------------------------------

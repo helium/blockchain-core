@@ -23,7 +23,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -103,19 +103,17 @@ is_well_formed(T) ->
         {kvl, [{price, {integer, {min, 1}}}]}
     ).
 
--spec is_absorbable(txn_genesis_price_oracle(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, Chain) ->
+-spec is_cromulent(txn_genesis_price_oracle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, 0} ->
-            true;
-        {ok, Height} ->
-            lager:error("Not in genesis block. Height: ~p", [Height]),
-            false;
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
         {error, _}=Error ->
-            lager:error("Failed to fetch current height. Error: ~p", [Error]),
-            false
+            Error
     end.
 
 %%--------------------------------------------------------------------

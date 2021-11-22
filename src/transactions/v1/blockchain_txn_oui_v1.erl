@@ -35,7 +35,7 @@
     is_valid_payer/1,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -192,16 +192,50 @@ is_valid_payer(#blockchain_txn_oui_v1_pb{payer=PubKeyBin,
 
 -spec is_valid(txn_oui(), blockchain:blockchain()) ->
     ok | {error, Reason} when Reason :: bad_owner_signature | bad_payer_signature.
-is_valid(Txn, _Chain) ->
-    %% XXX Assuming is_well_formed and is_absorbable have already passed!
-    case {?MODULE:is_valid_owner(Txn),
-          ?MODULE:is_valid_payer(Txn)} of
-        {false, _} ->
-            {error, bad_owner_signature};
-        {_, false} ->
-            {error, bad_payer_signature};
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    StakingFee = ?MODULE:staking_fee(Txn),
+    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+    TxnFee = ?MODULE:fee(Txn),
+    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+        {false,_} ->
+            lager:error("Wrong txn fee: ~b. Expected: ~b", [TxnFee, ExpectedTxnFee]),
+            false;
+        {_,false} ->
+            lager:error("Wrong staking fee: ~b. Expected: ~b", [StakingFee, ExpectedStakingFee]),
+            false;
         {true, true} ->
-            ok
+            Payer = ?MODULE:payer(Txn),
+            Owner = ?MODULE:owner(Txn),
+            ActualPayer =
+                case Payer of
+                    undefined    -> Owner;
+                    <<>>         -> Owner;
+                    <<_/binary>> -> Payer
+                end,
+            case
+                blockchain_ledger_v1:check_dc_or_hnt_balance(
+                    ActualPayer,
+                    TxnFee + StakingFee,
+                    Ledger,
+                    AreFeesEnabled
+                )
+            of
+                ok ->
+                    case ?MODULE:is_valid_owner(Txn) of
+                        false ->
+                            {error, bad_owner_signature};
+                        true ->
+                            case ?MODULE:is_valid_payer(Txn) of
+                                false ->
+                                    {error, bad_payer_signature};
+                                true ->
+                                    ok
+                            end
+                    end
+            end
     end.
 
 -spec is_well_formed(txn_oui()) -> ok | {error, _}.
@@ -233,45 +267,16 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_oui(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(Txn, Chain) ->
+-spec is_cromulent(txn_oui(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     OUI = ?MODULE:oui(Txn),
     case validate_oui(OUI, Ledger) of
-        {false, LedgerOUI} ->
-            {error, {invalid_oui, {OUI, LedgerOUI}}};
+        {false, _LedgerOUI} ->
+            {ok, no};
         true ->
-            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            StakingFee = ?MODULE:staking_fee(Txn),
-            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
-            TxnFee = ?MODULE:fee(Txn),
-            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-            case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
-                {false,_} ->
-                    lager:error("Wrong txn fee: ~b. Expected: ~b", [TxnFee, ExpectedTxnFee]),
-                    false;
-                {_,false} ->
-                    lager:error("Wrong staking fee: ~b. Expected: ~b", [StakingFee, ExpectedStakingFee]),
-                    false;
-                {true, true} ->
-                    Payer = ?MODULE:payer(Txn),
-                    Owner = ?MODULE:owner(Txn),
-                    ActualPayer =
-                        case Payer of
-                            undefined    -> Owner;
-                            <<>>         -> Owner;
-                            <<_/binary>> -> Payer
-                        end,
-                    Result =
-                        blockchain_ledger_v1:check_dc_or_hnt_balance(
-                            ActualPayer,
-                            TxnFee + StakingFee,
-                            Ledger,
-                            AreFeesEnabled
-                        ),
-                    result:to_bool(result:of_empty(Result, {}))
-            end
+            {ok, yes}
     end.
 
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

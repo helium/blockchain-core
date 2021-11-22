@@ -25,7 +25,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -139,46 +139,67 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_consensus_group(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(Txn, Chain) ->
+-spec is_cromulent(txn_consensus_group(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         %% no chain, genesis block
         {ok, 0} ->
-            true;
+            {ok, yes};
         {ok, CurrHeight} ->
             {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
             TxnHeight = ?MODULE:height(Txn),
             Delay = ?MODULE:delay(Txn),
             case blockchain_ledger_v1:election_height(Ledger) of
+                {error, not_found} ->
+                    {ok, no};
+                {error, _}=Err ->
+                    Err;
                 {ok, BaseHeight} when TxnHeight =< BaseHeight ->
-                    false;
-                _ ->
+                    {ok, no};
+                {ok, _} ->
                     %% either genesis block or election is not too old
-                    {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
-                    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
-                    %% The next election should be at least ElectionInterval blocks past the last election
-                    %% This check prevents elections ahead of schedule
+                    {_, LastElectionHeight} =
+                        blockchain_block_v1:election_info(CurrBlock),
+                    {ok, ElectionInterval} =
+                        blockchain:config(?election_interval, Ledger),
+                    %% The next election should be at least ElectionInterval
+                    %% blocks past the last election.
+                    %% This check prevents elections ahead of schedule.
                     case TxnHeight >= LastElectionHeight + ElectionInterval of
                         true ->
                             IntervalRange =
-                            case blockchain:config(?election_restart_interval_range, Ledger) of
-                                {ok, IR} -> IR;
-                                _ -> 1
-                            end,
-                            {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
-                            %% The next election should occur within RestartInterval blocks of when the election started
-                            NextRestart = LastElectionHeight + ElectionInterval + Delay +
-                            (RestartInterval * IntervalRange),
-                            case CurrHeight > NextRestart of
-                                true ->
-                                    false;
-                                _ ->
-                                    true
-                            end;
+                                case
+                                    blockchain:config(
+                                        ?election_restart_interval_range,
+                                        Ledger
+                                    )
+                                of
+                                    {ok, IR} -> IR;
+                                    _ -> 1
+                                end,
+                            {ok, RestartInterval} =
+                                blockchain:config(
+                                    ?election_restart_interval,
+                                    Ledger
+                                ),
+                            %% The next election should occur within
+                            %% RestartInterval blocks of when the election
+                            %% started
+                            NextRestart =
+                                LastElectionHeight
+                                + ElectionInterval
+                                + Delay
+                                + (RestartInterval * IntervalRange),
+                            IsCromulent =
+                                case CurrHeight =< NextRestart of
+                                    true -> yes;
+                                    false -> no
+                                end,
+                            {ok, IsCromulent};
                         false ->
-                            false
+                            {ok, no}
                     end
             end
     end.

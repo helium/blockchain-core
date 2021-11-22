@@ -38,7 +38,7 @@
     is_valid_payer/1,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -396,18 +396,23 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_assert_location(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(T, Chain) ->
+-spec is_cromulent(txn_assert_location(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Addr = gateway(T),
-    case blockchain_gateway_cache:get(Addr, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
         {error, _} ->
             false;
         {ok, Gateway} ->
-            owner(T) == blockchain_ledger_gateway_v2:owner_address(Gateway)
-            andalso
-            nonce(T) == 1 + blockchain_ledger_gateway_v2:nonce(Gateway)
+            case owner(T) =:= blockchain_ledger_gateway_v2:owner_address(Gateway) of
+                false ->
+                    {ok, no};
+                true ->
+                    Given = nonce(T),
+                    Current = blockchain_ledger_gateway_v2:nonce(Gateway),
+                    {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+            end
     end.
 
 %%--------------------------------------------------------------------

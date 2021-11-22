@@ -31,7 +31,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -130,21 +130,6 @@ is_valid_sig(Txn) ->
     EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
-is_valid_nonce(Txn, Ledger) ->
-    case blockchain_ledger_v1:find_entry(payer(Txn), Ledger) of
-        {error, _}=Error0 ->
-            Error0;
-        {ok, Entry} ->
-            TxnNonce = ?MODULE:nonce(Txn),
-            LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
-            case TxnNonce =:= LedgerNonce + 1 of
-                false ->
-                    {error, {bad_nonce, {payment, TxnNonce, LedgerNonce}}};
-                true ->
-                    ok
-            end
-    end.
-
 is_valid_amount(Txn, Ledger) ->
     Min =
         case blockchain:config(?allow_zero_amount, Ledger) of
@@ -181,6 +166,26 @@ is_well_formed(#blockchain_txn_payment_v1_pb{}=T) ->
         ]}
     ).
 
+-spec is_cromulent(txn_payment(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain:config(?deprecate_payment_v1, Ledger) of
+        {ok, true} ->
+            lager:error("payment_v1 deprecated"),
+            {ok, no};
+        _ ->
+            Payer = payer(Txn),
+            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                {error, _}=Err ->
+                    Err;
+                {ok, Entry} ->
+                    Given = ?MODULE:nonce(Txn),
+                    Current = blockchain_ledger_entry_v1:nonce(Entry),
+                    {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+            end
+    end.
+
 is_valid_payee(Txn, Ledger) ->
     Contract =
         case blockchain:config(?txn_field_validation_version, Ledger) of
@@ -199,18 +204,6 @@ validate_fee(Txn, Chain, Ledger) ->
         true ->
             Payer = ?MODULE:payer(Txn),
             blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-    end.
-
--spec is_absorbable(txn_payment(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?deprecate_payment_v1, Ledger) of
-        {ok, true} ->
-            lager:error("payment_v1 deprecated"),
-            false;
-        _ ->
-            is_valid_nonce(Txn, Ledger)
     end.
 
 -spec absorb(txn_payment(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

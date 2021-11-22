@@ -25,7 +25,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -97,15 +97,17 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_genesis_validator(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, Chain) ->
+-spec is_cromulent(txn_genesis_validator(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, Height} ->
-            Height =:= 0;
-        {error, _} ->
-            false
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
+        {error, _}=Error ->
+            Error
     end.
 
 -spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

@@ -33,7 +33,7 @@
     is_valid_oui_owner/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -163,22 +163,15 @@ is_valid(Txn, Chain) ->
         {_, {error, _}=Err} ->
             Err;
         {ok, {ok, GWInfo}} ->
-            LedgerNonce = blockchain_ledger_gateway_v2:nonce(GWInfo),
-            Nonce = ?MODULE:nonce(Txn),
-            case Nonce =:= LedgerNonce + 1 of
+            TxnFee = ?MODULE:fee(Txn),
+            GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                 false ->
-                    {error, {bad_nonce, {update_gateway_oui, Nonce, LedgerNonce}}};
+                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                 true ->
-                    TxnFee = ?MODULE:fee(Txn),
-                    GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
-                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                        false ->
-                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                        true ->
-                            blockchain_ledger_v1:check_dc_or_hnt_balance(GatewayOwner, TxnFee, Ledger, AreFeesEnabled)
-                    end
+                    blockchain_ledger_v1:check_dc_or_hnt_balance(GatewayOwner, TxnFee, Ledger, AreFeesEnabled)
             end
     end.
 
@@ -196,10 +189,21 @@ is_well_formed(#blockchain_txn_update_gateway_oui_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_update_gateway_oui(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_update_gateway_oui(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    GatewayAddr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddr, Ledger) of
+        {error, not_found} ->
+            {error, gateway_not_found};
+        {error, _Reason}=Error ->
+            Error;
+        {ok, GatewayInfo} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_gateway_v2:nonce(GatewayInfo),
+            {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+    end.
 
 -spec absorb(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

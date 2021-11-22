@@ -26,7 +26,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -129,14 +129,8 @@ fee_payer(_Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(_Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            ok;
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+is_valid(_T, _Chain) ->
+    ok.
 
 -spec is_well_formed(txn_genesis_gateway()) -> ok | {error, _}.
 is_well_formed(#blockchain_txn_gen_gateway_v1_pb{}=T) ->
@@ -150,11 +144,19 @@ is_well_formed(#blockchain_txn_gen_gateway_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_genesis_gateway(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    %% TODO Revisit
-    true.
+-spec is_cromulent(txn_genesis_gateway(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            %% Not in genesis block.
+            {ok, no};
+        {error, _}=Err ->
+            Err
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

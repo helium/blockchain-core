@@ -23,7 +23,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_absorbable/2,
+    is_cromulent/2,
     absorb/2,
     sign/2,
     print/1,
@@ -96,21 +96,10 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_security_coinbase(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            Amount = ?MODULE:amount(Txn),
-            case Amount > 0 of
-                true ->
-                    ok;
-                false ->
-                    {error, zero_or_negative_amount}
-            end;
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+-spec is_valid(txn_security_coinbase(), blockchain:blockchain()) -> ok | {error, _}.
+is_valid(_T, _Chain) ->
+    %% XXX All checks already done in is_well_formed and is_cromulent.
+    ok.
 
 -spec is_well_formed(txn_security_coinbase()) -> blockchain_contract:result().
 is_well_formed(#blockchain_txn_security_coinbase_v1_pb{}=T) ->
@@ -122,10 +111,18 @@ is_well_formed(#blockchain_txn_security_coinbase_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_absorbable(txn_security_coinbase(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_security_coinbase(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
+        {error, _}=Err ->
+            Err
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -33,7 +33,7 @@
          new_owner_sign/2,
          is_valid/2,
          is_well_formed/1,
-         is_absorbable/2,
+         is_cromulent/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -302,10 +302,11 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_absorbable(txn_transfer_validator_stake(), blockchain:blockchain()) ->
-    boolean().
-is_absorbable(_Txn, _Chain) ->
-    error(not_implemented).
+-spec is_cromulent(txn_transfer_validator_stake(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_cromulent()} | {error, _}.
+is_cromulent(_T, _Chain) ->
+    %% TODO What temporal things can we check here?
+    {ok, yes}.
 
 -spec absorb(txn_transfer_validator_stake(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
