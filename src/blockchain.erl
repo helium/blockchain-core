@@ -128,7 +128,8 @@
                           fun upgrade_gateways_lg/1,
                           fun clear_witnesses/1,
                           fun upgrade_gateways_score/1,
-                          fun upgrade_gateways_score/1]).
+                          fun upgrade_gateways_score/1,
+                          fun upgrade_nonce_rescue/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -290,6 +291,30 @@ upgrade_gateways_score(Ledger) ->
         _ -> ok
     end.
 
+%% we need this to respond to a particular desync halt caused by a rescue block and then a var with
+%% a messed up nonce, hence the particular heights.  we mark as complete if we're past it so we
+%% never run again
+upgrade_nonce_rescue(Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    case blockchain_ledger_v1:mode(Ledger) of
+        delayed ->
+            %% note the 4 ------v
+            case Height =< 1107944 andalso Nonce == 106 of
+                true ->
+                    ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
+                false ->
+                    ok
+            end;
+        _ActiveOrAux ->
+            %% note the 9 ------v
+            case Height =< 1107994 andalso Nonce == 106 of
+                true ->
+                    ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
+                false ->
+                    ok
+            end
+    end.
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
 get_upgrades(Ledger) ->

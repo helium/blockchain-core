@@ -36,7 +36,8 @@
     <<"gateway_lg3">>,
     <<"clear_witnesses">>,
     <<"clear_scores">>,
-    <<"clear_scores2">>
+    <<"clear_scores2">>,
+    <<"nonce_rescue">>
 ]).
 
 -define(bones(HNT), HNT * 100000000).
