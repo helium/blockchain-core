@@ -289,14 +289,8 @@ is_valid_payer(#blockchain_txn_assert_location_v2_pb{payer=PubKeyBin,
 
 -spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    Gateway = ?MODULE:gateway(Txn),
-    Owner = ?MODULE:owner(Txn),
-    Payer = ?MODULE:payer(Txn),
-    Location = ?MODULE:location(Txn),
     Gain = ?MODULE:gain(Txn),
-    Elevation = ?MODULE:elevation(Txn),
     Ledger = blockchain:ledger(Chain),
-
     case blockchain:config(?assert_loc_txn_version, Ledger) of
         {ok, V} when V >= 2 ->
             case blockchain:config(?min_antenna_gain, Ledger) of
@@ -307,29 +301,7 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {invalid_assert_loc_txn_v2, {invalid_antenna_gain, Gain, MinGain, MaxGain}}};
                                 true ->
-                                    case
-                                        blockchain_contract:check(
-                                            [
-                                                {gateway  , Gateway},
-                                                {owner    , Owner},
-                                                {payer    , Payer},
-                                                {location , Location},
-                                                {elevation, Elevation}
-                                            ],
-                                            {kvl, [
-                                                {gateway  , {address, libp2p}},
-                                                {owner    , {address, libp2p}},
-                                                {payer    , {address, libp2p}},
-                                                {location , {integer, {min, 0}}},
-                                                {elevation, {integer, {min, -2147483648}}}
-                                            ]}
-                                        )
-                                    of
-                                        {error, _}=E ->
-                                            E;
-                                        ok ->
-                                            do_is_valid_checks(Txn, Chain)
-                                    end
+                                    do_is_valid_checks(Txn, Chain)
                             end;
                         _ ->
                             {error, {invalid_assert_loc_txn_v2, max_antenna_gain_not_set}}
