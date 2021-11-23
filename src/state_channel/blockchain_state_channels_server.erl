@@ -786,11 +786,17 @@ get_state_channels_from_ledger(#state{chain=Chain, owner={Owner, OwnerSigFun}}) 
                     Head,
                     Chain
             ),
-            SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
-            SignedSC = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
-            Skewed = skewed:new(BlockHash),
-            {ID, {SignedSC, Skewed}}
+            case BlockHash of
+                undefined ->
+                    undefined;
+                BlockHash when is_binary(BlockHash) ->
+                    SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
+                    SignedSC = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
+                    Skewed = skewed:new(BlockHash),
+                    {ID, {SignedSC, Skewed}}
+            end
         end,
         maps:to_list(LedgerSCs)
     ),
-    maps:from_list(SCList).
+    FilteredSCList = lists:filter(fun(SC) -> SC =/=  undefined end, SCList),
+    maps:from_list(FilteredSCList).
