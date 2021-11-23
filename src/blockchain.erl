@@ -165,6 +165,9 @@ new(Dir, undefined, QuickSyncMode, QuickSyncData) ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
             new(Dir, undefined, QuickSyncMode, QuickSyncData);
+        {Blockchain, {error, not_found}} ->
+            lager:info("no genesis block found, returning bare chain"),
+            {no_genesis, Blockchain};
         {Blockchain, {error, _Reason}} ->
             lager:info("no genesis block found: ~p", [_Reason]),
             {no_genesis, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
