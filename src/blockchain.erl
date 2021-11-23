@@ -128,7 +128,8 @@
                           fun upgrade_gateways_lg/1,
                           fun clear_witnesses/1,
                           fun upgrade_gateways_score/1,
-                          fun upgrade_gateways_score/1]).
+                          fun upgrade_gateways_score/1,
+                          fun upgrade_nonce_rescue/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -290,6 +291,25 @@ upgrade_gateways_score(Ledger) ->
         _ -> ok
     end.
 
+upgrade_nonce_rescue(Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    case blockchain_ledger_v1:mode(Ledger) of
+        delayed ->
+            case Height =< 1107944 andalso Nonce == 106 of
+                true ->
+                    ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
+                false ->
+                    ok
+            end;
+        _ActiveOrAux ->
+            case Height =< 1107994 andalso Nonce == 106 of
+                true ->
+                    ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
+                false ->
+                    ok
+            end
+    end.
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
 get_upgrades(Ledger) ->
