@@ -1049,8 +1049,8 @@ can_add_block(Block, Blockchain) ->
                                     Sigs = blockchain_block:signatures(Block),
                                     {OldTime, OldValue} = timer:tc(fun() -> verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns, old) end),
                                     {NewTime, NewValue} = timer:tc(fun() -> verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns, new) end),
-                                    lager:info("Signature Verification, OldTime: ~p, NewTime: ~p, OldValue: ~p, NewValue: ~p",
-                                               [OldTime, NewTime, OldValue, NewValue]),
+                                    lager:info("Signature Verification, OldTime: ~p, NewTime: ~p, OldValue: ~p, NewValue: ~p, IsEqual: ~p",
+                                               [OldTime, NewTime, OldValue, NewValue, OldValue == NewValue]),
                                     %% XXX: Returning the OldValue for now just to keep things moving
                                     %% If it works switch everything to new style
                                     OldValue
