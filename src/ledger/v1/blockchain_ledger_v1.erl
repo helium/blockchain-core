@@ -4884,7 +4884,7 @@ load_state_channels(SCs, Ledger) ->
       maps:from_list(SCs)),
     ok.
 
--spec snapshot_hexes(ledger()) -> [{binary(), binary()}].
+-spec snapshot_hexes(ledger()) -> [{non_neg_integer(), [binary()]} | {list, #{non_neg_integer() => pos_integer()}}].
 snapshot_hexes(Ledger) ->
     case blockchain_ledger_v1:get_hexes(Ledger) of
         {ok, HexMap} ->
@@ -4902,18 +4902,11 @@ snapshot_hexes(Ledger) ->
     end.
 
 load_hexes(Hexes0, Ledger) ->
-    case maps:take(list, maps:from_list(Hexes0)) of
-        {HexMap, Hexes} ->
-            ok = set_hexes(HexMap, Ledger),
-            maps:map(
-              fun(HexAddr, Hex) ->
+    lists:foreach(fun({list, Hexes}) ->
+                          ok = set_hexes(Hexes, Ledger);
+                     ({HexAddr, Hex}) ->
                       set_hex(HexAddr, Hex, Ledger)
-              end,
-              Hexes),
-            ok;
-        error ->
-            ok
-    end.
+                  end, Hexes0).
 
 -spec snapshot_h3dex(ledger()) -> [{binary(), binary()}].
 snapshot_h3dex(Ledger) ->
