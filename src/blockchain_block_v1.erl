@@ -30,7 +30,6 @@
     bba_completion/1,
     snapshot_hash/1,
     verify_signatures/4, verify_signatures/5,
-    verify_signatures_new/4, verify_signatures_new/5,
     is_rescue_block/1,
     is_election_block/1,
     json_type/0,
@@ -292,54 +291,8 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
         end,
     verify_normal_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold).
 
--spec verify_signatures_new(Block::binary() | block(),
-                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
-                        Signatures::[blockchain_block:signature()],
-                        Threshold::pos_integer()
-                       ) ->
-                               false |
-                               {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
-verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold) ->
-    case verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, ignore) of
-        {true, Sigs, _Rescue} ->
-            {true, Sigs};
-        Else -> Else
-    end.
 
--spec verify_signatures_new(Block::binary() | block(),
-                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
-                        Signatures::[blockchain_block:signature()],
-                        Threshold::pos_integer(),
-                        ignore | binary() | [binary()]
-                       ) ->
-                               false |
-                               {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
-%% rescue blocks have no signatures and a rescue signature.
-verify_signatures_new(#blockchain_block_v1_pb{}=Block, ConsensusMembers, [], _Threshold, Key)
-  when ConsensusMembers /= [] -> % force the other path for old tests :/
-    EncodedBlock =
-        case is_list(Key) of
-            true -> blockchain_block:serialize(?MODULE:set_signatures(Block, [], []));
-            false -> blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>))
-        end,
-    RescueSig =
-        case is_list(Key) of
-            true -> blockchain_block_v1:rescue_signatures(Block);
-            false -> blockchain_block_v1:rescue_signature(Block)
-        end,
-    verify_rescue_signature(EncodedBlock, RescueSig, Key);
-%% normal blocks should never have a rescue signature.
-verify_signatures_new(Block, ConsensusMembers, Signatures, Threshold, _) ->
-    EncodedBlock =
-        case Block of
-            #blockchain_block_v1_pb{} ->
-                blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>));
-            _ ->
-                Block
-        end,
-    verify_normal_signatures_new(EncodedBlock, ConsensusMembers, Signatures, Threshold).
-
-verify_normal_signatures_new(Artifact, ConsensusMembers, Signatures, Threshold) ->
+verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
     %% Conditions:
     %% - Threshold number of Signatures should be verifiable
     %% - The Signees must be in the ConsensusMembers
@@ -362,43 +315,6 @@ verify_normal_signatures_new(Artifact, ConsensusMembers, Signatures, Threshold) 
             %% at least `Threshold' consensus members signed the block
             {true, MaybeValidSignatures, false};
         _ ->
-            %% missing some signatures?
-            false
-    end.
-
-verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
-    ValidSignatures0 =
-        blockchain_utils:pmap(
-          fun({Addr, Sig}) ->
-                  case
-                      lists:member(Addr, ConsensusMembers)
-                      andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
-                  of
-                      true -> {Addr, Sig};
-                      false ->
-                          error
-                  end
-          end, lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
-    ValidSignatures =
-        case lists:any(fun(error) -> true; (_) -> false end, ValidSignatures0) of
-            true ->
-                error;
-            _ ->
-                case lists:sort(ValidSignatures0) == lists:usort(ValidSignatures0) of
-                    true ->
-                        ValidSignatures0;
-                    _ ->
-                        error
-                end
-        end,
-    F = (length(ConsensusMembers) - 1) div 3,
-    case length(Signatures) =< (3*F)+1 andalso
-         ValidSignatures /= error andalso
-         length(ValidSignatures) >= Threshold of
-        true ->
-            %% at least `Threshold' consensus members signed the block
-            {true, ValidSignatures, false};
-        false ->
             %% missing some signatures?
             false
     end.

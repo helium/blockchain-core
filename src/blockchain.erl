@@ -1047,34 +1047,18 @@ can_add_block(Block, Blockchain) ->
                                     blockchain_ledger_v1:delete_context(Ledger),
                                     Txns = blockchain_block:transactions(Block),
                                     Sigs = blockchain_block:signatures(Block),
-                                    {OldTime, OldValue} = timer:tc(fun() -> verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns, old) end),
-                                    {NewTime, NewValue} = timer:tc(fun() -> verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns, new) end),
-                                    lager:info("Signature Verification, OldTime: ~p, NewTime: ~p, OldValue: ~p, NewValue: ~p, IsEqual: ~p",
-                                               [OldTime, NewTime, OldValue, NewValue, OldValue == NewValue]),
-                                    %% XXX: Returning the OldValue for now just to keep things moving
-                                    %% If it works switch everything to new style
-                                    OldValue
+                                    verify_signatures(Block, ConsensusAddrs, Sigs, N - F, KeyOrKeys, Txns)
                             end
                     end
             end
     end.
 
-verify_signatures(Block, ConsensusAddrs, Sigs, X, KeyOrKeys, Txns, Style) ->
-
-    VerifySigResult = case Style of
-                          old ->
-                              blockchain_block:verify_signatures(Block,
-                                                                 ConsensusAddrs,
-                                                                 Sigs,
-                                                                 X,
-                                                                 KeyOrKeys);
-                          new ->
-                              blockchain_block:verify_signatures_new(Block,
-                                                                     ConsensusAddrs,
-                                                                     Sigs,
-                                                                     X,
-                                                                     KeyOrKeys)
-                      end,
+verify_signatures(Block, ConsensusAddrs, Sigs, Threshold, KeyOrKeys, Txns) ->
+    VerifySigResult = blockchain_block:verify_signatures(Block,
+                                                         ConsensusAddrs,
+                                                         Sigs,
+                                                         Threshold,
+                                                         KeyOrKeys),
 
     case VerifySigResult of
         false ->
