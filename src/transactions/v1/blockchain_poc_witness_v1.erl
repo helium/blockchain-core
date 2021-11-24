@@ -142,28 +142,15 @@ is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signat
     PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
     BaseWitness = Witness#blockchain_poc_witness_v1_pb{signature = <<>>},
     EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
-    case CheckSignature of
-        false ->
-            lager:info("bypassing witness signature verification"),
-            %% bypass signature verification
+    case CheckSignature orelse libp2p_crypto:verify(EncodedWitness, Signature, PubKey) of
+        false -> false;
+        true ->
             case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
                 {error, _Reason} ->
                     false;
                 {ok, GWMode} ->
                     %% check this gateway is allowed to witness
                     blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_WITNESS, Ledger)
-            end;
-        true ->
-            case libp2p_crypto:verify(EncodedWitness, Signature, PubKey) of
-                false -> false;
-                true ->
-                    case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
-                        {error, _Reason} ->
-                            false;
-                        {ok, GWMode} ->
-                            %% check this gateway is allowed to witness
-                            blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_WITNESS, Ledger)
-                    end
             end
     end.
 
