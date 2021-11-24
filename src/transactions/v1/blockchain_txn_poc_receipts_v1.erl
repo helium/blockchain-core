@@ -1171,29 +1171,33 @@ to_json(Txn, Opts) ->
       challenger => ?BIN_TO_B58(challenger(Txn))
      }.
 
-
 check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
     %% all the witnesses should have the right LayerHash
     %% and be valid
     case
-        lists:all(
-          fun(Witness) ->
-                  %% the witnesses should have an asserted location
-                  %% at the point when the request was mined!
-                  WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
-                  case blockchain_ledger_v1:find_gateway_location(WitnessGateway, OldLedger) of
-                      {error, _} ->
-                          false;
-                      {ok, _} when Gateway == WitnessGateway ->
-                          false;
-                      {ok, GWLoc} ->
-                          GWLoc /= undefined andalso
-                          blockchain_poc_witness_v1:is_valid(Witness, OldLedger) andalso
-                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                  end
-          end,
-          Witnesses
-         )
+        case blockchain_poc_witness_v1:verify_signatures(Witnesses) of
+            true ->
+                lager:info("witness verify_signatures: true"),
+                lists:all(
+                  fun(Witness) ->
+                          %% the witnesses should have an asserted location
+                          %% at the point when the request was mined!
+                          WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
+                          case blockchain_ledger_v1:find_gateway_location(WitnessGateway, OldLedger) of
+                              {error, _} ->
+                                  false;
+                              {ok, _} when Gateway == WitnessGateway ->
+                                  false;
+                              {ok, GWLoc} ->
+                                  GWLoc /= undefined andalso
+                                  blockchain_poc_witness_v1:is_valid(Witness, OldLedger, false) andalso
+                                  blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                          end
+                  end,
+                  Witnesses
+                 );
+            false -> false
+        end
     of
         true -> ok;
         false -> {error, invalid_witness}

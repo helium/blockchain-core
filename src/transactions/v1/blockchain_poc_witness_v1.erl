@@ -22,10 +22,11 @@
     datarate/1,
     signature/1,
     sign/2,
-    is_valid/2,
+    is_valid/2, is_valid/3,
     print/1,
     json_type/0,
-    to_json/2
+    to_json/2,
+    verify_signatures/1
 ]).
 
 -ifdef(TEST).
@@ -130,20 +131,39 @@ sign(Witness, SigFun) ->
     EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
     Witness#blockchain_poc_witness_v1_pb{signature=SigFun(EncodedWitness)}.
 
--spec is_valid(Witness :: poc_witness(), blockchain_ledger_v1:ledger()) -> boolean().
-is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signature}, Ledger) ->
+-spec is_valid(Witness :: poc_witness(), Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(Witness, Ledger) ->
+    is_valid(Witness, Ledger, true).
+
+-spec is_valid(Witness :: poc_witness(), blockchain_ledger_v1:ledger(), CheckSignature :: boolean()) -> boolean().
+is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signature},
+         Ledger,
+         CheckSignature) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
     BaseWitness = Witness#blockchain_poc_witness_v1_pb{signature = <<>>},
     EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
-    case libp2p_crypto:verify(EncodedWitness, Signature, PubKey) of
-        false -> false;
-        true ->
+    case CheckSignature of
+        false ->
+            lager:info("bypassing witness signature verification"),
+            %% bypass signature verification
             case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
                 {error, _Reason} ->
                     false;
                 {ok, GWMode} ->
                     %% check this gateway is allowed to witness
                     blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_WITNESS, Ledger)
+            end;
+        true ->
+            case libp2p_crypto:verify(EncodedWitness, Signature, PubKey) of
+                false -> false;
+                true ->
+                    case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
+                        {error, _Reason} ->
+                            false;
+                        {ok, GWMode} ->
+                            %% check this gateway is allowed to witness
+                            blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_WITNESS, Ledger)
+                    end
             end
     end.
 
@@ -189,6 +209,18 @@ to_json(Witness, Opts) ->
         {invalid_reason, InvalidReason} -> Base#{ invalid_reason => InvalidReason }
     end.
 
+-spec verify_signatures(Witensses :: poc_witnesses()) -> boolean().
+verify_signatures(Witnesses) ->
+    Batch = lists:foldl(
+              fun(Witness=#blockchain_poc_witness_v1_pb{gateway=GatewayPubkeyBin, signature=Signature}, Acc) ->
+                      BaseWitness = Witness#blockchain_poc_witness_v1_pb{signature = <<>>},
+                      EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
+                      [{EncodedWitness, [{Signature, GatewayPubkeyBin}]} | Acc]
+              end,
+              [],
+              Witnesses),
+
+    libp2p_crypto:verify(Batch).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
