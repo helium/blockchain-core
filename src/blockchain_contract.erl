@@ -45,9 +45,10 @@
 -type txn_type() ::
     any | {type, atom()}.
 
--type forall() :: forall | '∀'  | all_of. % and  ALL contracts must be satisfied
--type exists() :: exists | '∃'  | any_of. % or   AT LEAST ONE contract must be satisfied
--type either() :: either | '∃!' | one_of. % xor  EXACTLY ONE contract must be satisfied
+%% TODO Pick one of the alternative keyword sets:
+-type forall() :: forall | '∀'  | all_of | 'and'.  % ALL contracts must be satisfied
+-type exists() :: exists | '∃'  | any_of | 'or' .  % AT LEAST ONE contract must be satisfied
+-type either() :: either | '∃!' | one_of | 'xor'.  % EXACTLY ONE contract must be satisfied
 -type quantifier() :: forall() | exists() | either().
 
 -type t() ::
@@ -229,11 +230,11 @@ test(V, {member, Vs})                -> test_membership(V, Vs);
 test(V, {address, libp2p})           -> test_address_libp2p(V);
 test(V, h3_string)                   -> test_h3_string(V);
 test(V, {txn, TxnType})              -> test_txn(V, TxnType);
-test(V, {Q, Contracts}) when Q =:= forall; Q =:= '∀' ; Q =:= 'all_of' ->
+test(V, {Q, Contracts}) when Q =:= forall; Q =:= '∀' ; Q =:= 'all_of'; Q =:= 'and' ->
     test_forall(V, Contracts);
-test(V, {Q, Contracts}) when Q =:= exists; Q =:= '∃' ; Q =:= 'any_of' ->
+test(V, {Q, Contracts}) when Q =:= exists; Q =:= '∃' ; Q =:= 'any_of'; Q =:= 'or'  ->
     test_exists(V, Contracts);
-test(V, {Q, Contracts}) when Q =:= either; Q =:= '∃!'; Q =:= 'one_of' ->
+test(V, {Q, Contracts}) when Q =:= either; Q =:= '∃!'; Q =:= 'one_of'; Q =:= 'xor' ->
     test_either(V, Contracts);
 test(_, BadContract) ->
     error({bad_contract, BadContract}).
