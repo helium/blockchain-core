@@ -209,7 +209,7 @@ to_json(Witness, Opts) ->
         {invalid_reason, InvalidReason} -> Base#{ invalid_reason => InvalidReason }
     end.
 
--spec verify_signatures(Witensses :: poc_witnesses()) -> boolean().
+-spec verify_signatures(Witnesses :: poc_witnesses()) -> boolean().
 verify_signatures(Witnesses) ->
     Batch = lists:foldl(
               fun(Witness=#blockchain_poc_witness_v1_pb{gateway=GatewayPubkeyBin, signature=Signature}, Acc) ->
