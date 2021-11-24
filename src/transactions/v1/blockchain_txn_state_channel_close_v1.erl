@@ -33,7 +33,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -266,9 +266,9 @@ is_well_formed(#blockchain_txn_state_channel_close_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_state_channel_close(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(T, Chain) ->
+-spec is_prompt(txn_state_channel_close(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     SC = ?MODULE:state_channel(T),

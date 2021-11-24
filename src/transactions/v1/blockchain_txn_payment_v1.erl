@@ -31,7 +31,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -166,9 +166,9 @@ is_well_formed(#blockchain_txn_payment_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_payment(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(Txn, Chain) ->
+-spec is_prompt(txn_payment(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?deprecate_payment_v1, Ledger) of
         {ok, true} ->
@@ -182,7 +182,7 @@ is_cromulent(Txn, Chain) ->
                 {ok, Entry} ->
                     Given = ?MODULE:nonce(Txn),
                     Current = blockchain_ledger_entry_v1:nonce(Entry),
-                    {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
             end
     end.
 

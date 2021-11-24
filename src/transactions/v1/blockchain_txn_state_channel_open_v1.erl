@@ -32,7 +32,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -165,9 +165,9 @@ is_well_formed(#blockchain_txn_state_channel_open_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_state_channel_open(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(T, Chain) ->
+-spec is_prompt(txn_state_channel_open(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case {nonce(T), blockchain_ledger_v1:find_dc_entry(owner(T), Ledger)} of
         {1, {error, dc_entry_not_found}} ->
@@ -176,7 +176,7 @@ is_cromulent(T, Chain) ->
             Err;
         {Given, {ok, DCEntry}} ->
             Current = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry),
-            {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 -spec absorb(Txn :: txn_state_channel_open(),

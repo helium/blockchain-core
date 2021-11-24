@@ -23,7 +23,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     sign/2,
     print/1,
@@ -98,7 +98,7 @@ fee_payer(_Txn, _Ledger) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_security_coinbase(), blockchain:blockchain()) -> ok | {error, _}.
 is_valid(_T, _Chain) ->
-    %% XXX All checks already done in is_well_formed and is_cromulent.
+    %% XXX All checks already done in is_well_formed and is_prompt.
     ok.
 
 -spec is_well_formed(txn_security_coinbase()) -> blockchain_contract:result().
@@ -111,9 +111,9 @@ is_well_formed(#blockchain_txn_security_coinbase_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_security_coinbase(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(_, Chain) ->
+-spec is_prompt(txn_security_coinbase(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, 0} ->

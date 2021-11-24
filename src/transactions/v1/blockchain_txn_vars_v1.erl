@@ -23,7 +23,7 @@
          fee_payer/2,
          is_valid/2,
          is_well_formed/1,
-         is_cromulent/2,
+         is_prompt/2,
          master_key/1,
          multi_keys/1,
          key_proof/1, key_proof/2,
@@ -390,9 +390,9 @@ is_well_formed(#blockchain_txn_vars_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_vars(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(T, Chain) ->
+-spec is_prompt(txn_vars(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         {error, _}=Err ->
@@ -407,7 +407,7 @@ is_cromulent(T, Chain) ->
                     Err;
                 {ok, Current} ->
                     Given = nonce(T),
-                    {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
             end
     end.
 

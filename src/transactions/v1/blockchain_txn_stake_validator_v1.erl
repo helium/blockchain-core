@@ -28,7 +28,7 @@
          sign/2,
          is_valid/2,
          is_well_formed/1,
-         is_cromulent/2,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -210,9 +210,9 @@ is_well_formed(#blockchain_txn_stake_validator_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_stake_validator(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(_T, _Chain) ->
+-spec is_prompt(txn_stake_validator(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
     %% TODO What temporal things can be checked?
     {ok, yes}.
 

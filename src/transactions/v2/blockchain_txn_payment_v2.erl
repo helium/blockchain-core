@@ -35,7 +35,7 @@
          sign/2,
          is_valid/2,
          is_well_formed/1,
-         is_cromulent/2,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -170,9 +170,9 @@ is_well_formed(#blockchain_txn_payment_v2_pb{payer=Payer}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_payment_v2(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(T, Chain) ->
+-spec is_prompt(txn_payment_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = payer(T),
     case blockchain_ledger_v1:find_entry(Payer, Ledger) of
@@ -181,7 +181,7 @@ is_cromulent(T, Chain) ->
         {ok, Entry} ->
             Given = nonce(T),
             Current = blockchain_ledger_entry_v1:nonce(Entry),
-            {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.

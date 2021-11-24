@@ -31,7 +31,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -227,9 +227,9 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_cromulent(txn_poc_request(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(_Txn, _Chain) ->
+-spec is_prompt(txn_poc_request(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_Txn, _Chain) ->
     %% TODO No nonce in this tx. What else can be done/moved here?
     {ok, yes}.
 

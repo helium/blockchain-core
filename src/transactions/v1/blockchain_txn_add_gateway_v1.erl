@@ -37,7 +37,7 @@
     is_valid_staking_key/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -388,9 +388,9 @@ is_well_formed(T) ->
         ]}
     ).
 
--spec is_cromulent(txn_add_gateway(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(T, Chain) ->
+-spec is_prompt(txn_add_gateway(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gateway = gateway(T),
     %% Only new gateways allowed:

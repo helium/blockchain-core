@@ -30,7 +30,7 @@
     sign/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     create_secret_hash/2,
     connections/1,
@@ -325,9 +325,9 @@ is_well_formed(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
         ]}
     ).
 
--spec is_cromulent(txn_poc_receipts(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(_T, _Chain) ->
+-spec is_prompt(txn_poc_receipts(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
     %% TODO No nonce in this tx. What else can be done/moved here?
     {ok, yes}.
 

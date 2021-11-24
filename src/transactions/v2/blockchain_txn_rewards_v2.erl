@@ -38,7 +38,7 @@
     fee_payer/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     calculate_rewards/3,
     calculate_rewards_metadata/3,
@@ -170,9 +170,9 @@ is_well_formed(#blockchain_txn_rewards_v2_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_rewards_v2(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(_T, _Chain) ->
+-spec is_prompt(txn_rewards_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
     %% XXX No nonce in this tx type, so what can we do?
     %% TODO Perhaps non-zero chain height?
     {ok, yes}.

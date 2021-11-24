@@ -26,7 +26,7 @@
     txns/1,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     print/1,
     json_type/0,
     to_json/2
@@ -103,20 +103,20 @@ is_well_formed(#blockchain_txn_bundle_v1_pb{}=T) ->
         {kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
     ).
 
--spec is_cromulent(txn_bundle(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(#blockchain_txn_bundle_v1_pb{transactions=[_, _]=Txs}, Chain) ->
+-spec is_prompt(txn_bundle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(#blockchain_txn_bundle_v1_pb{transactions=[_, _]=Txs}, Chain) ->
     %% TODO Maybe something more sophisticated than this brutal all-or-nothing?
     lists:foldl(
         fun (_, {error, _}=Err) ->
                 Err;
             (_, {ok, no}=No) ->
                 No;
-            (_, {ok, {maybe_later, _}}) ->
+            (_, {ok, {not_yet, _}}) ->
                 {ok, no};
             (Tx, {ok, yes}) ->
                 TxType = blockchain_txn:type(Tx),
-                TxType:is_cromulent(Tx, Chain)
+                TxType:is_prompt(Tx, Chain)
         end,
         {ok, yes},
         Txs

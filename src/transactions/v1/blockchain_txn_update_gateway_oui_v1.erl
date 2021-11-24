@@ -33,7 +33,7 @@
     is_valid_oui_owner/2,
     is_valid/2,
     is_well_formed/1,
-    is_cromulent/2,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -189,9 +189,9 @@ is_well_formed(#blockchain_txn_update_gateway_oui_v1_pb{}=T) ->
         ]}
     ).
 
--spec is_cromulent(txn_update_gateway_oui(), blockchain:blockchain()) ->
-    {ok, blockchain_txn:is_cromulent()} | {error, _}.
-is_cromulent(T, Chain) ->
+-spec is_prompt(txn_update_gateway_oui(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     GatewayAddr = gateway(T),
     case blockchain_ledger_v1:find_gateway_info(GatewayAddr, Ledger) of
@@ -202,7 +202,7 @@ is_cromulent(T, Chain) ->
         {ok, GatewayInfo} ->
             Given = nonce(T),
             Current = blockchain_ledger_gateway_v2:nonce(GatewayInfo),
-            {ok, blockchain_txn:is_cromulent_nonce(Given, Current)}
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 -spec absorb(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
