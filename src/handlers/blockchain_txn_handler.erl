@@ -8,6 +8,7 @@
 -behavior(libp2p_framed_stream).
 
 -include("blockchain.hrl").
+-include_lib("helium_proto/include/blockchain_txn_handler_pb.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -51,50 +52,92 @@ init(client, _Conn, [Path, Parent, TxnHash]) ->
 init(server, _Conn, [_, Path, _, Callback] = _Args) ->
     {ok, #state{callback = Callback, path=Path}}.
 
-handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
-    Parent ! {blockchain_txn_response, {ok, TxnHash}},
-    {stop, normal, State};
-handle_data(client, <<"no_group">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
-    Parent ! {blockchain_txn_response, {no_group, TxnHash}},
-    {stop, normal, State};
-handle_data(
-    client,
-    <<"error", _/binary>> = ErrorMsg,
-    State=#state{
-        path = Path,
-        parent = Parent,
-        txn_hash = TxnHash
-    }
-) ->
-    TxnData = error_msg_to_txn_data(Path, ErrorMsg, TxnHash),
-    Parent ! {blockchain_txn_response, {error, TxnData}},
+handle_data(client, ResponseBin, State=#state{path=Path, parent=Parent}) ->
+    Response = decode_response(Path, ResponseBin),
+    Parent ! {blockchain_txn_response, Response},
     {stop, normal, State};
 handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
     try
         Txn = blockchain_txn:deserialize(Data),
         lager:debug("Got ~p type transaction: ~s", [blockchain_txn:type(Txn), blockchain_txn:print(Txn)]),
         case Callback(Txn) of
-            {ok, _Height} ->
-                {stop, normal, State, <<"ok">>};
-            {{error, no_group}, _Height} ->
-                {stop, normal, State, <<"no_group">>};
-            {{error, _}, Height} ->
-                {stop, normal, State, error_msg(Path, Height)}
+            {ok, Height, QueuePos} ->
+                {stop, normal, State, encode_response(Path, txn_accepted, undefined, Height, QueuePos)};
+            {{error, no_group}, Height} ->
+                {stop, normal, State, encode_response(Path, txn_failed, no_group, Height, undefined)};
+            {{error, {Reason, _}}, Height} when is_atom(Reason)->
+                {stop, normal, State, encode_response(Path, txn_rejected, Reason, Height, undefined)};
+            {{error, Reason}, Height} when is_atom(Reason)->
+                {stop, normal, State, encode_response(Path, txn_rejected, Reason, Height, undefined)}
         end
     catch _What:Why ->
             lager:notice("transaction_handler got bad data: ~p", [Why]),
-            {stop, normal, State, error_msg(Path, 0)}
+            {stop, normal, State, encode_response(Path, txn_failed, exception, 0, undefined)}
     end.
 
--spec error_msg(string(), non_neg_integer()) -> binary().
-error_msg(?TX_PROTOCOL_V1, _) ->
-    <<"error">>;
-error_msg(?TX_PROTOCOL_V2, Height) ->
-    <<"error", Height/integer>>.
+%%-spec error_msg(string(), non_neg_integer()) -> binary().
+%%error_msg(?TX_PROTOCOL_V1, _) ->
+%%    <<"error">>;
+%%error_msg(?TX_PROTOCOL_V2, Height) ->
+%%    <<"error", Height/integer>>.
+%%
+%%-spec error_msg_to_txn_data(string(), binary(), binary()) ->
+%%    binary() | {binary(), non_neg_integer()}.
+%%error_msg_to_txn_data(?TX_PROTOCOL_V1, <<"error">>, TxnHash) ->
+%%    TxnHash;
+%%error_msg_to_txn_data(?TX_PROTOCOL_V2, <<"error", Height/integer>>, TxnHash) ->
+%%    {TxnHash, Height}.
 
--spec error_msg_to_txn_data(string(), binary(), binary()) ->
-    binary() | {binary(), non_neg_integer()}.
-error_msg_to_txn_data(?TX_PROTOCOL_V1, <<"error">>, TxnHash) ->
-    TxnHash;
-error_msg_to_txn_data(?TX_PROTOCOL_V2, <<"error", Height/integer>>, TxnHash) ->
-    {TxnHash, Height}.
+%% marshall v1 response formats
+encode_response(?TX_PROTOCOL_V1, txn_accepted, _Details, _Height, _QueuePos) ->
+    <<"ok">>;
+encode_response(?TX_PROTOCOL_V1, txn_failed, no_group, _Height, _QueuePos) ->
+    <<"no_group">>;
+encode_response(?TX_PROTOCOL_V1, txn_failed, _Details, _Height, _QueuePos) ->
+    <<"error">>;
+encode_response(?TX_PROTOCOL_V1, txn_rejected, _Details, _Height, _QueuePos) ->
+    <<"rejected">>;
+%% marshall v2 response formats
+encode_response(?TX_PROTOCOL_V2, txn_accepted, _Details, _Height, _QueuePos)  ->
+    <<"ok">>;
+encode_response(?TX_PROTOCOL_V2, txn_failed, no_group, _Height, _QueuePos)  ->
+    <<"no_group">>;
+encode_response(?TX_PROTOCOL_V2, txn_failed, _Details, Height, _QueuePos) ->
+    <<"error", Height/integer>>;
+%% marshall v3 response format
+encode_response(?TX_PROTOCOL_V3, Resp, Details, Height, QueuePos)  ->
+    Msg = #blockchain_txn_submit_result_pb{
+        result = atom_to_binary(Resp, utf8),
+        details = atom_to_binary(Details, utf8),
+        height = Height,
+        queue_pos = QueuePos
+    },
+    blockchain_txn_handler_pb:encode_msg(Msg).
+
+%% decode responses to V3 format
+%% v1 -> v3
+decode_response(?TX_PROTOCOL_V1, <<"ok">>) ->
+    {txn_accepted, {undefined, undefined}};
+decode_response(?TX_PROTOCOL_V1, <<"no_group">>) ->
+    {txn_failed, {no_group}};
+decode_response(?TX_PROTOCOL_V1, <<"error">>) ->
+    {txn_rejected, {undefined, undefined}};
+%% v2 -> v3
+decode_response(?TX_PROTOCOL_V2, <<"ok">>) ->
+    {txn_accepted, {undefined, undefined}};
+decode_response(?TX_PROTOCOL_V2, <<"no_group">>) ->
+    {txn_failed, {no_group}};
+decode_response(?TX_PROTOCOL_V2, <<"error", Height/integer>>) ->
+    {txn_rejected, {Height, undefined}};
+%% v3 -> v3
+decode_response(?TX_PROTOCOL_V3, Resp) when is_binary(Resp) ->
+    decode_response(?TX_PROTOCOL_V3, blockchain_txn_handler_pb:decode_msg(Resp));
+decode_response(?TX_PROTOCOL_V3,
+    #blockchain_txn_submit_result_pb{result = <<"txn_accepted">>, height=Height, queue_pos=QueuePos}) ->
+    {txn_accepted, {Height, QueuePos}};
+decode_response(?TX_PROTOCOL_V3,
+    #blockchain_txn_submit_result_pb{result = <<"txn_failed">>, details=FailReason}) ->
+    {txn_failed, {FailReason}};
+decode_response(?TX_PROTOCOL_V3,
+    #blockchain_txn_submit_result_pb{result = <<"txn_rejected">>, details=RejectReason, height=Height}) ->
+    {txn_rejected, {Height, RejectReason}}.
