@@ -279,7 +279,7 @@ is_valid_payer(#blockchain_txn_assert_location_v2_pb{payer=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
--spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Gateway = ?MODULE:gateway(Txn),
     Owner = ?MODULE:owner(Txn),

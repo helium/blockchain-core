@@ -121,7 +121,7 @@ init(Args) ->
     BEventOpts = [],
     %% create the txn manager ets table under this supervisor and set ourselves as the heir
     %% we call `ets:give_away' every time we start_link the txn manager
-    BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_table()},
+    BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_tables()},
     BTxnMgrSupOpts = [],
     StateChannelSupOpts = [BaseDir],
     ChildSpecs =

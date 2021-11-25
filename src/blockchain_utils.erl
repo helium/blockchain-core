@@ -21,6 +21,7 @@
     pfind/2, pfind/3,
     pmap/2,
     addr2name/1,
+    addr2uri/1,
     distance/2,
     score_gateways/1,
     free_space_path_loss/2,
@@ -314,6 +315,90 @@ addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
     N.
+
+-spec addr2uri(libp2p_crypto:pubkey_bin() | undefined) -> binary() | undefined.
+addr2uri(undefined) -> undefined;
+addr2uri(PubKeyBin) ->
+    case check_for_public_uri(PubKeyBin) of
+        {ok, URI} -> URI;
+        {error, _} ->
+            case check_for_alias(PubKeyBin) of
+                {error, _} -> undefined;
+                {ok, IP} ->
+                    {Port, SSL} = grpc_port(PubKeyBin),
+                    format_uri(IP, SSL, Port)
+            end
+    end.
+
+-spec check_for_public_uri(libp2p_crypto:pubkey_bin()) -> {ok, binary()} | {error, atom()}.
+check_for_public_uri(PubKeyBin) ->
+    SwarmTID = blockchain_swarm:tid(),
+    Peerbook = libp2p_swarm:peerbook(SwarmTID),
+    case libp2p_peerbook:get(Peerbook, PubKeyBin) of
+        {ok, Peer} ->
+            case maps:get(<<"grpc_address">>, libp2p_peer:signed_metadata(Peer), undefined) of
+                undefined ->
+                    %% sort listen addrs, ensure the public ip is at the head
+                    case libp2p_peer:cleared_listen_addrs(Peer) of
+                        [] -> {error, no_listen_addrs};
+                        ClearedListenAddrs ->
+                            case libp2p_transport:sort_addrs_with_keys(SwarmTID, ClearedListenAddrs) of
+                                [] -> {error, no_listen_addrs};
+                                [H | _] ->
+                                    case has_addr_public_ip(H) of
+                                        {error, _} = Error -> Error;
+                                        {ok, IP} ->
+                                            {Port, SSL} = grpc_port(PubKeyBin),
+                                            {ok, format_uri(IP, SSL, Port)}
+                                    end
+                            end
+                    end;
+                URI -> {ok, URI}
+            end;
+        {error, _} = Error -> Error
+    end.
+
+-spec check_for_alias(libp2p_crypto:pubkey_bin()) -> {ok, binary()} | {error, atom()}.
+check_for_alias(PubKeyBin) ->
+    MAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    Aliases = application:get_env(libp2p, node_aliases, []),
+    case lists:keyfind(MAddr, 1, Aliases) of
+        false -> {error, peer_not_found};
+        {MAddr, AliasAddr} ->
+            %% Assume tcp transport
+            try libp2p_transport_tcp:tcp_addr(AliasAddr) of
+                {IPTuple, _, _, _} -> {ok, list_to_binary(inet:ntoa(IPTuple))}
+            catch
+                _ -> {error, tcp_addr_not_found}
+            end
+    end.
+
+-spec has_addr_public_ip({non_neg_integer(), string()}) -> {ok, binary()} | {error, atom()}.
+has_addr_public_ip({1, Addr}) ->
+    [_, _, IP, _, _Port] = re:split(Addr, "/"),
+    {ok, IP};
+has_addr_public_ip({_, _Addr}) -> {error, no_public_ip}.
+
+-spec grpc_port(libp2p_crypto:pubkey_bin()) -> {pos_integer(), boolean()}.
+grpc_port(PubKeyBin) ->
+    MAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    Aliases = application:get_env(blockchain, node_grpc_port_aliases, []),
+    case lists:keyfind(MAddr, 1, Aliases) of
+        false ->
+            Port = application:get_env(blockchain, grpc_port, 8080),
+            {Port, false};
+        {MAddr, {Port, SSL}} -> {Port, SSL}
+    end.
+
+-spec format_uri(binary(), boolean(), non_neg_integer()) -> binary().
+format_uri(IP, SSL, Port) ->
+    Scheme = case SSL of
+                 true -> "https";
+                 false -> "http"
+             end,
+    list_to_binary(
+        uri_string:normalize(#{scheme => Scheme, port => Port, host => IP, path => ""})
+    ).
 
 -spec rand_state(Hash :: binary()) -> rand:state().
 rand_state(Hash) ->

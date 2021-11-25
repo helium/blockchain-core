@@ -140,7 +140,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
         TxnFeeMultiplier
     ).
 
--spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
@@ -165,7 +165,7 @@ is_valid(Txn, Chain) ->
             {error, {invalid, max_payments_not_set}}
     end.
 
--spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?token_version, Ledger) of
