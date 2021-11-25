@@ -53,7 +53,7 @@ dial(Pid) ->
 init(Args) ->
     lager:debug("blockchain_txn_dialer started with ~p", [Args]),
     [Parent, TxnKey, Txn, Member] = Args,
-    Ref = erlang:send_after(30000, Parent, {timeout, {self(), TxnKey, Txn, Member}}),
+    Ref = erlang:send_after(30000, Parent, {dial_timeout, {self(), TxnKey, Txn, Member}}),
     {ok, #state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}}.
 
 handle_call(_, _, State) ->
@@ -69,35 +69,17 @@ handle_cast(dial, State=#state{}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {txn_accepted, {Height, QueuePos}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {accepted, {self(), TxnKey, Txn, Member}},
+    Parent ! {txn_accepted, {self(), TxnKey, Txn, Member, Height, QueuePos}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {no_group, _TxnHash}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {txn_rejected, {Height, RejectReason}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {no_group, {self(), TxnKey, Txn, Member}},
+    Parent ! {txn_rejected, {self(), TxnKey, Txn, Member, Height, RejectReason}},
     {stop, normal, State};
-handle_info(
-    {blockchain_txn_response, {error, TxnDataIn}},
-    #state{
-        parent = Parent,
-        txn_key = TxnKey,
-        txn = Txn,
-        member = Member,
-        timeout = Ref
-    }=State
-) ->
+handle_info({blockchain_txn_response, {txn_failed, {FailReason}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    TxnDataOut =
-        case TxnDataIn of
-            %% v2
-            {_TxnHash, Height} ->
-                {self(), TxnKey, Txn, Member, Height};
-            %% v1
-            _TxnHash ->
-                {self(), TxnKey, Txn, Member}
-        end,
-    Parent ! {rejected, TxnDataOut},
+    Parent ! {txn_failed, {self(), TxnKey, Txn, Member, FailReason}},
     {stop, normal, State};
 handle_info(_Msg, State) ->
     lager:info("txn dialer got unexpected info ~p", [_Msg]),

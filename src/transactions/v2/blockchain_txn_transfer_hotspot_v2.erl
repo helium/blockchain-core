@@ -141,7 +141,7 @@ is_valid_owner(
     Pubkey = libp2p_crypto:bin_to_pubkey(Owner),
     libp2p_crypto:verify(EncodedTxn, OwnerSig, Pubkey).
 
--spec is_valid(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
 
@@ -152,7 +152,7 @@ is_valid(Txn, Chain) ->
             {error, transaction_validity_version_not_set}
     end.
 
--spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),

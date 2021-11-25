@@ -125,7 +125,7 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_payment_v2_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
--spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
@@ -141,7 +141,7 @@ is_valid(Txn, Chain) ->
     end.
 
 
--spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     TotAmount = ?MODULE:total_amount(Txn),
