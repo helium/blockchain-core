@@ -41,7 +41,7 @@ hash(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
     TxnHashes = [blockchain_txn:hash(T) || T <- Txns],
     crypto:hash(sha256, TxnHashes).
 
--spec absorb(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_bundle(), blockchain:blockchain()) -> ok.
 absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}=_Txn, Chain) ->
     lists:foreach(fun(T) -> blockchain_txn:absorb(T, Chain) end, Txns).
 

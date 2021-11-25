@@ -241,7 +241,7 @@ cancels(Txn) ->
 nonce(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.nonce.
 
--spec is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gen =
@@ -510,7 +510,7 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
 
 %% TODO: we need a generalized hook here for when chain vars change
 %% and invalidate something in the ledger, to enable stuff to stay consistent
--spec absorb(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_vars(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
 

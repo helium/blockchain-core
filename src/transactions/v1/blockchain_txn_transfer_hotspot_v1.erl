@@ -169,7 +169,7 @@ is_valid_buyer(#blockchain_txn_transfer_hotspot_v1_pb{buyer=Buyer,
     Pubkey = libp2p_crypto:bin_to_pubkey(Buyer),
     libp2p_crypto:verify(EncodedTxn, BuyerSig, Pubkey).
 
--spec is_valid(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                                                 buyer=Buyer,
                                                 amount_to_seller=Bones}=Txn,
@@ -195,7 +195,7 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                                           {error, buyer_insufficient_hnt_balance}}],
     blockchain_utils:fold_condition_checks(Conditions).
 
--spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
