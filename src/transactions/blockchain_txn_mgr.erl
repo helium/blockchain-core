@@ -71,7 +71,8 @@
           txn_cache :: undefined | ets:tid(),
           chain :: undefined | blockchain:blockchain(),
           has_been_synced= false :: boolean(),
-          rejections_deferred :: [deferred_rejection()]
+          rejections_deferred :: [deferred_rejection()],
+          pending_mgr_state :: any()
          }).
 
 -record(txn_data,
@@ -163,7 +164,10 @@ init(Args) ->
                        Tab
                end,
     ok = blockchain_event:add_handler(self()),
-    {ok, #state{txn_cache = TxnCache, rejections_deferred = []}}.
+    %% initialize the pending txn mgr and load in any pending txns
+    {ok, PendingMgrState} = blockchain_pending_txn_mgr:init([]),
+    ok = blockchain_pending_txn_mgr:load_chain(PendingMgrState),
+    {ok, #state{txn_cache = TxnCache, rejections_deferred = [], pending_mgr_state = PendingMgrState}}.
 
 handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
     NewState = initialize_with_chain(State, Chain),
