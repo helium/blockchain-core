@@ -75,19 +75,6 @@ handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
             {stop, normal, State, encode_response(Path, txn_failed, exception, 0, undefined)}
     end.
 
-%%-spec error_msg(string(), non_neg_integer()) -> binary().
-%%error_msg(?TX_PROTOCOL_V1, _) ->
-%%    <<"error">>;
-%%error_msg(?TX_PROTOCOL_V2, Height) ->
-%%    <<"error", Height/integer>>.
-%%
-%%-spec error_msg_to_txn_data(string(), binary(), binary()) ->
-%%    binary() | {binary(), non_neg_integer()}.
-%%error_msg_to_txn_data(?TX_PROTOCOL_V1, <<"error">>, TxnHash) ->
-%%    TxnHash;
-%%error_msg_to_txn_data(?TX_PROTOCOL_V2, <<"error", Height/integer>>, TxnHash) ->
-%%    {TxnHash, Height}.
-
 %% marshall v1 response formats
 encode_response(?TX_PROTOCOL_V1, txn_accepted, _Details, _Height, _QueuePos) ->
     <<"ok">>;
