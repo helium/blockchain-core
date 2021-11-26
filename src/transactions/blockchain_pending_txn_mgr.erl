@@ -108,7 +108,7 @@ get_txn(TxnKey) ->
 get_txn_key()->
     %% define a unique value to use as the cache key for the received txn, for now its just a mono increasing timestamp.
     %% Timestamp is a poormans key but as txns are serialised via a single txn mgr per node, it satisfies the need here
-    erlang:monotonic_time().
+    list_to_binary(integer_to_list(erlang:monotonic_time())).
 
 get_state() ->
     blockchain_pending_txn_db:get_state(?MODULE).
