@@ -29,7 +29,7 @@ init(Args) ->
     case load_db(Dir) of
         {error, {db_open, "Corruption:" ++ _Reason}} ->
             lager:error("DB could not be opened corrupted ~p, cleaning up", [_Reason]),
-            ok = bn_db:clean_db(Dir),
+            ok = blockchain_pending_txn_db:clean_db(Dir),
             init(Args);
         {ok, State} ->
             persistent_term:put(?MODULE, State),
@@ -43,7 +43,7 @@ load_chain(State = #state{}) ->
     {ok, State}.
 
 load_block(_Hash, Block, _Sync, _Ledger, State = #state{db = DB, default = DefaultCF}) ->
-    ok = bn_db:put_follower_height(DB, DefaultCF, blockchain_block:height(Block)),
+    ok = blockchain_pending_txn_db:put_follower_height(DB, DefaultCF, blockchain_block:height(Block)),
     {ok, State}.
 
 terminate(_Reason, #state{db = DB}) ->
@@ -111,7 +111,7 @@ get_txn_key()->
     erlang:monotonic_time().
 
 get_state() ->
-    bn_db:get_state(?MODULE).
+    blockchain_pending_txn_db:get_state(?MODULE).
 
 -spec get_txn_status(TxnKey ::  blockchain_txn_mgr:txn_key(), #state{}) ->
     {ok, {failed, Reason :: binary()} | {cleared, Block :: pos_integer()} | pending}
@@ -204,7 +204,7 @@ get_txn(TxnKey, #state{db = DB, pending = PendingCF}) ->
 
 -spec load_db(Dir :: file:filename_all()) -> {ok, #state{}} | {error, any()}.
 load_db(Dir) ->
-    case bn_db:open_db(Dir, ["default", "pending", "status"]) of
+    case blockchain_pending_txn_db:open_db(Dir, ["default", "pending", "status"]) of
         {error, _Reason} = Error ->
             Error;
         {ok, DB, [DefaultCF, PendingCF, StatusCF]} ->
