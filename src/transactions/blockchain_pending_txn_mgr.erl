@@ -4,7 +4,7 @@
 
 -export([
     init/1,
-    load_chain/2,
+    load_chain/1,
     load_block/5,
     terminate/2
 ]).
@@ -37,7 +37,7 @@ init(Args) ->
     end.
 
 
-load_chain(_Chain, State = #state{}) ->
+load_chain(State = #state{}) ->
     Submitted = submit_pending_txns(State),
     lager:info("Submitted ~p pending transactions", [Submitted]),
     {ok, State}.
@@ -69,9 +69,10 @@ submit_txn(Txn, TxnKey) ->
 get_txn_status(TxnKey) ->
     %% check if the txn is queued in txn mgr
     %% if it is then assume its pending
-    %% if not the check rocksdb to see if it
+    %% if not then check rocksdb to see if it
     %% was previously confirmed or failed
     %% this saves any unnecessary and slower reads to rocksdb
+    %% ...if txn mgr has it, then dont do rocks read
     case blockchain_txn_mgr:txn_status(TxnKey) of
         {ok, PendingDetails} ->
             {ok, pending, PendingDetails};
