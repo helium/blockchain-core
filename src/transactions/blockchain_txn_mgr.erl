@@ -165,10 +165,18 @@ init(Args) ->
                    {ok, Tab} ->
                        Tab
                end,
+
+    PendingTxnMgrOpts = case maps:find(base_dir, Args) of
+                   error ->
+                       [];
+                   {ok, Path} ->
+                       [{base_dir, Path}]
+               end,
+
     ok = blockchain_event:add_handler(self()),
     %% initialize the pending txn mgr and load in any pending txns
-    {ok, PendingMgrState} = blockchain_pending_txn_mgr:init([]),
-    ok = blockchain_pending_txn_mgr:load_chain(PendingMgrState),
+    {ok, PendingMgrState} = blockchain_pending_txn_mgr:init(PendingTxnMgrOpts),
+    _ = blockchain_pending_txn_mgr:load_chain(PendingMgrState),
     {ok, #state{txn_cache = TxnCache, rejections_deferred = [], pending_mgr_state = PendingMgrState}}.
 
 handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
