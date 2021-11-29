@@ -182,12 +182,13 @@
     | failure_either()
     .
 
+%% Externally presented
 -type result() ::
-    ok | {error, {contract_breach, failure()}}.
+    result:empty({contract_breach, failure()}).
 
-%% For internal use
+%% Internally used
 -type test_result() ::
-    pass | {fail, failure()}.
+    result:empty(failure()).
 
 -define(CHAR_MIN, 0).
 -define(CHAR_MAX, 255).
@@ -196,21 +197,22 @@
 
 -spec is_satisfied(val(), t()) -> boolean().
 is_satisfied(Val, Contract) ->
-    res_to_bool(test(Val, Contract)).
+    case check(Val, Contract) of
+        ok -> true;
+        {error, _} -> false
+    end.
 
 -spec check(val(), t()) -> result().
 check(Val, Contract) ->
     case test(Val, Contract) of
-        pass ->
-            ok;
-        {fail, Failure} ->
-            {error, {contract_breach, Failure}}
+        ok -> ok;
+        {error, Failure} -> {error, {contract_breach, Failure}}
     end.
 
 %% Internal ===================================================================
 
 -spec test(val(), t()) -> test_result().
-test(_, any)                         -> pass;
+test(_, any)                         -> ok;
 test(V, {val, Expected})             -> test_val(V, Expected);
 test(V, {'not', Contract})           -> test_not(V, Contract);
 test(V, {custom, IsValid, Label})    -> test_custom(V, IsValid, Label);
@@ -243,37 +245,37 @@ test(_, BadContract) ->
 test_kvl(KeyValues, KeyContracts) ->
     IsPair = fun ({_, _}) -> true; (_) -> false end,
     case test_list(KeyValues, any, {custom, IsPair, invalid_kv_pair}) of
-        {fail, Failure} ->
-            {fail, {invalid_kvl, Failure}};
-        pass ->
+        {error, Failure} ->
+            {error, {invalid_kvl, Failure}};
+        ok ->
             KeyValueContracts =
                 [{K, V, kvl_get(K, KeyContracts)} || {K, V} <- KeyValues],
             KeysMissingContracts =
                 [K || {K, _, Opt} <- KeyValueContracts, Opt =:= none],
             case KeysMissingContracts of
                 [_|_] ->
-                    {fail, {kvl_keys_missing_a_contract, KeysMissingContracts}};
+                    {error, {kvl_keys_missing_a_contract, KeysMissingContracts}};
                 [] ->
                     case [K || {K, _} <- KeyContracts, kvl_get(K, KeyValues) =:= none] of
                         [_|_]=KeysMissingValues ->
-                            {fail, {kvl_keys_missing_a_value, KeysMissingValues}};
+                            {error, {kvl_keys_missing_a_value, KeysMissingValues}};
                         [] ->
                             KeyResults =
                                 [{K, test(V, C)} || {K, V, {some, C}} <- KeyValueContracts],
                             KeyFailures =
                                 lists:filtermap(
-                                    fun ({_, pass}) ->
+                                    fun ({_, ok}) ->
                                             false;
-                                        ({K, {fail, F}}) ->
+                                        ({K, {error, F}}) ->
                                             {true, {K, F}}
                                     end,
                                     KeyResults
                                 ),
                             case KeyFailures of
                                 [] ->
-                                    pass;
+                                    ok;
                                 [_|_] ->
-                                    {fail, {invalid_kvl_pairs, KeyFailures}}
+                                    {error, {invalid_kvl_pairs, KeyFailures}}
                             end
                     end
             end
@@ -282,21 +284,21 @@ test_kvl(KeyValues, KeyContracts) ->
 -spec test_not(val(), t()) -> test_result().
 test_not(V, Contract) ->
     case test(V, Contract) of
-        pass -> {fail, negation_failed};
-        {fail, _} -> pass
+        ok -> {error, negation_failed};
+        {error, _} -> ok
     end.
 
 -spec test_val(val(), val()) -> test_result().
-test_val(V, V) -> pass;
-test_val(G, E) -> {fail, {unexpected_val, given, G, expected, E}}.
+test_val(V, V) -> ok;
+test_val(G, E) -> {error, {unexpected_val, given, G, expected, E}}.
 
 -spec test_forall(val(), [t()]) -> test_result().
 test_forall(V, Contracts) ->
     lists:foldl(
-        fun (C, pass) -> test(V, C);
-            (_, {fail, _}=Failed) -> Failed
+        fun (C, ok) -> test(V, C);
+            (_, {error, _}=Failed) -> Failed
         end,
-        pass,
+        ok,
         Contracts
     ).
 
@@ -304,15 +306,15 @@ test_forall(V, Contracts) ->
 test_exists(V, Contracts) ->
     %% TODO More-informative error, not simply the last failure.
     lists:foldl(
-        fun (_, pass) -> pass;
-            (C, {fail, _}) -> test(V, C)
+        fun (_, ok) -> ok;
+            (C, {error, _}) -> test(V, C)
         end,
         case Contracts of
             [] ->
-                pass;
+                ok;
             [_|_] ->
                 %% XXX Init failure must never escape this foldl
-                {fail, {'BUG_IN', {?MODULE, 'test_exists', ?LINE}}}
+                {error, {'BUG_IN', {?MODULE, 'test_exists', ?LINE}}}
         end,
         Contracts
     ).
@@ -320,30 +322,30 @@ test_exists(V, Contracts) ->
 -spec test_either(val(), [t()]) -> test_result().
 test_either(V, Contracts) ->
     Results = [{C, test(V, C)} || C <- Contracts],
-    case lists:partition(fun ({_, R}) -> R =:= pass end, Results) of
-        {[]     , F} -> {fail, {zero_contracts_satisfied, [R || {_, {fail, R}} <- F]}};
-        {[_]    , _} -> pass;
-        {[_|_]=P, _} -> {fail, {multiple_contracts_satisfied, [C || {C, pass} <- P]}}
+    case lists:partition(fun ({_, R}) -> R =:= ok end, Results) of
+        {[]     , F} -> {error, {zero_contracts_satisfied, [R || {_, {error, R}} <- F]}};
+        {[_]    , _} -> ok;
+        {[_|_]=P, _} -> {error, {multiple_contracts_satisfied, [C || {C, ok} <- P]}}
     end.
 
 -spec test_custom(val(), fun((val()) -> boolean()), term()) -> test_result().
 test_custom(V, IsValid, Label) ->
     case IsValid(V) of
-        true -> pass;
-        false -> {fail, {Label, V}}
+        true -> ok;
+        false -> {error, {Label, V}}
     end.
 
 -spec test_defined(val()) -> test_result().
 test_defined(undefined) ->
-    {fail, undefined};
+    {error, undefined};
 test_defined(_) ->
-    pass.
+    ok.
 
 -spec test_undefined(val()) -> test_result().
 test_undefined(undefined) ->
-    pass;
+    ok;
 test_undefined(_) ->
-    {fail, defined}.
+    {error, defined}.
 
 -spec test_iodata(val(), measure()) -> test_result().
 test_iodata(V, Measure) ->
@@ -355,14 +357,14 @@ test_iodata(V, Measure) ->
             )
     catch
         _:_ ->
-            {fail, not_iodata}
+            {error, not_iodata}
     end.
 
 -spec test_binary(val(), measure()) -> test_result().
 test_binary(V, Measure) ->
     case is_binary(V) of
         false ->
-            {fail, {not_a_binary, V}};
+            {error, {not_a_binary, V}};
         true ->
             Size = byte_size(V),
             res_of_bool(
@@ -374,17 +376,17 @@ test_binary(V, Measure) ->
 -spec test_string(val(), measure()) -> test_result().
 test_string(V, Measure) ->
     case test(V, {list, Measure, {integer, {range, ?CHAR_MIN, ?CHAR_MAX}}}) of
-        pass ->
-            pass;
-        {fail, Reason} ->
-            {fail, {invalid_string, Reason}}
+        ok ->
+            ok;
+        {error, Reason} ->
+            {error, {invalid_string, Reason}}
     end.
 
 -spec test_list_size(val(), measure()) -> test_result().
 test_list_size(V, Measure) ->
     case is_list(V) of
         false ->
-            {fail, {not_a_list, V}};
+            {error, {not_a_list, V}};
         true ->
             Size = length(V),
             res_of_bool(
@@ -396,15 +398,15 @@ test_list_size(V, Measure) ->
 -spec test_list(val(), measure(), t()) -> test_result().
 test_list(Xs, Measure, ElementContract) ->
     case test_list_size(Xs, Measure) of
-        {fail, _}=Fail ->
+        {error, _}=Fail ->
             Fail;
-        pass ->
+        ok ->
             Failures =
                 lists:foldl(
                     fun (X, Failures) ->
                         case test(X, ElementContract) of
-                            pass -> Failures;
-                            {fail, F} -> [F | Failures]
+                            ok -> Failures;
+                            {error, F} -> [F | Failures]
                         end
                     end,
                     [],
@@ -412,9 +414,9 @@ test_list(Xs, Measure, ElementContract) ->
                 ),
             case Failures of
                 [] ->
-                    pass;
+                    ok;
                 [_|_] ->
-                    {fail, {list_contains_invalid_elements, Failures}}
+                    {error, {list_contains_invalid_elements, Failures}}
             end
     end.
 
@@ -424,16 +426,16 @@ test_tuple(V, Contracts) when is_tuple(V) ->
     NumContracts = length(Contracts),
     case NumElements =:= NumContracts of
         false ->
-            {fail, {tuple_wrong_size, NumElements, NumContracts}};
+            {error, {tuple_wrong_size, NumElements, NumContracts}};
         true ->
             Elements = tuple_to_list(V),
             Failures =
                 lists:foldl(
                     fun ({I, E, C}, Failures) ->
                         case test(E, C) of
-                            pass ->
+                            ok ->
                                 Failures;
-                            {fail, F} ->
+                            {error, F} ->
                                 [{I, F} | Failures]
                         end
                     end,
@@ -442,26 +444,26 @@ test_tuple(V, Contracts) when is_tuple(V) ->
                 ),
             case Failures of
                 [] ->
-                    pass;
+                    ok;
                 [_|_] ->
-                    {fail, {tuple_contract_breaches_in, Failures}}
+                    {error, {tuple_contract_breaches_in, Failures}}
             end
     end;
 test_tuple(V, _) ->
-    {fail, {not_a_tuple, V}}.
+    {error, {not_a_tuple, V}}.
 
 -spec test_ordset(val(), measure(), t(), fun((val(), val()) -> boolean())) ->
     test_result().
 test_ordset(Xs, Measure, ElementContract, Cmp) ->
     case test_list(Xs, Measure, ElementContract) of
-        {fail, _}=Fail ->
+        {error, _}=Fail ->
             Fail;
-        pass ->
+        ok ->
             case Xs -- lists:usort(Cmp, Xs) of
                 [] ->
-                    pass;
+                    ok;
                 [_|_]=Dups ->
-                    {fail, {list_contains_duplicate_elements, Dups}}
+                    {error, {list_contains_duplicate_elements, Dups}}
             end
     end.
 
@@ -478,7 +480,7 @@ test_int(V, Range) ->
 test_num(V, Range, TypeTest, TypeFailureLabel, RangeFailureLabel) ->
     case TypeTest(V) of
         false ->
-            {fail, {TypeFailureLabel, V}};
+            {error, {TypeFailureLabel, V}};
         true ->
             res_of_bool(
                 is_in_range(V, Range),
@@ -502,24 +504,24 @@ test_membership(V, Vs) ->
 -spec test_address_libp2p(val()) -> test_result().
 test_address_libp2p(V) ->
     try libp2p_crypto:bin_to_pubkey(V) of
-        _ -> pass
+        _ -> ok
     catch
-        _:_ -> {fail, invalid_address}
+        _:_ -> {error, invalid_address}
     end.
 
 -spec test_h3_string(val()) -> test_result().
 test_h3_string(V) ->
     try h3:from_string(V) of
-        _ -> pass
+        _ -> ok
     catch
-        _:_ -> {fail, invalid_h3_string}
+        _:_ -> {error, invalid_h3_string}
     end.
 
 -spec test_txn(val(), txn_type()) -> test_result().
 test_txn(V, TxnType) ->
     case blockchain_txn:type_check(V) of
         {error, not_a_known_txn_value} ->
-            {fail, {not_a_txn, V}};
+            {error, {not_a_txn, V}};
         {ok, TypeActual} ->
             TypeRequired =
                 case TxnType of
@@ -532,22 +534,18 @@ test_txn(V, TxnType) ->
                 true ->
                     case TypeActual:is_well_formed(V) of
                         ok ->
-                            pass;
+                            ok;
                         {error, _} ->
-                            {fail, {txn_malformed, V}}
+                            {error, {txn_malformed, V}}
                     end;
                 false ->
-                    {fail, {txn_wrong_type, TypeActual, TypeRequired}}
+                    {error, {txn_wrong_type, TypeActual, TypeRequired}}
             end
     end.
 
 -spec res_of_bool(boolean(), failure()) -> test_result().
-res_of_bool(true, _) -> pass;
-res_of_bool(false, Failure) -> {fail, Failure}.
-
--spec res_to_bool(test_result()) -> boolean().
-res_to_bool(pass) -> true;
-res_to_bool({fail, _}) -> false.
+res_of_bool(true, _) -> ok;
+res_of_bool(false, Failure) -> {error, Failure}.
 
 -spec kvl_get(K, [{K, V}]) -> none | {some, V}.
 kvl_get(K, KVL) ->
@@ -563,15 +561,15 @@ kvl_get(K, KVL) ->
 %% Test cases =================================================================
 logic_test_() ->
     [
-        ?_assertEqual(pass, test(<<>>, {'∀', [defined, {binary, any}]})),
-        ?_assertEqual(pass, test(<<>>, {forall, [defined, {binary, any}]})),
-        ?_assertEqual(pass, test(<<>>, {all_of, [defined, {binary, any}]})),
-        ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, any}]})),
-        ?_assertEqual(pass, test(<<>>, {any_of, [defined, {binary, any}]})),
-        ?_assertEqual(pass, test(<<>>, {'∃', [defined, {binary, {exactly, 5}}]})),
-        ?_assertEqual(pass, test(<<>>, {exists, [defined, {binary, {exactly, 5}}]})),
+        ?_assertEqual(ok, test(<<>>, {'∀', [defined, {binary, any}]})),
+        ?_assertEqual(ok, test(<<>>, {forall, [defined, {binary, any}]})),
+        ?_assertEqual(ok, test(<<>>, {all_of, [defined, {binary, any}]})),
+        ?_assertEqual(ok, test(<<>>, {exists, [defined, {binary, any}]})),
+        ?_assertEqual(ok, test(<<>>, {any_of, [defined, {binary, any}]})),
+        ?_assertEqual(ok, test(<<>>, {'∃', [defined, {binary, {exactly, 5}}]})),
+        ?_assertEqual(ok, test(<<>>, {exists, [defined, {binary, {exactly, 5}}]})),
         ?_assertEqual(
-            pass,
+            ok,
             test(
                 undefined,
                 {exists, [
@@ -582,52 +580,52 @@ logic_test_() ->
             )
         ),
         ?_assertMatch(
-            {fail, undefined},
+            {error, undefined},
             test(undefined, {forall, [defined, {binary, {exactly, 5}}]})
         ),
         ?_assertMatch(
-            {fail, {binary_wrong_size, 0, {exactly, 5}}},
+            {error, {binary_wrong_size, 0, {exactly, 5}}},
             test(<<>>, {forall, [defined, {binary, {exactly, 5}}]})
         ),
-        ?_assertEqual(pass, test(5, {one_of, [{integer, any}, {binary, any}]})),
-        ?_assertEqual(pass, test(5, {either, [{integer, any}, {binary, any}]})),
-        ?_assertEqual(pass, test(5, {'∃!', [{integer, any}, {binary, any}]})),
+        ?_assertEqual(ok, test(5, {one_of, [{integer, any}, {binary, any}]})),
+        ?_assertEqual(ok, test(5, {either, [{integer, any}, {binary, any}]})),
+        ?_assertEqual(ok, test(5, {'∃!', [{integer, any}, {binary, any}]})),
         ?_assertMatch(
-            {fail, {zero_contracts_satisfied, _}},
+            {error, {zero_contracts_satisfied, _}},
             test(5, {either, [{integer, {max, 1}}, {integer, {exactly, 10}}]})
         ),
         ?_assertMatch(
-            {fail, {multiple_contracts_satisfied, [{integer, any}, {integer, any}]}},
+            {error, {multiple_contracts_satisfied, [{integer, any}, {integer, any}]}},
             test(5, {either, [{integer, any}, {integer, any}]})
         ),
         ?_assertMatch(
-            {fail, {multiple_contracts_satisfied, [{integer, any}, {integer, _}]}},
+            {error, {multiple_contracts_satisfied, [{integer, any}, {integer, _}]}},
             test(5, {either, [{integer, any}, {integer, {range, 0, 10}}]})
         )
     ].
 
 membership_test_() ->
     [
-        ?_assertEqual(pass, test(x, {member, [x, y, x]})),
-        ?_assertEqual({fail, {not_a_member_of, []}}, test(x, {member, []}))
+        ?_assertEqual(ok, test(x, {member, [x, y, x]})),
+        ?_assertEqual({error, {not_a_member_of, []}}, test(x, {member, []}))
     ].
 
 integer_test_() ->
     [
-        ?_assertEqual(pass, test(1, {integer, any})),
-        ?_assertEqual(pass, test(1, {integer, {exactly, 1}})),
+        ?_assertEqual(ok, test(1, {integer, any})),
+        ?_assertEqual(ok, test(1, {integer, {exactly, 1}})),
         ?_assertEqual(
-            {fail, {integer_out_of_range, 2, {exactly, 1}}},
+            {error, {integer_out_of_range, 2, {exactly, 1}}},
             test(2, {integer, {exactly, 1}})
         )
     ].
 
 float_test_() ->
     [
-        ?_assertEqual(pass, test(1.0, {float, any})),
-        ?_assertEqual(pass, test(1.0, {float, {exactly, 1.0}})),
+        ?_assertEqual(ok, test(1.0, {float, any})),
+        ?_assertEqual(ok, test(1.0, {float, {exactly, 1.0}})),
         ?_assertEqual(
-            {fail, {float_out_of_range, 2.0, {exactly, 1.0}}},
+            {error, {float_out_of_range, 2.0, {exactly, 1.0}}},
             test(2.0, {float, {exactly, 1.0}})
         )
     ].
@@ -636,8 +634,8 @@ custom_test_() ->
     BarContract = {custom, fun(X) -> X =:= bar end, not_bar},
     Key = foo,
     [
-        ?_assertEqual(pass, test(bar, BarContract)),
-        ?_assertEqual({fail, {not_bar, baz}}, test(baz, BarContract)),
+        ?_assertEqual(ok, test(bar, BarContract)),
+        ?_assertEqual({error, {not_bar, baz}}, test(baz, BarContract)),
         ?_assertEqual(ok, check([{Key, bar}], {kvl, [{Key, BarContract}]})),
 
         ?_assertEqual(
@@ -650,8 +648,8 @@ defined_test_() ->
     Contract = defined,
     Key = foo,
     [
-        ?_assertEqual(pass, test(bar, Contract)),
-        ?_assertEqual({fail, undefined}, test(undefined, Contract)),
+        ?_assertEqual(ok, test(bar, Contract)),
+        ?_assertEqual({error, undefined}, test(undefined, Contract)),
         ?_assertEqual(ok, check([{Key, bar}], {kvl, [{Key, Contract}]})),
         ?_assertEqual(
             {error, {contract_breach, {invalid_kvl_pairs, [{Key, undefined}]}}},
@@ -662,15 +660,15 @@ defined_test_() ->
 binary_test_() ->
     Key = foo,
     [
-        ?_assertEqual(pass, test(<<>>, {binary, any})),
-        ?_assertEqual(pass, test(<<>>, {binary, {exactly, 0}})),
-        ?_assertEqual(pass, test(<<>>, {binary, {range, 0, 1024}})),
+        ?_assertEqual(ok, test(<<>>, {binary, any})),
+        ?_assertEqual(ok, test(<<>>, {binary, {exactly, 0}})),
+        ?_assertEqual(ok, test(<<>>, {binary, {range, 0, 1024}})),
         ?_assertEqual(
-            {fail, {binary_wrong_size, 0, {range, 1, 1024}}},
+            {error, {binary_wrong_size, 0, {range, 1, 1024}}},
             test(<<>>, {binary, {range, 1, 1024}})
         ),
-        ?_assertEqual(pass, test(<<"a">>, {binary, {range, 1, 1024}})),
-        ?_assertEqual(pass, test(<<"bar">>, {binary, {range, 3, 1024}})),
+        ?_assertEqual(ok, test(<<"a">>, {binary, {range, 1, 1024}})),
+        ?_assertEqual(ok, test(<<"bar">>, {binary, {range, 3, 1024}})),
         ?_assertEqual(ok, check([{Key, <<>>}], {kvl, [{Key, {binary, any}}]})),
         ?_assertEqual(ok, check([{Key, <<>>}], {kvl, [{Key, {binary, {exactly, 0}}}]})),
         ?_assertEqual(
@@ -683,16 +681,16 @@ list_test_() ->
     Key = foo,
     BadList = <<"trust me, i'm a list">>,
     [
-        ?_assertEqual(pass, test([], {list, any, any})),
-        ?_assertEqual(pass, test([], {list, {exactly, 0}, any})),
-        ?_assertEqual(pass, test([], {list, {range, 0, 1024}, any})),
+        ?_assertEqual(ok, test([], {list, any, any})),
+        ?_assertEqual(ok, test([], {list, {exactly, 0}, any})),
+        ?_assertEqual(ok, test([], {list, {range, 0, 1024}, any})),
         ?_assertEqual(
-            {fail, {list_wrong_size, 0, {range, 1, 1024}}},
+            {error, {list_wrong_size, 0, {range, 1, 1024}}},
             test([], {list, {range, 1, 1024}, any})
         ),
-        ?_assertEqual(pass, test([a], {list, {range, 1, 1024}, any})), % TODO atom contract
-        ?_assertEqual(pass, test([a, b, c], {list, {range, 3, 1024}, any})), % TODO atom contract
-        ?_assertEqual(pass, test([a, b, c, d, e, f], {list, {range, 3, 1024}, any})), % TODO atom contract
+        ?_assertEqual(ok, test([a], {list, {range, 1, 1024}, any})), % TODO atom contract
+        ?_assertEqual(ok, test([a, b, c], {list, {range, 3, 1024}, any})), % TODO atom contract
+        ?_assertEqual(ok, test([a, b, c, d, e, f], {list, {range, 3, 1024}, any})), % TODO atom contract
         ?_assertEqual(ok, check([{Key, []}], {kvl, [{Key, {list, any, any}}]})),
         ?_assertEqual(ok, check([{Key, []}], {kvl, [{Key, {list, {exactly, 0}, any}}]})),
         ?_assertEqual(
@@ -706,13 +704,13 @@ list_test_() ->
                 {kvl, [{Key, {list, {range, 8, 1024}, any}}]}
             )
         ),
-        ?_assertEqual(pass, test([], {list, any, {integer, any}})),
-        ?_assertEqual(pass, test([], {list, any, {integer, {range, 1, 5}}})),
-        ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, any}})),
-        ?_assertEqual(pass, test([1, 2, 3], {list, {exactly, 3}, {integer, any}})),
-        ?_assertEqual(pass, test([1, 2, 3], {list, any, {integer, {range, 1, 5}}})),
+        ?_assertEqual(ok, test([], {list, any, {integer, any}})),
+        ?_assertEqual(ok, test([], {list, any, {integer, {range, 1, 5}}})),
+        ?_assertEqual(ok, test([1, 2, 3], {list, any, {integer, any}})),
+        ?_assertEqual(ok, test([1, 2, 3], {list, {exactly, 3}, {integer, any}})),
+        ?_assertEqual(ok, test([1, 2, 3], {list, any, {integer, {range, 1, 5}}})),
         ?_assertEqual(
-            {fail, {list_contains_invalid_elements, [{integer_out_of_range, 30, {range, 1, 5}}]}},
+            {error, {list_contains_invalid_elements, [{integer_out_of_range, 30, {range, 1, 5}}]}},
             test([1, 2, 30], {list, any, {integer, {range, 1, 5}}})
         )
     ].
@@ -720,13 +718,13 @@ list_test_() ->
 address_test_() ->
     Addr = addr_gen(),
     [
-        ?_assertEqual(pass, test(Addr, {address, libp2p})),
+        ?_assertEqual(ok, test(Addr, {address, libp2p})),
         ?_assertEqual(
-            {fail, invalid_address},
+            {error, invalid_address},
             test(<<"eggplant", Addr/binary>>, {address, libp2p})
         ),
         ?_assertEqual(
-            pass,
+            ok,
             test(
                 Addr,
                 {forall, [
@@ -745,43 +743,43 @@ iodata_test_() ->
     CharMax = 255,
     IOData = ["foo", <<"baz">>],
     [
-        ?_assertEqual(pass                                    , test_iodata(IOData, any)),
-        ?_assertMatch({fail, {iodata_wrong_size, _, {min, _}}}, test_iodata(IOData, {min, iolist_size(IOData) + 1})),
-        ?_assertMatch({fail, {iodata_wrong_size, _, {max, _}}}, test_iodata(IOData, {max, iolist_size(IOData) - 1})),
+        ?_assertEqual(ok                                    , test_iodata(IOData, any)),
+        ?_assertMatch({error, {iodata_wrong_size, _, {min, _}}}, test_iodata(IOData, {min, iolist_size(IOData) + 1})),
+        ?_assertMatch({error, {iodata_wrong_size, _, {max, _}}}, test_iodata(IOData, {max, iolist_size(IOData) - 1})),
 
-        ?_assertEqual({fail, not_iodata}, test_iodata(undefined, any)),
-        ?_assertEqual({fail, not_iodata}, test_iodata([undefined], any)),
-        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", bar, <<"baz">>], any)),
-        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], <<"baz">>], any)),
-        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[hi], ["qux"]]], <<"baz">>], any)),
-        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin - 1, <<"baz">>], any)),
-        ?_assertEqual({fail, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax + 1, <<"baz">>], any)),
-        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin, <<"baz">>], any)),
-        ?_assertEqual(pass, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax, <<"baz">>], any)),
-        ?_assertEqual(pass, test([[], [<<"1">>], "2", <<"3">>], {list, any, {iodata, any}})),
+        ?_assertEqual({error, not_iodata}, test_iodata(undefined, any)),
+        ?_assertEqual({error, not_iodata}, test_iodata([undefined], any)),
+        ?_assertEqual({error, not_iodata}, test_iodata(["foo", bar, <<"baz">>], any)),
+        ?_assertEqual(ok, test_iodata(["foo", [["123"], [[], ["qux"]]], <<"baz">>], any)),
+        ?_assertEqual({error, not_iodata}, test_iodata(["foo", [["123"], [[hi], ["qux"]]], <<"baz">>], any)),
+        ?_assertEqual({error, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin - 1, <<"baz">>], any)),
+        ?_assertEqual({error, not_iodata}, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax + 1, <<"baz">>], any)),
+        ?_assertEqual(ok, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMin, <<"baz">>], any)),
+        ?_assertEqual(ok, test_iodata(["foo", [["123"], [[], ["qux"]]], CharMax, <<"baz">>], any)),
+        ?_assertEqual(ok, test([[], [<<"1">>], "2", <<"3">>], {list, any, {iodata, any}})),
 
-        ?_assertMatch(pass                                       , test("12345678", {list, any, {integer, any}})),
-        ?_assertMatch({fail, {list_contains_invalid_elements, _}}, test("12345678", {list, any, {iodata, any}})),
-        ?_assertEqual(pass                                       , test("12345678", {iodata, any}))
+        ?_assertMatch(ok                                       , test("12345678", {list, any, {integer, any}})),
+        ?_assertMatch({error, {list_contains_invalid_elements, _}}, test("12345678", {list, any, {iodata, any}})),
+        ?_assertEqual(ok                                       , test("12345678", {iodata, any}))
     ].
 
 string_test_() ->
     [
-        ?_assertEqual(pass, test("foo", {string, any})),
+        ?_assertEqual(ok, test("foo", {string, any})),
         ?_assertEqual(
-            {fail, {invalid_string, {list_wrong_size, 3, {min, 4}}}},
+            {error, {invalid_string, {list_wrong_size, 3, {min, 4}}}},
             test("foo", {string, {min, 4}})
         ),
         ?_assertEqual(
-            {fail, {invalid_string, {not_a_list, <<"foo">>}}},
+            {error, {invalid_string, {not_a_list, <<"foo">>}}},
             test(<<"foo">>, {string, any})
         ),
         ?_assertEqual(
-            {fail, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MIN - 1, {range, 0, 255}}]}}},
+            {error, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MIN - 1, {range, 0, 255}}]}}},
             test("foo" ++ [?CHAR_MIN - 1], {string, any})
         ),
         ?_assertEqual(
-            {fail, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MAX + 1, {range, 0, 255}}]}}},
+            {error, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MAX + 1, {range, 0, 255}}]}}},
             test("foo" ++ [?CHAR_MAX + 1], {string, any})
         )
     ].
@@ -792,15 +790,15 @@ txn_test_() ->
     Txn  = Type:new(Addr, Addr),
     TxnMalformed = Type:new(<<"not addr">>, Addr),
     [
-        ?_assertEqual({fail, {not_a_txn, trust_me_im_a_txn}}, test(trust_me_im_a_txn, {txn, any})),
-        ?_assertEqual(pass, test(Txn, {txn, any})),
-        ?_assertEqual(pass, test(Txn, {txn, {type, Type}})),
+        ?_assertEqual({error, {not_a_txn, trust_me_im_a_txn}}, test(trust_me_im_a_txn, {txn, any})),
+        ?_assertEqual(ok, test(Txn, {txn, any})),
+        ?_assertEqual(ok, test(Txn, {txn, {type, Type}})),
         ?_assertEqual(
-            {fail, {txn_wrong_type, Type, not_a_txn_type}},
+            {error, {txn_wrong_type, Type, not_a_txn_type}},
             test(Txn, {txn, {type, not_a_txn_type}})
         ),
         ?_assertEqual(
-            {fail, {txn_malformed, TxnMalformed}},
+            {error, {txn_malformed, TxnMalformed}},
             test(TxnMalformed, {txn, any})
         )
     ].
@@ -810,37 +808,37 @@ is_satisfied_test() ->
 
 ordset_test_() ->
     [
-        ?_assertMatch(pass, test([], {ordset, any, any})),
-        ?_assertMatch(pass, test([a, b, c], {ordset, any, any})),
+        ?_assertMatch(ok, test([], {ordset, any, any})),
+        ?_assertMatch(ok, test([a, b, c], {ordset, any, any})),
 
         % XXX Note that it isn't a strict ordset, since order is not enforced,
         % only uniquness:
-        ?_assertMatch(pass, test([c, a, b], {ordset, any, any})),
-        ?_assertMatch(pass, test([c, b, a], {ordset, any, any})),
+        ?_assertMatch(ok, test([c, a, b], {ordset, any, any})),
+        ?_assertMatch(ok, test([c, b, a], {ordset, any, any})),
 
         ?_assertMatch(
-            {fail, {list_contains_duplicate_elements, [c]}},
+            {error, {list_contains_duplicate_elements, [c]}},
             test([c, b, a, c], {ordset, any, any})
         ),
         ?_assertMatch(
-            {fail, {list_contains_duplicate_elements, [c, c]}},
+            {error, {list_contains_duplicate_elements, [c, c]}},
             test([c, b, a, c, c], {ordset, any, any})
         )
     ].
 
 val_test_() ->
     [
-        ?_assertEqual(pass, test(a, {val, a})),
+        ?_assertEqual(ok, test(a, {val, a})),
         ?_assertEqual(
-            {fail, {unexpected_val, given, b, expected, a}},
+            {error, {unexpected_val, given, b, expected, a}},
             test(b, {val, a})
         ),
         ?_assertEqual(
-            {fail, negation_failed},
+            {error, negation_failed},
             test(a, {'not', {val, a}})
         ),
         ?_assertEqual(
-            pass,
+            ok,
             test(b, {'not', {val, a}})
         )
     ].
@@ -848,29 +846,29 @@ val_test_() ->
 kvl_test_() ->
     [
         ?_assertMatch(
-           pass,
+           ok,
             test([{a, 1}], {kvl, [{a, defined}]})
         ),
         ?_assertMatch(
-           {fail, {kvl_keys_missing_a_contract, [a]}},
+           {error, {kvl_keys_missing_a_contract, [a]}},
             test([{a, 1}], {kvl, [{b, defined}]})
         ),
         ?_assertMatch(
-           {fail, {kvl_keys_missing_a_value, [b]}},
+           {error, {kvl_keys_missing_a_value, [b]}},
             test([{a, 1}], {kvl, [{a, defined}, {b, defined}]})
         )
     ].
 
 tuple_test_() ->
     [
-        ?_assertMatch(pass, test({a}, {tuple, [{val, a}]})),
-        ?_assertMatch(pass, test({a, 1}, {tuple, [{val, a}, {integer, {min, 0}}]})),
+        ?_assertMatch(ok, test({a}, {tuple, [{val, a}]})),
+        ?_assertMatch(ok, test({a, 1}, {tuple, [{val, a}, {integer, {min, 0}}]})),
         ?_assertMatch(
-            {fail, {tuple_wrong_size, 1, 2}},
+            {error, {tuple_wrong_size, 1, 2}},
             test({a}, {tuple, [{val, a}, {integer, {min, 0}}]})
         ),
         ?_assertMatch(
-            {fail, {tuple_contract_breaches_in, [{2, {not_an_integer, b}}]}},
+            {error, {tuple_contract_breaches_in, [{2, {not_an_integer, b}}]}},
             test({a, b}, {tuple, [{val, a}, {integer, {min, 0}}]})
         )
     ].
