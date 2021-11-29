@@ -1197,7 +1197,6 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
     case
         case blockchain_poc_witness_v1:verify_signatures(Witnesses) of
             true ->
-                lager:info("witness verify_signatures: true"),
                 lists:all(
                   fun(Witness) ->
                           %% the witnesses should have an asserted location
