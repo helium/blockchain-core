@@ -244,7 +244,7 @@ to_json(Receipt, _Opts) ->
 verify_signatures(Receipts) ->
     Batch = lists:foldl(
               fun(Receipt=#blockchain_poc_receipt_v1_pb{gateway=GatewayPubkeyBin, signature=Signature}, Acc) ->
-                      BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
+                      BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>, addr_hash = undefined},
                       EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
                       [{EncodedReceipt, [{Signature, GatewayPubkeyBin}]} | Acc]
               end,
