@@ -590,7 +590,7 @@ handle_cast({snapshot_sync, Hash, Height}, State) ->
 handle_cast({async_reset, _Height}, State) ->
     lager:info("got async_reset at height ~p, ignoring", [_Height]),
     {noreply, State};
-handle_cast([monitor_rocksdb_gc, Pid}, State) ->
+handle_cast({monitor_rocksdb_gc, Pid}, State) ->
     MRef = monitor(process, Pid),
     {noreply, State#state{rocksdb_gc_mref = MRef}};
 
@@ -686,7 +686,7 @@ handle_info({'DOWN', RocksGCRef, process, RocksGCPid, Reason},
         Reason ->
             lager:error("rocksdb_gc pid ~p crashed because ~p", [RocksGCPid, Reason])
     end,
-    {noreply, State#{rocksdb_gc_mref = undefined}};
+    {noreply, State#state{rocksdb_gc_mref = undefined}};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};

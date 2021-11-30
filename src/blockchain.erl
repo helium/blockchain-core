@@ -2164,7 +2164,7 @@ load(Dir, Mode) ->
                             lager:notice("System requested we free ~b bytes of disk space"),
                             Pid = spawn(fun() -> rocksdb_gc(BytesToGC, Blockchain) end),
                             lager:info("Starting rocksdb gc on pid ~p", [Pid]),
-                            ok = blockchain_worker:monitor_rocksdb_gc(Pid);
+                            ok = blockchain_worker:monitor_rocksdb_gc(Pid)
                     catch _:_ ->
                               ok
                     end
