@@ -1373,10 +1373,6 @@ vars_nonce(NewNonce, Ledger) ->
                                                                  | {error, any()}.
 find_gateway_info(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    case application:get_env(blockchain, find_gateway_sim_delay, 0) of
-        0 -> ok;
-        N -> timer:sleep(N)
-    end,
     case cache_get(Ledger, AGwsCF, Address, []) of
         {ok, BinGw} ->
             {ok, blockchain_ledger_gateway_v2:deserialize(BinGw)};
