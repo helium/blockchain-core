@@ -26,10 +26,11 @@
     addr_hash/1, addr_hash/2,
     tx_power/1, tx_power/2,
     sign/2,
-    is_valid/2,
+    is_valid/2, is_valid/3,
     print/1,
     json_type/0,
-    to_json/2
+    to_json/2,
+    verify_signatures/1
 ]).
 
 -ifdef(TEST).
@@ -161,8 +162,16 @@ sign(Receipt, SigFun) ->
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     Receipt#blockchain_poc_receipt_v1_pb{signature=SigFun(EncodedReceipt)}.
 
--spec is_valid(Receipt :: poc_receipt(), blockchain_ledger_v1:ledger()) -> boolean().
-is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH}, Ledger) ->
+-spec is_valid(Receipt :: poc_receipt(), Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(Receipt, Ledger) ->
+    is_valid(Receipt, Ledger, true).
+
+-spec is_valid(Receipt :: poc_receipt(),
+               Ledger :: blockchain_ledger_v1:ledger(),
+               CheckSignature :: boolean()) -> boolean().
+is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH},
+         Ledger,
+         CheckSignature) ->
     ValidHash = case blockchain_ledger_v1:config(?poc_addr_hash_byte_count, Ledger) of
                     {ok, Bytes} when is_integer(Bytes), Bytes > 0 ->
                         AH == undefined orelse AH == <<>> orelse
@@ -177,7 +186,7 @@ is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signat
             PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
             BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>, addr_hash=undefined},
             EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
-            case libp2p_crypto:verify(EncodedReceipt, Signature, PubKey) of
+            case CheckSignature orelse libp2p_crypto:verify(EncodedReceipt, Signature, PubKey) of
                 false -> false;
                 true ->
                     case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
@@ -230,6 +239,19 @@ to_json(Receipt, _Opts) ->
       datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt))),
       tx_power => ?MAYBE_UNDEFINED(tx_power(Receipt))
      }.
+
+-spec verify_signatures(Receipts :: poc_receipts()) -> boolean().
+verify_signatures(Receipts) ->
+    Batch = lists:foldl(
+              fun(Receipt=#blockchain_poc_receipt_v1_pb{gateway=GatewayPubkeyBin, signature=Signature}, Acc) ->
+                      BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>, addr_hash = undefined},
+                      EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
+                      [{EncodedReceipt, [{Signature, GatewayPubkeyBin}]} | Acc]
+              end,
+              [],
+              Receipts),
+
+    libp2p_crypto:verify(Batch).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

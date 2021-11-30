@@ -1044,73 +1044,93 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                     {error, zip_layer_length_mismatch};
                 true ->
                     PerHopMaxWitnesses = blockchain_utils:poc_per_hop_max_witnesses(OldLedger),
-                    Result = lists:foldl(
-                               fun(_, {error, _} = Error) ->
-                                       Error;
-                                  ({Elem, Gateway, {LayerDatum, LayerHash}}, _Acc) ->
-                                       case blockchain_poc_path_element_v1:challengee(Elem) == Gateway of
-                                           true ->
-                                               IsFirst = Elem == hd(?MODULE:path(Txn)),
-                                               Receipt = blockchain_poc_path_element_v1:receipt(Elem),
-                                               ExpectedOrigin = case IsFirst of
-                                                                    true -> p2p;
-                                                                    false -> radio
-                                                                end,
-                                               %% check the receipt
-                                               case
-                                                   Receipt == undefined orelse
-                                                   (blockchain_poc_receipt_v1:is_valid(Receipt, OldLedger) andalso
-                                                    blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
-                                                    blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
-                                                    blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin)
-                                               of
-                                                   true ->
-                                                       %% ok the receipt looks good, check the witnesses
-                                                       Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                                                       case erlang:length(Witnesses) > PerHopMaxWitnesses of
-                                                           true ->
-                                                               {error, too_many_witnesses};
-                                                           false ->
-                                                               case blockchain_ledger_v1:config(?poc_version, OldLedger) of
-                                                                   {ok, V} when V > 1 ->
-                                                                       %% check there are no duplicates in witnesses list
-                                                                       WitnessGateways = [blockchain_poc_witness_v1:gateway(W) || W <- Witnesses],
-                                                                       case length(WitnessGateways) == length(lists:usort(WitnessGateways)) of
-                                                                           false ->
-                                                                               {error, duplicate_witnesses};
-                                                                           true ->
-                                                                               check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger)
-                                                                       end;
-                                                                   _ ->
-                                                                       check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger)
-                                                               end
-                                                       end;
-                                                   false ->
-                                                       case Receipt == undefined of
-                                                           true ->
-                                                               lager:warning([{poc_id, POCID}],
-                                                                             "Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
-                                                                             [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
-                                                           false ->
-                                                               lager:warning([{poc_id, POCID}],
-                                                                             "Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
-                                                                             [blockchain_poc_receipt_v1:origin(Receipt),
-                                                                              ExpectedOrigin,
-                                                                              blockchain_poc_receipt_v1:data(Receipt),
-                                                                              LayerDatum,
-                                                                              blockchain_poc_receipt_v1:gateway(Receipt),
-                                                                              Gateway])
-                                                       end,
-                                                       {error, invalid_receipt}
-                                               end;
-                                           _ ->
-                                               lager:error([{poc_id, POCID}], "receipt not in order"),
-                                               {error, receipt_not_in_order}
-                                       end
-                               end,
-                               ok,
-                               lists:zip3(TxnPath, Path, ZippedLayers)
-                              ),
+
+                    R0 = lists:zip3(TxnPath, Path, ZippedLayers),
+
+                    Receipts = lists:foldl(
+                                 fun({Elem, _Gateway, {_LayerDatum, _LayerHash}}, Acc) ->
+                                         Receipt = blockchain_poc_path_element_v1:receipt(Elem),
+                                         case Receipt of
+                                             undefined -> Acc;
+                                             R -> [R | Acc]
+                                         end
+                                 end,
+                                 [],
+                                 R0),
+
+                    Result =
+                    case blockchain_poc_receipt_v1:verify_signatures(Receipts) of
+                        false -> {error, invalid_receipt_signatures};
+                        true ->
+                            lists:foldl(
+                              fun(_, {error, _} = Error) ->
+                                      Error;
+                                 ({Elem, Gateway, {LayerDatum, LayerHash}}, _Acc) ->
+                                      case blockchain_poc_path_element_v1:challengee(Elem) == Gateway of
+                                          true ->
+                                              IsFirst = Elem == hd(?MODULE:path(Txn)),
+                                              Receipt = blockchain_poc_path_element_v1:receipt(Elem),
+                                              ExpectedOrigin = case IsFirst of
+                                                                   true -> p2p;
+                                                                   false -> radio
+                                                               end,
+                                              %% check the receipt
+                                              case
+                                                  Receipt == undefined orelse
+                                                  (blockchain_poc_receipt_v1:is_valid(Receipt, OldLedger, false) andalso
+                                                   blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
+                                                   blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
+                                                   blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin)
+                                              of
+                                                  true ->
+                                                      %% ok the receipt looks good, check the witnesses
+                                                      Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
+                                                      case erlang:length(Witnesses) > PerHopMaxWitnesses of
+                                                          true ->
+                                                              {error, too_many_witnesses};
+                                                          false ->
+                                                              case blockchain_ledger_v1:config(?poc_version, OldLedger) of
+                                                                  {ok, V} when V > 1 ->
+                                                                      %% check there are no duplicates in witnesses list
+                                                                      WitnessGateways = [blockchain_poc_witness_v1:gateway(W) || W <- Witnesses],
+                                                                      case length(WitnessGateways) == length(lists:usort(WitnessGateways)) of
+                                                                          false ->
+                                                                              {error, duplicate_witnesses};
+                                                                          true ->
+                                                                              check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger)
+                                                                      end;
+                                                                  _ ->
+                                                                      check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger)
+                                                              end
+                                                      end;
+                                                  false ->
+                                                      case Receipt == undefined of
+                                                          true ->
+                                                              lager:warning([{poc_id, POCID}],
+                                                                            "Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
+                                                                            [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
+                                                          false ->
+                                                              lager:warning([{poc_id, POCID}],
+                                                                            "Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
+                                                                            [blockchain_poc_receipt_v1:origin(Receipt),
+                                                                             ExpectedOrigin,
+                                                                             blockchain_poc_receipt_v1:data(Receipt),
+                                                                             LayerDatum,
+                                                                             blockchain_poc_receipt_v1:gateway(Receipt),
+                                                                             Gateway])
+                                                      end,
+                                                      {error, invalid_receipt}
+                                              end;
+                                          _ ->
+                                              lager:error([{poc_id, POCID}], "receipt not in order"),
+                                              {error, receipt_not_in_order}
+                                      end
+                              end,
+                              ok,
+                              R0
+                             )
+                    end,
+
                     %% clean up ledger context
                     blockchain_ledger_v1:delete_context(OldLedger),
                     Result
@@ -1171,29 +1191,32 @@ to_json(Txn, Opts) ->
       challenger => ?BIN_TO_B58(challenger(Txn))
      }.
 
-
 check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
     %% all the witnesses should have the right LayerHash
     %% and be valid
     case
-        lists:all(
-          fun(Witness) ->
-                  %% the witnesses should have an asserted location
-                  %% at the point when the request was mined!
-                  WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
-                  case blockchain_ledger_v1:find_gateway_location(WitnessGateway, OldLedger) of
-                      {error, _} ->
-                          false;
-                      {ok, _} when Gateway == WitnessGateway ->
-                          false;
-                      {ok, GWLoc} ->
-                          GWLoc /= undefined andalso
-                          blockchain_poc_witness_v1:is_valid(Witness, OldLedger) andalso
-                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                  end
-          end,
-          Witnesses
-         )
+        case blockchain_poc_witness_v1:verify_signatures(Witnesses) of
+            true ->
+                lists:all(
+                  fun(Witness) ->
+                          %% the witnesses should have an asserted location
+                          %% at the point when the request was mined!
+                          WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
+                          case blockchain_ledger_v1:find_gateway_location(WitnessGateway, OldLedger) of
+                              {error, _} ->
+                                  false;
+                              {ok, _} when Gateway == WitnessGateway ->
+                                  false;
+                              {ok, GWLoc} ->
+                                  GWLoc /= undefined andalso
+                                  blockchain_poc_witness_v1:is_valid(Witness, OldLedger, false) andalso
+                                  blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                          end
+                  end,
+                  Witnesses
+                 );
+            false -> false
+        end
     of
         true -> ok;
         false -> {error, invalid_witness}
