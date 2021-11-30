@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain).
 
+-include_lib("kernel/include/file.hrl").
+
 -export([
     new/4, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
@@ -1953,7 +1955,7 @@ do_rocksdb_gc(_Bytes, _Itr, _Blockchain, {error, _}) ->
     ok;
 do_rocksdb_gc(Bytes, _Itr, _Blockchain, _Res) when Bytes < 1 ->
     ok;
-do_rocksdb_gc(Bytes, Itr, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
+do_rocksdb_gc(Bytes, Itr, #blockchain{dir=Dir, db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
     lager:info("GCing block at height ~p", [IntHeight]),
     BytesRemoved0 = case rocksdb:get(DB, BlocksCF, Hash, []) of
                         {ok, Block} -> byte_size(Block);
@@ -1968,8 +1970,22 @@ do_rocksdb_gc(Bytes, Itr, #blockchain{db=DB, heights=HeightsCF, blocks=BlocksCF,
             rocksdb:batch_delete(Batch, SnapshotsCF, Height),
             rocksdb:batch_delete(Batch, SnapshotsCF, SnapHash),
             case rocksdb:get(DB, SnapshotsCF, SnapHash, []) of
-                {ok, Snap} -> byte_size(Snap);
-                _ -> 0
+                {ok, <<"file:", SnapFile/binary>>} ->
+                    %% check if the snap is on disk
+                    SnapDir = filename:join(Dir, "saved-snaps"),
+                    SnapPath = filename:join(SnapDir, SnapFile),
+                    case file:read_file_info(SnapPath) of
+                        {ok, #file_info{size=Size}} ->
+                            file:delete(SnapPath),
+                            Size;
+                        _ ->
+                            0
+                    end;
+                {ok, Snap} ->
+                    %% snap was in rocksdb
+                    byte_size(Snap);
+                _ ->
+                    0
             end;
         _ ->
             0
