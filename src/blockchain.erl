@@ -178,7 +178,7 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
         {error, {db_open,"Corruption:" ++ _Reason}} ->
             lager:error("DB could not be opened corrupted ~p, cleaning up", [_Reason]),
             ok = clean(Dir),
-            new(Dir, undefined, QuickSyncMode, QuickSyncData);
+            new(Dir, GenBlock, QuickSyncMode, QuickSyncData);
         {Blockchain, {error, {corruption, _Corrupted}}} ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
