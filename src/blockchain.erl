@@ -1946,7 +1946,7 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
 
 rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     {ok, Height} = blockchain:height(Blockchain),
-    CutoffHeight = max(2, Height - 100000),
+    CutoffHeight = max(2, Height - application:get_env(blockchain, blocks_to_protect_from_gc, 10000)),
     %% start at 2 here so we don't GC the genesis block
     {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_lower_bound, <<2:64/integer-unsigned-big>>}, {iterate_upper_bound, <<CutoffHeight:64/integer-unsigned-big>>}]),
     do_rocksdb_gc(BytesToDrop, Itr, Blockchain,  rocksdb:iterator_move(Itr, first)).
