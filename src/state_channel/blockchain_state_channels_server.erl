@@ -81,7 +81,7 @@ get_actives() ->
             blockchain_utils:pmap(
                 fun({SC, SCState, Pid}) ->
                     ID = blockchain_state_channel_v1:id(SC),
-                    try blockchain_state_channels_worker:get(Pid, timer:seconds(1000)) of
+                    try blockchain_state_channels_worker:get(Pid, timer:seconds(1)) of
                         UpToDateSC ->
                             {ID, {UpToDateSC, SCState, Pid}}
                         
