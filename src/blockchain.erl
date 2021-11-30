@@ -167,7 +167,7 @@ new(Dir, undefined, QuickSyncMode, QuickSyncData) ->
             new(Dir, undefined, QuickSyncMode, QuickSyncData);
         {Blockchain, {error, _Reason}} ->
             lager:info("no genesis block found: ~p", [_Reason]),
-            {no_genesis, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
+            {no_genesis, Blockchain};
         {Blockchain, {ok, _GenBlock}} ->
             lager:info("stuff is ok"),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)}
