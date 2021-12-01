@@ -9,6 +9,7 @@
 -behavior(blockchain_json).
 
 -include("blockchain_json.hrl").
+-include("blockchain.hrl").
 -include("blockchain_records_meta.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_v1_pb.hrl").
@@ -220,8 +221,8 @@ is_valid(Txn, Chain) ->
             {ok, 0} ->
                 ok;
             {ok, CurrHeight} ->
-                {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
-                {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
+                {ok, #block_info_v2{election_info={_, LastElectionHeight}}} =
+                    blockchain:get_block_info(CurrHeight, Chain),
                 {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
                 Proof = binary_to_term(Proof0),
                 EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
