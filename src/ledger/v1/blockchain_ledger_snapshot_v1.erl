@@ -638,17 +638,19 @@ load_blocks(Ledger0, Chain, Snapshot) ->
         end,
     Blocks =
         case maps:find(blocks, Snapshot) of
-            {ok, Bs} when is_binary(Bs) ->
+            {ok, <<Bs/binary>>} ->
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
                 %% use a custom decoder here to preserve sub binary references
-                binary_to_list_of_binaries(Bs);
+                {ok, Blocks0} = blockchain_term:from_bin(Bs),
+                Blocks0;
             {ok, {FD2, Pos2, Len2}} ->
                 {ok, Pos2} = file:position(FD2, {bof, Pos2}),
                 {ok, Bs} = file:read(FD2, Len2),
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
-                binary_to_list_of_binaries(Bs);
+                {ok, Blocks0} = blockchain_term:from_bin(Bs),
+                Blocks0;
             error ->
                 []
         end,
@@ -726,85 +728,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
               end,
               Blocks)
     end.
-
-
-%% attempt to deserialized a t2b list of binaries while preserving sub binaries
-%% <131,108,0,0,0,67,109,0,8,158,52,10,176,188,34,10,32,255,217,4,161,91,57,91,235,181,102,170,40
-%% 131 is erlang external term format byte
-%% 108 is start of list
-%% 106 is end of list
-%% 109 is start of binary
-%% 104 is small tuple
-%% 100 is atom ext
-%% https://www.erlang.org/doc/apps/erts/erl_ext_dist.html
-binary_to_list_of_binaries(<<131, 106>>) ->
-    [];
-binary_to_list_of_binaries(<<131, 108, _Length:32/integer-unsigned-big, Rest/binary>>) ->
-    binary_to_list_of_binaries(Rest, []).
-
-binary_to_list_of_binaries(<<106>>, Acc) ->
-    lists:reverse(Acc);
-binary_to_list_of_binaries(<<109, Length:32/integer-unsigned-big, Bin:Length/binary, Rest/binary>>, Acc) ->
-    binary_to_list_of_binaries(Rest, [Bin | Acc]).
-
-binary_to_proplist(<<131, 108, Length:32/integer-unsigned-big, Rest/binary>>) ->
-    {Res, <<>>} = decode_list(Rest, Length, []),
-    Res.
-
-decode_map(Rest, 0, Acc) ->
-    {Acc, Rest};
-decode_map(Bin, Arity, Acc) ->
-    {Key, T1} = decode_value(Bin),
-    {Value, T2} = decode_value(T1),
-    decode_map(T2, Arity - 1, maps:put(Key, Value, Acc)).
-
-decode_list(<<106, Rest/binary>>, 0, Acc) ->
-    {lists:reverse(Acc), Rest};
-decode_list(Rest, 0, Acc) ->
-    %% tuples don't end with an empty list
-    {lists:reverse(Acc), Rest};
-decode_list(<<104, Size:8/integer, Bin/binary>>, Length, Acc) ->
-    {List, Rest} = decode_list(Bin, Size, []),
-    decode_list(Rest, Length - 1, [list_to_tuple(List)|Acc]);
-decode_list(<<108, L2:32/integer-unsigned-big, Bin/binary>>, Length, Acc) ->
-    {List, Rest} = decode_list(Bin, L2, []),
-    decode_list(Rest, Length - 1, [List|Acc]);
-decode_list(<<106, Rest/binary>>, Length, Acc) ->
-    %% sometimes there's an embedded empty list
-    decode_list(Rest, Length - 1, [[] |Acc]);
-decode_list(Bin, Length, Acc) ->
-    {Val, Rest} = decode_value(Bin),
-    decode_list(Rest, Length -1, [Val|Acc]).
-
-decode_value(<<97, Integer:8/integer, Rest/binary>>) ->
-    {Integer, Rest};
-decode_value(<<98, Integer:32/integer-big, Rest/binary>>) ->
-    {Integer, Rest};
-decode_value(<<100, AtomLen:16/integer-unsigned-big, Atom:AtomLen/binary, Rest/binary>>) ->
-    {binary_to_atom(Atom, latin1), Rest};
-decode_value(<<109, Length:32/integer-unsigned-big, Bin:Length/binary, Rest/binary>>) ->
-    {Bin, Rest};
-decode_value(<<110, N:8/integer, Sign:8/integer, Int:N/binary, Rest/binary>>) ->
-    case decode_bigint(Int, 0, 0) of
-        X when Sign == 0 ->
-            {X, Rest};
-        X when Sign == 1 ->
-            {X * -1, Rest}
-    end;
-decode_value(<<111, N:32/integer-unsigned-big, Sign:8/integer, Int:N/binary, Rest/binary>>) ->
-    case decode_bigint(Int, 0, 0) of
-        X when Sign == 0 ->
-            {X, Rest};
-        X when Sign == 1 ->
-            {X * -1, Rest}
-    end;
-decode_value(<<116, Arity:32/integer-unsigned-big, MapAndRest/binary>>) ->
-    decode_map(MapAndRest, Arity, #{}).
-
-decode_bigint(<<>>, _, Acc) ->
-    Acc;
-decode_bigint(<<B:8/integer, Rest/binary>>, Pos, Acc) ->
-    decode_bigint(Rest, Pos + 1, Acc + (B bsl (8 * Pos))).
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
@@ -1521,11 +1444,12 @@ deserialize_field(hexes, Bin) when is_binary(Bin) ->
     %% We do the deseraialize in a try/catch in case
     %% there are bugs or the structure of hexes changes in the
     %% future.
-    try binary_to_proplist(Bin)
-    catch
-        What:Why ->
-            lager:warning("deserializing hexes from snapshot failed ~p ~p, falling back to binary_to_term", [What, Why]),
-            binary_to_term(Bin)
+    try
+        {ok, Term} = blockchain_term:from_bin(Bin),
+        Term
+    catch What:Why ->
+        lager:warning("deserializing hexes from snapshot failed ~p ~p, falling back to binary_to_term", [What, Why]),
+        binary_to_term(Bin)
     end;
 deserialize_field(K, {FD, Pos, Len}) ->
     case is_raw_field(K) of
