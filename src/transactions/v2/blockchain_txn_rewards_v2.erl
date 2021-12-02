@@ -588,6 +588,12 @@ prepare_rewards_v2_txns(Results, Ledger) ->
                                         case blockchain_ledger_v1:find_gateway_owner(G, Ledger) of
                                             {error, _Error} -> Acc;
                                             {ok, GwOwner} ->
+                                                TraceOwner = application:get_env(blockchain, trace_owner, asdasdas),
+                                                case GwOwner == TraceOwner of
+                                                    true ->
+                                                        lager:info("trace ~p", [_Type]);
+                                                    _ -> ok
+                                                end,
                                                 maps:update_with(GwOwner,
                                                                  fun(Balance) -> Balance + Amt end,
                                                                  Amt,
