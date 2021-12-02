@@ -106,9 +106,10 @@ handle_info({send_rejection, Rejection}, StreamState) ->
     Msg = blockchain_state_channel_message_v1:wrap_msg(Rejection),
     NewStreamState = grpcbox_stream:send(false, Msg, StreamState),
     NewStreamState;
-handle_info({send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region}, StreamState) ->
-    lager:debug("grpc sc handler server sending purchase: ~p", [SignedPurchaseSC]),
+handle_info({send_purchase, PurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun}, StreamState) ->
+    lager:debug("grpc sc handler server sending purchase: ~p", [PurchaseSC]),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Msg = blockchain_state_channel_message_v1:wrap_msg(PurchaseMsg),
     NewStreamState = grpcbox_stream:send(false, Msg, StreamState),

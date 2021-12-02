@@ -5,15 +5,13 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channels_cache).
 
--behavior(gen_server).
-
 -include("blockchain_vars.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1,
+    init/0,
     lookup_hotspot/1,
     insert_hotspot/2,
     delete_hotspot/1,
@@ -24,31 +22,25 @@
     overwrite_actives/1
 ]).
 
-%% ------------------------------------------------------------------
-%% gen_server Function Exports
-%% ------------------------------------------------------------------
--export([
-    init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3
-]).
-
--define(SERVER, ?MODULE).
 -define(ETS, blockchain_state_channels_cache_ets).
 %% ets:fun2ms(fun({_, Pid}) when Pid == Self -> true end).
 -define(SELECT_DELETE_PID(Pid), [{{'_', '$1'}, [{'==', '$1', {const, Pid}}], [true]}]).
 -define(ACTIVES_KEY, active_scs).
 
--record(state, {}).
-
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
+init() ->
+    Opts = [
+        public,
+        named_table,
+        set,
+        {write_concurrency, true},
+        {read_concurrency, true}
+    ],
+    _ = ets:new(?ETS, Opts),
+    lager:info("init cache"),
+    ok.
 
 -spec lookup_hotspot(HotspotID :: libp2p_crypto:pubkey_bin()) -> pid() | undefined.
 lookup_hotspot(HotspotID) ->
@@ -113,39 +105,73 @@ overwrite_actives(Pids) ->
     true = ets:insert(?ETS, {?ACTIVES_KEY, Pids}),
     ok.
 
+
 %% ------------------------------------------------------------------
-%% gen_server Function Definitions
+%% EUNIT Tests
 %% ------------------------------------------------------------------
-init(Args) ->
-    lager:info("~p init with ~p", [?SERVER, Args]),
-    Opts = [
-        public,
-        named_table,
-        set,
-        {write_concurrency, true},
-        {read_concurrency, true}
-    ],
-    _ = ets:new(?ETS, Opts),
-    {ok, #state{}}.
+-ifdef(TEST).
 
-handle_call(_Msg, _From, State) ->
-    lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
-    {reply, ok, State}.
+-include_lib("eunit/include/eunit.hrl").
 
-handle_cast(_Msg, State) ->
-    lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
-    {noreply, State}.
+hotspot_pid_test() ->
+    ok = ?MODULE:init(),
 
-handle_info(_Msg, State) ->
-    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
-    {noreply, State}.
+    Self = self(),
+    HotspotID0 = crypto:strong_rand_bytes(32),
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+    % Test simple insert/lookup
+    ?assertEqual(ok, ?MODULE:insert_hotspot(HotspotID0, Self)),
+    ?assertEqual(Self, ?MODULE:lookup_hotspot(HotspotID0)),
+    ?assertEqual(undefined, ?MODULE:lookup_hotspot(crypto:strong_rand_bytes(32))),
 
-terminate(_Reason, _State) ->
+    % Test insert/delete
+    lists:foreach(
+        fun(_) ->
+            HotspotID = crypto:strong_rand_bytes(32),
+            ?assertEqual(ok, ?MODULE:insert_hotspot(HotspotID, Self)),
+            ?assertEqual(Self, ?MODULE:lookup_hotspot(HotspotID0))
+        end,
+        lists:seq(1, 2000) % We use 2k here as it is the number of actors per state channel at the moment
+    ),
+    ?assertEqual(2001, ?MODULE:delete_pids(Self)),
+    ?assertEqual([], ets:tab2list(?ETS)),
+
+    % Test lookup with is_process_alive=false
+    Pid = erlang:spawn(
+        fun() ->
+            receive _ -> ok end
+        end
+    ),
+    HotspotID1 = crypto:strong_rand_bytes(32),
+    ?assertEqual(ok, ?MODULE:insert_hotspot(HotspotID1, Pid)),
+    ?assertEqual(Pid, ?MODULE:lookup_hotspot(HotspotID1)),
+    HotspotID2 = crypto:strong_rand_bytes(32),
+    ?assertEqual(ok, ?MODULE:insert_hotspot(HotspotID2, Pid)),
+    ?assertEqual(Pid, ?MODULE:lookup_hotspot(HotspotID2)),
+    Pid ! stop,
+    ok = timer:sleep(10),
+    ?assertEqual(false, erlang:is_process_alive(Pid)),
+    ?assertEqual(undefined, ?MODULE:lookup_hotspot(HotspotID1)),
+    ok = timer:sleep(10),
+    ?assertEqual([], ets:tab2list(?ETS)),
+
+    _ = ets:delete(?ETS),
     ok.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+actives_test() ->
+    ok = ?MODULE:init(),
+
+    Self = self(),
+
+    ?assertEqual([], ?MODULE:lookup_actives()),
+    ?assertEqual(ok, ?MODULE:insert_actives(Self)),
+    ?assertEqual([Self], ?MODULE:lookup_actives()),
+    ?assertEqual(ok, ?MODULE:delete_actives(Self)),
+    ?assertEqual([], ?MODULE:lookup_actives()),
+    ?assertEqual(ok, ?MODULE:overwrite_actives([Self])),
+    ?assertEqual([Self], ?MODULE:lookup_actives()),
+
+    _ = ets:delete(?ETS),
+    ok.
+
+-endif.

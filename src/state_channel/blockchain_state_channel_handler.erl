@@ -210,8 +210,9 @@ handle_info(server, {send_banner, Banner}, HandlerState) ->
 handle_info(server, {send_rejection, Rejection}, HandlerState) ->
     Data = blockchain_state_channel_message_v1:encode(Rejection),
     {noreply, HandlerState, Data};
-handle_info(server, {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region}, HandlerState) ->
+handle_info(server, {send_purchase, PurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun}, HandlerState) ->
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
     {noreply, HandlerState, Data};

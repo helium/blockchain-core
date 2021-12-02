@@ -15,7 +15,7 @@
 %% ------------------------------------------------------------------
 -export([
     start/1,
-    get/1,
+    get/2,
     handle_offer/3,
     handle_packet/3
 ]).
@@ -62,9 +62,9 @@
 start(Args) ->
     gen_server:start(?SERVER, Args, []).
 
--spec get(Pid :: pid()) -> blockchain_state_channel_v1:state_channel().
-get(Pid) ->
-    gen_server:call(Pid, get).
+-spec get(Pid :: pid(), Timeout :: non_neg_integer()) -> blockchain_state_channel_v1:state_channel().
+get(Pid, Timeout) ->
+    gen_server:call(Pid, get, Timeout).
 
 -spec handle_offer(
     Pid :: pid(),
@@ -186,10 +186,10 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 terminate(Reason, #state{id=ID, state_channel=SC, skewed=Skewed, db=DB, owner={_Owner, OwnerSigFun}}=_State) ->
-    Deleted = blockchain_state_channels_cache:delete_pids(self()),
     SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
     ok = blockchain_state_channels_server:update_state_channel(SignedSC),
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
+    Deleted = blockchain_state_channels_cache:delete_pids(self()),
     lager:info("terminate ~p for : ~p, deleted ~p from cache", [blockchain_utils:addr2name(ID), Reason, Deleted]),
     ok.
 
@@ -252,18 +252,18 @@ offer(
                     {noreply, State0};
                 {ok, PurchaseSC} ->
                     lager:debug("[~p] purchasing offer from ~p", [blockchain_state_channel_v1:id(PurchaseSC), HotspotName]),
-                    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
                     ok = blockchain_state_channel_common:send_purchase(
                         HandlerPid,
-                        SignedPurchaseSC,
+                        PurchaseSC,
                         HotspotID,
                         PacketHash,
-                        Region
+                        Region,
+                        OwnerSigFun
                     ),
-                    ok = blockchain_state_channel_v1:save(DB, SignedPurchaseSC, Skewed),
-                    {noreply, State0#state{state_channel=SignedPurchaseSC}}
+                    ok = blockchain_state_channel_v1:save(DB, PurchaseSC, Skewed),
+                    {noreply, State0#state{state_channel=PurchaseSC}}
             end
     end.
 
@@ -279,7 +279,6 @@ packet(
         state_channel=SC0,
         skewed=Skewed0,
         db=DB,
-        owner={_Owner, OwnerSigFun},
         dc_payload_size=DCPayloadSize,
         sc_version=SCVer,
         max_actors_allowed = MaxActorsAllowed,
@@ -312,9 +311,8 @@ packet(
                         ),
                     SC
             end,
-            SignedSC = blockchain_state_channel_v1:sign(SC2, OwnerSigFun),
-            ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-            State0#state{state_channel=SignedSC, skewed=Skewed1}
+            ok = blockchain_state_channel_v1:save(DB, SC2, Skewed1),
+            State0#state{state_channel=SC2, skewed=Skewed1}
     end.
 
 

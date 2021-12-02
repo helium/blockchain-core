@@ -16,7 +16,7 @@
 
 %% API
 -export([
-    send_purchase/5,
+    send_purchase/6,
     send_response/2,
     send_banner/2,
     send_rejection/2,
@@ -153,10 +153,11 @@ send_offer(Pid, Offer) ->
                     NewPurchaseSC :: blockchain_state_channel_v1:state_channel(),
                     Hotspot :: libp2p_crypto:pubkey_bin(),
                     PacketHash :: binary(),
-                    Region :: atom()) -> ok.
-send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
+                    Region :: atom(),
+                    OwnerSigFun :: function()) -> ok.
+send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun) ->
     lager:debug("sending purchase: ~p, pid: ~p", [NewPurchaseSC, Pid]),
-    Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
+    Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun},
     ok.
 
 -spec send_banner(pid(), blockchain_state_channel_banner_v1:banner()) -> ok.
@@ -323,9 +324,11 @@ handle_offer(Offer, Time, HandlerState) ->
         ok ->
             %% offer is pending, just block the stream waiting for the purchase or rejection
             receive
-                {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region} ->
+                {send_purchase, PurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun} ->
+                    % TODO: This is async and does not always return the right PacketHash for this offer
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+                    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
                     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
                     Msg = maybe_encode_msg(MaybeEncodeMsg, PurchaseMsg),
                     {ok, HandlerState#handler_state{pending_packet_offers=maps:put(PacketHash, {Offer, Time}, HandlerState#handler_state.pending_packet_offers)}, Msg};
