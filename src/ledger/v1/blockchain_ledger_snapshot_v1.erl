@@ -77,7 +77,7 @@
         ouis              => [{non_neg_integer(), blockchain_ledger_routing_v1:routing()}],
         subnets           => [{Subnet :: binary(), OUI :: non_neg_integer()}],
         oui_counter       => pos_integer(),
-        hexes             => [{list, blockchain_ledger_v1:hexmap()} | {h3:h3_index(), non_neg_integer()}],
+        hexes             => [{list, blockchain_ledger_v1:hexmap()} | {h3:h3_index(), [libp2p_crypto:pubkey_bin()]}],
         h3dex             => [{integer(), [binary()]}],
         state_channels    => [{binary(), state_channel()}],
         blocks            => [blockchain_block:block()],
