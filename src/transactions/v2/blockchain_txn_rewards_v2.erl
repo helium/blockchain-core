@@ -141,6 +141,9 @@ is_valid(Txn, Chain) ->
                         false ->
                             lager:info("calc ~p", [CalRewardsHashes]),
                             lager:info("txn ~p", [TxnRewardsHashes]),
+                            CalcR = CalRewardsHashes -- TxnRewardsHashes,
+                            TxnR = TxnRewardsHashes -- CalRewardsHashes,
+                            lager:info("calc ~p txn ~p", [CalcR, TxnR]),
                             {error, invalid_rewards_v2};
                         true -> ok
                     end
