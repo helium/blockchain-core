@@ -263,6 +263,13 @@ offer(
                         OwnerSigFun
                     ),
                     ok = blockchain_state_channel_v1:save(DB, PurchaseSC, Skewed),
+                    case (TotalDCs + NumDCs + 1) > DCAmount andalso PreventOverSpend of
+                        false ->
+                            ok;
+                        true ->
+                            lager:info("next packet will overspend"),
+                            _ = erlang:send_after(1000, self(), ?OVERSPENT)
+                    end,
                     {noreply, State0#state{state_channel=PurchaseSC}}
             end
     end.
