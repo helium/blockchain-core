@@ -296,24 +296,29 @@ upgrade_gateways_score(Ledger) ->
 %% never run again
 upgrade_nonce_rescue(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-    case blockchain_ledger_v1:mode(Ledger) of
-        delayed ->
-            %% note the 4 ------v
-            case Height =< 1107944 andalso Nonce == 106 of
-                true ->
-                    ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
-                false ->
-                    ok
+    case blockchain_ledger_v1:vars_nonce(Ledger) of
+        {ok, Nonce} ->
+            case blockchain_ledger_v1:mode(Ledger) of
+                delayed ->
+                    %% note the 4 ------v
+                    case Height =< 1107944 andalso Nonce == 106 of
+                        true ->
+                            ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
+                        false ->
+                            ok
+                    end;
+                _ActiveOrAux ->
+                    %% note the 9 ------v
+                    case Height =< 1107994 andalso Nonce == 106 of
+                        true ->
+                            ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
+                        false ->
+                            ok
+                    end
             end;
-        _ActiveOrAux ->
-            %% note the 9 ------v
-            case Height =< 1107994 andalso Nonce == 106 of
-                true ->
-                    ok = blockchain_ledger_v1:vars_nonce(105, Ledger);
-                false ->
-                    ok
-            end
+        %% starting a new chain, just ignore this
+        {error, not_found} ->
+            ok
     end.
 
 -spec get_upgrades(blockchain_ledger_v1:ledger()) -> [binary()].
