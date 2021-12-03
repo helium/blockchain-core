@@ -338,7 +338,6 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error;
         ok ->
-            Ledger = blockchain:ledger(Chain),
             MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of
                                           undefined -> {SC, false};

@@ -2383,5 +2383,5 @@ get_active_state_channel(RouterNode, SCID) ->
         undefined ->
             worker_not_started;
         SCWorkerPid ->
-            ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid])
+            ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid, 10])
     end.

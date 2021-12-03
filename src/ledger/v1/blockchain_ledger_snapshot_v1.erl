@@ -620,6 +620,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
             {ok, Bs} ->
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
+                %% use a custom decoder here to preserve sub binary references
                 binary_to_list_of_binaries(Bs);
             error ->
                 []
@@ -707,14 +708,75 @@ load_blocks(Ledger0, Chain, Snapshot) ->
 %% 108 is start of list
 %% 106 is end of list
 %% 109 is start of binary
+%% 104 is small tuple
+%% 100 is atom ext
 %% https://www.erlang.org/doc/apps/erts/erl_ext_dist.html
-binary_to_list_of_binaries(<<131, 108, _Length:32/integer-unsigned-integer, Rest/binary>>) ->
+binary_to_list_of_binaries(<<131, 108, _Length:32/integer-unsigned-big, Rest/binary>>) ->
     binary_to_list_of_binaries(Rest, []).
 
 binary_to_list_of_binaries(<<106>>, Acc) ->
     lists:reverse(Acc);
-binary_to_list_of_binaries(<<109, Length:32/integer-unsigned-integer, Bin:Length/binary, Rest/binary>>, Acc) ->
+binary_to_list_of_binaries(<<109, Length:32/integer-unsigned-big, Bin:Length/binary, Rest/binary>>, Acc) ->
     binary_to_list_of_binaries(Rest, [Bin | Acc]).
+
+binary_to_proplist(<<131, 108, Length:32/integer-unsigned-big, Rest/binary>>) ->
+    {Res, <<>>} = decode_list(Rest, Length, []),
+    Res.
+
+decode_map(Rest, 0, Acc) ->
+    {Acc, Rest};
+decode_map(Bin, Arity, Acc) ->
+    {Key, T1} = decode_value(Bin),
+    {Value, T2} = decode_value(T1),
+    decode_map(T2, Arity - 1, maps:put(Key, Value, Acc)).
+
+decode_list(<<106, Rest/binary>>, 0, Acc) ->
+    {lists:reverse(Acc), Rest};
+decode_list(Rest, 0, Acc) ->
+    %% tuples don't end with an empty list
+    {lists:reverse(Acc), Rest};
+decode_list(<<104, Size:8/integer, Bin/binary>>, Length, Acc) ->
+    {List, Rest} = decode_list(Bin, Size, []),
+    decode_list(Rest, Length - 1, [list_to_tuple(List)|Acc]);
+decode_list(<<108, L2:32/integer-unsigned-big, Bin/binary>>, Length, Acc) ->
+    {List, Rest} = decode_list(Bin, L2, []),
+    decode_list(Rest, Length - 1, [List|Acc]);
+decode_list(<<106, Rest/binary>>, Length, Acc) ->
+    %% sometimes there's an embedded empty list
+    decode_list(Rest, Length - 1, [[] |Acc]);
+decode_list(Bin, Length, Acc) ->
+    {Val, Rest} = decode_value(Bin),
+    decode_list(Rest, Length -1, [Val|Acc]).
+
+decode_value(<<97, Integer:8/integer, Rest/binary>>) ->
+    {Integer, Rest};
+decode_value(<<98, Integer:32/integer-big, Rest/binary>>) ->
+    {Integer, Rest};
+decode_value(<<100, AtomLen:16/integer-unsigned-big, Atom:AtomLen/binary, Rest/binary>>) ->
+    {binary_to_atom(Atom, latin1), Rest};
+decode_value(<<109, Length:32/integer-unsigned-big, Bin:Length/binary, Rest/binary>>) ->
+    {Bin, Rest};
+decode_value(<<110, N:8/integer, Sign:8/integer, Int:N/binary, Rest/binary>>) ->
+    case decode_bigint(Int, 0, 0) of
+        X when Sign == 0 ->
+            {X, Rest};
+        X when Sign == 1 ->
+            {X * -1, Rest}
+    end;
+decode_value(<<111, N:32/integer-unsigned-big, Sign:8/integer, Int:N/binary, Rest/binary>>) ->
+    case decode_bigint(Int, 0, 0) of
+        X when Sign == 0 ->
+            {X, Rest};
+        X when Sign == 1 ->
+            {X * -1, Rest}
+    end;
+decode_value(<<116, Arity:32/integer-unsigned-big, MapAndRest/binary>>) ->
+    decode_map(MapAndRest, Arity, #{}).
+
+decode_bigint(<<>>, _, Acc) ->
+    Acc;
+decode_bigint(<<B:8/integer, Rest/binary>>, Pos, Acc) ->
+    decode_bigint(Rest, Pos + 1, Acc + (B bsl (8 * Pos))).
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
@@ -1327,6 +1389,25 @@ deserialize_pairs(<<Bin/binary>>) ->
     ).
 
 -spec deserialize_field(key(), binary()) -> term().
+deserialize_field(hexes, Bin) ->
+    %% hexes are encoded as a term_to_binary of a big
+    %% key/value list of {h3() -> [binary()]},
+    %% and a single 'list' key which points to a map of
+    %% #{h3() -> pos_integer()}.
+    %% binary_to_term, however, does not create sub binary
+    %% references and so on larger snapshots this blows the binary
+    %% heap. This function is a hand rolled term_to_binary decoder
+    %% that decodes all that is needed to deserialize the
+    %% hexes structure while preserving sub binaries.
+    %% We do the deseraialize in a try/catch in case
+    %% there are bugs or the structure of hexes changes in the
+    %% future.
+    try binary_to_proplist(Bin)
+    catch
+        What:Why ->
+            lager:warning("deserializing hexes from snapshot failed ~p ~p, falling back to binary_to_term", [What, Why]),
+            binary_to_term(Bin)
+    end;
 deserialize_field(K, <<Bin/binary>>) ->
     case is_raw_field(K) of
         true -> mk_bin_iterator(Bin);

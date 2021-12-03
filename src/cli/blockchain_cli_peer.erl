@@ -29,6 +29,7 @@ register_all_usage() ->
                   peer_refresh_usage(),
                   peer_relay_reset_usage(),
                   peer_sync_usage(),
+                  peer_fastforward_usage(),
                   peer_usage()
                  ]).
 
@@ -48,6 +49,7 @@ register_all_cmds() ->
                   peer_refresh_cmd(),
                   peer_relay_reset_cmd(),
                   peer_sync_cmd(),
+                  peer_fastforward_cmd(),
                   peer_cmd()
                  ]).
 %%
@@ -68,6 +70,7 @@ peer_usage() ->
       "  peer refresh           - Request an updated peerbook for this peer from our gossip peers.\n"
       "  peer relay_reset       - Stop the current libp2p relay swarm and retry.\n"
       "  peer sync              - Connect to given peer and attempt to sync blocks.\n"
+      "  peer fastforward       - Connect to given peer and attempt to deliver blocks rapidly.\n"
      ]
     ].
 
@@ -403,7 +406,34 @@ peer_sync(["peer", "sync", Addr], [], []) ->
 peer_sync([], [], []) ->
     usage.
 
+%%
+%% peer fastforward
+%%
+peer_fastforward_cmd() ->
+    [
+     [["peer", "fastforward", '*'], [], [], fun peer_fastforward/3]
+    ].
 
+peer_fastforward_usage() ->
+    [["peer", "fastforward"],
+     ["peer fastforward <p2p>\n\n",
+      "  Connect to peer and attempt to deliver blocks rapidly\n\n"
+     ]
+    ].
+
+peer_fastforward(["peer", "fastforward", Addr], [], []) ->
+    Chain = blockchain_worker:blockchain(),
+    SwarmTID = blockchain_swarm:tid(),
+    TrimmedAddr = string:trim(Addr),
+    case blockchain_fastforward_handler:dial(SwarmTID, Chain, TrimmedAddr) of
+        {ok, _Pid} ->
+            [clique_status:text("ok")];
+        {error, Reason} ->
+            Text = io_lib:format("Failed to connect to ~p: ~p", [TrimmedAddr, Reason]),
+            [clique_status:alert([clique_status:text(Text)])]
+    end;
+peer_fastforward([], [], []) ->
+    usage.
 
 
 %%

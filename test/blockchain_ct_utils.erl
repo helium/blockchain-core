@@ -238,8 +238,8 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, max_inbound_connections, TotalNodes*2]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, outbound_gossip_connections, TotalNodes]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, listen_interface, "127.0.0.1"]),
-
                                 ct_rpc:call(Node, application, set_env, [blockchain, sc_client_transport_handler, SCClientTransportHandler]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_sup_type, testing]),
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
                                 log("Node: ~p, StartedApps: ~p", [Node, StartedApps])
                         end, Nodes),

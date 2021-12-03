@@ -41,6 +41,7 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
+    ok = blockchain_state_channels_cache:init(),
     Swarm = blockchain_swarm:swarm(),
     ServerOpts = #{swarm => Swarm},
     ClientOpts = #{swarm => Swarm},
@@ -52,10 +53,26 @@ init([BaseDir]) ->
             "sc_clients_cf"
         ]
     },
-    ChildSpecs = [
-        ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
-        ?WORKER(blockchain_state_channels_cache, [#{}]),
-        ?WORKER(blockchain_state_channels_server, [ServerOpts]),
-        ?WORKER(blockchain_state_channels_client, [ClientOpts])
-    ],
+    ChildSpecs =
+        case application:get_env(blockchain, sc_sup_type, undefined) of
+            testing ->
+                lager:info("starting as testing mode"),
+                [
+                    ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
+                    ?WORKER(blockchain_state_channels_server, [ServerOpts]),
+                    ?WORKER(blockchain_state_channels_client, [ClientOpts])
+                ];
+            server ->
+                lager:info("starting as server mode"),
+                [
+                    ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
+                    ?WORKER(blockchain_state_channels_server, [ServerOpts])
+                ];
+            _ ->
+                lager:info("starting as client mode"),
+                [
+                    ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
+                    ?WORKER(blockchain_state_channels_client, [ClientOpts])
+                ]
+        end,
     {ok, {?FLAGS, ChildSpecs}}.

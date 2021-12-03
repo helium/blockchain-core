@@ -1319,8 +1319,12 @@ is_too_far(Ledger, SrcLoc, DstLoc) ->
     case blockchain:config(?poc_distance_limit, Ledger) of
         {ok, L} ->
             Distance = blockchain_utils:distance(SrcLoc, DstLoc),
-            Check = Distance > L,
-            {Check, Distance};
+            case Distance > L of
+                true ->
+                    {true, Distance};
+                false ->
+                    false
+            end;
         _ ->
             %% var not set, it's not too far (don't consider it)
             false
