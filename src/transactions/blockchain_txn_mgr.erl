@@ -132,9 +132,9 @@ txn_list() ->
 txn_status(TxnKey) ->
     case cached_txn(TxnKey) of
         {ok, {TxnKey, _Txn, #txn_data{acceptions = Acceptions, rejections = Rejections, recv_block_height = RecvBlockHeight} = _TxnData}} ->
-            #{  recv_block_height => RecvBlockHeight,
+            {ok, #{  recv_block_height => RecvBlockHeight,
                 acceptors => Acceptions,
-                rejectors => Rejections};
+                rejectors => Rejections}};
         {error, txn_not_found} = Error ->
             Error
 
@@ -143,7 +143,7 @@ txn_status(TxnKey) ->
 make_ets_table() ->
     ets:new(?TXN_CACHE,
             [named_table,
-             private,
+             protected,
              {heir, self(), undefined}]).
 
 -spec get_rejections_deferred() -> [deferred_rejection()].
