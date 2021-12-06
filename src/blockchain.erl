@@ -2661,7 +2661,8 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
                                  Hash = blockchain_block:hash_block(Block),
                                  Height = blockchain_block:height(Block),
                                  case get_block_height(Hash, Chain) of
-                                     {ok, _} ->
+                                     {ok, H} ->
+                                         lager:info("already have block ~p", [H]),
                                          %% block is already in the main chain
                                          error;
                                      _ ->
@@ -2671,9 +2672,11 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
                                                  %% check if we already have stored it
                                                  case get_plausible_block(Hash, Chain) of
                                                      {ok, _} ->
+                                                         lager:info("already have plausible block"),
                                                          %% no need to save it
                                                          ok;
                                                      _ ->
+                                                         lager:info("saving plausible block"),
                                                          save_plausible_block(Batch, BinBlock, Height, Hash, Chain)
                                                  end,
 
@@ -2692,6 +2695,7 @@ save_plausible_blocks(Blocks, #blockchain{db=DB}=Chain) ->
                                                          end
                                                  end;
                                              _ ->
+                                                 lager:info("block was not plausible"),
                                                  %% block was not plausible
                                                  Acc
                                          end
@@ -2712,6 +2716,7 @@ save_plausible_block(Block, Hash, #blockchain{db=DB}=Chain) ->
 save_plausible_block(Batch, BinBlock, Height, Hash, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
     case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
         {ok, _} ->
+            lager:info("already have block by hash"),
             %% already got it, thanks
             exists;
         _ ->
@@ -2796,15 +2801,18 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
                               exists ->
                                   case is_block_plausible(Block, Chain) of
                                       true ->
+                                          lager:info("block exists"),
                                           %% still plausible, leave it alone
                                           ok;
                                       false ->
                                           remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                                   end;
                               _Error ->
+                                  lager:info("failed to add plausible block ~p", [_Error]),
                                   remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                           catch
-                              _:_ ->
+                              What:Why ->
+                                  lager:info("failed to add plausible block ~p", [{What, Why}]),
                                   remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
                           end
                   end, SortedBlocks),
