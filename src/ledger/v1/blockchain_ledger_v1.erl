@@ -3008,7 +3008,8 @@ get_netids(Ledger) ->
         {ok, BinNetIDs} ->
             binary_to_term(BinNetIDs);
         not_found ->
-            [ <<2#011:3/integer-unsigned, 16#2D:24/integer-unsigned>> ];
+            %% Official NetID assigned by LoRa Alliance
+            [ 16#60002D ];
         Error ->
             Error
     end.
