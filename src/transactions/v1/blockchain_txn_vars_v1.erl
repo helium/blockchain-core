@@ -1231,6 +1231,7 @@ validate_var(?hip17_interactivity_blocks, Value) ->
 
 validate_var(?transaction_validity_version, Value) ->
     case Value of
+        3 -> ok;
         2 -> ok;
         _ -> throw({error, {invalid_transaction_validity_version, Value}})
     end;
