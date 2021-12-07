@@ -309,6 +309,13 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{state_channels=SCs0}=St
             lager:warning("~p went down (~p), but we don't know about it", [Pid, Reason]),
             {noreply, State0};
         {SC, _SCState, Pid} ->
+            FilterActives = fun(_ID, {_SC, SCState, _Pid}) ->
+                SCState == ?ACTIVE
+            end,
+            case maps:size(maps:filter(FilterActives, SCs0))-1 of
+                0 -> ok = get_new_active();
+                _ -> ok
+            end,
             ID = blockchain_state_channel_v1:id(SC),
             Name = blockchain_utils:addr2name(ID),
             lager:info("state channel ~p @ ~p went down: ~p", [Name, Pid, Reason]),

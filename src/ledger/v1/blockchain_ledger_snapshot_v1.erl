@@ -626,7 +626,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                 []
         end,
 
-    lager:info("block head is ~p", [hd(Blocks)]),
     print_memory(),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
@@ -711,6 +710,8 @@ load_blocks(Ledger0, Chain, Snapshot) ->
 %% 104 is small tuple
 %% 100 is atom ext
 %% https://www.erlang.org/doc/apps/erts/erl_ext_dist.html
+binary_to_list_of_binaries(<<131, 106>>) ->
+    [];
 binary_to_list_of_binaries(<<131, 108, _Length:32/integer-unsigned-big, Rest/binary>>) ->
     binary_to_list_of_binaries(Rest, []).
 
