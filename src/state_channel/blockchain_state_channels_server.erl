@@ -121,14 +121,17 @@ update_state_channel(SC) ->
     HandlerPid :: pid()
 ) -> ok | reject.
 handle_offer(Offer, SCPacketHandler, Ledger, HandlerPid) ->
-    lager:debug("handle_offer ~p from ~p", [Offer, HandlerPid]),
+    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    HotspotName = blockchain_utils:addr2name(HotspotID),
+    lager:debug("handle_offer ~p from ~p", [Offer, {HandlerPid, HotspotName}]),
     case blockchain_state_channel_offer_v1:validate(Offer) of
         {error, _Reason} ->
-            lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]),
+            lager:debug("offer from ~p failed to validate ~p ~p", [HotspotName, _Reason, Offer]),
             reject;
         true ->
             case SCPacketHandler:handle_offer(Offer, HandlerPid) of
                 {error, _Why} ->
+                    lager:debug("offer from ~p rejected by ~p because ~p ~p", [HotspotName, SCPacketHandler, _Why, Offer]),
                     reject;
                 ok ->
                     handle_offer(Offer, Ledger, HandlerPid)
