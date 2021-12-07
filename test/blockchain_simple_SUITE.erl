@@ -1046,7 +1046,8 @@ netid_test(Config) ->
     Ledger = blockchain:ledger(Chain),
     {ok, NetIDs} = blockchain_ledger_v1:get_netids(Ledger),
     [HeadNetID | _T] = NetIDs,
-    ?assertEqual(?OFFICIAL_NETID_01, HeadNetID),
+    %% Official NetID == 16#60002D assigned by LoRa Alliance
+    ?assertEqual(16#60002D, HeadNetID),
     ok.
 
 routing_test(Config) ->
