@@ -3010,7 +3010,7 @@ get_netids(Ledger) ->
             binary_to_term(BinNetIDs);
         not_found ->
             %% Official NetID == 16#60002D assigned by LoRa Alliance
-            [ OFFICIAL_NETID_01 ];
+            [ ?OFFICIAL_NETID_01 ];
         Error ->
             Error
     end.

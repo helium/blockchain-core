@@ -1046,7 +1046,7 @@ netid_test(Config) ->
     Ledger = blockchain:ledger(Chain),
     {ok, NetIDs} = blockchain_ledger_v1:get_netids(Ledger),
     [HeadNetID | _T] = NetIDs,
-    ?assertEqual(OFFICIAL_NETID_01, HeadNetID),
+    ?assertEqual(?OFFICIAL_NETID_01, HeadNetID),
     ok.
 
 routing_test(Config) ->
