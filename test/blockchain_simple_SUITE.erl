@@ -1045,7 +1045,7 @@ netid_test(Config) ->
     Chain = ?config(chain, Config),
     Ledger = blockchain:ledger(Chain),
     {ok, NetIDs} = blockchain_ledger_v1:get_netids(Ledger),
-    [HeadNetID | T] = NetIDs,
+    [HeadNetID | _T] = NetIDs,
     ?assertEqual(OFFICIAL_NETID_01, HeadNetID),
     ok.
 
