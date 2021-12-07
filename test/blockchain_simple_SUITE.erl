@@ -1041,6 +1041,14 @@ security_token_test(Config) ->
     ?assertEqual(Balance - 2500, blockchain_ledger_security_entry_v1:balance(NewEntry1)),
     ok.
 
+netid_test(Config) ->
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+    {ok, NetIDs} = blockchain_ledger_v1:get_netids(Ledger),
+    [HeadNetID | T] = NetIDs,
+    ?assertEqual(OFFICIAL_NETID_01, HeadNetID),
+    ok.
+
 routing_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),

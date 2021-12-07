@@ -261,6 +261,7 @@
 -endif.
 
 -define(RETIRED_NETID, 16#200010).
+-define(OFFICIAL_NETID_01, 16#60002D).
 
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
@@ -3008,8 +3009,8 @@ get_netids(Ledger) ->
         {ok, BinNetIDs} ->
             binary_to_term(BinNetIDs);
         not_found ->
-            %% Official NetID assigned by LoRa Alliance
-            [ 16#60002D ];
+            %% Official NetID == 16#60002D assigned by LoRa Alliance
+            [ OFFICIAL_NETID_01 ];
         Error ->
             Error
     end.
