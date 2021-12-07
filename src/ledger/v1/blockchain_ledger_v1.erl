@@ -3007,10 +3007,10 @@ get_netids(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?NETIDS, []) of
         {ok, BinNetIDs} ->
-            binary_to_term(BinNetIDs);
+            {ok, binary_to_term(BinNetIDs)};
         not_found ->
             %% Official NetID == 16#60002D assigned by LoRa Alliance
-            {ok, [ ?OFFICIAL_NETID_01 ]};
+            {ok, [?OFFICIAL_NETID_01]};
         Error ->
             Error
     end.
