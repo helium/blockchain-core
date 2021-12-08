@@ -151,9 +151,9 @@ is_valid(Txn, Chain) ->
 
     case blockchain:config(?transaction_validity_version, Ledger) of
         {ok, 3} ->
-            is_valid_conditions_v2(Txn, Ledger, Chain);
+            is_valid_conditions_v3(Txn, Ledger, Chain);
         {ok, 2} ->
-            is_valid_conditions(Txn, Ledger, Chain);
+            is_valid_conditions_v2(Txn, Ledger, Chain);
         _ ->
             {error, transaction_validity_version_not_set}
     end.
@@ -288,17 +288,17 @@ is_gateway_on_chain(#blockchain_txn_transfer_hotspot_v2_pb{gateway=GWPubkeyBin},
             false
     end.
 
--spec is_valid_conditions(Txn :: txn_transfer_hotspot_v2(),
-                          Ledger :: blockchain_ledger_v1:ledger(),
-                          Chain :: blockchain:blockchain()) -> ok | {error, any()}.
-is_valid_conditions(Txn, Ledger, Chain) ->
-    Conditions = conds(Txn, Ledger, Chain),
-    blockchain_utils:fold_condition_checks(Conditions).
-
 -spec is_valid_conditions_v2(Txn :: txn_transfer_hotspot_v2(),
                              Ledger :: blockchain_ledger_v1:ledger(),
                              Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 is_valid_conditions_v2(Txn, Ledger, Chain) ->
+    Conditions = conds(Txn, Ledger, Chain),
+    blockchain_utils:fold_condition_checks(Conditions).
+
+-spec is_valid_conditions_v3(Txn :: txn_transfer_hotspot_v2(),
+                             Ledger :: blockchain_ledger_v1:ledger(),
+                             Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+is_valid_conditions_v3(Txn, Ledger, Chain) ->
     ExtraCond = {fun() -> owner_can_pay_fee(Txn, Ledger) end, {error, gateway_owner_cannot_pay_fee}},
     Conditions = conds(Txn, Ledger, Chain) ++ [ExtraCond],
     blockchain_utils:fold_condition_checks(Conditions).
