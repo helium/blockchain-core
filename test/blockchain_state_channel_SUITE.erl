@@ -304,6 +304,9 @@ full_test(Config) ->
         erlang:is_pid(SCWorkerPid1) andalso ct_rpc:call(RouterNode, erlang, is_process_alive, [SCWorkerPid1])
     end, 30, timer:seconds(1)),
 
+    SignedSC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid1, 100]),
+    ?assertEqual(ok, blockchain_state_channel_v1:validate(SignedSC)),
+
     %% Open another SC that will NOT expire
     ID2 = crypto:strong_rand_bytes(32),
     SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, 30, 1, 2),
