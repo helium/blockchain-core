@@ -64,7 +64,8 @@ start(Args) ->
 
 -spec get(Pid :: pid(), Timeout :: non_neg_integer()) -> blockchain_state_channel_v1:state_channel().
 get(Pid, Timeout) ->
-    gen_server:call(Pid, get, Timeout).
+    {SC, OwnerSigFun} = gen_server:call(Pid, get, Timeout),
+    blockchain_state_channel_v1:sign(SC, OwnerSigFun).
 
 -spec handle_offer(
     Pid :: pid(),
@@ -137,8 +138,8 @@ init(Args) ->
     },
     {ok, State}.
 
-handle_call(get, _From, #state{state_channel=SC}=State) ->
-    {reply, SC, State};
+handle_call(get, _From, #state{state_channel=SC, owner={_Owner, OwnerSigFun}}=State) ->
+    {reply, {SC, OwnerSigFun}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
