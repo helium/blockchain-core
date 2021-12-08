@@ -1046,10 +1046,25 @@ security_token_test(Config) ->
 netid_test(Config) ->
     Chain = ?config(chain, Config),
     Ledger = blockchain:ledger(Chain),
-    {ok, NetIDs} = blockchain_ledger_v1:get_netids(Ledger),
-    [HeadNetID | _T] = NetIDs,
+    {ok, [NetID0 | _T]} = blockchain_ledger_v1:get_netids(Ledger),
     %% Official NetID == 16#60002D assigned by LoRa Alliance
-    ?assertEqual(16#60002D, HeadNetID),
+    ?assertEqual(16#60002D, NetID0),
+
+    %% Only update production NetIDs by appending to the list
+    %% Never modify the NetIDs list ordering
+    NetIDs = blockchain_ledger_v1:get_netids(Ledger),
+    UpdateNetIDs = NetIDs ++ [16#60002E]
+    blockchain_ledger_v1:set_netids(UpdateNetIDs, Ledger),
+    {ok, [NetID1 | NetID2]} = blockchain_ledger_v1:get_netids(Ledger),
+    ?assertEqual(16#60002D, NetID1),
+    ?assertEqual(16#60002E, NetID2),
+
+    %% Only try this for testing, never in production.
+    UpdateNetIDs2 = [16#200010, 16#60002D];
+    blockchain_ledger_v1:set_netids(UpdateNetIDs2, Ledger),
+    {ok, [NetID3 | NetID4]} = blockchain_ledger_v1:get_netids(Ledger),
+    ?assertEqual(16#200010, NetID3),
+    ?assertEqual(16#60002D, NetID4),
     ok.
 
 routing_test(Config) ->

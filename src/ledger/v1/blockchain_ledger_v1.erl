@@ -3015,6 +3015,11 @@ get_netids(Ledger) ->
             Error
     end.
 
+-spec set_netids([netid()], ledger()) -> ok | {error, _}.
+set_netids(NetIDs, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?NETIDS, term_to_binary(NetIDs)).
+
 -spec get_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 get_oui_counter(Ledger) ->
     DefaultCF = default_cf(Ledger),
