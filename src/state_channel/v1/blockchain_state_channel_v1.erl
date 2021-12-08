@@ -19,24 +19,33 @@
     root_hash/1, root_hash/2,
     state/1, state/2,
     expire_at_block/1, expire_at_block/2,
-    signature/1, sign/2, validate/1, quick_validate/2,
-    encode/1, decode/1,
-    save/3, fetch/2,
-    summaries/1, summaries/2, update_summary_for/4,
+    signature/1,
+    sign/2,
+    validate/1,
+    quick_validate/2,
+    encode/1,
+    decode/1,
+    save/3,
+    fetch/2,
+    summaries/1, summaries/2,
+    update_summary_for/4,
 
     normalize/1,
 
     add_payload/3,
     get_summary/2,
-    num_packets_for/2, num_dcs_for/2,
-    total_packets/1, total_dcs/1,
+    num_packets_for/2,
+    num_dcs_for/2,
+    total_packets/1,
+    total_dcs/1,
 
     to_json/2,
 
     compare_causality/2,
     quick_compare_causality/3,
     is_causally_newer/2,
-    merge/3, new_merge/3,
+    merge/3,
+    new_merge/3,
     can_fit/3,
     max_actors_allowed/1
 ]).
@@ -55,174 +64,203 @@
 
 -export_type([state_channel/0, id/0]).
 
--spec new(ID :: id(),
-          Owner :: libp2p_crypto:pubkey_bin(),
-          Amount :: non_neg_integer()) -> state_channel().
+-spec new(
+    ID :: id(),
+    Owner :: libp2p_crypto:pubkey_bin(),
+    Amount :: non_neg_integer()
+) -> state_channel().
 new(ID, Owner, Amount) ->
     #blockchain_state_channel_v1_pb{
-        id=ID,
-        owner=Owner,
-        nonce=0,
-        credits=Amount,
-        summaries=[],
-        root_hash= <<>>,
-        state=open,
-        expire_at_block=0
+        id = ID,
+        owner = Owner,
+        nonce = 0,
+        credits = Amount,
+        summaries = [],
+        root_hash = <<>>,
+        state = open,
+        expire_at_block = 0
     }.
 
--spec new(ID :: id(),
-          Owner :: libp2p_crypto:pubkey_bin(),
-          Amount :: non_neg_integer(),
-          BlockHash :: binary(),
-          ExpireAtBlock :: pos_integer()) -> {state_channel(), skewed:skewed()}.
+-spec new(
+    ID :: id(),
+    Owner :: libp2p_crypto:pubkey_bin(),
+    Amount :: non_neg_integer(),
+    BlockHash :: binary(),
+    ExpireAtBlock :: pos_integer()
+) -> {state_channel(), skewed:skewed()}.
 new(ID, Owner, Amount, BlockHash, ExpireAtBlock) ->
     SC = #blockchain_state_channel_v1_pb{
-            id=ID,
-            owner=Owner,
-            nonce=0,
-            credits=Amount,
-            summaries=[],
-            root_hash= <<>>,
-            state=open,
-            expire_at_block=ExpireAtBlock
-           },
+        id = ID,
+        owner = Owner,
+        nonce = 0,
+        credits = Amount,
+        summaries = [],
+        root_hash = <<>>,
+        state = open,
+        expire_at_block = ExpireAtBlock
+    },
     Skewed = skewed:new(BlockHash),
     {SC, Skewed}.
 
 -spec id(state_channel()) -> binary().
-id(#blockchain_state_channel_v1_pb{id=ID}) ->
+id(#blockchain_state_channel_v1_pb{id = ID}) ->
     ID.
 
 -spec owner(state_channel()) -> libp2p_crypto:pubkey_bin().
-owner(#blockchain_state_channel_v1_pb{owner=Owner}) ->
+owner(#blockchain_state_channel_v1_pb{owner = Owner}) ->
     Owner.
 
 -spec nonce(state_channel()) -> non_neg_integer().
-nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
+nonce(#blockchain_state_channel_v1_pb{nonce = Nonce}) ->
     Nonce.
 
 -spec nonce(non_neg_integer(), state_channel()) -> state_channel().
 nonce(Nonce, SC) ->
-    SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
+    SC#blockchain_state_channel_v1_pb{nonce = Nonce}.
 
 -spec amount(state_channel()) -> non_neg_integer().
-amount(#blockchain_state_channel_v1_pb{credits=Amount}) ->
+amount(#blockchain_state_channel_v1_pb{credits = Amount}) ->
     Amount.
 
 -spec amount(non_neg_integer(), state_channel()) -> state_channel().
 amount(Amount, SC) ->
-    SC#blockchain_state_channel_v1_pb{credits=Amount}.
+    SC#blockchain_state_channel_v1_pb{credits = Amount}.
 
 -spec summaries(state_channel()) -> summaries().
-summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
+summaries(#blockchain_state_channel_v1_pb{summaries = Summaries}) ->
     Summaries.
 
--spec summaries(Summaries :: summaries(),
-                SC :: state_channel()) -> state_channel().
+-spec summaries(
+    Summaries :: summaries(),
+    SC :: state_channel()
+) -> state_channel().
 summaries(Summaries, SC) ->
-    SC#blockchain_state_channel_v1_pb{summaries=Summaries}.
+    SC#blockchain_state_channel_v1_pb{summaries = Summaries}.
 
 %% returns state_channel and whether we were able to fit it
--spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                         NewSummary :: blockchain_state_channel_summary_v1:summary(),
-                         SC :: state_channel(),
-                         MaxActorsAllowed :: pos_integer()) -> {state_channel(), boolean()}.
-update_summary_for(ClientPubkeyBin,
-                   NewSummary,
-                   #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
-                   MaxActorsAllowed) ->
+-spec update_summary_for(
+    ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    NewSummary :: blockchain_state_channel_summary_v1:summary(),
+    SC :: state_channel(),
+    MaxActorsAllowed :: pos_integer()
+) -> {state_channel(), boolean()}.
+update_summary_for(
+    ClientPubkeyBin,
+    NewSummary,
+    #blockchain_state_channel_v1_pb{summaries = Summaries} = SC,
+    MaxActorsAllowed
+) ->
     case ?MODULE:can_fit(ClientPubkeyBin, SC, MaxActorsAllowed) of
         false ->
             %% Cannot fit this into summaries
             {SC, false};
         {true, _SpotsLeft} ->
-            {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
+            {SC#blockchain_state_channel_v1_pb{summaries = [NewSummary | Summaries]}, true};
         found ->
-            NewSummaries = lists:keyreplace(ClientPubkeyBin,
-                                            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
-                                            Summaries,
-                                            NewSummary),
-            {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
+            NewSummaries = lists:keyreplace(
+                ClientPubkeyBin,
+                #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                Summaries,
+                NewSummary
+            ),
+            {SC#blockchain_state_channel_v1_pb{summaries = NewSummaries}, true}
     end.
 
--spec get_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                  SC :: state_channel()) -> {ok, blockchain_state_channel_summary_v1:summary()} |
-                                            {error, not_found}.
-get_summary(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}) ->
-    case lists:keyfind(ClientPubkeyBin,
-                       #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
-                       Summaries) of
+-spec get_summary(
+    ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    SC :: state_channel()
+) ->
+    {ok, blockchain_state_channel_summary_v1:summary()}
+    | {error, not_found}.
+get_summary(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries = Summaries}) ->
+    case
+        lists:keyfind(
+            ClientPubkeyBin,
+            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+            Summaries
+        )
+    of
         false ->
             {error, not_found};
         Summary ->
             {ok, Summary}
     end.
 
--spec num_packets_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                      SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
+-spec num_packets_for(
+    ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    SC :: state_channel()
+) -> {ok, non_neg_integer()} | {error, not_found}.
 num_packets_for(ClientPubkeyBin, SC) ->
     case get_summary(ClientPubkeyBin, SC) of
-        {error, _}=E -> E;
-        {ok, Summary} ->
-            {ok, blockchain_state_channel_summary_v1:num_packets(Summary)}
+        {error, _} = E -> E;
+        {ok, Summary} -> {ok, blockchain_state_channel_summary_v1:num_packets(Summary)}
     end.
 
 -spec total_packets(SC :: state_channel()) -> non_neg_integer().
-total_packets(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
-    lists:foldl(fun(Summary, Acc) ->
-                        Acc + blockchain_state_channel_summary_v1:num_packets(Summary)
-                end, 0, Summaries).
+total_packets(#blockchain_state_channel_v1_pb{summaries = Summaries}) ->
+    lists:foldl(
+        fun(Summary, Acc) ->
+            Acc + blockchain_state_channel_summary_v1:num_packets(Summary)
+        end,
+        0,
+        Summaries
+    ).
 
--spec num_dcs_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                  SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
+-spec num_dcs_for(
+    ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    SC :: state_channel()
+) -> {ok, non_neg_integer()} | {error, not_found}.
 num_dcs_for(ClientPubkeyBin, SC) ->
     case get_summary(ClientPubkeyBin, SC) of
-        {error, _}=E -> E;
-        {ok, Summary} ->
-            {ok, blockchain_state_channel_summary_v1:num_dcs(Summary)}
+        {error, _} = E -> E;
+        {ok, Summary} -> {ok, blockchain_state_channel_summary_v1:num_dcs(Summary)}
     end.
 
 -spec total_dcs(SC :: state_channel()) -> non_neg_integer().
-total_dcs(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
-    lists:foldl(fun(Summary, Acc) ->
-                        Acc + blockchain_state_channel_summary_v1:num_dcs(Summary)
-                end, 0, Summaries).
+total_dcs(#blockchain_state_channel_v1_pb{summaries = Summaries}) ->
+    lists:foldl(
+        fun(Summary, Acc) ->
+            Acc + blockchain_state_channel_summary_v1:num_dcs(Summary)
+        end,
+        0,
+        Summaries
+    ).
 
 -spec root_hash(state_channel()) -> skewed:hash().
-root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
+root_hash(#blockchain_state_channel_v1_pb{root_hash = RootHash}) ->
     RootHash.
 
 -spec root_hash(skewed:hash(), state_channel()) -> state_channel().
 root_hash(RootHash, SC) ->
-    SC#blockchain_state_channel_v1_pb{root_hash=RootHash}.
+    SC#blockchain_state_channel_v1_pb{root_hash = RootHash}.
 
 -spec state(state_channel()) -> state().
-state(#blockchain_state_channel_v1_pb{state=State}) ->
+state(#blockchain_state_channel_v1_pb{state = State}) ->
     State.
 
 -spec state(state(), state_channel()) -> state_channel().
 state(closed, SC) ->
-    SC#blockchain_state_channel_v1_pb{state=closed};
+    SC#blockchain_state_channel_v1_pb{state = closed};
 state(open, SC) ->
-    SC#blockchain_state_channel_v1_pb{state=open}.
+    SC#blockchain_state_channel_v1_pb{state = open}.
 
 -spec expire_at_block(state_channel()) -> pos_integer().
-expire_at_block(#blockchain_state_channel_v1_pb{expire_at_block=ExpireAt}) ->
+expire_at_block(#blockchain_state_channel_v1_pb{expire_at_block = ExpireAt}) ->
     ExpireAt.
 
 -spec expire_at_block(pos_integer(), state_channel()) -> state_channel().
 expire_at_block(ExpireAt, SC) ->
-    SC#blockchain_state_channel_v1_pb{expire_at_block=ExpireAt}.
+    SC#blockchain_state_channel_v1_pb{expire_at_block = ExpireAt}.
 
 -spec signature(state_channel()) -> binary().
-signature(#blockchain_state_channel_v1_pb{signature=Signature}) ->
+signature(#blockchain_state_channel_v1_pb{signature = Signature}) ->
     Signature.
 
 -spec sign(state_channel(), function()) -> state_channel().
 sign(SC, SigFun) ->
-    EncodedSC = ?MODULE:encode(SC#blockchain_state_channel_v1_pb{signature= <<>>}),
+    EncodedSC = ?MODULE:encode(SC#blockchain_state_channel_v1_pb{signature = <<>>}),
     Signature = SigFun(EncodedSC),
-    SC#blockchain_state_channel_v1_pb{signature=Signature}.
+    SC#blockchain_state_channel_v1_pb{signature = Signature}.
 
 -spec validate(state_channel()) -> ok | {error, any()}.
 validate(SC) ->
@@ -238,7 +276,7 @@ validate(SC) ->
 
 validate_summaries([]) ->
     ok;
-validate_summaries([H|T]) ->
+validate_summaries([H | T]) ->
     case blockchain_state_channel_summary_v1:validate(H) of
         ok ->
             validate_summaries(T);
@@ -254,7 +292,8 @@ quick_validate(SC, PubkeyBin) ->
     Owner = ?MODULE:owner(SC),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
     case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
-        false -> {error, bad_signature};
+        false ->
+            {error, bad_signature};
         true ->
             case ?MODULE:get_summary(PubkeyBin, SC) of
                 {error, not_found} ->
@@ -266,18 +305,19 @@ quick_validate(SC, PubkeyBin) ->
             end
     end.
 
-
 -spec encode(state_channel()) -> binary().
-encode(#blockchain_state_channel_v1_pb{}=SC) ->
+encode(#blockchain_state_channel_v1_pb{} = SC) ->
     blockchain_state_channel_v1_pb:encode_msg(SC).
 
 -spec decode(binary()) -> state_channel().
 decode(Binary) ->
     blockchain_state_channel_v1_pb:decode_msg(Binary, blockchain_state_channel_v1_pb).
 
--spec save(DB :: rocksdb:db_handle(),
-           SC :: state_channel(),
-           Skewed :: skewed:skewed()) -> ok.
+-spec save(
+    DB :: rocksdb:db_handle(),
+    SC :: state_channel(),
+    Skewed :: skewed:skewed()
+) -> ok.
 save(_DB, SC, Skewed) ->
     blockchain_state_channels_db_owner:write(SC, Skewed).
 
@@ -288,13 +328,17 @@ fetch(DB, ID) ->
             {BinarySC, Skewed} = binary_to_term(Bin),
             SC = ?MODULE:decode(BinarySC),
             {ok, {SC, Skewed}};
-        not_found -> {error, not_found};
-        Error -> Error
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
     end.
 
--spec add_payload(Payload :: binary(),
-                  SC :: state_channel(),
-                  Skewed :: skewed:skewed()) -> {state_channel(), skewed:skewed()}.
+-spec add_payload(
+    Payload :: binary(),
+    SC :: state_channel(),
+    Skewed :: skewed:skewed()
+) -> {state_channel(), skewed:skewed()}.
 add_payload(Payload, SC, Skewed) ->
     %% Check if we have already seen this payload in skewed
     %% If yes, don't do anything, otherwise, add to skewed and return new state_channel
@@ -304,50 +348,64 @@ add_payload(Payload, SC, Skewed) ->
         false ->
             NewSkewed = skewed:add(Payload, Skewed),
             NewRootHash = skewed:root_hash(NewSkewed),
-            {SC#blockchain_state_channel_v1_pb{root_hash=NewRootHash}, NewSkewed}
+            {SC#blockchain_state_channel_v1_pb{root_hash = NewRootHash}, NewSkewed}
     end.
 
 -spec normalize(SC :: state_channel()) -> state_channel().
-normalize(#blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+normalize(#blockchain_state_channel_v1_pb{summaries = Summaries} = SC) ->
     Total = amount(SC),
     %% if any individual entry is greater than the total amount, reduce it to the total amount
-    {SumTotal, NewSummaries} = lists:foldl(fun(Summary, {AccTotal, AccSummaries}) ->
-                                                   Amt = blockchain_state_channel_summary_v1:num_dcs(Summary),
-                                                   case Amt > Total of
-                                                       true ->
-                                                           {AccTotal + Total, [blockchain_state_channel_summary_v1:num_dcs(Total, Summary)|AccSummaries]};
-                                                       false ->
-                                                           {AccTotal + Amt, [Summary|AccSummaries]}
-                                                   end
-                                           end, {0, []}, Summaries),
+    {SumTotal, NewSummaries} = lists:foldl(
+        fun(Summary, {AccTotal, AccSummaries}) ->
+            Amt = blockchain_state_channel_summary_v1:num_dcs(Summary),
+            case Amt > Total of
+                true ->
+                    {AccTotal + Total, [
+                        blockchain_state_channel_summary_v1:num_dcs(Total, Summary) | AccSummaries
+                    ]};
+                false ->
+                    {AccTotal + Amt, [Summary | AccSummaries]}
+            end
+        end,
+        {0, []},
+        Summaries
+    ),
 
     %% then scale rewards proportionally if they collectively sum to more than the total amount
-    FinalSummaries = case SumTotal > Total of
-                         true ->
-                             lists:map(fun(Summary) ->
-                                               %% use trunc here so rounding up cannot inflate DC counts
-                                               NewAmt = trunc((blockchain_state_channel_summary_v1:num_dcs(Summary) / SumTotal) * Total),
-                                               blockchain_state_channel_summary_v1:num_dcs(NewAmt, Summary)
-                                       end, NewSummaries);
-                         false ->
-                             NewSummaries
-                     end,
-    #blockchain_state_channel_v1_pb{summaries=FinalSummaries}.
+    FinalSummaries =
+        case SumTotal > Total of
+            true ->
+                lists:map(
+                    fun(Summary) ->
+                        %% use trunc here so rounding up cannot inflate DC counts
+                        NewAmt = trunc(
+                            (blockchain_state_channel_summary_v1:num_dcs(Summary) / SumTotal) *
+                                Total
+                        ),
+                        blockchain_state_channel_summary_v1:num_dcs(NewAmt, Summary)
+                    end,
+                    NewSummaries
+                );
+            false ->
+                NewSummaries
+        end,
+    #blockchain_state_channel_v1_pb{summaries = FinalSummaries}.
 
 -spec to_json(state_channel(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(SC, _Opts) ->
     #{
-      id => ?BIN_TO_B64(id(SC)),
-      owner => ?BIN_TO_B58(owner(SC)),
-      nonce => nonce(SC),
-      summaries => [blockchain_state_channel_summary_v1:to_json(B, []) || B <- summaries(SC)],
-      root_hash => ?BIN_TO_B64(root_hash(SC)),
-      state => case(state(SC)) of
-                   open -> <<"open">>;
-                   closed -> <<"closed">>
-               end,
-      expire_at_block => expire_at_block(SC)
-     }.
+        id => ?BIN_TO_B64(id(SC)),
+        owner => ?BIN_TO_B58(owner(SC)),
+        nonce => nonce(SC),
+        summaries => [blockchain_state_channel_summary_v1:to_json(B, []) || B <- summaries(SC)],
+        root_hash => ?BIN_TO_B64(root_hash(SC)),
+        state =>
+            case (state(SC)) of
+                open -> <<"open">>;
+                closed -> <<"closed">>
+            end,
+        expire_at_block => expire_at_block(SC)
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -361,35 +419,38 @@ to_json(SC, _Opts) ->
 %% Important: The expected older state channel should be passed <b>first</b>.
 %% @end
 %%--------------------------------------------------------------------
--spec compare_causality(OlderSC :: state_channel(),
-                        CurrentSC :: state_channel()) -> temporal_relation().
+-spec compare_causality(
+    OlderSC :: state_channel(),
+    CurrentSC :: state_channel()
+) -> temporal_relation().
 compare_causality(OlderSC, CurrentSC) ->
     OlderNonce = ?MODULE:nonce(OlderSC),
     CurrentNonce = ?MODULE:nonce(CurrentSC),
 
-    {_, Res} = case {OlderNonce, CurrentNonce} of
-                   {OlderNonce, OlderNonce} ->
-                       %% nonces are equal, summaries must be equal
-                       OlderSummaries = ?MODULE:summaries(OlderSC),
-                       CurrentSummaries = ?MODULE:summaries(CurrentSC),
-                       case OlderSummaries == CurrentSummaries of
-                           false ->
-                               %% If the nonces are the same but the summaries are not
-                               %% then that's a conflict.
-                               {done, conflict};
-                           true ->
-                               {done, equal}
-                       end;
-                   {OlderNonce, CurrentNonce} when CurrentNonce > OlderNonce ->
-                       %% Every hotspot in older summary must have either
-                       %% the same/lower packet and dc count when compared
-                       %% to current summary
-                       check_causality(?MODULE:summaries(OlderSC), CurrentSC, caused);
-                   {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
-                       %% The current nonce is smaller than the older nonce;
-                       %% that's a conflict
-                       check_causality(?MODULE:summaries(CurrentSC), OlderSC, effect_of)
-               end,
+    {_, Res} =
+        case {OlderNonce, CurrentNonce} of
+            {OlderNonce, OlderNonce} ->
+                %% nonces are equal, summaries must be equal
+                OlderSummaries = ?MODULE:summaries(OlderSC),
+                CurrentSummaries = ?MODULE:summaries(CurrentSC),
+                case OlderSummaries == CurrentSummaries of
+                    false ->
+                        %% If the nonces are the same but the summaries are not
+                        %% then that's a conflict.
+                        {done, conflict};
+                    true ->
+                        {done, equal}
+                end;
+            {OlderNonce, CurrentNonce} when CurrentNonce > OlderNonce ->
+                %% Every hotspot in older summary must have either
+                %% the same/lower packet and dc count when compared
+                %% to current summary
+                check_causality(?MODULE:summaries(OlderSC), CurrentSC, caused);
+            {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
+                %% The current nonce is smaller than the older nonce;
+                %% that's a conflict
+                check_causality(?MODULE:summaries(CurrentSC), OlderSC, effect_of)
+        end,
     Res.
 
 %%--------------------------------------------------------------------
@@ -404,9 +465,11 @@ compare_causality(OlderSC, CurrentSC) ->
 %% Important: The expected older state channel should be passed <b>first</b>.
 %% @end
 %%--------------------------------------------------------------------
--spec quick_compare_causality(OlderSC :: state_channel(),
-                              CurrentSC :: state_channel(),
-                              PubkeyBin :: libp2p_crypto:pubkey_bin()) -> temporal_relation().
+-spec quick_compare_causality(
+    OlderSC :: state_channel(),
+    CurrentSC :: state_channel(),
+    PubkeyBin :: libp2p_crypto:pubkey_bin()
+) -> temporal_relation().
 quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
     OlderNonce = ?MODULE:nonce(OlderSC),
     CurrentNonce = ?MODULE:nonce(CurrentSC),
@@ -425,7 +488,9 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
                     equal
             end;
         {OlderNonce, CurrentNonce} when CurrentNonce > OlderNonce ->
-            case {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)} of
+            case
+                {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)}
+            of
                 {{error, not_found}, {error, not_found}} ->
                     caused;
                 {{error, not_found}, {ok, _}} ->
@@ -445,7 +510,9 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
                     end
             end;
         {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
-            case {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)} of
+            case
+                {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)}
+            of
                 {{error, not_found}, {error, not_found}} ->
                     %% only the nonce changes and current is less than old nonce
                     effect_of;
@@ -473,32 +540,51 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
             end
     end.
 
--spec merge(SCA :: state_channel(),
-            SCB :: state_channel(),
-            MaxActorsAllowed :: pos_integer()) -> state_channel().
+-spec merge(
+    SCA :: state_channel(),
+    SCB :: state_channel(),
+    MaxActorsAllowed :: pos_integer()
+) -> state_channel().
 merge(SCA, SCB, MaxActorsAllowed) ->
     lager:info("merging state channels"),
     [SC1, SC2] = lists:sort(fun(A, B) -> ?MODULE:nonce(A) =< ?MODULE:nonce(B) end, [SCA, SCB]),
 
-    lists:foldl(fun(Summary, SCAcc) ->
-                        case get_summary(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), SCAcc) of
-                            {error, not_found} ->
-                                {SC, _} =
-                                    update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
-                                                       Summary, SCAcc, MaxActorsAllowed),
-                                SC;
-                            {ok, OurSummary} ->
-                                case blockchain_state_channel_summary_v1:num_dcs(OurSummary) < blockchain_state_channel_summary_v1:num_dcs(Summary) of
-                                    true ->
-                                        {SC, _} =
-                                            update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
-                                                               Summary, SCAcc, MaxActorsAllowed),
-                                        SC;
-                                    false ->
-                                        SCAcc
-                                end
-                        end
-                end, SC2, summaries(SC1)).
+    lists:foldl(
+        fun(Summary, SCAcc) ->
+            case
+                get_summary(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), SCAcc)
+            of
+                {error, not_found} ->
+                    {SC, _} =
+                        update_summary_for(
+                            blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                            Summary,
+                            SCAcc,
+                            MaxActorsAllowed
+                        ),
+                    SC;
+                {ok, OurSummary} ->
+                    case
+                        blockchain_state_channel_summary_v1:num_dcs(OurSummary) <
+                            blockchain_state_channel_summary_v1:num_dcs(Summary)
+                    of
+                        true ->
+                            {SC, _} =
+                                update_summary_for(
+                                    blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                    Summary,
+                                    SCAcc,
+                                    MaxActorsAllowed
+                                ),
+                            SC;
+                        false ->
+                            SCAcc
+                    end
+            end
+        end,
+        SC2,
+        summaries(SC1)
+    ).
 
 -spec new_merge(
     SCA :: state_channel(),
@@ -512,18 +598,30 @@ new_merge(SCA, SCB, MaxActorsAllowed) ->
 
     Merged = new_merge(SC1, SC2, MaxActorsAllowed, []),
     MergeLength = length(Merged),
-    TrimmedMerge = case MergeLength > MaxActorsAllowed of
-                       true ->
-                           Overage = MergeLength - MaxActorsAllowed,
-                           %% we need to remove the last Overage actors in SC1 that do not appear in SC1
-                           %% selected in order
-                           UniqueActorsInSC1 = [ X || #blockchain_state_channel_summary_v1_pb{client_pubkeybin=X} <- summaries(SCA1),
-                                                      not lists:keymember(X, #blockchain_state_channel_summary_v1_pb.client_pubkeybin, SC2) ],
-                           ActorsToDrop = lists:sublist(lists:reverse(UniqueActorsInSC1), Overage),
-                           [ E || E=#blockchain_state_channel_summary_v1_pb{client_pubkeybin=Y} <- Merged, not lists:member(Y, ActorsToDrop) ];
-                       false ->
-                           Merged
-                   end,
+    TrimmedMerge =
+        case MergeLength > MaxActorsAllowed of
+            true ->
+                Overage = MergeLength - MaxActorsAllowed,
+                %% we need to remove the last Overage actors in SC1 that do not appear in SC1
+                %% selected in order
+                UniqueActorsInSC1 = [
+                    X
+                 || #blockchain_state_channel_summary_v1_pb{client_pubkeybin = X} <- summaries(
+                        SCA1
+                    ),
+                    not lists:keymember(
+                        X, #blockchain_state_channel_summary_v1_pb.client_pubkeybin, SC2
+                    )
+                ],
+                ActorsToDrop = lists:sublist(lists:reverse(UniqueActorsInSC1), Overage),
+                [
+                    E
+                 || E = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = Y} <- Merged,
+                    not lists:member(Y, ActorsToDrop)
+                ];
+            false ->
+                Merged
+        end,
     summaries(TrimmedMerge, SCB2).
 
 new_merge([], [], _Max, Acc) ->
@@ -565,10 +663,12 @@ new_merge(
 ) when ActorA > ActorB ->
     new_merge(T1, T2, Max, [B | Acc]).
 
--spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-              SC :: state_channel(),
-              Max :: pos_integer()) -> false | found | {true, SpotsLeft :: non_neg_integer()}.
-can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC, Max) ->
+-spec can_fit(
+    ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    SC :: state_channel(),
+    Max :: pos_integer()
+) -> false | found | {true, SpotsLeft :: non_neg_integer()}.
+can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries = Summaries} = SC, Max) ->
     SpotsLeft = Max - erlang:length(Summaries),
     HasRoom = SpotsLeft > 0,
     FoundSummary = ?MODULE:get_summary(ClientPubkeyBin, SC),
@@ -592,37 +692,50 @@ max_actors_allowed(Ledger) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec check_causality(SCSummaries :: summaries(),
-                      OtherSC :: state_channel(),
-                      Init :: caused | effect_of) -> {done, temporal_relation()}.
+-spec check_causality(
+    SCSummaries :: summaries(),
+    OtherSC :: state_channel(),
+    Init :: caused | effect_of
+) -> {done, temporal_relation()}.
 check_causality(SCSummaries, OtherSC, Init) ->
-    lists:foldl(fun(_SCSummary, {done, Acc}) ->
-                        {done, Acc};
-                   (SCSummary, {not_done, Acc}) ->
-                        ClientPubkeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(SCSummary),
-                        case ?MODULE:get_summary(ClientPubkeyBin, OtherSC) of
-                            {error, _} ->
-                                %% OtherSC does not have this client's summary, conflict
+    lists:foldl(
+        fun
+            (_SCSummary, {done, Acc}) ->
+                {done, Acc};
+            (SCSummary, {not_done, Acc}) ->
+                ClientPubkeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(SCSummary),
+                case ?MODULE:get_summary(ClientPubkeyBin, OtherSC) of
+                    {error, _} ->
+                        %% OtherSC does not have this client's summary, conflict
+                        {done, conflict};
+                    {ok, OtherSCSummary} ->
+                        %% We found summary for this client in OtherSC
+                        %% Check balances
+                        SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(SCSummary),
+                        SC1NumPackets = blockchain_state_channel_summary_v1:num_packets(SCSummary),
+                        OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(OtherSCSummary),
+                        OtherSCNumPackets = blockchain_state_channel_summary_v1:num_packets(
+                            OtherSCSummary
+                        ),
+                        Check =
+                            (OtherSCNumPackets >= SC1NumPackets) andalso
+                                (OtherSCNumDCs >= SC1NumDCs),
+                        case Check of
+                            false ->
                                 {done, conflict};
-                            {ok, OtherSCSummary} ->
-                                %% We found summary for this client in OtherSC
-                                %% Check balances
-                                SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(SCSummary),
-                                SC1NumPackets = blockchain_state_channel_summary_v1:num_packets(SCSummary),
-                                OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(OtherSCSummary),
-                                OtherSCNumPackets = blockchain_state_channel_summary_v1:num_packets(OtherSCSummary),
-                                Check = (OtherSCNumPackets >= SC1NumPackets) andalso (OtherSCNumDCs >= SC1NumDCs),
-                                case Check of
-                                    false ->
-                                        {done, conflict};
-                                    true ->
-                                        {not_done, Acc}
-                                end
+                            true ->
+                                {not_done, Acc}
                         end
-                end, {not_done, Init}, SCSummaries).
+                end
+        end,
+        {not_done, Init},
+        SCSummaries
+    ).
 
--spec is_causally_newer(SCToCheck :: state_channel(),
-                        SCToCompareWith :: state_channel()) -> boolean().
+-spec is_causally_newer(
+    SCToCheck :: state_channel(),
+    SCToCompareWith :: state_channel()
+) -> boolean().
 is_causally_newer(SCToCheck, SCToCompareWith) ->
     %% If SCToCompareWith caused SCToCheck => SCToCheck is newer, hence true
     %% Anything else, false
@@ -638,27 +751,27 @@ is_causally_newer(SCToCheck, SCToCompareWith) ->
 
 new_test() ->
     SC = #blockchain_state_channel_v1_pb{
-        id= <<"1">>,
-        owner= <<"owner">>,
-        nonce=0,
-        credits=0,
-        summaries=[],
-        root_hash= <<>>,
-        state=open,
-        expire_at_block=0
+        id = <<"1">>,
+        owner = <<"owner">>,
+        nonce = 0,
+        credits = 0,
+        summaries = [],
+        root_hash = <<>>,
+        state = open,
+        expire_at_block = 0
     },
     ?assertEqual(SC, new(<<"1">>, <<"owner">>, 0)).
 
 new2_test() ->
     SC = #blockchain_state_channel_v1_pb{
-        id= <<"1">>,
-        owner= <<"owner">>,
-        nonce=0,
-        credits=0,
-        summaries=[],
-        root_hash= <<>>,
-        state=open,
-        expire_at_block=100
+        id = <<"1">>,
+        owner = <<"owner">>,
+        nonce = 0,
+        credits = 0,
+        summaries = [],
+        root_hash = <<>>,
+        state = open,
+        expire_at_block = 100
     },
     BlockHash = <<"yolo">>,
     Skewed = skewed:new(BlockHash),
@@ -706,7 +819,9 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, 2000),
+    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(
+        PubKeyBin, NewSummary, NewSC, 2000
+    ),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 
@@ -732,8 +847,18 @@ normalize_test() ->
     PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
     #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin2 = libp2p_crypto:pubkey_to_bin(PubKey2),
-    Summary1 = blockchain_state_channel_summary_v1:num_packets(30, blockchain_state_channel_summary_v1:num_dcs(30, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
-    Summary2 = blockchain_state_channel_summary_v1:num_packets(40, blockchain_state_channel_summary_v1:num_dcs(40, blockchain_state_channel_summary_v1:new(PubKeyBin2))),
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(
+        30,
+        blockchain_state_channel_summary_v1:num_dcs(
+            30, blockchain_state_channel_summary_v1:new(PubKeyBin1)
+        )
+    ),
+    Summary2 = blockchain_state_channel_summary_v1:num_packets(
+        40,
+        blockchain_state_channel_summary_v1:num_dcs(
+            40, blockchain_state_channel_summary_v1:new(PubKeyBin2)
+        )
+    ),
     SC1 = summaries([Summary1, Summary2], SC),
 
     {ok, DC1} = num_dcs_for(PubKeyBin1, SC1),
@@ -766,9 +891,24 @@ causality_test() ->
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
-    Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(PubKeyBin))),
-    Summary2 = blockchain_state_channel_summary_v1:num_packets(4, blockchain_state_channel_summary_v1:num_dcs(4, blockchain_state_channel_summary_v1:new(PubKeyBin))),
-    Summary3 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(
+        2,
+        blockchain_state_channel_summary_v1:num_dcs(
+            2, blockchain_state_channel_summary_v1:new(PubKeyBin)
+        )
+    ),
+    Summary2 = blockchain_state_channel_summary_v1:num_packets(
+        4,
+        blockchain_state_channel_summary_v1:num_dcs(
+            4, blockchain_state_channel_summary_v1:new(PubKeyBin)
+        )
+    ),
+    Summary3 = blockchain_state_channel_summary_v1:num_packets(
+        1,
+        blockchain_state_channel_summary_v1:num_dcs(
+            1, blockchain_state_channel_summary_v1:new(PubKeyBin1)
+        )
+    ),
 
     %% base, equal
     BaseSC1 = new(<<"1">>, <<"owner">>, 1),

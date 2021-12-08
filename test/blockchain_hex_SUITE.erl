@@ -130,12 +130,12 @@ end_per_suite(_Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-
 %% XXX: Remove this test when done cross-checking with python
 known_scale_test(Config) ->
     Ledger = ?config(ledger, Config),
     blockchain_hex:precalc(true, ?config(ledger, Config)),
-    PythonScaledURL = "https://blockchain-core.s3-us-west-1.amazonaws.com/hip17-python-scaled-632627.erl",
+    PythonScaledURL =
+        "https://blockchain-core.s3-us-west-1.amazonaws.com/hip17-python-scaled-632627.erl",
     Fname = "hip17-python-scaled-632627.erl",
     FPath = filename:join(["/tmp/", Fname]),
 
@@ -163,7 +163,6 @@ known_scale_test(Config) ->
     ok.
 
 known_values_test(Config) ->
-
     %% assert some known values calculated from the python model (thanks @para1!)
     blockchain_hex:precalc(true, ?config(ledger, Config)),
     Clipped = get('__blockchain_hex_clipped_tbl'),
@@ -175,13 +174,15 @@ known_values_test(Config) ->
                 Res ->
                     GotDensity = blockchain_hex:lookup(Clipped, h3:parent(Hex, Res)),
 
-                    ct:pal("hex ~p ~p ~p ~p",
-                           [
+                    ct:pal(
+                        "hex ~p ~p ~p ~p",
+                        [
                             Hex,
                             Res,
                             Density,
                             GotDensity
-                           ]),
+                        ]
+                    ),
 
                     Density == GotDensity
             end
@@ -266,10 +267,12 @@ active_gateways_with_locs(Ledger) ->
     maps:fold(
         fun(Addr, GW, Acc) ->
             case blockchain_ledger_gateway_v2:location(GW) of
-                undefined -> Acc;
+                undefined ->
+                    Acc;
                 Loc ->
                     case blockchain_ledger_gateway_v2:last_poc_challenge(GW) of
-                        undefined -> Acc;
+                        undefined ->
+                            Acc;
                         L ->
                             case (H - L) =< InteractiveBlocks of
                                 false -> Acc;

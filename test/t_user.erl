@@ -9,18 +9,21 @@
     n_new/1,
     addr/1,
     sig_fun/1,
-    sign/2,       % access and apply sig_fun
-    key_triple/1, % passed into blockchain app start options
-    key_pair/1    % passed into ct config as {master_key, Pair}. TODO may not be needed
+    % access and apply sig_fun
+    sign/2,
+    % passed into blockchain app start options
+    key_triple/1,
+    % passed into ct config as {master_key, Pair}. TODO may not be needed
+    key_pair/1
 ]).
 
 -include_lib("eunit/include/eunit.hrl").
 
 -record(?MODULE, {
-    address  :: libp2p_crypto:pubkey_bin(),
-    priv     :: libp2p_crypto:privkey(),
-    pub      :: libp2p_crypto:pubkey(),
-    sig_fun  :: libp2p_crypto:sig_fun(),
+    address :: libp2p_crypto:pubkey_bin(),
+    priv :: libp2p_crypto:privkey(),
+    pub :: libp2p_crypto:pubkey(),
+    sig_fun :: libp2p_crypto:sig_fun(),
     ecdh_fun :: libp2p_crypto:ecdh_fun()
 }).
 
@@ -50,11 +53,11 @@ new(KeyType) ->
     ?assert(is_function(SigFun)),
     ?assert(is_function(ECDHFun)),
     #?MODULE{
-        address  = Addr,
-        priv     = Priv,
-        pub      = Pub,
+        address = Addr,
+        priv = Priv,
+        pub = Pub,
         ecdh_fun = ECDHFun,
-        sig_fun  = SigFun
+        sig_fun = SigFun
     }.
 
 -spec key_triple(t()) ->
@@ -63,7 +66,7 @@ new(KeyType) ->
         libp2p_crypto:sig_fun(),
         libp2p_crypto:ecdh_fun()
     }.
-key_triple(#?MODULE{pub=P, sig_fun=S, ecdh_fun=E}) ->
+key_triple(#?MODULE{pub = P, sig_fun = S, ecdh_fun = E}) ->
     {P, S, E}.
 
 -spec key_pair(t()) ->
@@ -71,7 +74,7 @@ key_triple(#?MODULE{pub=P, sig_fun=S, ecdh_fun=E}) ->
         libp2p_crypto:privkey(),
         libp2p_crypto:pubkey()
     }.
-key_pair(#?MODULE{priv=Priv, pub=Pub}) ->
+key_pair(#?MODULE{priv = Priv, pub = Pub}) ->
     {Priv, Pub}.
 
 -spec addr(t()) -> binary().

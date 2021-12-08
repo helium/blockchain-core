@@ -13,7 +13,8 @@
     client_pubkeybin/1,
     num_dcs/1, num_dcs/2,
     num_packets/1, num_packets/2,
-    update/3, validate/1,
+    update/3,
+    validate/1,
     to_json/2
 ]).
 
@@ -28,48 +29,56 @@
 -spec new(ClientPubkeyBin :: libp2p_crypto:pubkey_bin()) -> summary().
 new(ClientPubkeyBin) ->
     #blockchain_state_channel_summary_v1_pb{
-       client_pubkeybin=ClientPubkeyBin,
-       num_dcs=0,
-       num_packets=0
+        client_pubkeybin = ClientPubkeyBin,
+        num_dcs = 0,
+        num_packets = 0
     }.
 
--spec new(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-          NumPackets :: non_neg_integer(),
-          NumDCs :: non_neg_integer()) -> summary().
+-spec new(
+    ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    NumPackets :: non_neg_integer(),
+    NumDCs :: non_neg_integer()
+) -> summary().
 new(ClientPubkeyBin, NumPackets, NumDCs) ->
     #blockchain_state_channel_summary_v1_pb{
-       client_pubkeybin=ClientPubkeyBin,
-       num_dcs=NumDCs,
-       num_packets=NumPackets
+        client_pubkeybin = ClientPubkeyBin,
+        num_dcs = NumDCs,
+        num_packets = NumPackets
     }.
 
 -spec client_pubkeybin(Summary :: summary()) -> libp2p_crypto:pubkey_bin().
-client_pubkeybin(#blockchain_state_channel_summary_v1_pb{client_pubkeybin=ClientPubkeyBin}) ->
+client_pubkeybin(#blockchain_state_channel_summary_v1_pb{client_pubkeybin = ClientPubkeyBin}) ->
     ClientPubkeyBin.
 
 -spec num_packets(Summary :: summary()) -> non_neg_integer().
-num_packets(#blockchain_state_channel_summary_v1_pb{num_packets=NumPackets}) ->
+num_packets(#blockchain_state_channel_summary_v1_pb{num_packets = NumPackets}) ->
     NumPackets.
 
--spec num_packets(NumPackets :: non_neg_integer(),
-                  Summary :: summary()) -> summary().
+-spec num_packets(
+    NumPackets :: non_neg_integer(),
+    Summary :: summary()
+) -> summary().
 num_packets(NumPackets, Summary) ->
-    Summary#blockchain_state_channel_summary_v1_pb{num_packets=NumPackets}.
+    Summary#blockchain_state_channel_summary_v1_pb{num_packets = NumPackets}.
 
 -spec num_dcs(Summary :: summary()) -> non_neg_integer().
-num_dcs(#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs}) ->
+num_dcs(#blockchain_state_channel_summary_v1_pb{num_dcs = NumDCs}) ->
     NumDCs.
 
--spec num_dcs(NumDCs :: non_neg_integer(),
-              Summary :: summary()) -> summary().
+-spec num_dcs(
+    NumDCs :: non_neg_integer(),
+    Summary :: summary()
+) -> summary().
 num_dcs(NumDCs, Summary) ->
-    Summary#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs}.
+    Summary#blockchain_state_channel_summary_v1_pb{num_dcs = NumDCs}.
 
--spec update(NumDCs :: non_neg_integer(),
-             NumPackets :: non_neg_integer(),
-             Summary :: summary()) -> summary().
+-spec update(
+    NumDCs :: non_neg_integer(),
+    NumPackets :: non_neg_integer(),
+    Summary :: summary()
+) -> summary().
 update(NumDCs, NumPackets, Summary) ->
-    Summary#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs, num_packets=NumPackets}.
+    Summary#blockchain_state_channel_summary_v1_pb{num_dcs = NumDCs, num_packets = NumPackets}.
 
 validate(Summary) ->
     try libp2p_crypto:bin_to_pubkey(client_pubkeybin(Summary)) of
@@ -90,14 +99,13 @@ validate(Summary) ->
             {error, invalid_address_in_summary}
     end.
 
-
 -spec to_json(summary(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Summary, _Opts) ->
     #{
-       client => ?BIN_TO_B58(client_pubkeybin(Summary)),
-       num_dcs => num_dcs(Summary),
-       num_packets => num_packets(Summary)
-     }.
+        client => ?BIN_TO_B58(client_pubkeybin(Summary)),
+        num_dcs => num_dcs(Summary),
+        num_packets => num_packets(Summary)
+    }.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -111,17 +119,21 @@ to_json(Summary, _Opts) ->
 new_test() ->
     ClientPubkeyBin = <<"client">>,
     Summary = new(ClientPubkeyBin),
-    Expected = #blockchain_state_channel_summary_v1_pb{client_pubkeybin=ClientPubkeyBin,
-                                                       num_dcs=0,
-                                                       num_packets=0},
+    Expected = #blockchain_state_channel_summary_v1_pb{
+        client_pubkeybin = ClientPubkeyBin,
+        num_dcs = 0,
+        num_packets = 0
+    },
     ?assertEqual(Expected, Summary).
 
 new2_test() ->
     ClientPubkeyBin = <<"client">>,
     Summary = new(ClientPubkeyBin, 10, 10),
-    Expected = #blockchain_state_channel_summary_v1_pb{client_pubkeybin=ClientPubkeyBin,
-                                                       num_dcs=10,
-                                                       num_packets=10},
+    Expected = #blockchain_state_channel_summary_v1_pb{
+        client_pubkeybin = ClientPubkeyBin,
+        num_dcs = 10,
+        num_packets = 10
+    },
     ?assertEqual(Expected, Summary).
 
 client_pubkeybin_test() ->
@@ -164,8 +176,11 @@ to_json_test() ->
     ClientPubkeyBin = <<"client">>,
     Summary = new(ClientPubkeyBin, 10, 10),
     Json = to_json(Summary, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [client, num_dcs, num_packets])).
-
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [client, num_dcs, num_packets]
+        )
+    ).
 
 -endif.

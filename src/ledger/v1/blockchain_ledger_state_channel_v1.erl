@@ -11,7 +11,8 @@
     owner/1, owner/2,
     nonce/1, nonce/2,
     expire_at_block/1, expire_at_block/2,
-    serialize/1, deserialize/1,
+    serialize/1,
+    deserialize/1,
     is_v1/1
 ]).
 
@@ -30,49 +31,51 @@
 
 -export_type([state_channel/0]).
 
--spec new(ID :: binary(),
-          Owner :: binary(),
-          ExpireAtBlock :: pos_integer(),
-          Nonce :: non_neg_integer()) -> state_channel().
+-spec new(
+    ID :: binary(),
+    Owner :: binary(),
+    ExpireAtBlock :: pos_integer(),
+    Nonce :: non_neg_integer()
+) -> state_channel().
 new(ID, Owner, ExpireAtBlock, Nonce) ->
     #ledger_state_channel_v1{
-       id=ID,
-       owner=Owner,
-       expire_at_block=ExpireAtBlock,
-       nonce=Nonce
-      }.
+        id = ID,
+        owner = Owner,
+        expire_at_block = ExpireAtBlock,
+        nonce = Nonce
+    }.
 
 -spec id(state_channel()) -> binary().
-id(#ledger_state_channel_v1{id=ID}) ->
+id(#ledger_state_channel_v1{id = ID}) ->
     ID.
 
 -spec id(ID :: binary(), SC :: state_channel()) -> state_channel().
 id(ID, SC) ->
-    SC#ledger_state_channel_v1{id=ID}.
+    SC#ledger_state_channel_v1{id = ID}.
 
 -spec owner(state_channel()) -> binary().
-owner(#ledger_state_channel_v1{owner=Owner}) ->
+owner(#ledger_state_channel_v1{owner = Owner}) ->
     Owner.
 
 -spec owner(Owner :: binary(), SC :: state_channel()) -> state_channel().
 owner(Owner, SC) ->
-    SC#ledger_state_channel_v1{owner=Owner}.
+    SC#ledger_state_channel_v1{owner = Owner}.
 
 -spec expire_at_block(state_channel()) -> pos_integer().
-expire_at_block(#ledger_state_channel_v1{expire_at_block=ExpireAtBlock}) ->
+expire_at_block(#ledger_state_channel_v1{expire_at_block = ExpireAtBlock}) ->
     ExpireAtBlock.
 
 -spec expire_at_block(ExpireAtBlock :: pos_integer(), SC :: state_channel()) -> state_channel().
 expire_at_block(ExpireAtBlock, SC) ->
-    SC#ledger_state_channel_v1{expire_at_block=ExpireAtBlock}.
+    SC#ledger_state_channel_v1{expire_at_block = ExpireAtBlock}.
 
 -spec nonce(state_channel()) -> non_neg_integer().
-nonce(#ledger_state_channel_v1{nonce=Nonce}) ->
+nonce(#ledger_state_channel_v1{nonce = Nonce}) ->
     Nonce.
 
 -spec nonce(Nonce :: non_neg_integer(), SC :: state_channel()) -> state_channel().
 nonce(Nonce, SC) ->
-    SC#ledger_state_channel_v1{nonce=Nonce}.
+    SC#ledger_state_channel_v1{nonce = Nonce}.
 
 -spec is_v1(state_channel()) -> boolean().
 is_v1(#ledger_state_channel_v1{}) -> true;

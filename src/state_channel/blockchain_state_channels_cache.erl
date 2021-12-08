@@ -63,7 +63,7 @@ insert_hotspot(HotspotID, Pid) ->
     ok.
 
 -spec delete_hotspot(HotspotID :: libp2p_crypto:pubkey_bin()) -> ok.
-delete_hotspot(HotspotID)->
+delete_hotspot(HotspotID) ->
     true = ets:delete(?ETS, HotspotID),
     ok.
 
@@ -85,7 +85,7 @@ insert_actives(Pid) ->
         true ->
             ok;
         false ->
-            true = ets:insert(?ETS, {?ACTIVES_KEY, [Pid|Actives]}),
+            true = ets:insert(?ETS, {?ACTIVES_KEY, [Pid | Actives]}),
             ok
     end.
 
@@ -104,7 +104,6 @@ delete_actives(Pid) ->
 overwrite_actives(Pids) ->
     true = ets:insert(?ETS, {?ACTIVES_KEY, Pids}),
     ok.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -131,7 +130,8 @@ hotspot_pid_test() ->
             ?assertEqual(ok, ?MODULE:insert_hotspot(HotspotID, Self)),
             ?assertEqual(Self, ?MODULE:lookup_hotspot(HotspotID0))
         end,
-        lists:seq(1, 2000) % We use 2k here as it is the number of actors per state channel at the moment
+        % We use 2k here as it is the number of actors per state channel at the moment
+        lists:seq(1, 2000)
     ),
     ?assertEqual(2001, ?MODULE:delete_pids(Self)),
     ?assertEqual([], ets:tab2list(?ETS)),
@@ -139,7 +139,9 @@ hotspot_pid_test() ->
     % Test lookup with is_process_alive=false
     Pid = erlang:spawn(
         fun() ->
-            receive _ -> ok end
+            receive
+                _ -> ok
+            end
         end
     ),
     HotspotID1 = crypto:strong_rand_bytes(32),

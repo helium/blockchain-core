@@ -41,9 +41,7 @@
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_dc_coinbase().
 new(Payee, Amount) ->
-    #blockchain_txn_dc_coinbase_v1_pb{payee=Payee, amount=Amount}.
-
-
+    #blockchain_txn_dc_coinbase_v1_pb{payee = Payee, amount = Amount}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -86,7 +84,8 @@ amount(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_dc_coinbase(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_dc_coinbase(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -95,7 +94,8 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_dc_coinbase(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_dc_coinbase(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
@@ -115,7 +115,8 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_dc_coinbase(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_dc_coinbase(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payee = ?MODULE:payee(Txn),
@@ -127,11 +128,15 @@ absorb(Txn, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec print(txn_dc_coinbase()) -> iodata().
-print(undefined) -> <<"type=dc_coinbase, undefined">>;
+print(undefined) ->
+    <<"type=dc_coinbase, undefined">>;
 print(#blockchain_txn_dc_coinbase_v1_pb{
-         payee=Payee, amount=Amount}) ->
-    io_lib:format("type=dc_coinbase payee=~p, amount=~p",
-                  [?TO_B58(Payee), Amount]).
+    payee = Payee, amount = Amount
+}) ->
+    io_lib:format(
+        "type=dc_coinbase payee=~p, amount=~p",
+        [?TO_B58(Payee), Amount]
+    ).
 
 json_type() ->
     <<"dc_coinbase_v1">>.
@@ -139,12 +144,11 @@ json_type() ->
 -spec to_json(txn_dc_coinbase(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      payee => ?BIN_TO_B58(payee(Txn)),
-      amount=> amount(Txn)
-     }.
-
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        payee => ?BIN_TO_B58(payee(Txn)),
+        amount => amount(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -152,7 +156,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_dc_coinbase_v1_pb{payee= <<"payee">>, amount=666},
+    Tx = #blockchain_txn_dc_coinbase_v1_pb{payee = <<"payee">>, amount = 666},
     ?assertEqual(Tx, new(<<"payee">>, 666)).
 
 payee_test() ->
@@ -166,7 +170,11 @@ amount_test() ->
 to_json_test() ->
     Tx = new(<<"payee">>, 666),
     Json = to_json(Tx, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, payee, amount])).
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [type, hash, payee, amount]
+        )
+    ).
 
 -endif.

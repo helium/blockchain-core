@@ -15,7 +15,8 @@
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
     print/3, print/4,
-    serialize/1, deserialize/1,
+    serialize/1,
+    deserialize/1,
     alpha/1,
     beta/1,
     delta/1,
@@ -50,24 +51,28 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
-          Location :: pos_integer() | undefined) -> gateway().
+-spec new(
+    OwnerAddress :: libp2p_crypto:pubkey_bin(),
+    Location :: pos_integer() | undefined
+) -> gateway().
 new(OwnerAddress, Location) ->
     #gateway_v1{
-        owner_address=OwnerAddress,
-        location=Location,
-        delta=1
+        owner_address = OwnerAddress,
+        location = Location,
+        delta = 1
     }.
 
--spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
-          Location :: pos_integer() | undefined,
-          Nonce :: non_neg_integer()) -> gateway().
+-spec new(
+    OwnerAddress :: libp2p_crypto:pubkey_bin(),
+    Location :: pos_integer() | undefined,
+    Nonce :: non_neg_integer()
+) -> gateway().
 new(OwnerAddress, Location, Nonce) ->
     #gateway_v1{
-        owner_address=OwnerAddress,
-        location=Location,
-        nonce=Nonce,
-        delta=1
+        owner_address = OwnerAddress,
+        location = Location,
+        nonce = Nonce,
+        delta = 1
     }.
 
 %%--------------------------------------------------------------------
@@ -82,16 +87,18 @@ owner_address(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(OwnerAddress :: libp2p_crypto:pubkey_bin(),
-                    Gateway :: gateway()) -> gateway().
+-spec owner_address(
+    OwnerAddress :: libp2p_crypto:pubkey_bin(),
+    Gateway :: gateway()
+) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
-    Gateway#gateway_v1{owner_address=OwnerAddress}.
+    Gateway#gateway_v1{owner_address = OwnerAddress}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(Gateway :: gateway()) ->  undefined | pos_integer().
+-spec location(Gateway :: gateway()) -> undefined | pos_integer().
 location(Gateway) ->
     Gateway#gateway_v1.location.
 
@@ -101,7 +108,7 @@ location(Gateway) ->
 %%--------------------------------------------------------------------
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
-    Gateway#gateway_v1{location=Location}.
+    Gateway#gateway_v1{location = Location}.
 
 version(Gateway) ->
     Gateway#gateway_v1.version.
@@ -123,27 +130,38 @@ version(Version, Gateway) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec score(Address :: libp2p_crypto:pubkey_bin(),
-            Gateway :: gateway(),
-            Height :: pos_integer(),
-            Ledger :: blockchain_ledger_v1:ledger()) -> {float(), float(), float()}.
-score(Address,
-      #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta},
-      Height,
-      Ledger) ->
-    e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
-               fun() ->
-                       {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
-                       {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
-                       {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
-                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
-                       NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
-                       RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
-                       RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
-                       IQR = normalize_float(RV2 - RV1),
-                       Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
-                       {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
-               end).
+-spec score(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Gateway :: gateway(),
+    Height :: pos_integer(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> {float(), float(), float()}.
+score(
+    Address,
+    #gateway_v1{alpha = Alpha, beta = Beta, delta = Delta},
+    Height,
+    Ledger
+) ->
+    e2qc:cache(
+        score_cache,
+        {Address, Alpha, Beta, Delta, Height},
+        fun() ->
+            {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
+            {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
+            {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
+            NewAlpha = normalize_float(
+                scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))
+            ),
+            NewBeta = normalize_float(
+                scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))
+            ),
+            RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
+            RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
+            IQR = normalize_float(RV2 - RV1),
+            Mean = normalize_float(1 / (1 + NewBeta / NewAlpha)),
+            {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
+        end
+    ).
 %%--------------------------------------------------------------------
 %% @doc
 %% K: constant decay factor, calculated empirically (for now)
@@ -192,17 +210,21 @@ delta(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
+-spec set_alpha_beta_delta(
+    Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()
+) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v1{alpha=normalize_float(scale_shape_param(Alpha)),
-                       beta=normalize_float(scale_shape_param(Beta)),
-                       delta=Delta}.
+    Gateway#gateway_v1{
+        alpha = normalize_float(scale_shape_param(Alpha)),
+        beta = normalize_float(scale_shape_param(Beta)),
+        delta = Delta
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
+-spec last_poc_challenge(Gateway :: gateway()) -> undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
     Gateway#gateway_v1.last_poc_challenge.
 
@@ -212,13 +234,13 @@ last_poc_challenge(Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_challenge(LastPocChallenge :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 last_poc_challenge(LastPocChallenge, Gateway) ->
-    Gateway#gateway_v1{last_poc_challenge=LastPocChallenge}.
+    Gateway#gateway_v1{last_poc_challenge = LastPocChallenge}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
+-spec last_poc_onion_key_hash(Gateway :: gateway()) -> undefined | binary().
 last_poc_onion_key_hash(Gateway) ->
     Gateway#gateway_v1.last_poc_onion_key_hash.
 
@@ -228,7 +250,7 @@ last_poc_onion_key_hash(Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
 last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
-    Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
+    Gateway#gateway_v1{last_poc_onion_key_hash = LastPocOnionKeyHash}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -244,45 +266,55 @@ nonce(Gateway) ->
 %%--------------------------------------------------------------------
 -spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
-    Gateway#gateway_v1{nonce=Nonce}.
+    Gateway#gateway_v1{nonce = Nonce}.
 
--spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
-            Ledger :: blockchain_ledger_v1:ledger()) -> list().
+-spec print(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Gateway :: gateway(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> list().
 print(Address, Gateway, Ledger) ->
     print(Address, Gateway, Ledger, false).
 
--spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
-            Ledger :: blockchain_ledger_v1:ledger(), boolean()) -> list().
+-spec print(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Gateway :: gateway(),
+    Ledger :: blockchain_ledger_v1:ledger(),
+    boolean()
+) -> list().
 print(Address, Gateway, Ledger, Verbose) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
     UndefinedHandleFunc =
-        fun(undefined) -> "undefined";
-           (I) -> I
+        fun
+            (undefined) -> "undefined";
+            (I) -> I
         end,
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     PocUndef =
-        fun(undefined) -> "undefined";
-           (I) -> Height - I
+        fun
+            (undefined) -> "undefined";
+            (I) -> Height - I
         end,
     {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
     Scoring =
         case Verbose of
             true ->
                 [
-                 {alpha, alpha(Gateway)},
-                 {new_alpha, NewAlpha},
-                 {beta, beta(Gateway)},
-                 {new_beta, NewBeta},
-                 {delta, Height - delta(Gateway)}
+                    {alpha, alpha(Gateway)},
+                    {new_alpha, NewAlpha},
+                    {beta, beta(Gateway)},
+                    {new_beta, NewBeta},
+                    {delta, Height - delta(Gateway)}
                 ];
-            _ -> []
+            _ ->
+                []
         end,
     [
-     {score, Score},
-     {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
-     {location, UndefinedHandleFunc(location(Gateway))},
-     {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
-     {nonce, nonce(Gateway)}
+        {score, Score},
+        {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
+        {location, UndefinedHandleFunc(location(Gateway))},
+        {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
+        {nonce, nonce(Gateway)}
     ] ++ Scoring.
 
 %%--------------------------------------------------------------------
@@ -316,7 +348,7 @@ new_test() ->
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
         nonce = 0,
-        delta=1
+        delta = 1
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
@@ -360,7 +392,10 @@ last_poc_challenge_test() ->
 last_poc_onion_key_hash_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(undefined, last_poc_onion_key_hash(Gw)),
-    ?assertEqual(<<"onion_key_hash">>, last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))).
+    ?assertEqual(
+        <<"onion_key_hash">>,
+        last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))
+    ).
 
 nonce_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -368,14 +403,17 @@ nonce_test() ->
     ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
-    meck:expect(blockchain,
-                config,
-                fun(alpha_decay, _) ->
-                        {ok, 0.007};
-                   (beta_decay, _) ->
-                        {ok, 0.0005};
-                   (max_staleness, _) ->
-                        {ok, 100000}
-                end).
+    meck:expect(
+        blockchain,
+        config,
+        fun
+            (alpha_decay, _) ->
+                {ok, 0.007};
+            (beta_decay, _) ->
+                {ok, 0.0005};
+            (max_staleness, _) ->
+                {ok, 100000}
+        end
+    ).
 
 -endif.

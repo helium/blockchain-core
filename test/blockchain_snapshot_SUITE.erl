@@ -62,24 +62,27 @@ init_per_testcase(TestCase, Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
     Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-                              Balance = blockchain_ledger_entry_v1:balance(Entry),
-                              0 = blockchain_ledger_entry_v1:nonce(Entry)
-                      end, maps:values(Entries)),
+    _ = lists:foreach(
+        fun(Entry) ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            0 = blockchain_ledger_entry_v1:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
     [
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {chain, Chain},
-     {swarm, Swarm},
-     {n, N},
-     {consensus_members, ConsensusMembers},
-     {genesis_members, GenesisMembers},
-     Keys
-     | Config0
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {chain, Chain},
+        {swarm, Swarm},
+        {n, N},
+        {consensus_members, ConsensusMembers},
+        {genesis_members, GenesisMembers},
+        Keys
+        | Config0
     ].
 
 %%--------------------------------------------------------------------
@@ -98,7 +101,8 @@ basic_test(Config) ->
             LedgerBoot = blockchain_ledger_v1:new_context(LedgerA),
             blockchain:bootstrap_h3dex(LedgerBoot),
             blockchain_ledger_v1:commit_context(LedgerBoot);
-        _ -> ok
+        _ ->
+            ok
     end,
     {ok, SnapshotA} = blockchain_ledger_snapshot_v1:snapshot(LedgerA, [], []),
     %% make a dir for the loaded snapshot
@@ -108,8 +112,10 @@ basic_test(Config) ->
     ok = filelib:ensure_dir(NewDir),
 
     ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotA, undefined)),
+        [_ | _],
+        blockchain_ledger_snapshot_v1:deserialize_field(
+            upgrades, maps:get(upgrades, SnapshotA, undefined)
+        ),
         "New snapshot (A) has \"upgrades\" field."
     ),
     SnapshotAIOList = blockchain_ledger_snapshot_v1:serialize(SnapshotA),
@@ -120,8 +126,10 @@ basic_test(Config) ->
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
     {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(SnapshotABin),
     ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotB, undefined)),
+        [_ | _],
+        blockchain_ledger_snapshot_v1:deserialize_field(
+            upgrades, maps:get(upgrades, SnapshotB, undefined)
+        ),
         "Deserialized snapshot (B) has \"upgrades\" field."
     ),
     ?assertEqual(
@@ -137,8 +145,10 @@ basic_test(Config) ->
         ),
     {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, [], []),
     ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotC, undefined)),
+        [_ | _],
+        blockchain_ledger_snapshot_v1:deserialize_field(
+            upgrades, maps:get(upgrades, SnapshotC, undefined)
+        ),
         "New snapshot (C) has \"upgrades\" field."
     ),
     ?assertEqual(
@@ -217,20 +227,20 @@ mem_limit_test(Config) ->
 
     {Pid, Ref} =
         spawn_monitor(
-          fun() ->
-                  %% on master, this takes MB = 160 to pass on my laptop reliably, but this version
-                  %% seems fine with 10?  I'm not sure how this works.
-                  MB = 10,
-                  erlang:process_flag(max_heap_size, #{kill => true, size => (MB * 1024 * 1024) div 8}),
-                  {ok, _Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap)
-          end),
+            fun() ->
+                %% on master, this takes MB = 160 to pass on my laptop reliably, but this version
+                %% seems fine with 10?  I'm not sure how this works.
+                MB = 10,
+                erlang:process_flag(max_heap_size, #{kill => true, size => (MB * 1024 * 1024) div 8}),
+                {ok, _Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap)
+            end
+        ),
     receive
         {'DOWN', Ref, process, Pid, normal} -> ok;
         {'DOWN', Ref, process, Pid, Info} -> error(Info)
     end,
 
     ok.
-
 
 %% utils
 -spec snap_hash_without_field(atom(), map()) -> map().
@@ -263,18 +273,20 @@ ledger(Config) ->
     ct:pal("loaded ledger at height ~p", [Height]),
     Ledger1.
 
-
 add_k_blocks(Config, K) ->
     Chain = ?config(chain, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     lists:reverse(
-      lists:foldl(
-        fun(_, Acc) ->
+        lists:foldl(
+            fun(_, Acc) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                _ = blockchain_gossip_handler:add_block(
+                    Block, Chain, self(), blockchain_swarm:swarm()
+                ),
                 [Block | Acc]
-        end,
-        [],
-        lists:seq(1, K)
-       )),
+            end,
+            [],
+            lists:seq(1, K)
+        )
+    ),
     ok.

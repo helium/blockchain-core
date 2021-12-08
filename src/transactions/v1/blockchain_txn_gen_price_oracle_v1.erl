@@ -40,7 +40,7 @@
 %%--------------------------------------------------------------------
 -spec new(Price :: pos_integer()) -> txn_genesis_price_oracle().
 new(Price) ->
-    #blockchain_txn_gen_price_oracle_v1_pb{price=Price}.
+    #blockchain_txn_gen_price_oracle_v1_pb{price = Price}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -79,7 +79,8 @@ price(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_genesis_price_oracle(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_genesis_price_oracle(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -88,7 +89,8 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Price = price(Txn),
@@ -105,7 +107,8 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, not_in_genesis_block}.
+-spec absorb(txn_genesis_price_oracle(), blockchain:blockchain()) ->
+    ok | {error, not_in_genesis_block}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Price = ?MODULE:price(Txn),
@@ -116,8 +119,9 @@ absorb(Txn, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec print(txn_genesis_price_oracle()) -> iodata().
-print(undefined) -> <<"type=genesis_price_oracle, undefined">>;
-print(#blockchain_txn_gen_price_oracle_v1_pb{price=P}) ->
+print(undefined) ->
+    <<"type=genesis_price_oracle, undefined">>;
+print(#blockchain_txn_gen_price_oracle_v1_pb{price = P}) ->
     io_lib:format("type=genesis_price_oracle price=~p", [P]).
 
 json_type() ->
@@ -126,11 +130,10 @@ json_type() ->
 -spec to_json(txn_genesis_price_oracle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      price => price(Txn)
-     }.
-
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        price => price(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -148,8 +151,11 @@ price_test() ->
 json_test() ->
     Tx = new(10),
     Json = to_json(Tx, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, price])).
-
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [type, hash, price]
+        )
+    ).
 
 -endif.

@@ -9,7 +9,8 @@
     new/0, new/2,
     nonce/1, nonce/2,
     balance/1, balance/2,
-    serialize/1, deserialize/1
+    serialize/1,
+    deserialize/1
 ]).
 
 -ifdef(TEST).
@@ -35,14 +36,14 @@ new() ->
 
 -spec new(non_neg_integer(), non_neg_integer()) -> entry().
 new(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
-    #entry_v1{nonce=Nonce, balance=Balance}.
+    #entry_v1{nonce = Nonce, balance = Balance}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec nonce(entry()) -> non_neg_integer().
-nonce(#entry_v1{nonce=Nonce}) ->
+nonce(#entry_v1{nonce = Nonce}) ->
     Nonce.
 
 %%--------------------------------------------------------------------
@@ -51,14 +52,14 @@ nonce(#entry_v1{nonce=Nonce}) ->
 %%--------------------------------------------------------------------
 -spec nonce(non_neg_integer(), entry()) -> entry().
 nonce(Nonce, Entry) ->
-    Entry#entry_v1{nonce=Nonce}.
+    Entry#entry_v1{nonce = Nonce}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec balance(entry()) -> non_neg_integer().
-balance(#entry_v1{balance=Balance}) ->
+balance(#entry_v1{balance = Balance}) ->
     Balance.
 
 %%--------------------------------------------------------------------
@@ -67,7 +68,7 @@ balance(#entry_v1{balance=Balance}) ->
 %%--------------------------------------------------------------------
 -spec balance(non_neg_integer(), entry()) -> entry().
 balance(Balance, Entry) ->
-    Entry#entry_v1{balance=Balance}.
+    Entry#entry_v1{balance = Balance}.
 
 %%--------------------------------------------------------------------
 %% @doc

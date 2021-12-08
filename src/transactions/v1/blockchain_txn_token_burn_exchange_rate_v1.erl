@@ -44,7 +44,7 @@
 %%--------------------------------------------------------------------
 -spec new(non_neg_integer()) -> txn_token_burn_exchange_rate().
 new(Amount) ->
-    #blockchain_txn_token_burn_exchange_rate_v1_pb{rate=Amount}.
+    #blockchain_txn_token_burn_exchange_rate_v1_pb{rate = Amount}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -59,7 +59,8 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_token_burn_exchange_rate(), libp2p_crypto:sig_fun()) -> txn_token_burn_exchange_rate().
+-spec sign(txn_token_burn_exchange_rate(), libp2p_crypto:sig_fun()) ->
+    txn_token_burn_exchange_rate().
 sign(Txn, _SigFun) ->
     Txn.
 
@@ -79,7 +80,8 @@ rate(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_token_burn_exchange_rate(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_token_burn_exchange_rate(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -88,22 +90,24 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_token_burn_exchange_rate(), blockchain:blockchain()) ->
+    {error, atom()} | {error, {atom(), any()}}.
 is_valid(_Txn, _Chain) ->
     {error, not_implemented}.
-    % Amount = ?MODULE:rate(Txn),
-    % case Amount > 0 of
-    %     true ->
-    %         ok;
-    %     false ->
-    %         {error, zero_or_negative_rate}
-    % end.
+% Amount = ?MODULE:rate(Txn),
+% case Amount > 0 of
+%     true ->
+%         ok;
+%     false ->
+%         {error, zero_or_negative_rate}
+% end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_token_burn_exchange_rate(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Rate = ?MODULE:rate(Txn),
@@ -114,20 +118,22 @@ absorb(Txn, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec print(txn_token_burn_exchange_rate()) -> iodata().
-print(undefined) -> <<"type=burn_exchange_rate undefined">>;
-print(#blockchain_txn_token_burn_exchange_rate_v1_pb{rate=Amount}) ->
+print(undefined) ->
+    <<"type=burn_exchange_rate undefined">>;
+print(#blockchain_txn_token_burn_exchange_rate_v1_pb{rate = Amount}) ->
     io_lib:format("type=burn_exchange_rate rate=~p", [Amount]).
 
 json_type() ->
     <<"token_burn_exchange_rate_v1">>.
 
--spec to_json(txn_token_burn_exchange_rate(), blockchain_json:opts()) -> blockchain_json:json_object().
+-spec to_json(txn_token_burn_exchange_rate(), blockchain_json:opts()) ->
+    blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      rate => rate(Txn)
-     }.
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        rate => rate(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -135,7 +141,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_token_burn_exchange_rate_v1_pb{rate=666},
+    Tx = #blockchain_txn_token_burn_exchange_rate_v1_pb{rate = 666},
     ?assertEqual(Tx, new(666)).
 
 rate_test() ->
@@ -145,7 +151,11 @@ rate_test() ->
 to_json_test() ->
     Tx = new(666),
     Json = to_json(Tx, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, rate])).
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [type, hash, rate]
+        )
+    ).
 
 -endif.

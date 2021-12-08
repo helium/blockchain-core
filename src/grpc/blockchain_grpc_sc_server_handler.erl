@@ -25,12 +25,12 @@
     close/1
 ]).
 
-close(_HandlerPid)->
+close(_HandlerPid) ->
     %% TODO - implement close in grpc stream
     ok.
 
 -spec init(atom(), grpcbox_stream:t()) -> grpcbox_stream:t().
-init(_RPC, StreamState)->
+init(_RPC, StreamState) ->
     lager:info("initiating grpc state channel server handler with state ~p", [StreamState]),
     HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
@@ -52,14 +52,16 @@ init(_RPC, StreamState)->
                     lager:debug("blockchain_grpc_sc_server_handler, empty banner: ~p", [SCBanner]),
                     Self ! {send_banner, SCBanner};
                 ActiveSCs ->
-                    [{_SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
+                    [{_SCID, {ActiveSC, _, _}} | _] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     Self ! {send_banner, SCBanner}
             end;
         _ ->
             noop
     end,
-    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod,OfferLimit, false),
+    HandlerState = blockchain_state_channel_common:new_handler_state(
+        Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, false
+    ),
     grpcbox_stream:stream_handler_state(
         StreamState,
         HandlerState
@@ -69,29 +71,32 @@ init(_RPC, StreamState)->
 msg(#blockchain_state_channel_message_v1_pb{msg = Msg}, StreamState) ->
     lager:debug("grpc msg called with  ~p and state ~p", [Msg, StreamState]),
     HandlerState = grpcbox_stream:stream_handler_state(StreamState),
-    Chain =  blockchain_state_channel_common:chain(HandlerState),
+    Chain = blockchain_state_channel_common:chain(HandlerState),
 
     %% get our chain and only handle the request if the chain is up
     %% if chain not up we have no way to return routing data so just return a 14/503
     case is_chain_ready(Chain) of
         false ->
-            {grpc_error,
-                {grpcbox_stream:code_to_status(14), <<"temporarily unavavailable">>}};
+            {grpc_error, {grpcbox_stream:code_to_status(14), <<"temporarily unavavailable">>}};
         true ->
             case blockchain_state_channel_common:handle_server_msg(Msg, HandlerState) of
                 {ok, NewHandlerState, ResponseData} ->
-                    NewStreamState = grpcbox_stream:stream_handler_state(StreamState, NewHandlerState),
+                    NewStreamState = grpcbox_stream:stream_handler_state(
+                        StreamState, NewHandlerState
+                    ),
                     {ok, ResponseData, NewStreamState};
-                {ok, NewHandlerState}->
-                    NewStreamState = grpcbox_stream:stream_handler_state(StreamState, NewHandlerState),
+                {ok, NewHandlerState} ->
+                    NewStreamState = grpcbox_stream:stream_handler_state(
+                        StreamState, NewHandlerState
+                    ),
                     {ok, NewStreamState};
                 ok ->
                     {ok, HandlerState};
-                stop->
+                stop ->
                     {stop, HandlerState}
             end
     end;
-msg(_Other, StreamState)->
+msg(_Other, StreamState) ->
     lager:warning("unhandled server msg ~p", [_Other]),
     {ok, StreamState}.
 
@@ -110,7 +115,9 @@ handle_info({send_purchase, PurchaseSC, Hotspot, PacketHash, Region, OwnerSigFun
     lager:debug("grpc sc handler server sending purchase: ~p", [PurchaseSC]),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
-    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
+    PurchaseMsg = blockchain_state_channel_purchase_v1:new(
+        SignedPurchaseSC, Hotspot, PacketHash, Region
+    ),
     Msg = blockchain_state_channel_message_v1:wrap_msg(PurchaseMsg),
     NewStreamState = grpcbox_stream:send(false, Msg, StreamState),
     NewStreamState;

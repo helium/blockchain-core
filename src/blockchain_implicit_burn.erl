@@ -11,7 +11,8 @@
     new/2,
     fee/1, fee/2,
     payer/1, payer/2,
-    serialize/1, deserialize/1,
+    serialize/1,
+    deserialize/1,
     to_json/2
 ]).
 
@@ -26,23 +27,23 @@
 
 -spec new(non_neg_integer(), libp2p_crypto:pubkey_bin()) -> implicit_burn().
 new(Fee, Payer) ->
-    #implicit_burn{fee=Fee, payer=Payer}.
+    #implicit_burn{fee = Fee, payer = Payer}.
 
 -spec fee(implicit_burn()) -> non_neg_integer().
-fee(#implicit_burn{fee=Fee}) ->
+fee(#implicit_burn{fee = Fee}) ->
     Fee.
 
 -spec fee(non_neg_integer(), implicit_burn()) -> implicit_burn().
 fee(Fee, ImplicitBurn) ->
-    ImplicitBurn#implicit_burn{fee=Fee}.
+    ImplicitBurn#implicit_burn{fee = Fee}.
 
 -spec payer(implicit_burn()) -> libp2p_crypto:pubkey_bin().
-payer(#implicit_burn{payer=Payer}) ->
+payer(#implicit_burn{payer = Payer}) ->
     Payer.
 
 -spec payer(libp2p_crypto:pubkey_bin(), implicit_burn()) -> implicit_burn().
 payer(Payer, ImplicitBurn) ->
-    ImplicitBurn#implicit_burn{payer=Payer}.
+    ImplicitBurn#implicit_burn{payer = Payer}.
 
 -spec serialize(implicit_burn()) -> binary().
 serialize(ImplicitBurn) ->
@@ -56,6 +57,6 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 -spec to_json(implicit_burn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(ImplicitBurn, _Opts) ->
     #{
-      fee => fee(ImplicitBurn),
-      payer => ?BIN_TO_B58(payer(ImplicitBurn))
+        fee => fee(ImplicitBurn),
+        payer => ?BIN_TO_B58(payer(ImplicitBurn))
     }.

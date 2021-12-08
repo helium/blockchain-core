@@ -16,7 +16,8 @@
 -export([
     new/0, new/1,
     sc/1,
-    encode/1, decode/1
+    encode/1,
+    decode/1
 ]).
 
 -include("blockchain.hrl").
@@ -35,14 +36,14 @@ new() ->
 
 -spec new(SC :: blockchain_state_channel_v1:state_channel()) -> banner().
 new(SC) ->
-    #blockchain_state_channel_banner_v1_pb{sc=SC}.
+    #blockchain_state_channel_banner_v1_pb{sc = SC}.
 
 -spec sc(Banner :: banner()) -> undefined | blockchain_state_channel_v1:state_channel().
-sc(#blockchain_state_channel_banner_v1_pb{sc=SC}) ->
+sc(#blockchain_state_channel_banner_v1_pb{sc = SC}) ->
     SC.
 
 -spec encode(banner()) -> binary().
-encode(#blockchain_state_channel_banner_v1_pb{}=Banner) ->
+encode(#blockchain_state_channel_banner_v1_pb{} = Banner) ->
     blockchain_state_channel_v1_pb:encode_msg(Banner).
 
 -spec decode(binary()) -> banner().

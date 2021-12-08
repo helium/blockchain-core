@@ -7,24 +7,24 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-         basic_validity_test/1,
-         bad_seller_signature_test/1,
-         bad_buyer_signature_test/1,
-         buyer_has_enough_hnt_test/1,
-         gateway_not_owned_by_seller_test/1,
-         gateway_stale_test/1,
-         replay_test/1
-        ]).
+    basic_validity_test/1,
+    bad_seller_signature_test/1,
+    bad_buyer_signature_test/1,
+    buyer_has_enough_hnt_test/1,
+    gateway_not_owned_by_seller_test/1,
+    gateway_stale_test/1,
+    replay_test/1
+]).
 
 all() ->
     [
-     basic_validity_test,
-     bad_seller_signature_test,
-     bad_buyer_signature_test,
-     buyer_has_enough_hnt_test,
-     gateway_not_owned_by_seller_test,
-     gateway_stale_test,
-     replay_test
+        basic_validity_test,
+        bad_seller_signature_test,
+        bad_buyer_signature_test,
+        buyer_has_enough_hnt_test,
+        gateway_not_owned_by_seller_test,
+        gateway_stale_test,
+        replay_test
     ].
 
 %%--------------------------------------------------------------------
@@ -36,10 +36,12 @@ init_per_testcase(TestCase, Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
-    ExtraVars = case TestCase of
-                    gateway_stale_test -> #{ }; %% default is 0
-                    _ -> #{ ?transfer_hotspot_stale_poc_blocks => 10 }
-                end,
+    ExtraVars =
+        case TestCase of
+            %% default is 0
+            gateway_stale_test -> #{};
+            _ -> #{?transfer_hotspot_stale_poc_blocks => 10}
+        end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
@@ -51,24 +53,27 @@ init_per_testcase(TestCase, Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
     Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-                              Balance = blockchain_ledger_entry_v1:balance(Entry),
-                              0 = blockchain_ledger_entry_v1:nonce(Entry)
-                      end, maps:values(Entries)),
+    _ = lists:foreach(
+        fun(Entry) ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            0 = blockchain_ledger_entry_v1:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
     [
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {chain, Chain},
-     {swarm, Swarm},
-     {n, N},
-     {consensus_members, ConsensusMembers},
-     {genesis_members, GenesisMembers},
-     Keys
-     | Config0
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {chain, Chain},
+        {swarm, Swarm},
+        {n, N},
+        {consensus_members, ConsensusMembers},
+        {genesis_members, GenesisMembers},
+        Keys
+        | Config0
     ].
 
 %%--------------------------------------------------------------------
@@ -100,8 +105,11 @@ basic_validity_test(Config) ->
     %% In the test, SellerPubkeyBin = GatewayPubkeyBin
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -115,7 +123,9 @@ basic_validity_test(Config) ->
     ct:pal("Gateway: ~p", [Gateway]),
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
-    Txn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin, SellerPubkeyBin, BuyerPubkeyBin, 1),
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin, SellerPubkeyBin, BuyerPubkeyBin, 1
+    ),
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, SellerSigFun),
     BuyerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(SellerSignedTxn, BuyerSigFun),
     ct:pal("SignedTxn: ~p", [BuyerSignedTxn]),
@@ -133,8 +143,11 @@ bad_seller_signature_test(Config) ->
     %% In the test, SellerPubkeyBin = GatewayPubkeyBin
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -148,7 +161,9 @@ bad_seller_signature_test(Config) ->
     ct:pal("Gateway: ~p", [Gateway]),
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
-    Txn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin, SellerPubkeyBin, BuyerPubkeyBin, 1),
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin, SellerPubkeyBin, BuyerPubkeyBin, 1
+    ),
 
     %% this is not seller's signature
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, BuyerSigFun),
@@ -169,8 +184,11 @@ bad_buyer_signature_test(Config) ->
     %% In the test, SellerPubkeyBin = GatewayPubkeyBin
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -184,7 +202,9 @@ bad_buyer_signature_test(Config) ->
     ct:pal("Gateway: ~p", [Gateway]),
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
-    Txn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin, SellerPubkeyBin, BuyerPubkeyBin, 1),
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin, SellerPubkeyBin, BuyerPubkeyBin, 1
+    ),
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, SellerSigFun),
 
     %% this is not buyer's signature
@@ -205,8 +225,11 @@ buyer_has_enough_hnt_test(Config) ->
     %% In the test, SellerPubkeyBin = GatewayPubkeyBin
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -220,11 +243,14 @@ buyer_has_enough_hnt_test(Config) ->
     ct:pal("Gateway: ~p", [Gateway]),
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
-    Txn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin,
-                                                 SellerPubkeyBin,
-                                                 BuyerPubkeyBin,
-                                                 1,
-                                                 10000),    %% buyer only has 5K hnt to boot
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin,
+        SellerPubkeyBin,
+        BuyerPubkeyBin,
+        1,
+        %% buyer only has 5K hnt to boot
+        10000
+    ),
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, SellerSigFun),
     BuyerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(SellerSignedTxn, BuyerSigFun),
     ct:pal("SignedTxn: ~p", [BuyerSignedTxn]),
@@ -242,8 +268,11 @@ gateway_not_owned_by_seller_test(Config) ->
     %% In the test, SellerPubkeyBin = GatewayPubkeyBin
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -257,10 +286,13 @@ gateway_not_owned_by_seller_test(Config) ->
     ct:pal("Gateway: ~p", [Gateway]),
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
-    Txn = blockchain_txn_transfer_hotspot_v1:new(BuyerPubkeyBin,    %% this is not the seller's gw
-                                                 SellerPubkeyBin,
-                                                 BuyerPubkeyBin,
-                                                 1),
+    %% this is not the seller's gw
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        BuyerPubkeyBin,
+        SellerPubkeyBin,
+        BuyerPubkeyBin,
+        1
+    ),
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, SellerSigFun),
     BuyerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(SellerSignedTxn, BuyerSigFun),
     ct:pal("SignedTxn: ~p", [BuyerSignedTxn]),
@@ -276,8 +308,11 @@ gateway_stale_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -291,10 +326,12 @@ gateway_stale_test(Config) ->
     ct:pal("Gateway: ~p", [Gateway]),
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
-    Txn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin,
-                                                 SellerPubkeyBin,
-                                                 BuyerPubkeyBin,
-                                                 1),
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin,
+        SellerPubkeyBin,
+        BuyerPubkeyBin,
+        1
+    ),
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, SellerSigFun),
     BuyerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(SellerSignedTxn, BuyerSigFun),
     ct:pal("SignedTxn: ~p", [BuyerSignedTxn]),
@@ -312,8 +349,11 @@ replay_test(Config) ->
     %% In the test, SellerPubkeyBin = GatewayPubkeyBin
 
     %% Get some owner and their gateway
-    [{SellerPubkeyBin, Gateway},
-     {BuyerPubkeyBin, _} | _] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+    [
+        {SellerPubkeyBin, Gateway},
+        {BuyerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
 
     %% Get seller privkey and sigfun
     {_SellerPubkey, SellerPrivKey, _} = proplists:get_value(SellerPubkeyBin, GenesisMembers),
@@ -328,10 +368,12 @@ replay_test(Config) ->
     ct:pal("BuyerPubkeyBin: ~p", [BuyerPubkeyBin]),
 
     %% This is valid, nonce=1
-    Txn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin,
-                                                 SellerPubkeyBin,
-                                                 BuyerPubkeyBin,
-                                                 1),
+    Txn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin,
+        SellerPubkeyBin,
+        BuyerPubkeyBin,
+        1
+    ),
     SellerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(Txn, SellerSigFun),
     BuyerSignedTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(SellerSignedTxn, BuyerSigFun),
     ct:pal("SignedTxn: ~p", [BuyerSignedTxn]),
@@ -349,12 +391,18 @@ replay_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [BuyerSignedTxn]),
 
     %% Back to seller
-    BackToSellerTxn = blockchain_txn_transfer_hotspot_v1:new(SellerPubkeyBin,
-                                                             BuyerPubkeyBin,
-                                                             SellerPubkeyBin,
-                                                             1),
-    SellerSignedBackToSellerTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(BackToSellerTxn, BuyerSigFun),
-    BuyerSignedBackToSellerTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(SellerSignedBackToSellerTxn, SellerSigFun),
+    BackToSellerTxn = blockchain_txn_transfer_hotspot_v1:new(
+        SellerPubkeyBin,
+        BuyerPubkeyBin,
+        SellerPubkeyBin,
+        1
+    ),
+    SellerSignedBackToSellerTxn = blockchain_txn_transfer_hotspot_v1:sign_seller(
+        BackToSellerTxn, BuyerSigFun
+    ),
+    BuyerSignedBackToSellerTxn = blockchain_txn_transfer_hotspot_v1:sign_buyer(
+        SellerSignedBackToSellerTxn, SellerSigFun
+    ),
     ct:pal("SignedTxn2: ~p", [BuyerSignedBackToSellerTxn]),
 
     ok = blockchain_txn:is_valid(BuyerSignedBackToSellerTxn, Chain),
@@ -371,4 +419,3 @@ replay_test(Config) ->
     %% Also check it does not appear in a block
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [BuyerSignedTxn]),
     ok.
-

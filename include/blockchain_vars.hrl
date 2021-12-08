@@ -2,7 +2,6 @@
 %%%% without using the macros defined here.  running:
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
-
 %% key: {is_aux, vars_nonce, var_name}
 -define(VAR_CACHE, var_cache).
 
@@ -84,8 +83,11 @@
 %% These variables are used in the miner to determine which function should be called to provide
 %% whatever it is that is checked by the predicate.
 %% At the current time they provide a monotonic stream of integers.
--define(predicate_callback_mod, predicate_callback_mod). %% Currently set to: miner
--define(predicate_callback_fun, predicate_callback_fun). %% Currently set to: version
+
+%% Currently set to: miner
+-define(predicate_callback_mod, predicate_callback_mod).
+%% Currently set to: version
+-define(predicate_callback_fun, predicate_callback_fun).
 
 %%%
 %%% miner vars
@@ -154,7 +156,6 @@
 %% during targeting
 -define(poc_witness_consideration_limit, poc_witness_consideration_limit).
 
-
 -define(poc_addr_hash_byte_count, poc_addr_hash_byte_count).
 
 %% define loss factor for SNR curve, floating point number
@@ -206,54 +207,84 @@
 %%%
 
 %% Only allow txns of this bundle length to appear on chain
--define(max_bundle_size, max_bundle_size). %% default: 5
+
+%% default: 5
+-define(max_bundle_size, max_bundle_size).
 
 %% POC V4 vars
 %% ------------------------------------------------------------------
 %% Normalize witnesses to this parent resolution.
--define(poc_v4_parent_res, poc_v4_parent_res). %% default: 11
+
+%% default: 11
+-define(poc_v4_parent_res, poc_v4_parent_res).
 %% Number of grid cells to exclude when building a path.
--define(poc_v4_exclusion_cells, poc_v4_exclusion_cells). %% default: 10 for parent_res 11
+
+%% default: 10 for parent_res 11
+-define(poc_v4_exclusion_cells, poc_v4_exclusion_cells).
 %% Exlusion cells from challenger -> target
--define(poc_v4_target_exclusion_cells, poc_v4_target_exclusion_cells). %% default: 6000
+
+%% default: 6000
+-define(poc_v4_target_exclusion_cells, poc_v4_target_exclusion_cells).
 %% ------------------------------------------------------------------
 
 %% ------------------------------------------------------------------
 %% RSSI probabilities
 %% Probability associated with a next hop having no rssi information
--define(poc_v4_prob_no_rssi, poc_v4_prob_no_rssi). %% default: 0.5
+
+%% default: 0.5
+-define(poc_v4_prob_no_rssi, poc_v4_prob_no_rssi).
 %% Probability associated with a next hop having good rssi information
--define(poc_v4_prob_good_rssi, poc_v4_prob_good_rssi). %% default: 1.0
+
+%% default: 1.0
+-define(poc_v4_prob_good_rssi, poc_v4_prob_good_rssi).
 %% Probability associated with a next hop having bad rssi information
--define(poc_v4_prob_bad_rssi, poc_v4_prob_bad_rssi). %% default: 0.01
+
+%% default: 0.01
+-define(poc_v4_prob_bad_rssi, poc_v4_prob_bad_rssi).
 %% ------------------------------------------------------------------
 
 %% ------------------------------------------------------------------
 %% RSSI probability weights, these MUST sum to 1.0
 %% Weight associated with next hop rssi probability
--define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt). %% default: 0.3
+
+%% default: 0.3
+-define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt).
 %% Weight associated with next hop recent time probability
--define(poc_v4_prob_time_wt, poc_v4_prob_time_wt). %% default: 0.3
+
+%% default: 0.3
+-define(poc_v4_prob_time_wt, poc_v4_prob_time_wt).
 %% Weight associated with next hop witness count probability
--define(poc_v4_prob_count_wt, poc_v4_prob_count_wt). %% default: 0.3
+
+%% default: 0.3
+-define(poc_v4_prob_count_wt, poc_v4_prob_count_wt).
 %% This quantifies how much randomness we want when assigning
 %% probabilities to the witnesses.
 %% ------------------------------------------------------------------
--define(poc_v4_randomness_wt, poc_v4_randomness_wt). %% default: 0.1
+
+%% default: 0.1
+-define(poc_v4_randomness_wt, poc_v4_randomness_wt).
 
 %% ------------------------------------------------------------------
 
 %% A potential target must have a last poc challenge within this challenge_age
--define(poc_v4_target_challenge_age, poc_v4_target_challenge_age). %% default: 300
+
+%% default: 300
+-define(poc_v4_target_challenge_age, poc_v4_target_challenge_age).
 %% Score curve to calculate the target score probability
--define(poc_v4_target_score_curve, poc_v4_target_score_curve). %% default: 5
+
+%% default: 5
+-define(poc_v4_target_score_curve, poc_v4_target_score_curve).
 
 %% ------------------------------------------------------------------
 %% Target probability weights, these MUST sum to 1.0
 %% Weight associated with target score probability
--define(poc_v4_target_prob_score_wt, poc_v4_target_prob_score_wt). %% default: 0.8
+
+%% default: 0.8
+-define(poc_v4_target_prob_score_wt, poc_v4_target_prob_score_wt).
 %% Weight associated with target being loosely connected probability
--define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt). %% default: 0.2
+
+%% default: 0.2
+-define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt).
 %% ------------------------------------------------------------------
 
 %% ------------------------------------------------------------------
@@ -340,7 +371,6 @@
 %% that are only in the open state and ignore closed channels.
 -define(sc_only_count_open_active, sc_only_count_open_active).
 
-
 %% ------------------------------------------------------------------
 %% snapshot vars
 
@@ -368,7 +398,6 @@
 -define(price_oracle_price_scan_max, price_oracle_price_scan_max).
 %% ------------------------------------------------------------------
 
-
 %% ------------------------------------------------------------------
 %% transaction fee vars, denominated in DC
 
@@ -391,9 +420,13 @@
 %% the staking fee in DC for asserting a location
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
 %% the staking fee in DC for asserting a location for a dataonly gateway
--define(staking_fee_txn_assert_location_dataonly_gateway_v1, staking_fee_txn_assert_location_dataonly_gateway_v1).
+-define(staking_fee_txn_assert_location_dataonly_gateway_v1,
+    staking_fee_txn_assert_location_dataonly_gateway_v1
+).
 %% the staking fee in DC for asserting a location for a light gateway
--define(staking_fee_txn_assert_location_light_gateway_v1, staking_fee_txn_assert_location_light_gateway_v1).
+-define(staking_fee_txn_assert_location_light_gateway_v1,
+    staking_fee_txn_assert_location_light_gateway_v1
+).
 
 %% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful
 -define(txn_fee_multiplier, txn_fee_multiplier).
@@ -460,8 +493,11 @@
 %% NOTE: Allow min_antenna_gain - max_antenna_gain (both inclusive)
 %% Both will be set as dBi x 10, so, 1 dBi = 10, 15 dBi = 150,
 %% Any gain value between min-max is acceptable
--define(min_antenna_gain, min_antenna_gain).        %% Set to 10 (1 dBi)
--define(max_antenna_gain, max_antenna_gain).        %% Set to 150 (15 dBi)
+
+%% Set to 10 (1 dBi)
+-define(min_antenna_gain, min_antenna_gain).
+%% Set to 150 (15 dBi)
+-define(max_antenna_gain, max_antenna_gain).
 
 %% ------------------------------------------------------------------
 %% the mask value to represent the capabilities of dataonly gateways, defined as an integer and used as a bitmask
@@ -476,28 +512,42 @@
 %%%
 
 -define(validator_version, validator_version).
--define(validator_minimum_stake, validator_minimum_stake).  % bones
--define(validator_liveness_interval, validator_liveness_interval).  % blocks
--define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
--define(validator_penalty_filter, validator_penalty_filter). % float
--define(validator_key_check, validator_key_check). % boolean
--define(stake_withdrawal_cooldown, stake_withdrawal_cooldown). % blocks
--define(stake_withdrawal_max, stake_withdrawal_max). % blocks
+% bones
+-define(validator_minimum_stake, validator_minimum_stake).
+% blocks
+-define(validator_liveness_interval, validator_liveness_interval).
+% blocks
+-define(validator_liveness_grace_period, validator_liveness_grace_period).
+% float
+-define(validator_penalty_filter, validator_penalty_filter).
+% boolean
+-define(validator_key_check, validator_key_check).
+% blocks
+-define(stake_withdrawal_cooldown, stake_withdrawal_cooldown).
+% blocks
+-define(stake_withdrawal_max, stake_withdrawal_max).
 %% -define(maximum_overstake, maximum_overstake). % float multiple of min stake
 
--define(penalty_history_limit, penalty_history_limit). % blocks
--define(dkg_penalty, dkg_penalty). % float
--define(tenure_penalty, tenure_penalty). % float
+% blocks
+-define(penalty_history_limit, penalty_history_limit).
+% float
+-define(dkg_penalty, dkg_penalty).
+% float
+-define(tenure_penalty, tenure_penalty).
 
 %%%
 %%% net emissions vars
 %%%
 
 %% use net emissions code paths
--define(net_emissions_enabled, net_emissions_enabled). % boolean
+
+% boolean
+-define(net_emissions_enabled, net_emissions_enabled).
 %% maximum amount of burnt hnt per epoch to return to the rewards pool
 %% initial proposed max 34.24 HNT
--define(net_emissions_max_rate, net_emissions_max_rate). % bones
+
+% bones
+-define(net_emissions_max_rate, net_emissions_max_rate).
 
 %% ------------------------------------------------------------------
 %% regulatory_region related variables
@@ -528,8 +578,9 @@
 %%
 %% As an example, blockchain_txn_transfer_hotspot_v2, will get enabled
 %% when this value is set to >= 2.
--define(transaction_validity_version, transaction_validity_version).    % pos_integer
 
+% pos_integer
+-define(transaction_validity_version, transaction_validity_version).
 
 %% Boolean chain variable to discard witnesses with 0.0 frequency
 -define(discard_zero_freq_witness, discard_zero_freq_witness).

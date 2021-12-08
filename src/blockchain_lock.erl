@@ -16,7 +16,7 @@
 acquire() ->
     acquire(infinity).
 
--spec acquire(Timeout:: infinity | pos_integer()) -> ok | error.
+-spec acquire(Timeout :: infinity | pos_integer()) -> ok | error.
 acquire(Timeout) ->
     case get(?holding_lock) of
         undefined ->
@@ -26,10 +26,11 @@ acquire(Timeout) ->
                     put(?lock_ref, Ref),
                     put(?holding_lock, 1),
                     ok
-            catch _:_ ->
-                      %% release it in case we got it anyway
-                      ?MODULE ! {Ref, release},
-                      error
+            catch
+                _:_ ->
+                    %% release it in case we got it anyway
+                    ?MODULE ! {Ref, release},
+                    error
             end;
         N ->
             put(?holding_lock, N + 1),
@@ -53,7 +54,7 @@ release() ->
             ok
     end.
 
-force_release()  ->
+force_release() ->
     erase(?holding_lock),
     ?MODULE ! release.
 

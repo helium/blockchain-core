@@ -13,7 +13,8 @@
     balance/1, balance/2,
     hashlock/1, hashlock/2,
     timelock/1, timelock/2,
-    serialize/1, deserialize/1
+    serialize/1,
+    deserialize/1
 ]).
 
 -ifdef(TEST).
@@ -41,16 +42,22 @@
 new() ->
     #htlc_v1{}.
 
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), non_neg_integer(),
-          non_neg_integer(), binary(), non_neg_integer()) -> htlc().
+-spec new(
+    libp2p_crypto:pubkey_bin(),
+    libp2p_crypto:pubkey_bin(),
+    non_neg_integer(),
+    non_neg_integer(),
+    binary(),
+    non_neg_integer()
+) -> htlc().
 new(Payer, Payee, Balance, Nonce, Hashlock, Timelock) when Balance /= undefined ->
     #htlc_v1{
-        payer=Payer,
-        payee=Payee,
-        balance=Balance,
-        nonce=Nonce,
-        hashlock=Hashlock,
-        timelock=Timelock
+        payer = Payer,
+        payee = Payee,
+        balance = Balance,
+        nonce = Nonce,
+        hashlock = Hashlock,
+        timelock = Timelock
     }.
 
 %%--------------------------------------------------------------------
@@ -58,7 +65,7 @@ new(Payer, Payee, Balance, Nonce, Hashlock, Timelock) when Balance /= undefined 
 %% @end
 %%--------------------------------------------------------------------
 -spec nonce(htlc()) -> non_neg_integer().
-nonce(#htlc_v1{nonce=Nonce}) ->
+nonce(#htlc_v1{nonce = Nonce}) ->
     Nonce.
 
 %%--------------------------------------------------------------------
@@ -67,14 +74,14 @@ nonce(#htlc_v1{nonce=Nonce}) ->
 %%--------------------------------------------------------------------
 -spec nonce(non_neg_integer(), htlc()) -> htlc().
 nonce(Nonce, HTLC) ->
-    HTLC#htlc_v1{nonce=Nonce}.
+    HTLC#htlc_v1{nonce = Nonce}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec payer(htlc()) -> undefined | libp2p_crypto:pubkey_bin().
-payer(#htlc_v1{payer=Payer}) ->
+payer(#htlc_v1{payer = Payer}) ->
     Payer.
 
 %%--------------------------------------------------------------------
@@ -83,14 +90,14 @@ payer(#htlc_v1{payer=Payer}) ->
 %%--------------------------------------------------------------------
 -spec payer(libp2p_crypto:pubkey_bin(), htlc()) -> htlc().
 payer(Payer, HTLC) ->
-    HTLC#htlc_v1{payer=Payer}.
+    HTLC#htlc_v1{payer = Payer}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec payee(htlc()) -> undefined | libp2p_crypto:pubkey_bin().
-payee(#htlc_v1{payee=Payee}) ->
+payee(#htlc_v1{payee = Payee}) ->
     Payee.
 
 %%--------------------------------------------------------------------
@@ -99,14 +106,14 @@ payee(#htlc_v1{payee=Payee}) ->
 %%--------------------------------------------------------------------
 -spec payee(libp2p_crypto:pubkey_bin(), htlc()) -> htlc().
 payee(Payee, HTLC) ->
-    HTLC#htlc_v1{payee=Payee}.
+    HTLC#htlc_v1{payee = Payee}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec balance(htlc()) -> non_neg_integer().
-balance(#htlc_v1{balance=Balance}) ->
+balance(#htlc_v1{balance = Balance}) ->
     Balance.
 
 %%--------------------------------------------------------------------
@@ -115,14 +122,14 @@ balance(#htlc_v1{balance=Balance}) ->
 %%--------------------------------------------------------------------
 -spec balance(non_neg_integer(), htlc()) -> htlc().
 balance(Balance, HTLC) ->
-    HTLC#htlc_v1{balance=Balance}.
+    HTLC#htlc_v1{balance = Balance}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec hashlock(htlc()) -> binary().
-hashlock(#htlc_v1{hashlock=Hashlock}) ->
+hashlock(#htlc_v1{hashlock = Hashlock}) ->
     Hashlock.
 
 %%--------------------------------------------------------------------
@@ -131,14 +138,14 @@ hashlock(#htlc_v1{hashlock=Hashlock}) ->
 %%--------------------------------------------------------------------
 -spec hashlock(binary(), htlc()) -> htlc().
 hashlock(Hashlock, HTLC) ->
-    HTLC#htlc_v1{hashlock=Hashlock}.
+    HTLC#htlc_v1{hashlock = Hashlock}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec timelock(htlc()) -> non_neg_integer().
-timelock(#htlc_v1{timelock=Timelock}) ->
+timelock(#htlc_v1{timelock = Timelock}) ->
     Timelock.
 
 %%--------------------------------------------------------------------
@@ -147,7 +154,7 @@ timelock(#htlc_v1{timelock=Timelock}) ->
 %%--------------------------------------------------------------------
 -spec timelock(non_neg_integer(), htlc()) -> htlc().
 timelock(Timelock, HTLC) ->
-    HTLC#htlc_v1{timelock=Timelock}.
+    HTLC#htlc_v1{timelock = Timelock}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -179,21 +186,21 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 
 new_test() ->
     HTLC0 = #htlc_v1{
-        nonce=0,
-        payer=undefined,
-        payee=undefined,
-        balance=0,
-        hashlock=undefined,
-        timelock=undefined
+        nonce = 0,
+        payer = undefined,
+        payee = undefined,
+        balance = 0,
+        hashlock = undefined,
+        timelock = undefined
     },
     ?assertEqual(HTLC0, new()),
     HTLC1 = #htlc_v1{
-        nonce=0,
-        payer= <<"payer">>,
-        payee= <<"payee">>,
-        balance=12,
-        hashlock= <<"hashlock">>,
-        timelock=13
+        nonce = 0,
+        payer = <<"payer">>,
+        payee = <<"payee">>,
+        balance = 12,
+        hashlock = <<"hashlock">>,
+        timelock = 13
     },
     ?assertEqual(HTLC1, new(<<"payer">>, <<"payee">>, 12, 0, <<"hashlock">>, 13)).
 

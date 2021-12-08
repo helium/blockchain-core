@@ -12,9 +12,11 @@
     region/1,
     packet_hash/1,
     payload_size/1,
-    signature/1, sign/2,
+    signature/1,
+    sign/2,
     validate/1,
-    encode/1, decode/1
+    encode/1,
+    decode/1
 ]).
 
 -include("blockchain.hrl").
@@ -27,60 +29,62 @@
 -type offer() :: #blockchain_state_channel_offer_v1_pb{}.
 -export_type([offer/0]).
 
--spec from_packet(Packet :: blockchain_helium_packet_v1:packet(),
-                  Hotspot :: libp2p_crypto:pubkey_bin(),
-                  Region :: atom()) -> offer().
+-spec from_packet(
+    Packet :: blockchain_helium_packet_v1:packet(),
+    Hotspot :: libp2p_crypto:pubkey_bin(),
+    Region :: atom()
+) -> offer().
 from_packet(Packet, Hotspot, Region) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
-        {eui, _, _}=Routing ->
+        {eui, _, _} = Routing ->
             #blockchain_state_channel_offer_v1_pb{
-               routing=blockchain_helium_packet_v1:make_routing_info(Routing),
-               packet_hash=blockchain_helium_packet_v1:packet_hash(Packet),
-               payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
-               hotspot=Hotspot,
-               signature = <<>>,
-               region=maybe_fix_region(Region)
-              };
-        {devaddr, _}=Routing ->
+                routing = blockchain_helium_packet_v1:make_routing_info(Routing),
+                packet_hash = blockchain_helium_packet_v1:packet_hash(Packet),
+                payload_size = byte_size(blockchain_helium_packet_v1:payload(Packet)),
+                hotspot = Hotspot,
+                signature = <<>>,
+                region = maybe_fix_region(Region)
+            };
+        {devaddr, _} = Routing ->
             #blockchain_state_channel_offer_v1_pb{
-               routing=blockchain_helium_packet_v1:make_routing_info(Routing),
-               packet_hash=blockchain_helium_packet_v1:packet_hash(Packet),
-               payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
-               hotspot=Hotspot,
-               signature = <<>>,
-               region=maybe_fix_region(Region)
-              }
+                routing = blockchain_helium_packet_v1:make_routing_info(Routing),
+                packet_hash = blockchain_helium_packet_v1:packet_hash(Packet),
+                payload_size = byte_size(blockchain_helium_packet_v1:payload(Packet)),
+                hotspot = Hotspot,
+                signature = <<>>,
+                region = maybe_fix_region(Region)
+            }
     end.
 
 -spec hotspot(offer()) -> libp2p_crypto:pubkey_bin().
-hotspot(#blockchain_state_channel_offer_v1_pb{hotspot=Hotspot}) ->
+hotspot(#blockchain_state_channel_offer_v1_pb{hotspot = Hotspot}) ->
     Hotspot.
 
 -spec routing(offer()) -> blockchain_helium_packet_v1:routing_information().
-routing(#blockchain_state_channel_offer_v1_pb{routing=Routing}) ->
+routing(#blockchain_state_channel_offer_v1_pb{routing = Routing}) ->
     Routing.
 
 -spec region(offer()) -> atom().
-region(#blockchain_state_channel_offer_v1_pb{region=Region}) ->
+region(#blockchain_state_channel_offer_v1_pb{region = Region}) ->
     Region.
 
 -spec packet_hash(offer()) -> binary().
-packet_hash(#blockchain_state_channel_offer_v1_pb{packet_hash=PacketHash}) ->
+packet_hash(#blockchain_state_channel_offer_v1_pb{packet_hash = PacketHash}) ->
     PacketHash.
 
 -spec payload_size(offer()) -> pos_integer().
-payload_size(#blockchain_state_channel_offer_v1_pb{payload_size=PayloadSize}) ->
+payload_size(#blockchain_state_channel_offer_v1_pb{payload_size = PayloadSize}) ->
     PayloadSize.
 
 -spec signature(offer()) -> binary().
-signature(#blockchain_state_channel_offer_v1_pb{signature=Signature}) ->
+signature(#blockchain_state_channel_offer_v1_pb{signature = Signature}) ->
     Signature.
 
 -spec sign(offer(), function()) -> offer().
 sign(Offer, SigFun) ->
-    EncodedReq = ?MODULE:encode(Offer#blockchain_state_channel_offer_v1_pb{signature= <<>>}),
+    EncodedReq = ?MODULE:encode(Offer#blockchain_state_channel_offer_v1_pb{signature = <<>>}),
     Signature = SigFun(EncodedReq),
-    Offer#blockchain_state_channel_offer_v1_pb{signature=Signature}.
+    Offer#blockchain_state_channel_offer_v1_pb{signature = Signature}.
 
 -spec validate(offer()) -> true | {error, any()}.
 validate(Offer) ->
@@ -96,7 +100,7 @@ validate(Offer) ->
     end.
 
 -spec encode(offer()) -> binary().
-encode(#blockchain_state_channel_offer_v1_pb{}=Offer) ->
+encode(#blockchain_state_channel_offer_v1_pb{} = Offer) ->
     blockchain_state_channel_v1_pb:encode_msg(Offer).
 
 -spec decode(binary()) -> offer().
@@ -121,8 +125,6 @@ maybe_fix_region('region_in865') -> 'IN865';
 maybe_fix_region('region_kr920') -> 'KR920';
 %% pre-poc 11 these will be correct
 maybe_fix_region(Other) -> Other.
-
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

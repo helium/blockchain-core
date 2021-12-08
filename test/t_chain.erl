@@ -26,7 +26,7 @@
 
 -type ct_cfg() ::
     [
-          {blockchain_sup, pid()}
+        {blockchain_sup, pid()}
         | {chain, t()}
         | {master_key, {libp2p_crypto:privkey(), libp2p_crypto:pubkey()}}
         | {consensus_members, [t_user:t()]}
@@ -35,19 +35,19 @@
 
 -type optional_params() ::
     #{
-        vars                       => map(),
-        default_init_balance_hnt   => non_neg_integer(),
-        default_init_balance_dc    => non_neg_integer(),
-        default_init_balance_hst   => non_neg_integer(),
-        num_init_users             => non_neg_integer(),
+        vars => map(),
+        default_init_balance_hnt => non_neg_integer(),
+        default_init_balance_dc => non_neg_integer(),
+        default_init_balance_hst => non_neg_integer(),
+        num_init_users => non_neg_integer(),
 
-        user_master                => t_user:t(),
-        user_app                   => t_user:t(),
-        users_with_hnt             => [{t_user:t(), non_neg_integer()}],
-        users_with_hst             => [{t_user:t(), non_neg_integer()}],
-        users_with_dc              => [{t_user:t(), non_neg_integer()}],
-        users_as_gateways          => [t_user:t()],
-        users_in_consensus         => [t_user:t()]
+        user_master => t_user:t(),
+        user_app => t_user:t(),
+        users_with_hnt => [{t_user:t(), non_neg_integer()}],
+        users_with_hst => [{t_user:t(), non_neg_integer()}],
+        users_with_dc => [{t_user:t(), non_neg_integer()}],
+        users_as_gateways => [t_user:t()],
+        users_in_consensus => [t_user:t()]
     }.
 
 -spec start(ct_cfg()) -> ct_cfg().
@@ -67,44 +67,44 @@ start(Cfg, Opts) when is_list(Cfg), is_map(Opts) ->
     DirForData = filename:join(DirUnique, "data"),
 
     InitBalanceHNT = maps:get(default_init_balance_hnt, Opts, 5000),
-    InitBalanceDC  = maps:get(default_init_balance_dc , Opts, 5000),
+    InitBalanceDC = maps:get(default_init_balance_dc, Opts, 5000),
     InitBalanceHST = maps:get(default_init_balance_hst, Opts, 5000),
-    NumInitUsers   = maps:get(num_init_users  , Opts, 8),
-    ExtraVars      = maps:get(vars            , Opts, #{}),
+    NumInitUsers = maps:get(num_init_users, Opts, 8),
+    ExtraVars = maps:get(vars, Opts, #{}),
 
     Vars = maps:merge(vars_default(), ExtraVars),
     NumInConsensus = maps:get(num_consensus_members, Vars),
 
     MasterUser = maps_get_or(user_master, Opts, fun() -> t_user:new() end),
-    AppUser    = maps_get_or(user_app   , Opts, fun() -> t_user:new() end),
+    AppUser = maps_get_or(user_app, Opts, fun() -> t_user:new() end),
 
     UsersGetOrGenPlain =
         fun(K, N) ->
             Gen = fun() -> t_user:n_new(N) end,
-            maps_get_or(K , Opts, Gen)
+            maps_get_or(K, Opts, Gen)
         end,
     UsersGetOrGenWithBalance =
         fun(K, N, DefaultBalance) ->
             Gen = fun() -> [{U, DefaultBalance} || U <- t_user:n_new(N)] end,
-            maps_get_or(K , Opts, Gen)
+            maps_get_or(K, Opts, Gen)
         end,
 
     UsersWithHNT = UsersGetOrGenWithBalance(users_with_hnt, NumInitUsers, InitBalanceHNT),
     UsersWithHST = UsersGetOrGenWithBalance(users_with_hst, NumInitUsers, InitBalanceHST),
-    UsersWithDC  = UsersGetOrGenWithBalance(users_with_dc , NumInitUsers, InitBalanceDC),
+    UsersWithDC = UsersGetOrGenWithBalance(users_with_dc, NumInitUsers, InitBalanceDC),
 
-    UsersAsGateways  = UsersGetOrGenPlain(users_as_gateways , NumInitUsers),
+    UsersAsGateways = UsersGetOrGenPlain(users_as_gateways, NumInitUsers),
     UsersInConsensus = UsersGetOrGenPlain(users_in_consensus, NumInConsensus),
 
-    Addrs = fun (Us) -> [t_user:addr(U) || U <- Us] end,
+    Addrs = fun(Us) -> [t_user:addr(U) || U <- Us] end,
 
     GenesisTxns =
         [genesis_txn_vars(Vars, t_user:key_pair(MasterUser))] ++
-        genesis_txns_pay_hnt([{t_user:addr(U), B} || {U, B} <- UsersWithHNT]) ++
-        genesis_txns_pay_dc( [{t_user:addr(U), B} || {U, B} <- UsersWithDC]) ++
-        genesis_txns_pay_sec([{t_user:addr(U), B} || {U, B} <- UsersWithHST]) ++
-        genesis_txns_consensus(Addrs(UsersAsGateways), election_version(ExtraVars)) ++
-        [blockchain_txn_consensus_group_v1:new(Addrs(UsersInConsensus), <<"proof">>, 1, 0)],
+            genesis_txns_pay_hnt([{t_user:addr(U), B} || {U, B} <- UsersWithHNT]) ++
+            genesis_txns_pay_dc([{t_user:addr(U), B} || {U, B} <- UsersWithDC]) ++
+            genesis_txns_pay_sec([{t_user:addr(U), B} || {U, B} <- UsersWithHST]) ++
+            genesis_txns_consensus(Addrs(UsersAsGateways), election_version(ExtraVars)) ++
+            [blockchain_txn_consensus_group_v1:new(Addrs(UsersInConsensus), <<"proof">>, 1, 0)],
     GenesisBlock = blockchain_block:new_genesis_block(GenesisTxns),
 
     blockchain_utils:teardown_var_cache(),
@@ -155,7 +155,7 @@ start(Cfg, Opts) when is_list(Cfg), is_map(Opts) ->
     ),
     %% TODO Assert other balances
     lists:foreach(
-        fun ({User, Balance}) ->
+        fun({User, Balance}) ->
             ?assertEqual(Balance, get_balance(Chain, User))
         end,
         UsersWithHNT
@@ -164,10 +164,10 @@ start(Cfg, Opts) when is_list(Cfg), is_map(Opts) ->
         {chain, Chain},
 
         {users_in_consensus, UsersInConsensus},
-        {users_with_hnt    , UsersWithHNT},
-        {users_with_hst    , UsersWithHST},
-        {users_with_dc     , UsersWithDC},
-        {users_as_gateways , UsersAsGateways},
+        {users_with_hnt, UsersWithHNT},
+        {users_with_hst, UsersWithHST},
+        {users_with_dc, UsersWithDC},
+        {users_as_gateways, UsersAsGateways},
 
         %% TODO May not need the pair form eventually, as t_user is adopted.
         {master_key, t_user:key_pair(MasterUser)},
@@ -175,8 +175,7 @@ start(Cfg, Opts) when is_list(Cfg), is_map(Opts) ->
         %% XXX Some test cases still expect base_dir in config,
         %%     though it's questionable if they really need it.
         {base_dir, DirForData}
-    |
-        Cfg
+        | Cfg
     ].
 
 -spec stop() -> ok.
@@ -194,7 +193,7 @@ stop() ->
 %% Make block and add it to chain.
 -spec commit(t(), [t_user:t()], [t_txn:t()]) ->
     ok | {error, _}.
-commit(Chain, ConsensusMembers, [_|_]=Txns0) ->
+commit(Chain, ConsensusMembers, [_ | _] = Txns0) ->
     Txns = lists:sort(fun blockchain_txn:sort/2, Txns0),
     case blockchain_txn:validate(Txns, Chain) of
         {_, []} ->
@@ -204,7 +203,7 @@ commit(Chain, ConsensusMembers, [_|_]=Txns0) ->
             {ok, Height1} = blockchain:height(Chain),
             ?assertEqual(1 + Height0, Height1),
             ok;
-        {_, [_|_]=Invalid} ->
+        {_, [_ | _] = Invalid} ->
             ct:pal("Invalid transactions: ~p", [Invalid]),
             {error, {invalid_txns, Invalid}}
     end.
@@ -280,7 +279,9 @@ sign(ConsensusMembers, <<Bin/binary>>) ->
     [{t_user:addr(User), t_user:sign(Bin, User)} || User <- ConsensusMembers].
 
 genesis_txn_vars(Vars, {MasterKeyPriv, MasterKeyPub}) ->
-    Txn = blockchain_txn_vars_v1:new(Vars, 2, #{master_key => libp2p_crypto:pubkey_to_bin(MasterKeyPub)}),
+    Txn = blockchain_txn_vars_v1:new(Vars, 2, #{
+        master_key => libp2p_crypto:pubkey_to_bin(MasterKeyPub)
+    }),
     Proof = blockchain_txn_vars_v1:create_proof(MasterKeyPriv, Txn),
     blockchain_txn_vars_v1:key_proof(Txn, Proof).
 
@@ -307,22 +308,19 @@ genesis_txns_pay_sec(AddrBalancePairs) ->
 genesis_txns_consensus(AddressesOfGateways, ElectionVersion) ->
     Locations =
         [
-            h3:from_geo({37.780586, -122.469470 + I/100}, 12)
-        ||
-            I <- lists:seq(1, length(AddressesOfGateways))
+            h3:from_geo({37.780586, -122.469470 + I / 100}, 12)
+         || I <- lists:seq(1, length(AddressesOfGateways))
         ],
     case ElectionVersion of
         gt_5 ->
             [
                 blockchain_txn_gen_validator_v1:new(Addr, Addr, ?bones(10000))
-            ||
-                Addr <- AddressesOfGateways
+             || Addr <- AddressesOfGateways
             ];
         lt_5_or_unspecified ->
             [
                 blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
-            ||
-                {Addr, Loc} <- lists:zip(AddressesOfGateways, Locations)
+             || {Addr, Loc} <- lists:zip(AddressesOfGateways, Locations)
             ]
     end.
 
@@ -333,60 +331,60 @@ election_version(_) ->
 
 vars_default() ->
     #{
-        ?allow_zero_amount                => false,
-        ?alpha_decay                      => 0.007,
-        ?beta_decay                       => 0.0005,
-        ?block_time                       => 30000,
-        ?block_version                    => v1,
-        ?chain_vars_version               => 2,
-        ?consensus_percent                => 0.10,
-        ?dc_payload_size                  => 24,
-        ?election_cluster_res             => 8,
-        ?election_interval                => 30,
-        ?election_removal_pct             => 85,
-        ?election_replacement_factor      => 4,
-        ?election_replacement_slope       => 20,
-        ?election_restart_interval        => 5,
-        ?election_selection_pct           => 70,
-        ?election_version                 => 2,
-        ?h3_exclusion_ring_dist           => 2,
-        ?h3_max_grid_distance             => 13,
-        ?h3_neighbor_res                  => 12,
-        ?max_open_sc                      => 2,
-        ?max_staleness                    => 100000,
-        ?max_subnet_num                   => 20,
-        ?max_subnet_size                  => 65536,
-        ?max_xor_filter_num               => 5,
-        ?max_xor_filter_size              => 1024*100,
-        ?min_assert_h3_res                => 12,
-        ?min_expire_within                => 10,
-        ?min_score                        => 0.15,
-        ?min_subnet_size                  => 8,
-        ?monthly_reward                   => ?bones(5000000),
-        ?num_consensus_members            => 7,
-        ?poc_centrality_wt                => 0.5,
-        ?poc_challenge_interval           => 30,
-        ?poc_challengees_percent          => 0.19 + 0.16,
-        ?poc_challengers_percent          => 0.09 + 0.06,
-        ?poc_good_bucket_high             => -80,
-        ?poc_good_bucket_low              => -132,
-        ?poc_max_hop_cells                => 2000,
-        ?poc_path_limit                   => 7,
-        ?poc_target_hex_parent_res        => 5,
-        ?poc_typo_fixes                   => true,
-        ?poc_v4_prob_count_wt             => 0.0,
-        ?poc_v4_prob_rssi_wt              => 0.0,
-        ?poc_v4_prob_time_wt              => 0.0,
-        ?poc_v4_randomness_wt             => 0.5,
-        ?poc_v4_target_prob_edge_wt       => 0.0,
-        ?poc_v4_target_prob_score_wt      => 0.0,
+        ?allow_zero_amount => false,
+        ?alpha_decay => 0.007,
+        ?beta_decay => 0.0005,
+        ?block_time => 30000,
+        ?block_version => v1,
+        ?chain_vars_version => 2,
+        ?consensus_percent => 0.10,
+        ?dc_payload_size => 24,
+        ?election_cluster_res => 8,
+        ?election_interval => 30,
+        ?election_removal_pct => 85,
+        ?election_replacement_factor => 4,
+        ?election_replacement_slope => 20,
+        ?election_restart_interval => 5,
+        ?election_selection_pct => 70,
+        ?election_version => 2,
+        ?h3_exclusion_ring_dist => 2,
+        ?h3_max_grid_distance => 13,
+        ?h3_neighbor_res => 12,
+        ?max_open_sc => 2,
+        ?max_staleness => 100000,
+        ?max_subnet_num => 20,
+        ?max_subnet_size => 65536,
+        ?max_xor_filter_num => 5,
+        ?max_xor_filter_size => 1024 * 100,
+        ?min_assert_h3_res => 12,
+        ?min_expire_within => 10,
+        ?min_score => 0.15,
+        ?min_subnet_size => 8,
+        ?monthly_reward => ?bones(5000000),
+        ?num_consensus_members => 7,
+        ?poc_centrality_wt => 0.5,
+        ?poc_challenge_interval => 30,
+        ?poc_challengees_percent => 0.19 + 0.16,
+        ?poc_challengers_percent => 0.09 + 0.06,
+        ?poc_good_bucket_high => -80,
+        ?poc_good_bucket_low => -132,
+        ?poc_max_hop_cells => 2000,
+        ?poc_path_limit => 7,
+        ?poc_target_hex_parent_res => 5,
+        ?poc_typo_fixes => true,
+        ?poc_v4_prob_count_wt => 0.0,
+        ?poc_v4_prob_rssi_wt => 0.0,
+        ?poc_v4_prob_time_wt => 0.0,
+        ?poc_v4_randomness_wt => 0.5,
+        ?poc_v4_target_prob_edge_wt => 0.0,
+        ?poc_v4_target_prob_score_wt => 0.0,
         ?poc_v5_target_prob_randomness_wt => 1.0,
-        ?poc_version                      => 8,
-        ?poc_witnesses_percent            => 0.02 + 0.03,
-        ?predicate_threshold              => 0.85,
-        ?reward_version                   => 1,
-        ?securities_percent               => 0.35,
-        ?vars_commit_delay                => 10,
-        ?witness_refresh_interval         => 10,
-        ?witness_refresh_rand_n           => 100
+        ?poc_version => 8,
+        ?poc_witnesses_percent => 0.02 + 0.03,
+        ?predicate_threshold => 0.85,
+        ?reward_version => 1,
+        ?securities_percent => 0.35,
+        ?vars_commit_delay => 10,
+        ?witness_refresh_interval => 10,
+        ?witness_refresh_rand_n => 100
     }.

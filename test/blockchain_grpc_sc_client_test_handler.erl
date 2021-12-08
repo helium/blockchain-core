@@ -24,10 +24,12 @@
     dial/3
 ]).
 
-init()->
+init() ->
     Blockchain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Blockchain),
-    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], undefined, undefined, false),
+    HandlerState = blockchain_state_channel_common:new_handler_state(
+        Blockchain, Ledger, #{}, [], undefined, undefined, false
+    ),
     HandlerState.
 
 dial(_SwarmTID, Peer, _Opts) ->
@@ -46,10 +48,13 @@ dial(_SwarmTID, Peer, _Opts) ->
             [],
             ?MODULE
         )
-     catch _Error:_Reason:_Stack ->
-        lager:warning("*** failed to connect over grpc to peer ~p.  Reason ~p Stack ~p", [Peer, _Reason, _Stack]),
-        {error, failed_to_dial_peer}
-     end.
+    catch
+        _Error:_Reason:_Stack ->
+            lager:warning("*** failed to connect over grpc to peer ~p.  Reason ~p Stack ~p", [
+                Peer, _Reason, _Stack
+            ]),
+            {error, failed_to_dial_peer}
+    end.
 
 %% as this client is only used currently in tests, we are just ignoring headers
 %% if the client is to be used in real world scenarios this will need revisited
@@ -61,7 +66,7 @@ handle_msg(eof, StreamState) ->
     StreamState;
 handle_msg({data, #blockchain_state_channel_message_v1_pb{msg = Msg}}, StreamState) ->
     lager:debug("grpc client received msg ~p", [Msg]),
-    #{handler_state := HandlerState}  = StreamState,
+    #{handler_state := HandlerState} = StreamState,
     NewHandlerState = blockchain_state_channel_common:handle_client_msg(Msg, HandlerState),
     StreamState#{handler_state => NewHandlerState}.
 
@@ -82,14 +87,14 @@ handle_info(_Msg, StreamState) ->
 %% ------------------------------------------------------------------
 %% Internal functions
 %% ------------------------------------------------------------------
-p2p_port_to_grpc_port(PeerAddr)->
+p2p_port_to_grpc_port(PeerAddr) ->
     SwarmTID = blockchain_swarm:tid(),
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     {ok, _ConnAddr, {Transport, _TransportPid}} = libp2p_transport:for_addr(SwarmTID, PeerAddr),
     {ok, PeerPubKeyBin} = Transport:p2p_addr(PeerAddr),
     {ok, PeerInfo} = libp2p_peerbook:get(Peerbook, PeerPubKeyBin),
     ListenAddrs = libp2p_peer:listen_addrs(PeerInfo),
-    [H | _ ] = libp2p_transport:sort_addrs(SwarmTID, ListenAddrs),
-    [_, _, _IP,_, Port] = _Full = re:split(H, "/"),
+    [H | _] = libp2p_transport:sort_addrs(SwarmTID, ListenAddrs),
+    [_, _, _IP, _, Port] = _Full = re:split(H, "/"),
     lager:info("*** peer p2p port ~p", [Port]),
     {ok, list_to_integer(binary_to_list(Port)) + 1000}.

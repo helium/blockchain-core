@@ -69,7 +69,6 @@ region_param('IN865') -> region_in865_params;
 region_param('KR920') -> region_kr920_params;
 region_param('RU864') -> region_ru864_params;
 region_param('US915') -> region_us915_params;
-
 %% in all other cases we simply append 'params' to the provided region
 %% and we assume the region name came from the chain var that lists the region
 %% names

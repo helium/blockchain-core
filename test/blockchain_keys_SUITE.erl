@@ -30,13 +30,11 @@ all() ->
 init_per_testcase(TestCase, Config) ->
     blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config).
 
-
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 end_per_testcase(_, _Config) ->
     ok.
-
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -66,21 +64,26 @@ keys_test(Config) ->
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     % Generate fake blockchains (just the keys)
-    RandomKeys1 = test_utils:generate_keys(3, ecc_compact) ,
+    RandomKeys1 = test_utils:generate_keys(3, ecc_compact),
     RandomKeys2 = test_utils:generate_keys(3, ed25519),
     Address = blockchain_swarm:pubkey_bin(),
-    ConsensusMembers = [
-        {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
-    ] ++ RandomKeys1 ++ RandomKeys2,
-
-
+    ConsensusMembers =
+        [
+            {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
+        ] ++ RandomKeys1 ++ RandomKeys2,
 
     % Create genesis block
-    {InitialVars, _Cfg} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
+    {InitialVars, _Cfg} = blockchain_ct_utils:create_vars(#{
+        num_consensus_members => NumConsensusMembers
+    }),
 
-    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- ConsensusMembers],
-    ConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
+    GenPaymentTxs = [
+        blockchain_txn_coinbase_v1:new(Addr, Balance)
+     || {Addr, _} <- ConsensusMembers
+    ],
+    ConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
+        [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0
+    ),
     Txs = InitialVars ++ GenPaymentTxs ++ [ConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),

@@ -11,9 +11,13 @@
     onion_key_hash/1, onion_key_hash/2,
     challenger/1, challenger/2,
     block_hash/1, block_hash/2,
-    serialize/1, deserialize/1,
+    serialize/1,
+    deserialize/1,
     find_valid/3,
-    rxtx/0, rx/0, tx/0, fail/0
+    rxtx/0,
+    rx/0,
+    tx/0,
+    fail/0
 ]).
 
 -include("blockchain.hrl").
@@ -47,10 +51,10 @@
 -spec new(binary(), binary(), libp2p_crypto:pubkey_bin(), binary()) -> poc().
 new(SecretHash, OnionKeyHash, Challenger, BlockHash) ->
     #poc_v2{
-        secret_hash=SecretHash,
-        onion_key_hash=OnionKeyHash,
-        challenger=Challenger,
-        block_hash=BlockHash
+        secret_hash = SecretHash,
+        onion_key_hash = OnionKeyHash,
+        challenger = Challenger,
+        block_hash = BlockHash
     }.
 
 %%--------------------------------------------------------------------
@@ -67,7 +71,7 @@ secret_hash(PoC) ->
 %%--------------------------------------------------------------------
 -spec secret_hash(binary(), poc()) -> poc().
 secret_hash(SecretHash, PoC) ->
-    PoC#poc_v2{secret_hash=SecretHash}.
+    PoC#poc_v2{secret_hash = SecretHash}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -83,7 +87,7 @@ onion_key_hash(PoC) ->
 %%--------------------------------------------------------------------
 -spec onion_key_hash(binary(), poc()) -> poc().
 onion_key_hash(OnionKeyHash, PoC) ->
-    PoC#poc_v2{onion_key_hash=OnionKeyHash}.
+    PoC#poc_v2{onion_key_hash = OnionKeyHash}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -99,7 +103,7 @@ challenger(PoC) ->
 %%--------------------------------------------------------------------
 -spec challenger(libp2p_crypto:pubkey_bin(), poc()) -> poc().
 challenger(Challenger, PoC) ->
-    PoC#poc_v2{challenger=Challenger}.
+    PoC#poc_v2{challenger = Challenger}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -115,7 +119,7 @@ block_hash(PoC) ->
 %%--------------------------------------------------------------------
 -spec block_hash(binary(), poc()) -> poc().
 block_hash(Challenger, PoC) ->
-    PoC#poc_v2{block_hash=Challenger}.
+    PoC#poc_v2{block_hash = Challenger}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -147,15 +151,16 @@ deserialize(<<2, Bin/binary>>) ->
     challenger :: libp2p_crypto:pubkey_bin()
 }).
 
-convert(#poc_v1{secret_hash=SecretHash,
-                onion_key_hash=OnionKeyHash,
-                challenger=Challenger
-               }) ->
+convert(#poc_v1{
+    secret_hash = SecretHash,
+    onion_key_hash = OnionKeyHash,
+    challenger = Challenger
+}) ->
     #poc_v2{
-        secret_hash=SecretHash,
-        onion_key_hash=OnionKeyHash,
-        challenger=Challenger,
-        block_hash= <<>>
+        secret_hash = SecretHash,
+        onion_key_hash = OnionKeyHash,
+        challenger = Challenger,
+        block_hash = <<>>
     }.
 
 %%--------------------------------------------------------------------
@@ -165,10 +170,10 @@ convert(#poc_v1{secret_hash=SecretHash,
 -spec find_valid(pocs(), libp2p_crypto:pubkey_bin(), binary()) -> {ok, poc()} | {error, any()}.
 find_valid([], _Challenger, _Secret) ->
     {error, not_found};
-find_valid([PoC|PoCs], Challenger, Secret) ->
+find_valid([PoC | PoCs], Challenger, Secret) ->
     case
         ?MODULE:challenger(PoC) =:= Challenger andalso
-        ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret)
+            ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret)
     of
         false -> find_valid(PoCs, Challenger, Secret);
         true -> {ok, PoC}
@@ -206,7 +211,6 @@ tx() ->
 fail() ->
     ?FAIL.
 
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -214,8 +218,8 @@ fail() ->
 
 new_test() ->
     PoC = #poc_v2{
-        secret_hash= <<"some sha256">>,
-        onion_key_hash= <<"some key bin">>,
+        secret_hash = <<"some sha256">>,
+        onion_key_hash = <<"some key bin">>,
         challenger = <<"address">>,
         block_hash = <<"block_hash">>
     },

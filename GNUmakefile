@@ -3,14 +3,21 @@ grpc_services_directory=src/grpc/autogen
 
 REBAR=./rebar3
 
+format:
+	$(REBAR) format
+
 compile: | $(grpc_services_directory)
 	$(REBAR) compile
+	$(REBAR) format
 
 clean:
 	rm -rf $(grpc_services_directory)
 	$(REBAR) clean
 
 test: compile
+	$(REBAR) fmt --verbose --check rebar.config
+	$(REBAR) fmt --verbose --check "{src,include,test}/**/*.{hrl,erl,app.src}" --exclude-files "src/grpc/autogen/**/*"
+	$(REBAR) fmt --verbose --check "config/*.{config,config.src}"
 	$(REBAR) as test do eunit, ct,xref && $(REBAR) dialyzer
 
 typecheck:
