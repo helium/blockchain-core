@@ -1053,14 +1053,14 @@ netid_test(Config) ->
     %% Only update production NetIDs by appending to the list
     %% Never modify the NetIDs list ordering
     NetIDs = blockchain_ledger_v1:get_netids(Ledger),
-    UpdateNetIDs = NetIDs ++ [16#60002E]
+    UpdateNetIDs = NetIDs ++ [16#60002E],
     blockchain_ledger_v1:set_netids(UpdateNetIDs, Ledger),
     {ok, [NetID1 | NetID2]} = blockchain_ledger_v1:get_netids(Ledger),
     ?assertEqual(16#60002D, NetID1),
     ?assertEqual(16#60002E, NetID2),
 
     %% Only try this for testing, never in production.
-    UpdateNetIDs2 = [16#200010, 16#60002D];
+    UpdateNetIDs2 = [16#200010, 16#60002D],
     blockchain_ledger_v1:set_netids(UpdateNetIDs2, Ledger),
     {ok, [NetID3 | NetID4]} = blockchain_ledger_v1:get_netids(Ledger),
     ?assertEqual(16#200010, NetID3),
