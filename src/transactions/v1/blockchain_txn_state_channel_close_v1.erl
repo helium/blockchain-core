@@ -260,8 +260,12 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                                                          false ->
                                                                              {false, {error, sc_mismatch}, SC};
                                                                          true ->
-                                                                             Merged = blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed),
-                                                                             {true, blockchain_state_channel_v1:validate(ConflictingSC), Merged}
+                                                                             OldMerged = blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed),
+                                                                             NewMerged = blockchain_state_channel_v1:new_merge(SC, ConflictingSC, MaxActorsAllowed),
+                                                                             lager:info("OldMerge SHA: ~p, NewMerge SHA: ~p",
+                                                                                        [crypto:hash(sha256, term_to_binary(OldMerged)),
+                                                                                         crypto:hash(sha256, term_to_binary(NewMerged))]),
+                                                                             {true, blockchain_state_channel_v1:validate(ConflictingSC), NewMerged}
                                                                      end
                                                              end,
                     case ValidConflict of
@@ -285,7 +289,12 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                             %% we need to check if this conflict adds any new information
                                             %%
                                             %% We can merge the incoming state channel(s) with the existing one and check for conflicts or causually newer information
-                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:merge(LSC, MergedSC, MaxActorsAllowed)) of
+                                            OldMerged1 = blockchain_state_channel_v1:merge(LSC, MergedSC, MaxActorsAllowed),
+                                            NewMerged1 = blockchain_state_channel_v1:new_merge(LSC, MergedSC, MaxActorsAllowed),
+                                            lager:info("OldMerge SHA: ~p, NewMerge SHA: ~p",
+                                                       [crypto:hash(sha256, term_to_binary(OldMerged1)),
+                                                        crypto:hash(sha256, term_to_binary(NewMerged1))]),
+                                            case blockchain_state_channel_v1:compare_causality(LSC, NewMerged1) of
                                                 equal ->
                                                     {error, redundant};
                                                 caused ->
@@ -342,7 +351,12 @@ absorb(Txn, Chain) ->
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of
                                           undefined -> {SC, false};
                                           ConflictingSC ->
-                                              {blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed), true}
+                                            OldMerged = blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed),
+                                            NewMerged = blockchain_state_channel_v1:new_merge(SC, ConflictingSC, MaxActorsAllowed),
+                                            lager:info("OldMerge SHA: ~p, NewMerge SHA: ~p",
+                                                       [crypto:hash(sha256, term_to_binary(OldMerged)),
+                                                        crypto:hash(sha256, term_to_binary(NewMerged))]),
+                                            {NewMerged, true}
                                       end,
             lager:info("Closing with conflict ~p", [HadConflict]),
             blockchain_ledger_v1:close_state_channel(Owner, Closer, MergedSC, ID, HadConflict, Ledger)

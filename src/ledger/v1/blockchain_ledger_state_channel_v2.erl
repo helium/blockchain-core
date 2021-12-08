@@ -221,7 +221,12 @@ maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf, MaxActorsAllowed) ->
     case blockchain_state_channel_v1:compare_causality(PreviousSC, CurrentSC) of
         conflict ->
             %% Current has a higher nonce than Previous, or conflicting summaries
-            {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed)};
+            OldMerge = blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed),
+            NewMerge = blockchain_state_channel_v1:new_merge(CurrentSC, PreviousSC, MaxActorsAllowed),
+            lager:info("OldMerge SHA: ~p, NewMerge SHA: ~p",
+                       [crypto:hash(sha256, term_to_binary(OldMerge)),
+                        crypto:hash(sha256, term_to_binary(NewMerge))]),
+            {dispute, NewMerge};
         equal ->
             %% flip a coin
             {closed, CurrentSC};
@@ -238,7 +243,12 @@ maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf, MaxActorsAllowed) ->
             case ConsiderEffectOf of
                 false ->
                     %% Maintain backwards compatibility
-                    {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed)};
+                    OldMerge = blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed),
+                    NewMerge = blockchain_state_channel_v1:new_merge(CurrentSC, PreviousSC, MaxActorsAllowed),
+                    lager:info("OldMerge SHA: ~p, NewMerge SHA: ~p",
+                               [crypto:hash(sha256, term_to_binary(OldMerge)),
+                                crypto:hash(sha256, term_to_binary(NewMerge))]),
+                    {dispute, NewMerge};
                 true ->
                     {closed, PreviousSC}
             end
