@@ -305,7 +305,7 @@ is_valid_conditions_v2(Txn, Ledger, Chain) ->
 
 -spec conds(Txn :: txn_transfer_hotspot_v2(),
             Ledger :: blockchain_ledger_v1:ledger(),
-            Chain :: blockchain:blockchain()) -> any().                 % TODO: Better spec
+            Chain :: blockchain:blockchain()) -> [{fun(), {error, any()}}, ...].
 conds(Txn=#blockchain_txn_transfer_hotspot_v2_pb{owner=Owner, new_owner=NewOwner, nonce=Nonce}, Ledger, Chain) ->
     %% NOTE: Conditional checks are processed sequentially
     [
