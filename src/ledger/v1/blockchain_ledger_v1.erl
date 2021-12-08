@@ -113,6 +113,7 @@
     redeem_htlc/4,
 
     get_netids/1,
+    set_netids/2,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
