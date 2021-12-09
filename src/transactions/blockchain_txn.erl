@@ -50,14 +50,32 @@
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
--export_type([hash/0, txn/0, txns/0]).
+
+-export_type([hash/0, txn/0, txns/0, is_prompt/0]).
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
 -callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+
+%% Check the transaction has the required fields and they're well formed and
+%% in-bounds.  Use blockchain_contract heavily here.
+-callback is_well_formed(txn()) -> ok | {error, any()}.
+
+%% Check the txn has the right causal information (nonce, block height, etc) to
+%% be absorbed.  This should be quick.
+
+-type is_prompt() ::
+    yes | no | {not_yet, Delta :: pos_integer()}.
+
+-callback is_prompt(txn(), blockchain:blockchain()) ->
+    {ok, is_prompt()} | {error, term()}.
+
+%% Final heavy-weight validity checks, including signature verification and
+%% other complex calculations:
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
@@ -85,15 +103,16 @@
     absorb_delayed/2,
     sort/2,
     type/1,
+    type_check/1,
     serialize/1,
     deserialize/1,
     wrap_txn/1,
     unwrap_txn/1,
     is_valid/2,
-    validate_fields/1,
     depends_on/2,
     json_type/1,
-    to_json/2
+    to_json/2,
+    is_prompt_nonce/2
 ]).
 
 -ifdef(TEST).
@@ -283,7 +302,7 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
                         fun(T) ->
                                 Start = erlang:monotonic_time(millisecond),
                                 Type = ?MODULE:type(T),
-                                Ret = (catch Type:is_valid(T, Chain)),
+                                Ret = is_valid(T, Chain),
                                 maybe_log_duration(Type, Start),
                                 {T, Ret}
                         end, lists:reverse(PBuf)),
@@ -302,7 +321,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             Start = erlang:monotonic_time(millisecond),
-            case catch Type:is_valid(Txn, Chain) of
+            case is_valid(Txn, Chain)of
                 ok ->
                     case ?MODULE:absorb(Txn, Chain) of
                         ok ->
@@ -343,7 +362,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     fun(T) ->
                             Start = erlang:monotonic_time(millisecond),
                             Ty = ?MODULE:type(T),
-                            Ret = (catch Ty:is_valid(T, Chain)),
+                            Ret = is_valid(T, Chain),
                             maybe_log_duration(Ty, Start),
                             {T, Ret}
                     end, lists:reverse(PBuf)),
@@ -569,9 +588,11 @@ absorb(Txn, Chain) ->
             {error, {Type, What, {Why, Stack}}}
     end.
 
+-spec print(txn()) -> iodata().
 print(Txn) ->
     print(Txn, false).
 
+-spec print(txn(), boolean()) -> iodata().
 print(Txn, Verbose) ->
     Type = ?MODULE:type(Txn),
     case erlang:function_exported(Type, print, 1) of
@@ -595,9 +616,24 @@ is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
         {value, _} ->
-            try Type:is_valid(Txn, Chain) of
-                Res ->
-                    Res
+            try
+                case Type:is_well_formed(Txn) of
+                    {error, _}=Err ->
+                        Err;
+                    ok ->
+                        case Type:is_prompt() of
+                            {ok, yes} ->
+                                Type:is_valid(Txn, Chain);
+                            {ok, no} ->
+                                {error, txn_too_late_or_too_early};
+                            {ok, {not_yet, _Delta}} ->
+                                % TODO Bound delta?
+                                % TODO Anything more interesting that can be done here?
+                                {error, txn_too_early};
+                            {error, _}=Err ->
+                                Err
+                        end
+                end
             catch
                 What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),
@@ -606,6 +642,17 @@ is_valid(Txn, Chain) ->
         false ->
             lager:warning("txn not in sort order ~p : ~s", [Type, print(Txn)]),
             {error, missing_sort_order}
+    end.
+
+-spec is_prompt_nonce(Given :: non_neg_integer(), Current :: non_neg_integer()) ->
+    is_prompt().
+is_prompt_nonce(NonceGiven, NonceCurrent) ->
+    NonceExpected = NonceCurrent + 1,
+    Delta = NonceGiven - NonceExpected,
+    if
+        Delta   < 0 -> no;
+        Delta =:= 0 -> yes;
+        Delta   > 0 -> {not_yet, Delta}
     end.
 
 %%--------------------------------------------------------------------
@@ -621,129 +668,90 @@ sort(TxnA, TxnB) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec type(txn()) -> atom().
-type(#blockchain_txn_assert_location_v1_pb{}) ->
-    blockchain_txn_assert_location_v1;
-type(#blockchain_txn_payment_v1_pb{}) ->
-    blockchain_txn_payment_v1;
-type(#blockchain_txn_security_exchange_v1_pb{}) ->
-    blockchain_txn_security_exchange_v1;
-type(#blockchain_txn_create_htlc_v1_pb{}) ->
-    blockchain_txn_create_htlc_v1;
-type(#blockchain_txn_redeem_htlc_v1_pb{}) ->
-    blockchain_txn_redeem_htlc_v1;
-type(#blockchain_txn_add_gateway_v1_pb{}) ->
-    blockchain_txn_add_gateway_v1;
-type(#blockchain_txn_coinbase_v1_pb{}) ->
-    blockchain_txn_coinbase_v1;
-type(#blockchain_txn_security_coinbase_v1_pb{}) ->
-    blockchain_txn_security_coinbase_v1;
-type(#blockchain_txn_consensus_group_v1_pb{}) ->
-    blockchain_txn_consensus_group_v1;
-type(#blockchain_txn_consensus_group_failure_v1_pb{}) ->
-    blockchain_txn_consensus_group_failure_v1;
-type(#blockchain_txn_poc_request_v1_pb{}) ->
-    blockchain_txn_poc_request_v1;
-type(#blockchain_txn_poc_receipts_v1_pb{}) ->
-    blockchain_txn_poc_receipts_v1;
-type(#blockchain_txn_gen_gateway_v1_pb{}) ->
-    blockchain_txn_gen_gateway_v1;
-type(#blockchain_txn_oui_v1_pb{}) ->
-    blockchain_txn_oui_v1;
-type(#blockchain_txn_routing_v1_pb{}) ->
-    blockchain_txn_routing_v1;
-type(#blockchain_txn_vars_v1_pb{}) ->
-    blockchain_txn_vars_v1;
-type(#blockchain_txn_rewards_v1_pb{}) ->
-    blockchain_txn_rewards_v1;
-type(#blockchain_txn_token_burn_v1_pb{}) ->
-    blockchain_txn_token_burn_v1;
-type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
-    blockchain_txn_dc_coinbase_v1;
-type(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
-    blockchain_txn_token_burn_exchange_rate_v1;
-type(#blockchain_txn_bundle_v1_pb{}) ->
-    blockchain_txn_bundle_v1;
-type(#blockchain_txn_payment_v2_pb{}) ->
-    blockchain_txn_payment_v2;
-type(#blockchain_txn_state_channel_open_v1_pb{}) ->
-    blockchain_txn_state_channel_open_v1;
-type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
-    blockchain_txn_update_gateway_oui_v1;
-type(#blockchain_txn_state_channel_close_v1_pb{}) ->
-    blockchain_txn_state_channel_close_v1;
-type(#blockchain_txn_price_oracle_v1_pb{}) ->
-    blockchain_txn_price_oracle_v1;
-type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
-    blockchain_txn_gen_price_oracle_v1;
-type(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
-    blockchain_txn_transfer_hotspot_v1;
-type(#blockchain_txn_rewards_v2_pb{}) ->
-    blockchain_txn_rewards_v2;
-type(#blockchain_txn_assert_location_v2_pb{}) ->
-    blockchain_txn_assert_location_v2;
-type(#blockchain_txn_gen_validator_v1_pb{}) ->
-    blockchain_txn_gen_validator_v1;
-type(#blockchain_txn_stake_validator_v1_pb{}) ->
-     blockchain_txn_stake_validator_v1;
-type(#blockchain_txn_unstake_validator_v1_pb{}) ->
-    blockchain_txn_unstake_validator_v1;
-type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
-    blockchain_txn_transfer_validator_stake_v1;
-type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
-    blockchain_txn_validator_heartbeat_v1;
-type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
-    blockchain_txn_transfer_hotspot_v2.
+type(Txn) ->
+    case type_check(Txn) of
+        {error, Reason} ->
+            error(Reason);
+        {ok, Type} ->
+            Type
+    end.
 
--spec validate_fields([{{atom(), iodata() | undefined},
-                        {binary, pos_integer()} |
-                        {binary, pos_integer(), pos_integer()} |
-                        {is_integer, non_neg_integer()} |
-                        {member, list()} |
-                        {address, libp2p}}]) -> ok | {error, any()}.
-validate_fields([]) ->
-    ok;
-validate_fields([{{Name, Field}, {binary, Length}}|Tail]) when is_binary(Field) ->
-    case byte_size(Field) == Length of
-        true ->
-            validate_fields(Tail);
-        false ->
-            {error, {field_wrong_size, {Name, Length, byte_size(Field)}}}
-    end;
-validate_fields([{{Name, Field}, {binary, Min, Max}}|Tail]) when is_binary(Field) ->
-    case byte_size(Field) =< Max andalso byte_size(Field) >= Min of
-        true ->
-            validate_fields(Tail);
-        false ->
-            {error, {field_wrong_size, {Name, {Min, Max}, byte_size(Field)}}}
-    end;
-validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field) ->
-    try libp2p_crypto:bin_to_pubkey(Field) of
-        _ ->
-            validate_fields(Tail)
-    catch
-        _:_ ->
-            {error, {invalid_address, Name}}
-    end;
-validate_fields([{{Name, Field}, {member, List}}|Tail]) when is_list(List),
-                                                            is_binary(Field) ->
-    case lists:member(Field, List) of
-        true ->
-            validate_fields(Tail);
-        false ->
-            {error, {not_a_member, {Name, Field, List}}}
-    end;
-validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Field)
-                                                         andalso Field >= Min ->
-    validate_fields(Tail);
-validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
-                                                         andalso Field < Min ->
-    {error, {integer_too_small, {Name, Field, Min}}};
-validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
-    {error, {not_an_integer, {Name, Field}}};
-validate_fields([{{Name, undefined}, _}|_Tail]) ->
-    {error, {missing_field, Name}};
-validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
-    {error, {malformed_field, Name}}.
+-spec type_check(txn()) -> {ok, atom()} | {error, not_a_known_txn_value}.
+type_check(#blockchain_txn_assert_location_v1_pb{}) ->
+    {ok, blockchain_txn_assert_location_v1};
+type_check(#blockchain_txn_payment_v1_pb{}) ->
+    {ok, blockchain_txn_payment_v1};
+type_check(#blockchain_txn_security_exchange_v1_pb{}) ->
+    {ok, blockchain_txn_security_exchange_v1};
+type_check(#blockchain_txn_create_htlc_v1_pb{}) ->
+    {ok, blockchain_txn_create_htlc_v1};
+type_check(#blockchain_txn_redeem_htlc_v1_pb{}) ->
+    {ok, blockchain_txn_redeem_htlc_v1};
+type_check(#blockchain_txn_add_gateway_v1_pb{}) ->
+    {ok, blockchain_txn_add_gateway_v1};
+type_check(#blockchain_txn_coinbase_v1_pb{}) ->
+    {ok, blockchain_txn_coinbase_v1};
+type_check(#blockchain_txn_security_coinbase_v1_pb{}) ->
+    {ok, blockchain_txn_security_coinbase_v1};
+type_check(#blockchain_txn_consensus_group_v1_pb{}) ->
+    {ok, blockchain_txn_consensus_group_v1};
+type_check(#blockchain_txn_consensus_group_failure_v1_pb{}) ->
+    {ok, blockchain_txn_consensus_group_failure_v1};
+type_check(#blockchain_txn_poc_request_v1_pb{}) ->
+    {ok, blockchain_txn_poc_request_v1};
+type_check(#blockchain_txn_poc_receipts_v1_pb{}) ->
+    {ok, blockchain_txn_poc_receipts_v1};
+type_check(#blockchain_txn_gen_gateway_v1_pb{}) ->
+    {ok, blockchain_txn_gen_gateway_v1};
+type_check(#blockchain_txn_oui_v1_pb{}) ->
+    {ok, blockchain_txn_oui_v1};
+type_check(#blockchain_txn_routing_v1_pb{}) ->
+    {ok, blockchain_txn_routing_v1};
+type_check(#blockchain_txn_vars_v1_pb{}) ->
+    {ok, blockchain_txn_vars_v1};
+type_check(#blockchain_txn_rewards_v1_pb{}) ->
+    {ok, blockchain_txn_rewards_v1};
+type_check(#blockchain_txn_token_burn_v1_pb{}) ->
+    {ok, blockchain_txn_token_burn_v1};
+type_check(#blockchain_txn_dc_coinbase_v1_pb{}) ->
+    {ok, blockchain_txn_dc_coinbase_v1};
+type_check(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
+    {ok, blockchain_txn_token_burn_exchange_rate_v1};
+type_check(#blockchain_txn_bundle_v1_pb{}) ->
+    {ok, blockchain_txn_bundle_v1};
+type_check(#blockchain_txn_payment_v2_pb{}) ->
+    {ok, blockchain_txn_payment_v2};
+type_check(#blockchain_txn_state_channel_open_v1_pb{}) ->
+    {ok, blockchain_txn_state_channel_open_v1};
+type_check(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
+    {ok, blockchain_txn_update_gateway_oui_v1};
+type_check(#blockchain_txn_state_channel_close_v1_pb{}) ->
+    {ok, blockchain_txn_state_channel_close_v1};
+type_check(#blockchain_txn_price_oracle_v1_pb{}) ->
+    {ok, blockchain_txn_price_oracle_v1};
+type_check(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
+    {ok, blockchain_txn_gen_price_oracle_v1};
+type_check(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
+    {ok, blockchain_txn_transfer_hotspot_v1};
+type_check(#blockchain_txn_rewards_v2_pb{}) ->
+    {ok, blockchain_txn_rewards_v2};
+type_check(#blockchain_txn_assert_location_v2_pb{}) ->
+    {ok, blockchain_txn_assert_location_v2};
+type_check(#blockchain_txn_gen_validator_v1_pb{}) ->
+    {ok, blockchain_txn_gen_validator_v1};
+type_check(#blockchain_txn_stake_validator_v1_pb{}) ->
+    {ok, blockchain_txn_stake_validator_v1};
+type_check(#blockchain_txn_unstake_validator_v1_pb{}) ->
+    {ok, blockchain_txn_unstake_validator_v1};
+type_check(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
+    {ok, blockchain_txn_transfer_validator_stake_v1};
+type_check(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
+    {ok, blockchain_txn_validator_heartbeat_v1};
+type_check(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
+    {ok, blockchain_txn_transfer_hotspot_v2};
+type_check(_) ->
+    {error, not_a_known_txn_value}.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------

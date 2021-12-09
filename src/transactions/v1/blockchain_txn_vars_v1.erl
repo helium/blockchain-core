@@ -6,12 +6,13 @@
 -module(blockchain_txn_vars_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 
@@ -21,6 +22,8 @@
          fee/1,
          fee_payer/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          master_key/1,
          multi_keys/1,
          key_proof/1, key_proof/2,
@@ -352,6 +355,60 @@ is_valid(Txn, Chain) ->
             end;
         1 ->
             legacy_is_valid(Txn, Chain)
+    end.
+
+-spec is_well_formed(txn_vars()) -> ok | {error, _}.
+is_well_formed(#blockchain_txn_vars_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_vars_v1_pb, T),
+        {kvl, [
+            {proof            , {binary, any}},
+            {master_key       , {binary, any}},
+            {key_proof        , {binary, any}},
+            {version_predicate, {integer, {min, 0}}},
+            {nonce            , {integer, {min, 1}}},
+            {cancels          , {list, any, {binary, any}}},
+            {unsets           , {list, any, {binary, any}}},
+            {multi_keys       , {list, any, {binary, any}}},
+            {multi_proofs     , {list, any, {binary, any}}},
+            {multi_key_proofs , {list, any, {binary, any}}},
+
+            {vars, {list, any, {custom,
+                fun (#blockchain_var_v1_pb{}=Var) ->
+                        blockchain_contract:is_satisfied(
+                            record_to_kvl(blockchain_var_v1_pb, Var),
+                            {kvl, [
+                                {name, {iodata, any}},
+                                {type, {iodata, any}},
+                                {value, {binary, any}}
+                            ]}
+                        );
+                    (_) ->
+                        false
+                end,
+                invalid_var}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_vars(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            case blockchain_ledger_v1:vars_nonce(Ledger) of
+                {error, not_found} ->
+                    {error, missing_ledger_nonce};
+                {error, _}=Err ->
+                    Err;
+                {ok, Current} ->
+                    Given = nonce(T),
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+            end
     end.
 
 -spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -1451,6 +1508,9 @@ validate_region_params(Var, Value) when is_binary(Value) ->
 validate_region_params(Var, Value) ->
     throw({error, {invalid_region_param_not_binary, Var, Value}}).
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_var_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_vars_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1511,5 +1571,19 @@ to_json_test() ->
                       [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])),
     ?assertEqual(<<"f is for ffffff\0">>, base64:decode(maps:get(f, maps:get(vars, Json)))).
 
+is_well_formed_test_() ->
+    [
+        %% Defaults are mostly harmless empties:
+        ?_assertMatch(ok, is_well_formed(#blockchain_txn_vars_v1_pb{nonce = 1})),
+
+        ?_assertMatch(ok, is_well_formed(#blockchain_txn_vars_v1_pb{
+            nonce = 1,
+            vars = [#blockchain_var_v1_pb{}]
+        })),
+        ?_assertMatch(ok, is_well_formed(#blockchain_txn_vars_v1_pb{
+            nonce = 1,
+            vars = [#blockchain_var_v1_pb{name = "foo", type = "bar", value = <<"baz">>}]
+        }))
+    ].
 
 -endif.

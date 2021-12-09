@@ -6,12 +6,14 @@
 -module(blockchain_txn_routing_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
 
 -export([
@@ -31,6 +33,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -195,9 +199,9 @@ calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Ledger, _Fee, _ExtraData
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_routing(),
-               blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_routing(), blockchain:blockchain()) -> ok | {error, _}.
 is_valid(Txn, Chain) ->
+    %% TODO Refactor
     Ledger = blockchain:ledger(Chain),
     OUI = ?MODULE:oui(Txn),
     case blockchain_ledger_v1:find_routing(OUI, Ledger) of
@@ -209,50 +213,110 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_owner};
                 true ->
-                    Nonce = ?MODULE:nonce(Txn),
-                    LedgerNonce = blockchain_ledger_routing_v1:nonce(Routing),
-                    case Nonce == LedgerNonce + 1 of
-                        false ->
-                            {error, {bad_nonce, {routing, Nonce, LedgerNonce}}};
-                        true ->
-                            Signature = ?MODULE:signature(Txn),
-                            PubKey = libp2p_crypto:bin_to_pubkey(Owner),
-                            BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
-                            EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
-
-                            case blockchain:config(?max_xor_filter_size, Ledger) of
-                                {ok, XORFilterSize} ->
-                                    case blockchain:config(?max_xor_filter_num, Ledger) of
-                                        {ok, XORFilterNum} ->
-                                            case blockchain:config(?max_subnet_size, Ledger) of
-                                                {ok, MaxSubnetSize} ->
-                                                    case blockchain:config(?min_subnet_size, Ledger) of
-                                                        {ok, MinSubnetSize} ->
-                                                            case blockchain:config(?max_subnet_num, Ledger) of
-                                                                {ok, MaxSubnetNum} ->
-                                                                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                                                                        false ->
-                                                                            {error, bad_signature};
-                                                                        true ->
-                                                                            do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum, Chain)
-                                                                    end;
-                                                                _ ->
-                                                                    {error, max_subnet_num_not_set}
+                    Signature = ?MODULE:signature(Txn),
+                    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+                    BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
+                    EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
+                    case blockchain:config(?max_xor_filter_size, Ledger) of
+                        {ok, XORFilterSize} ->
+                            case blockchain:config(?max_xor_filter_num, Ledger) of
+                                {ok, XORFilterNum} ->
+                                    case blockchain:config(?max_subnet_size, Ledger) of
+                                        {ok, MaxSubnetSize} ->
+                                            case blockchain:config(?min_subnet_size, Ledger) of
+                                                {ok, MinSubnetSize} ->
+                                                    case blockchain:config(?max_subnet_num, Ledger) of
+                                                        {ok, MaxSubnetNum} ->
+                                                            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                                                                false ->
+                                                                    {error, bad_signature};
+                                                                true ->
+                                                                    do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum, Chain)
                                                             end;
                                                         _ ->
-                                                            {error, min_subnet_size_not_set}
+                                                            {error, max_subnet_num_not_set}
                                                     end;
                                                 _ ->
-                                                    {error, max_subnet_size_not_set}
+                                                    {error, min_subnet_size_not_set}
                                             end;
                                         _ ->
-                                            {error, max_xor_filter_num_not_set}
+                                            {error, max_subnet_size_not_set}
                                     end;
                                 _ ->
-                                    {error, max_xor_filter_size_not_set}
-                            end
+                                    {error, max_xor_filter_num_not_set}
+                            end;
+                        _ ->
+                            {error, max_xor_filter_size_not_set}
                     end
             end
+    end.
+
+is_well_formed_update_routers(#update_routers_pb{}=UR) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(update_routers_pb, UR),
+        {kvl, [
+            {router_addresses, {list, any, {binary, any}}} % TODO Stricter contract. {address, libp2p}?
+        ]}
+    );
+is_well_formed_update_routers(_) ->
+    false.
+
+is_well_formed_update_xor(#update_xor_pb{}=UX) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(update_xor_pb, UX),
+        {kvl, [
+            {index, {integer, {min, 0}}},
+            {filter, {binary, any}}  % TODO Stricter contract?
+        ]}
+    );
+is_well_formed_update_xor(_) ->
+    false.
+
+-spec is_well_formed(txn_routing()) -> ok | {error, _}.
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_routing_v1_pb, T),
+        {kvl, [
+            {oui        , {integer, {min, 0}}},
+            {owner      , {address, libp2p}},
+            {fee        , {integer, {min, 0}}},
+            {staking_fee, {integer, {min, 0}}},
+            {nonce      , {integer, {min, 1}}},
+            {signature  , {binary, any}},
+            {update     , {one_of, [
+                undefined,
+                {tuple, [
+                    {val, update_routers},
+                    {custom, fun is_well_formed_update_routers/1, invalid_update_routers}
+                ]},
+                {tuple, [
+                    {val, new_xor},
+                    {binary, any} % TODO Stricter contract
+                ]},
+                {tuple, [
+                    {val, update_xor},
+                    {custom, fun is_well_formed_update_xor/1, invalid_update_xor}
+                ]},
+                {tuple, [
+                    {val, request_subnet},
+                    {integer, {min, 0}} % TODO Stricter contract. Power of 2?
+                ]}
+            ]}}
+        ]}
+    ).
+
+-spec is_prompt(txn_routing(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    OUI = ?MODULE:oui(T),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Routing} ->
+            Given = ?MODULE:nonce(T),
+            Current = blockchain_ledger_routing_v1:nonce(Routing),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 %%--------------------------------------------------------------------
@@ -368,16 +432,9 @@ validate_owner(Txn, Routing) ->
             IsOwner
     end.
 
--spec validate_addresses(string()) -> boolean().
-validate_addresses([]) ->
-    true;
+-spec validate_addresses([binary()]) -> boolean().
 validate_addresses(Addresses) ->
-    case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
-        {L, L} when L =< 3 ->
-            ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
-        _ ->
-            false
-    end.
+    blockchain_contract:is_satisfied(Addresses, {ordset, {max, 3}, {address, libp2p}}).
 
 -spec do_is_valid_checks(Txn :: txn_routing(),
                          Ledger :: blockchain_ledger_v1:ledger(),
@@ -499,6 +556,11 @@ subnets_left(Routing, MaxSubnetNum) ->
     Subnets = length(blockchain_ledger_routing_v1:subnets(Routing)),
     Subnets < MaxSubnetNum.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(update_routers_pb);
+?DEFINE_RECORD_TO_KVL(update_xor_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_routing_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -583,5 +645,41 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, oui, owner, fee, action, nonce])).
+
+-define(TSET(T, K, V), T#blockchain_txn_routing_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_routing_v1_pb{
+            oui         = 0,
+            owner       = Addr,
+            fee         = 0,
+            staking_fee = 0,
+            nonce       = 1,
+            signature   = <<>>,
+            update      = undefined
+        },
+    UX =
+        #update_xor_pb{
+            index = 0,
+            filter = <<"fake_filter">>
+        },
+    UR =
+        #update_routers_pb{
+            router_addresses = [<<"fake_router_addr">>]
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {request_subnet, 1}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {new_xor, <<>>}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {update_xor, UX}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {update_routers, UR})))
+    ].
 
 -endif.

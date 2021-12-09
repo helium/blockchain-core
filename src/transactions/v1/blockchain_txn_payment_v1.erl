@@ -8,10 +8,13 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
 -export([
@@ -27,6 +30,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -118,75 +123,87 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_payment_v1_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
--spec is_valid(txn_payment(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Payer = ?MODULE:payer(Txn),
-    Payee = ?MODULE:payee(Txn),
+is_valid_sig(Txn) ->
+    PubKey = libp2p_crypto:bin_to_pubkey(payer(Txn)),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+
+is_valid_amount(Txn, Ledger) ->
+    Min =
+        case blockchain:config(?allow_zero_amount, Ledger) of
+            {ok, false} -> 1;
+            _ -> 0
+        end,
+    amount(Txn) >= Min.
+
+-spec is_valid(txn_payment(), blockchain:blockchain()) -> ok | {error, _}.
+is_valid(T, C) ->
+    %% XXX self-payment checked by is_well_formed
+    L = blockchain:ledger(C),
+    Steps =
+        [
+            fun ({}) -> result:of_bool(is_valid_payee(T, L), {}, invalid_payee) end,
+            fun ({}) -> result:of_bool(is_valid_sig(T), {}, bad_signature) end,
+            fun ({}) -> result:of_bool(is_valid_amount(T, L), {}, invalid_transaction) end,
+            fun ({}) -> result:of_empty(validate_fee(T, C, L), {}) end
+        ],
+    result:to_empty(result:pipe(Steps, {})).
+
+-spec is_well_formed(txn_payment()) -> ok | {error, _}.
+is_well_formed(#blockchain_txn_payment_v1_pb{}=T) ->
+    %% TODO Should ?txn_field_validation_version matter here?
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_payment_v1_pb, T),
+        {kvl, [
+            {payer     , {forall, [{address, libp2p}, {'not', {val, payee(T)}}]}},
+            {payee     , {forall, [{binary, any}, {'not', {val, payer(T)}}]}},
+            {amount    , {integer, {min, 0}}},  % TODO Limit to 64bit?
+            {fee       , {integer, {min, 0}}},  % TODO Limit to 64bit?
+            {nonce     , {integer, {min, 1}}},  % TODO Limit to 64bit?
+            {signature , {binary, any}}         % TODO Size constraint?
+        ]}
+    ).
+
+-spec is_prompt(txn_payment(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     case blockchain:config(?deprecate_payment_v1, Ledger) of
         {ok, true} ->
-            {error, payment_v1_deprecated};
+            lager:error("payment_v1 deprecated"),
+            {ok, no};
         _ ->
-            FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
-                                  {ok, 1} ->
-                                      [{{payee, Payee}, {address, libp2p}}];
-                                  _ ->
-                                      [{{payee, Payee}, {binary, 20, 33}}]
-                              end,
-            case blockchain_txn:validate_fields(FieldValidation) of
-                ok ->
-                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                        false ->
-                            {error, bad_signature};
-                        true ->
-                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
-                                {error, _}=Error0 ->
-                                    Error0;
-                                {ok, Entry} ->
-                                    TxnNonce = ?MODULE:nonce(Txn),
-                                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
-                                    case TxnNonce =:= LedgerNonce + 1 of
-                                        false ->
-                                            {error, {bad_nonce, {payment, TxnNonce, LedgerNonce}}};
-                                        true ->
-                                            case Payer == Payee of
-                                                false ->
-                                                    Amount = ?MODULE:amount(Txn),
-                                                    TxnFee = ?MODULE:fee(Txn),
-                                                        AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
-                                                                          {ok, false} ->
-                                                                              %% check that amount is greater than 0
-                                                                              Amount > 0;
-                                                                          _ ->
-                                                                              %% if undefined or true, use the old check
-                                                                              Amount >= 0
-                                                                      end,
-                                                        case AmountCheck of
-                                                            false ->
-                                                                {error, invalid_transaction};
-                                                            true ->
-                                                                AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                                ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                                case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                                    false ->
-                                                                        {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                                    true ->
-                                                                        blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                                                end
-                                                        end;
-                                                true ->
-                                                    {error, invalid_transaction_self_payment}
-                                            end
-                                    end
-                            end
-                    end;
-                Error ->
-                    Error
+            Payer = payer(Txn),
+            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                {error, _}=Err ->
+                    Err;
+                {ok, Entry} ->
+                    Given = ?MODULE:nonce(Txn),
+                    Current = blockchain_ledger_entry_v1:nonce(Entry),
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
             end
+    end.
+
+is_valid_payee(Txn, Ledger) ->
+    Contract =
+        case blockchain:config(?txn_field_validation_version, Ledger) of
+            {ok, 1} -> {address, libp2p};
+            _       -> {binary, {range, 20, 33}}
+        end,
+    blockchain_contract:is_satisfied(payee(Txn), Contract).
+
+validate_fee(Txn, Chain, Ledger) ->
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    ExpectedTxnFee = calculate_fee(Txn, Chain),
+    TxnFee = fee(Txn),
+    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+        false ->
+            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+        true ->
+            Payer = ?MODULE:payer(Txn),
+            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
     end.
 
 -spec absorb(txn_payment(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -231,6 +248,9 @@ to_json(Txn, _Opts) ->
       fee => fee(Txn),
       nonce => nonce(Txn)
      }.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_payment_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -287,6 +307,47 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).
+
+-define(TSET(T, K, V), T#blockchain_txn_payment_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Payer = Addr(),
+    Payee = Addr(),
+    T =
+        #blockchain_txn_payment_v1_pb{
+            payer     = Payer,
+            payee     = Payee,
+            amount    = 1,
+            fee       = 1,
+            nonce     = 1,
+            signature = <<>>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+
+        %% No self-payment is allowed
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, payer, Payee))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, payee, Payer))),
+
+        %% Must be a binary
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, payee, undefined))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, payee, 0))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, payee, "not addr"))),
+
+        %% But, more-refined validation will happen later, in is_valid/2
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<>>))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payee, <<"not addr">>))),
+
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, amount, undefined))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, amount, -1))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, nonce, -1)))
+    ].
 
 is_valid_with_extended_validation_test() ->
     {timeout, 30000,

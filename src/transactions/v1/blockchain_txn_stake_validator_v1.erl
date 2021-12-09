@@ -6,12 +6,14 @@
 -module(blockchain_txn_stake_validator_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_stake_validator_v1_pb.hrl").
 
 -export([
@@ -25,6 +27,8 @@
          fee_payer/2,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -193,6 +197,25 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(txn_stake_validator()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_stake_validator_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_stake_validator_v1_pb, T),
+        {kvl, [
+            {address        , {address, libp2p}},
+            {owner          , {address, libp2p}},
+            {stake          , {integer, {min, 0}}},
+            {owner_signature, {binary, any}},
+            {fee            , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_stake_validator(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
+    %% TODO What temporal things can be checked?
+    {ok, yes}.
+
 -spec absorb(txn_stake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -237,6 +260,9 @@ to_json(Txn, _Opts) ->
       stake => stake(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_stake_validator_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -248,5 +274,19 @@ to_json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_stake_validator_v1_pb))).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_stake_validator_v1_pb{
+            address = Addr,
+            owner   = Addr
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.

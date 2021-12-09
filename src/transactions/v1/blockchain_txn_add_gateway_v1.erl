@@ -6,12 +6,14 @@
 -module(blockchain_txn_add_gateway_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
@@ -34,6 +36,8 @@
     is_valid_payer/1,
     is_valid_staking_key/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -318,24 +322,26 @@ is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_add_gateway(), blockchain:blockchain()) ->
+    ok | {error, Reason}
+    when
+        Reason :: atom() | {atom(), any()}. % TODO Spec reason more-precisely
 is_valid(Txn, Chain) ->
+    %% TODO Can we take Ledger instead of Chain?
     Ledger = blockchain:ledger(Chain),
-    case {?MODULE:is_valid_owner(Txn),
-          ?MODULE:is_valid_gateway(Txn),
-          ?MODULE:is_valid_payer(Txn),
-          ?MODULE:is_valid_staking_key(Txn, Ledger)}
-        of
-        {false, _, _, _} ->
-            {error, bad_owner_signature};
-        {_, false, _, _} ->
-            {error, bad_gateway_signature};
-        {_, _, false, _} ->
-            {error, bad_payer_signature};
-        {_, _, _, false} ->
-            {error, payer_invalid_staking_key};
-        {true, true, true, true} ->
 
+    M = ?MODULE,
+    Steps =
+        [
+            fun ({}) -> result:of_bool(M:is_valid_owner(Txn), {}, bad_owner_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_gateway(Txn), {}, bad_gateway_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_payer(Txn), {}, bad_payer_signature) end,
+            fun ({}) -> result:of_bool(M:is_valid_staking_key(Txn, Ledger), {}, payer_invalid_staking_key) end
+        ],
+    case result:pipe(Steps, {}) of
+        {error, _}=Error ->
+            Error;
+        {ok, {}} ->
             %% check this is not also a validator
             case blockchain_ledger_v1:get_validator(gateway(Txn), Ledger) of
                 {ok, _} ->
@@ -350,6 +356,7 @@ is_valid(Txn, Chain) ->
                                       false -> Payer
                                   end,
                     StakingFee = ?MODULE:staking_fee(Txn),
+                    %% TODO replace Chain param with Ledger
                     ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
                     TxnFee = ?MODULE:fee(Txn),
                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
@@ -362,6 +369,38 @@ is_valid(Txn, Chain) ->
                             blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
                     end
             end
+    end.
+
+-spec is_well_formed(txn_add_gateway()) ->
+    ok | {error, blockchain_txn:field_validation_error()}.
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_add_gateway_v1_pb, T),
+        {kvl, [
+            {owner            , {address, libp2p}},
+            {owner_signature  , {binary, any}},
+            {gateway          , {address, libp2p}},
+            {gateway_signature, {binary, any}},
+            {payer            , {either, [{address, libp2p}, {binary, {exactly, 0}}]}},
+            {payer_signature  , {binary, any}},
+            {staking_fee      , {integer, {min, 0}}}, % TODO Max 64 bit?
+            {fee              , {integer, {min, 0}}}  % TODO Max 64 bit?
+        ]}
+    ).
+
+-spec is_prompt(txn_add_gateway(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = gateway(T),
+    %% Only new gateways allowed:
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {ok, _} ->
+            {ok, no};
+        {error, not_found} ->
+            {ok, yes};
+        {error, _}=Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -436,6 +475,8 @@ staking_fee_for_gw_mode(light, Ledger)->
 staking_fee_for_gw_mode(full, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_add_gateway_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -556,5 +597,27 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, fee, staking_fee])).
 
+is_well_formed_test_() ->
+    [
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [
+                {owner, invalid_address},
+                {gateway, invalid_address}
+            ]}}},
+            is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
+        ),
+        ?_assertEqual(
+            ok,
+            (fun() ->
+                #{public := PubKey, secret := _} =
+                    libp2p_crypto:generate_keys(ecc_compact),
+                Addr = libp2p_crypto:pubkey_to_bin(PubKey),
+                %% All that is_well_formed cares about is syntactic validity of
+                %% _independent_ fields. No semantic nuances or field
+                %% interdependencies are expected to be checked.
+                is_well_formed(new(Addr, Addr))
+            end)()
+        )
+    ].
 
 -endif.

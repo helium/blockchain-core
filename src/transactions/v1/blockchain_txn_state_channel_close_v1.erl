@@ -6,12 +6,14 @@
 -module(blockchain_txn_state_channel_close_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
@@ -30,6 +32,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -128,104 +132,164 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, true) ->
     0.  %% for now we are defaulting close fees to 0
 
--spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, _}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     Closer = ?MODULE:closer(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Closer),
     BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     SC = ?MODULE:state_channel(Txn),
-    ExpiresAt = blockchain_state_channel_v1:expire_at_block(SC),
-    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
-                  {ok, R2} ->
-                      R2;
-                  _ ->
-                      0
-              end,
-    SCVersion = case blockchain:config(?sc_version, Ledger) of
-                    {ok, V} ->
-                        V;
-                    _ ->
-                        0
-                end,
-    %% first check if it's time to expire
-    case SCVersion == 0 orelse
-         (LedgerHeight >= ExpiresAt andalso
-         LedgerHeight =< ExpiresAt + SCGrace) of
-        false ->
-            {error, {cannot_expire, LedgerHeight, SCGrace, ExpiresAt}};
+    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+    case length(blockchain_state_channel_v1:summaries(SC)) > MaxActorsAllowed of
         true ->
-            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
-            case length(blockchain_state_channel_v1:summaries(SC)) > MaxActorsAllowed of
-                true ->
-                    {error, max_clients_exceeded};
-                false ->
-                    case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
-                          blockchain_state_channel_v1:validate(SC)} of
-                        {false, _} ->
-                            {error, bad_closer_signature};
-                        {true, {error, _}} ->
-                            {error, bad_state_channel_signature};
-                        {true, ok} ->
-                            ID = blockchain_state_channel_v1:id(SC),
-                            Owner = blockchain_state_channel_v1:owner(SC),
-                            case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-                                {error, _Reason} ->
-                                    {error, state_channel_not_open};
-                                {ok, LedgerSC} ->
-                                    case Owner == Closer of
-                                        %% check the owner's close conditions
-                                        %% the owner is not allowed to update if the channel is in dispute
-                                        %% and must provide a causally newer version of the channel if there's already a close on file
-                                        true ->
-                                            case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
-                                                false ->
-                                                    ok;
-                                                true ->
-                                                    LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
-                                                    CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
-                                                    lager:info("close state was ~p", [CloseState]),
-                                                    %% check this new SC is newer than the current one, if any
-                                                    case LSC == undefined orelse (CloseState /= dispute andalso blockchain_state_channel_v1:compare_causality(LSC, SC) == caused) of
-                                                        true ->
-                                                            ok;
-                                                        false ->
-                                                            {error, redundant}
-                                                    end
-                                            end;
+            {error, max_clients_exceeded};
+        false ->
+            case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
+                  blockchain_state_channel_v1:validate(SC)} of
+                {false, _} ->
+                    {error, bad_closer_signature};
+                {true, {error, _}} ->
+                    {error, bad_state_channel_signature};
+                {true, ok} ->
+                    ID = blockchain_state_channel_v1:id(SC),
+                    Owner = blockchain_state_channel_v1:owner(SC),
+                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
+                        {error, _Reason} ->
+                            {error, state_channel_not_open};
+                        {ok, LedgerSC} ->
+                            case Owner == Closer of
+                                %% check the owner's close conditions
+                                %% the owner is not allowed to update if the channel is in dispute
+                                %% and must provide a causally newer version of the channel if there's already a close on file
+                                true ->
+                                    case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
                                         false ->
-                                            case blockchain_state_channel_v1:get_summary(Closer, SC) of
-                                                {error, _Reason}=E ->
-                                                    E;
-                                                {ok, _Summary} ->
-                                                    case check_close_updates(LedgerSC, Txn, Ledger) of
-                                                        ok ->
-                                                            %% This closer was part of the state channel
-                                                            %% Is therefore allowed to close said state channel
-                                                            %% Verify they can afford the fee
+                                            ok;
+                                        true ->
+                                            LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
+                                            CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
+                                            lager:info("close state was ~p", [CloseState]),
+                                            %% check this new SC is newer than the current one, if any
+                                            case LSC == undefined orelse (CloseState /= dispute andalso blockchain_state_channel_v1:compare_causality(LSC, SC) == caused) of
+                                                true ->
+                                                    ok;
+                                                false ->
+                                                    {error, redundant}
+                                            end
+                                    end;
+                                false ->
+                                    case blockchain_state_channel_v1:get_summary(Closer, SC) of
+                                        {error, _Reason}=E ->
+                                            E;
+                                        {ok, _Summary} ->
+                                            case check_close_updates(LedgerSC, Txn, Ledger) of
+                                                ok ->
+                                                    %% This closer was part of the state channel
+                                                    %% Is therefore allowed to close said state channel
+                                                    %% Verify they can afford the fee
 
-                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                            TxnFee = ?MODULE:fee(Txn),
-                                                            %% NOTE: TMP removing fee check as SC close fees are hardcoded to zero atm and the check breaks dialyzer
-                                                            %% ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                            %% case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                            %%     false ->
-                                                            %%         {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
-                                                            %%     true ->
-                                                            %%         blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled)
-                                                            %% end
-                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled);
-                                                        E ->
-                                                            E
-                                                    end
+                                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                    TxnFee = ?MODULE:fee(Txn),
+                                                    %% NOTE: TMP removing fee check as SC close fees are hardcoded to zero atm and the check breaks dialyzer
+                                                    %% ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                    %% case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                    %%     false ->
+                                                    %%         {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                    %%     true ->
+                                                    %%         blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled)
+                                                    %% end
+                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled);
+                                                E ->
+                                                    E
                                             end
                                     end
                             end
                     end
             end
+    end.
+
+is_well_formed_summary(#blockchain_state_channel_summary_v1_pb{}=S) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(blockchain_state_channel_summary_v1_pb, S),
+        {kvl, [
+            {client_pubkeybin, {address, libp2p}},
+            {num_packets     , {integer, {min, 0}}},
+            {num_dcs         , {integer, {min, 0}}}
+        ]}
+    );
+is_well_formed_summary(_) ->
+    false.
+
+blockchain_state_channel_v1_pb_contract() ->
+    {kvl, [
+        {id             , {binary, any}},
+        {owner          , {address, libp2p}},
+        {credits        , {integer, {min, 0}}},
+        {nonce          , {integer, {min, 1}}},
+        {summaries      , {list, any, {custom, fun is_well_formed_summary/1, invalid_summary}}},
+        {root_hash      , {binary, any}},
+        {skewed         , {binary, any}},
+        {state          , {either, [{val, open}, {val, closed}, {integer, any}]}},
+        {expire_at_block, {integer, {min, 0}}},
+        {signature      , {binary, any}}
+    ]}.
+
+-spec is_well_formed_blockchain_state_channel_v1(term()) -> boolean().
+is_well_formed_blockchain_state_channel_v1(#blockchain_state_channel_v1_pb{}=SC) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(blockchain_state_channel_v1_pb, SC),
+        blockchain_state_channel_v1_pb_contract()
+    );
+is_well_formed_blockchain_state_channel_v1(_) ->
+    false.
+
+-spec is_well_formed(txn_state_channel_close()) ->
+    blockchain_contract:result().
+is_well_formed(#blockchain_txn_state_channel_close_v1_pb{}=T) ->
+    SCContract =
+        {either, [
+            undefined,
+            {custom,
+                fun is_well_formed_blockchain_state_channel_v1/1,
+                invalid_state_channel}
+        ]},
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_state_channel_close_v1_pb, T),
+        {kvl, [
+            {state_channel , SCContract},
+            {closer        , {binary, any}},
+            {signature     , {binary, any}},
+            {fee           , {integer, {min, 0}}},
+            {conflicts_with, SCContract}
+        ]}
+    ).
+
+-spec is_prompt(txn_state_channel_close(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    SC = ?MODULE:state_channel(T),
+    ExpiresAt = blockchain_state_channel_v1:expire_at_block(SC),
+    SCVersion = confgig_or(Ledger, ?sc_version, 0),
+    SCGrace = confgig_or(Ledger, ?sc_grace_blocks, 0),
+    case SCVersion == 0 orelse
+         (LedgerHeight >= ExpiresAt andalso
+         LedgerHeight =< ExpiresAt + SCGrace) of
+        false ->
+            {ok, no};
+        true ->
+            {ok, yes}
+    end.
+
+confgig_or(Ledger, Key, Default) ->
+    case blockchain:config(Key, Ledger) of
+        {ok, Val} ->
+            Val;
+        _ ->
+            Default
     end.
 
 check_close_updates(LedgerSC, Txn, Ledger) ->
@@ -371,6 +435,11 @@ to_json(Txn, _Opts) ->
                         end
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_state_channel_summary_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_state_channel_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_state_channel_close_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -422,5 +491,34 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, closer, state_channel])).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    SC =
+        #blockchain_state_channel_v1_pb{
+            owner = Addr,
+            nonce = 1
+        },
+    T = #blockchain_txn_state_channel_close_v1_pb{},
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            ok,
+            blockchain_contract:check(
+                record_to_kvl(blockchain_state_channel_v1_pb, SC),
+                blockchain_state_channel_v1_pb_contract()
+            )
+        ),
+        ?_assert(is_well_formed_blockchain_state_channel_v1(SC)),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_state_channel_close_v1_pb{
+                state_channel = SC
+            })
+        )
+    ].
 
 -endif.

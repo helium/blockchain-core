@@ -6,11 +6,12 @@
 -module(blockchain_txn_security_coinbase_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_security_coinbase_v1_pb.hrl").
 
 -export([
@@ -21,6 +22,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     sign/2,
     print/1,
@@ -93,20 +96,32 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_security_coinbase(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
+-spec is_valid(txn_security_coinbase(), blockchain:blockchain()) -> ok | {error, _}.
+is_valid(_T, _Chain) ->
+    %% XXX All checks already done in is_well_formed and is_prompt.
+    ok.
+
+-spec is_well_formed(txn_security_coinbase()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_security_coinbase_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_security_coinbase_v1_pb, T),
+        {kvl, [
+            {payee, {address, libp2p}},
+            {amount, {integer, {min, 1}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_security_coinbase(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, 0} ->
-            Amount = ?MODULE:amount(Txn),
-            case Amount > 0 of
-                true ->
-                    ok;
-                false ->
-                    {error, zero_or_negative_amount}
-            end;
-        _ ->
-            {error, not_in_genesis_block}
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
+        {error, _}=Err ->
+            Err
     end.
 
 %%--------------------------------------------------------------------
@@ -142,6 +157,8 @@ to_json(Txn, _Opts) ->
       amount=> amount(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_security_coinbase_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -165,5 +182,32 @@ json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, amount])).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_security_coinbase_v1_pb{
+            payee = Addr,
+            amount = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_security_coinbase_v1_pb{
+                amount = 0
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_security_coinbase_v1_pb{
+                payee = <<"/dev/null">>
+            })
+        )
+    ].
 
 -endif.

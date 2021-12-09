@@ -7,9 +7,11 @@
 
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_gen_validator_v1_pb.hrl").
 
 -export([
@@ -22,6 +24,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -79,13 +83,31 @@ fee_payer(_Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(_Txn, Chain) ->
+is_valid(_Txn, _Chain) ->
+    ok.
+
+-spec is_well_formed(txn_genesis_validator()) -> blockchain_contract:result().
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_gen_validator_v1_pb, T),
+        {kvl, [
+            {address, {address, libp2p}},
+            {owner  , {address, libp2p}},
+            {stake  , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_genesis_validator(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, 0} ->
-            ok;
-        _ ->
-            {error, not_in_genesis_block}
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
+        {error, _}=Error ->
+            Error
     end.
 
 -spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -120,11 +142,15 @@ to_json(Txn, _Opts) ->
       stake => stake(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_gen_validator_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+-define(TSET(T, K, V), T#blockchain_txn_gen_validator_v1_pb{K = V}).
 
 new_test() ->
     Tx = #blockchain_txn_gen_validator_v1_pb{address = <<"0">>,
@@ -149,5 +175,26 @@ json_test() ->
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_gen_validator_v1_pb))).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    TDefaults = #blockchain_txn_gen_validator_v1_pb{},
+    T =
+        #blockchain_txn_gen_validator_v1_pb{
+            address = Addr,
+            owner   = Addr,
+            stake   = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(TDefaults)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, address, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, stake, -1)))
+    ].
 
 -endif.

@@ -6,11 +6,12 @@
 -module(blockchain_txn_rewards_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
@@ -23,6 +24,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_rewards/3,
     print/1,
@@ -128,6 +131,48 @@ is_valid(Txn, Chain) ->
                 true -> ok
             end
     end.
+
+-spec is_well_formed_reward(term()) -> boolean().
+is_well_formed_reward(#blockchain_txn_reward_v1_pb{}=T) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(blockchain_txn_reward_v1_pb, T),
+        {kvl, [
+            {account, {address, libp2p}},
+            {gateway, {address, libp2p}},
+            {amount , {integer, {min, 0}}},
+            {type   ,
+                {either, [
+                    {val, securities},
+                    {val, data_credits},
+                    {val, poc_challengees},
+                    {val, poc_challengers},
+                    {val, poc_witnesses},
+                    {val, consensus},
+                    {integer, any}
+                ]}}
+        ]}
+    );
+is_well_formed_reward(_) ->
+    false.
+
+-spec is_well_formed(txn_rewards()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_rewards_v1_pb{}=T) ->
+    Start = ?MODULE:start_epoch(T),
+    End = ?MODULE:end_epoch(T),
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_rewards_v1_pb, T),
+        {kvl, [
+            {start_epoch, {integer, {range, 0, End}}},
+            {end_epoch, {integer, {min, Start}}},
+            {rewards, {list, any, {custom, fun is_well_formed_reward/1, invalid_reward}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_rewards(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
+    %% TODO Anything else can be done/moved-to here?
+    {ok,  yes}.
 
 %%--------------------------------------------------------------------
 %% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)
@@ -1140,6 +1185,9 @@ share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
 share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
     erlang:round(DCRemainder * ((maps:get(Key, Vars) / (maps:get(poc_challengers_percent, Vars) + maps:get(poc_challengees_percent, Vars) + maps:get(poc_witnesses_percent, Vars))))).
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_reward_v1_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_rewards_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1894,6 +1942,24 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, start_epoch, end_epoch, rewards])).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    R =
+        #blockchain_txn_reward_v1_pb{
+            account = Addr,
+            gateway = Addr
+        },
+    T =
+        #blockchain_txn_rewards_v1_pb{
+            rewards = [R]
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 common_poc_vars() ->
     #{

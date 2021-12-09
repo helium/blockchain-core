@@ -6,12 +6,14 @@
 -module(blockchain_txn_redeem_htlc_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_redeem_htlc_v1_pb.hrl").
 
 -export([
@@ -26,6 +28,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -111,11 +115,7 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_redeem_htlc_v1_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, _}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Redeemer = ?MODULE:payee(Txn),
@@ -123,17 +123,29 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Redeemer),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
-                          {ok, 1} ->
-                              [{{payee, Redeemer}, {address, libp2p}},
-                               {{preimage, ?MODULE:preimage(Txn)}, {binary, 32}},
-                               {{address, ?MODULE:address(Txn)}, {address, libp2p}}];
-                          _ ->
-                              [{{payee, Redeemer}, {address, libp2p}},
-                               {{preimage, ?MODULE:preimage(Txn)}, {binary, 1, 32}},
-                               {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
-                      end,
-    case blockchain_txn:validate_fields(FieldValidation) of
+    VariableFieldContracts =
+        case blockchain:config(?txn_field_validation_version, Ledger) of
+            {ok, 1} ->
+                [
+                    {preimage, {binary, {exactly, 32}}},
+                    {address , {address, libp2p}}
+                ];
+            _ ->
+                [
+                    {preimage, {binary, {range, 1, 32}}},
+                    {address , {binary, {range, 32, 33}}}
+                ]
+        end,
+    case
+        blockchain_contract:check(
+            [
+                {payee, Redeemer},
+                {preimage, ?MODULE:preimage(Txn)},
+                {address, ?MODULE:address(Txn)}
+            ],
+            {kvl, [{payee, {address, libp2p}} | VariableFieldContracts]}
+        )
+    of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->
@@ -193,6 +205,27 @@ is_valid(Txn, Chain) ->
             Error
     end.
 
+-spec is_well_formed(txn_redeem_htlc()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_redeem_htlc_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_redeem_htlc_v1_pb, T),
+        {kvl, [
+            {payee    , {address, libp2p}},
+            {address  , {any_of, [{address, libp2p}, {binary, {range, 32, 33}}]}},
+            {preimage , {binary, {range, 1, 32}}},
+            {fee      , {integer, {min, 0}}},
+            {signature, {binary, any}}
+        ]}
+    ).
+
+-spec is_prompt(txn_redeem_htlc(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_Txn, _Chain) ->
+    %% TODO What can be done/move-to here?
+    %% - Maybe the Timelock >= (Height+1),
+    %%   which implies an additional HTLC lookup - is that acceptable? Expensive?
+    {ok, yes}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -243,6 +276,9 @@ to_json(Txn, _Opts) ->
       preimage => ?BIN_TO_B64(preimage(Txn)),
       fee => fee(Txn)
      }.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_redeem_htlc_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -315,7 +351,10 @@ is_valid_with_extended_validation_test_() ->
 
              %% valid payee, invalid address
              Tx1 = sign(new(Payee, <<"address">>, crypto:strong_rand_bytes(32)), SigFun),
-             ?assertEqual({error, {invalid_address, address}}, is_valid(Tx1, Chain)),
+             ?assertEqual(
+                 {error, {contract_breach, {invalid_kvl_pairs, [{address, invalid_address}]}}},
+                 is_valid(Tx1, Chain)
+             ),
 
              #{public := PubKey2, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
              Address = libp2p_crypto:pubkey_to_bin(PubKey2),
@@ -327,5 +366,51 @@ is_valid_with_extended_validation_test_() ->
              meck:unload(blockchain_ledger_v1),
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_redeem_htlc_v1_pb{
+            address = Addr,
+            payee = Addr,
+            preimage = <<"x">>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(31, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(32, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(33, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                address = iolist_to_binary(lists:duplicate(33, 0))
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_redeem_htlc_v1_pb{
+                preimage = <<>>
+            })
+        )
+    ].
 
 -endif.

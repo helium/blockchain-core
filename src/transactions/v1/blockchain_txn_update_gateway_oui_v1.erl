@@ -6,11 +6,13 @@
 -module(blockchain_txn_update_gateway_oui_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_update_gateway_oui_v1_pb.hrl").
 
 -export([
@@ -30,6 +32,8 @@
     is_valid_gateway_owner/2,
     is_valid_oui_owner/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -159,23 +163,46 @@ is_valid(Txn, Chain) ->
         {_, {error, _}=Err} ->
             Err;
         {ok, {ok, GWInfo}} ->
-            LedgerNonce = blockchain_ledger_gateway_v2:nonce(GWInfo),
-            Nonce = ?MODULE:nonce(Txn),
-            case Nonce =:= LedgerNonce + 1 of
+            TxnFee = ?MODULE:fee(Txn),
+            GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                 false ->
-                    {error, {bad_nonce, {update_gateway_oui, Nonce, LedgerNonce}}};
+                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                 true ->
-                    TxnFee = ?MODULE:fee(Txn),
-                    GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
-                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                        false ->
-                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                        true ->
-                            blockchain_ledger_v1:check_dc_or_hnt_balance(GatewayOwner, TxnFee, Ledger, AreFeesEnabled)
-                    end
+                    blockchain_ledger_v1:check_dc_or_hnt_balance(GatewayOwner, TxnFee, Ledger, AreFeesEnabled)
             end
+    end.
+
+-spec is_well_formed(txn_update_gateway_oui()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_update_gateway_oui_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_update_gateway_oui_v1_pb, T),
+        {kvl, [
+            {gateway                , {address, libp2p}},
+            {oui                    , {integer, {min, 0}}},
+            {nonce                  , {integer, {min, 1}}},
+            {fee                    , {integer, {min, 0}}},
+            {gateway_owner_signature, {binary, any}},
+            {oui_owner_signature    , {binary, any}}
+        ]}
+    ).
+
+-spec is_prompt(txn_update_gateway_oui(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    GatewayAddr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddr, Ledger) of
+        {error, not_found} ->
+            {error, gateway_not_found};
+        {error, _Reason}=Error ->
+            Error;
+        {ok, GatewayInfo} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_gateway_v2:nonce(GatewayInfo),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 -spec absorb(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -255,6 +282,8 @@ to_json(Txn, _Opts) ->
       nonce => nonce(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_update_gateway_oui_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -317,5 +346,20 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, oui, fee, nonce])).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_update_gateway_oui_v1_pb{
+            gateway = Addr,
+            nonce   = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.

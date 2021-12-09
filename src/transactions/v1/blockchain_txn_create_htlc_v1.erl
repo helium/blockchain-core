@@ -9,12 +9,14 @@
 -module(blockchain_txn_create_htlc_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
 
 -export([
@@ -33,6 +35,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -156,18 +160,29 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
-                          {ok, 1} ->
-                              [{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
-                               {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32}},
-                               {{address, ?MODULE:address(Txn)}, {address, libp2p}}];
-                          _ ->
-                              [{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
-                               {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32, 64}},
-                               {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
-                      end,
-
-    case blockchain_txn:validate_fields(FieldValidation) of
+    VariableFieldContracts =
+        case blockchain:config(?txn_field_validation_version, Ledger) of
+            {ok, 1} ->
+                [
+                    {hashlock, {binary, {exactly, 32}}},
+                    {address , {address, libp2p}}
+                ];
+            _ ->
+                [
+                    {hashlock, {binary, {range, 32, 64}}},
+                    {address , {binary, {range, 32, 33}}}
+                ]
+        end,
+    case
+        blockchain_contract:check(
+            [
+                {payee   , ?MODULE:payee(Txn)},
+                {hashlock, ?MODULE:hashlock(Txn)},
+                {address , ?MODULE:address(Txn)}
+            ],
+            {kvl, [{payee, {address, libp2p}} | VariableFieldContracts]}
+        )
+    of
         ok ->
             case blockchain_ledger_v1:find_htlc(?MODULE:address(Txn), Ledger) of
                 {ok, _HTLC} ->
@@ -203,7 +218,7 @@ is_valid(Txn, Chain) ->
                                                     {error, invalid_transaction};
                                                 true ->
                                                     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                    TxnFee = ?MODULE:fee(Txn),
+                                                    TxnFee = ?MODULE:fee(Txn),  % TODO Is this second binding an intentional assertion or an accident?
                                                     ExpectedTxnFee = calculate_fee(Txn, Chain),
                                                     case (ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled) of
                                                         false ->
@@ -216,8 +231,43 @@ is_valid(Txn, Chain) ->
                             end
                     end
             end;
-        Error ->
+        {error, _}=Error ->
             Error
+    end.
+
+-spec is_well_formed(txn_create_htlc()) -> ok | {error, _}.
+is_well_formed(T) ->
+    HashlockContractV1 = {binary, {exactly, 32}},
+    HashlockContractVX = {binary, {range, 32, 64}},
+    AddressContractV1 = {address, libp2p},
+    AddressContractVX = {binary, {range, 32, 33}},
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_create_htlc_v1_pb, T),
+        {kvl, [
+            {payer    , {address, libp2p}},
+            {payee    , {address, libp2p}},
+            {address  , {exists, [AddressContractV1, AddressContractVX]}},
+            {hashlock , {exists, [HashlockContractV1, HashlockContractVX]}},
+            {timelock , {integer, {min, 0}}}, % 64-bit
+            {amount   , {integer, {min, 0}}}, % 64-bit
+            {fee      , {integer, {min, 0}}}, % 64-bit
+            {signature, {binary, any}}, % TODO Constraints?
+            {nonce    , {integer, {min, 1}}} % TODO Is >0 correct constraint?
+        ]}
+    ).
+
+-spec is_prompt(txn_create_htlc(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Payer = payer(T),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, Entry} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_entry_v1:nonce(Entry),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 %%--------------------------------------------------------------------
@@ -289,6 +339,8 @@ to_json(Txn, _Opts) ->
       nonce => nonce(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_create_htlc_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -401,5 +453,49 @@ is_valid_with_extended_validation_test() ->
              meck:unload(blockchain_ledger_v1),
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
+
+-define(TSET(T, K, V), T#blockchain_txn_create_htlc_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_create_htlc_v1_pb{
+            payer     = Addr,
+            payee     = Addr,
+            address   = Addr,
+            hashlock  = list_to_binary(lists:duplicate(32, 0)),
+            timelock  = 0,
+            amount    = 0,
+            fee       = 0,
+            nonce     = 1,
+            signature =  <<>>
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, payer, undefined))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, payer, <<>>))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, payee, <<>>))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, address, <<>>))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, nonce, -1))
+        )
+    ].
 
 -endif.

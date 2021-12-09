@@ -1,4 +1,5 @@
 -module(blockchain_txn_transfer_hotspot_v2).
+
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
@@ -6,6 +7,8 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_transfer_hotspot_v2_pb.hrl").
 
 -ifdef(TEST).
@@ -26,6 +29,8 @@
     sign/2,
     is_valid/2,
     is_valid_owner/1,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -152,6 +157,34 @@ is_valid(Txn, Chain) ->
             {error, transaction_validity_version_not_set}
     end.
 
+-spec is_well_formed(txn_transfer_hotspot_v2()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_transfer_hotspot_v2_pb{owner=O1, new_owner=O2}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_transfer_hotspot_v2_pb, T),
+        {kvl, [
+            {gateway        , {address, libp2p}},
+            {owner          , {forall, [{address, libp2p}, {'not', {val, O2}}]}},
+            {owner_signature, {binary, any}},
+            {new_owner      , {forall, [{address, libp2p}, {'not', {val, O1}}]}},
+            {fee            , {integer, {min, 0}}},
+            {nonce          , {integer, {min, 1}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_transfer_hotspot_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    GWAddr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, G} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_gateway_v2:nonce(G),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
+
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -267,6 +300,8 @@ is_valid_conditions(#blockchain_txn_transfer_hotspot_v2_pb{
     ],
     blockchain_utils:fold_condition_checks(Conditions).
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_transfer_hotspot_v2_pb).
 
 -ifdef(TEST).
 new_test() ->
@@ -320,5 +355,68 @@ to_json_test() ->
             [type, hash, gateway, owner, new_owner, fee, nonce]
         )
     ).
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Gateway = Addr(),
+    Owner = Addr(),
+    NewOwner = Addr(),
+    T =
+        #blockchain_txn_transfer_hotspot_v2_pb{
+            gateway = Gateway,
+            owner = Owner,
+            new_owner = NewOwner,
+            fee = 0,
+            nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                new_owner = Owner
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                owner = NewOwner
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                nonce = 0
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                gateway = <<"not address">>
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                owner = <<"not address">>
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                new_owner = <<"not address">>
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_transfer_hotspot_v2_pb{
+                fee = -1
+            })
+        )
+    ].
 
 -endif.

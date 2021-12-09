@@ -4,16 +4,19 @@
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_assert_location_v2).
--include_lib("common_test/include/ct.hrl").
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
+-include_lib("common_test/include/ct.hrl").
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
--include_lib("helium_proto/include/blockchain_txn_assert_location_v2_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
+
+-include_lib("helium_proto/include/blockchain_txn_assert_location_v2_pb.hrl").
 
 -export([
     new/4, new/5,
@@ -36,6 +39,8 @@
     is_valid_location/2,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -50,6 +55,8 @@
 -type location() :: h3:h3index().
 -type txn_assert_location() :: #blockchain_txn_assert_location_v2_pb{}.
 -export_type([txn_assert_location/0]).
+
+-define(ELEVATION_MIN, -2147483648).
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
@@ -282,14 +289,8 @@ is_valid_payer(#blockchain_txn_assert_location_v2_pb{payer=PubKeyBin,
 
 -spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    Gateway = ?MODULE:gateway(Txn),
-    Owner = ?MODULE:owner(Txn),
-    Payer = ?MODULE:payer(Txn),
-    Location = ?MODULE:location(Txn),
     Gain = ?MODULE:gain(Txn),
-    Elevation = ?MODULE:elevation(Txn),
     Ledger = blockchain:ledger(Chain),
-
     case blockchain:config(?assert_loc_txn_version, Ledger) of
         {ok, V} when V >= 2 ->
             case blockchain:config(?min_antenna_gain, Ledger) of
@@ -300,18 +301,7 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {invalid_assert_loc_txn_v2, {invalid_antenna_gain, Gain, MinGain, MaxGain}}};
                                 true ->
-                                    Res = blockchain_txn:validate_fields([{{gateway, Gateway}, {address, libp2p}},
-                                                                          {{owner, Owner}, {address, libp2p}},
-                                                                          {{payer, Payer}, {address, libp2p}},
-                                                                          {{location, Location}, {is_integer, 0}},
-                                                                          {{elevation, Elevation}, {is_integer, -2147483648}}
-                                                                         ]),
-
-                                    case Res of
-                                        {error, _}=E -> E;
-                                        ok ->
-                                            do_is_valid_checks(Txn, Chain)
-                                    end
+                                    do_is_valid_checks(Txn, Chain)
                             end;
                         _ ->
                             {error, {invalid_assert_loc_txn_v2, max_antenna_gain_not_set}}
@@ -323,6 +313,38 @@ is_valid(Txn, Chain) ->
             {error, {invalid_assert_loc_txn_v2, insufficient_assert_loc_txn_version}}
     end.
 
+-spec is_well_formed(txn_assert_location()) -> ok | {error, _}.
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_assert_location_v2_pb, T),
+        {kvl, [
+            {gateway        , {address, libp2p}},
+            {owner          , {address, libp2p}},
+            {owner_signature, {binary, any}},
+            {payer          , {any_of, [{address, libp2p}, {binary, {exactly, 0}}]}},
+            {payer_signature, {binary, any}},
+            {location       , h3_string},
+            {nonce          , {integer, {min, 1}}},
+            {gain           , {integer, any}},
+            {elevation      , {integer, {min, ?ELEVATION_MIN}}},
+            {staking_fee    , {integer, {min, 0}}},
+            {fee            , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_assert_location(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = gateway(T),
+    case blockchain_gateway_cache:get(Gateway, Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, GwInfo} ->
+            Current = blockchain_ledger_gateway_v2:nonce(GwInfo),
+            Given = nonce(T),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
 
 -spec do_is_valid_checks(Txn :: txn_assert_location(),
                          Chain :: blockchain:blockchain()) -> ok | {error, any()}.
@@ -554,6 +576,9 @@ staking_fee_for_gw_mode(light, Ledger)->
 staking_fee_for_gw_mode(_, Ledger)->
     blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger).
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_assert_location_v2_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -698,5 +723,48 @@ is_valid_gain_test() ->
     ?assert(is_valid_gain(ValidT2, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT3, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT4, MinGain, MaxGain)).
+
+-define(TSET(T, K, V), T#blockchain_txn_assert_location_v2_pb{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end),
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    T =
+        #blockchain_txn_assert_location_v2_pb{
+            gateway         = Addr1,
+            owner           = Addr2,
+            payer           = Addr3,
+            owner_signature = <<>>,
+            payer_signature = <<>>,
+            location        = h3:to_string(?TEST_LOCATION),
+            nonce           = 1,
+            gain            = 0,
+            elevation       = ?ELEVATION_MIN,
+            staking_fee     = 0,
+            fee             = 0
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payer, <<>>))),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, payer, <<"foo">>))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, nonce, 0))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, elevation, ?ELEVATION_MIN - 1))
+        )
+    ].
 
 -endif.

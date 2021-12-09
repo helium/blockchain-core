@@ -9,12 +9,14 @@
 -module(blockchain_txn_payment_v2).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_payment_v2_pb.hrl").
 
 -export([
@@ -32,6 +34,8 @@
          signature/1,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -129,17 +133,56 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
-        {ok, M} when is_integer(M) ->
-            case blockchain_txn:validate_fields([{{payee, P}, {address, libp2p}} || P <- ?MODULE:payees(Txn)]) of
-                ok ->
-                    do_is_valid_checks(Txn, Chain, M);
-                Error ->
-                    Error
-            end;
+        {ok, MaxPayments} when is_integer(MaxPayments) ->
+            do_is_valid_checks(Txn, Chain, MaxPayments);
         _ ->
             {error, {invalid, max_payments_not_set}}
     end.
 
+is_well_formed_payment(#payment_pb{}=P, Payer) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(payment_pb, P),
+        {kvl, [
+            {payee , {forall, [{address, libp2p}, {'not', {val, Payer}}]}},
+            {amount, {integer, {min, 0}}},
+            {memo  , {integer, {min, 0}}}  % TODO better validity test?
+        ]}
+    );
+is_well_formed_payment(_, _) ->
+    false.
+
+-spec is_well_formed(txn_payment_v2()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_payment_v2_pb{payer=Payer}=T) ->
+    PaymentIsValid = fun (P) -> is_well_formed_payment(P, Payer) end,
+    PaymentsCmp = fun (#payment_pb{payee=A}, #payment_pb{payee=B}) -> A =< B end,
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_payment_v2_pb, T),
+        {kvl, [
+            {payer    , {address, libp2p}},
+            {fee      , {integer, {min, 0}}},
+            {nonce    , {integer, {min, 1}}},
+            {signature, {binary, any}},
+            {payments,
+                {ordset,
+                    {min, 1},
+                    {custom, PaymentIsValid, invalid_payment},
+                    PaymentsCmp}}
+        ]}
+    ).
+
+-spec is_prompt(txn_payment_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Payer = payer(T),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, Entry} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_entry_v1:nonce(Entry),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
 
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -216,49 +259,31 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
         false ->
             {error, bad_signature};
         true ->
-            LengthPayments = length(Payments),
-            case LengthPayments == 0 of
-                true ->
-                    %% Check that there are payments
-                    {error, zero_payees};
-                false ->
-                    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
-                        {error, _}=Error0 ->
-                            Error0;
-                        {ok, Entry} ->
-                            TxnNonce = ?MODULE:nonce(Txn),
-                            LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
-                            case TxnNonce =:= LedgerNonce + 1 of
-                                false ->
-                                    {error, {bad_nonce, {payment_v2, TxnNonce, LedgerNonce}}};
+            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                {error, _}=Error0 ->
+                    Error0;
+                {ok, Entry} ->
+                    TxnNonce = ?MODULE:nonce(Txn),
+                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                    case TxnNonce =:= LedgerNonce + 1 of
+                        false ->
+                            {error, {bad_nonce, {payment_v2, TxnNonce, LedgerNonce}}};
+                        true ->
+                            LengthPayments = length(Payments),
+                            case LengthPayments > MaxPayments of
+                                %% Check that we don't exceed max payments
                                 true ->
-                                    case LengthPayments > MaxPayments of
-                                        %% Check that we don't exceed max payments
-                                        true ->
-                                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
-                                        false ->
-                                            case lists:member(Payer, ?MODULE:payees(Txn)) of
-                                                false ->
-                                                    %% check that every payee is unique
-                                                    case has_unique_payees(Payments) of
-                                                        false ->
-                                                            {error, duplicate_payees};
-                                                        true ->
-                                                            AmountCheck = amount_check(Txn, Ledger),
-                                                            MemoCheck = memo_check(Txn, Ledger),
-
-                                                            case {AmountCheck, MemoCheck} of
-                                                                {false, _} ->
-                                                                    {error, invalid_transaction};
-                                                                {_, {error, _}=E} ->
-                                                                    E;
-                                                                {true, ok} ->
-                                                                    fee_check(Txn, Chain, Ledger)
-                                                            end
-                                                    end;
-                                                true ->
-                                                    {error, self_payment}
-                                            end
+                                    {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
+                                false ->
+                                    AmountCheck = amount_check(Txn, Ledger),
+                                    MemoCheck = memo_check(Txn, Ledger),
+                                    case {AmountCheck, MemoCheck} of
+                                        {false, _} ->
+                                            {error, invalid_transaction};
+                                        {_, {error, _}=E} ->
+                                            E;
+                                        {true, ok} ->
+                                            fee_check(Txn, Chain, Ledger)
                                     end
                             end
                     end
@@ -313,31 +338,27 @@ amount_check(Txn, Ledger) ->
             (TotAmount >= 0)
     end.
 
--spec has_unique_payees(Payments :: blockchain_payment_v2:payments()) -> boolean().
-has_unique_payees(Payments) ->
-    Payees = [blockchain_payment_v2:payee(P) || P <- Payments],
-    length(lists:usort(Payees)) == length(Payees).
-
 -spec has_non_zero_amounts(Payments :: blockchain_payment_v2:payments()) -> boolean().
 has_non_zero_amounts(Payments) ->
     Amounts = [blockchain_payment_v2:amount(P) || P <- Payments],
     lists:all(fun(A) -> A > 0 end, Amounts).
 
--spec has_valid_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
+-spec has_valid_memos(blockchain_payment_v2:payments()) -> boolean().
 has_valid_memos(Payments) ->
-    lists:all(
-        fun(Payment) ->
-                %% check that the memo field is valid
-                FieldCheck = blockchain_txn:validate_fields([ {{memo, blockchain_payment_v2:memo(Payment)}, {is_integer, 0}} ]),
-                case FieldCheck of
-                    ok ->
-                        %% check that the memo field is within limits
-                        blockchain_payment_v2:is_valid_memo(Payment);
-                    _ ->
-                        false
-                end
+    %% Check that each payment's memo field is valid and within limits:
+    IsValidPayment =
+        fun (P) ->
+                blockchain_contract:is_satisfied(
+                    blockchain_payment_v2:memo(P),
+                    {forall, [
+                        {integer, {min, 0}},
+                        {custom, memo_invalid, fun blockchain_payment_v2:memo_is_valid/1}
+                    ]}
+                )
         end,
-        Payments
+    blockchain_contract:is_satisfied(
+        Payments,
+        {list, any, {custom, IsValidPayment, payment_with_invalid_memo}}
     ).
 
 -spec has_default_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
@@ -349,6 +370,10 @@ has_default_memos(Payments) ->
         end,
         Payments
     ).
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(payment_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_payment_v2_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -453,5 +478,24 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, payer, payments, fee, nonce])).
 
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_payment_v2_pb{
+            payer    = Addr(),
+            payments = [#payment_pb{payee = Addr()}],
+            nonce    = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_payment_v2_pb{payments=[]})
+        )
+    ].
 
 -endif.

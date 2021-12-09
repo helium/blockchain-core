@@ -7,9 +7,11 @@
 
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_gen_price_oracle_v1_pb.hrl").
 
 -export([
@@ -20,6 +22,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -89,16 +93,27 @@ fee_payer(_Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
+is_valid(_Txn, _Chain) ->
+    ok.
+
+-spec is_well_formed(txn_genesis_price_oracle()) -> ok | {error, _}.
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_gen_price_oracle_v1_pb, T),
+        {kvl, [{price, {integer, {min, 1}}}]}
+    ).
+
+-spec is_prompt(txn_genesis_price_oracle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Price = price(Txn),
-    case {blockchain_ledger_v1:current_height(Ledger), Price > 0} of
-        {{ok, 0}, true} ->
-            ok;
-        {{ok, 0}, false} ->
-            {error, invalid_oracle_price};
-        _ ->
-            {error, not_in_genesis_block}
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
+        {error, _}=Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -131,6 +146,8 @@ to_json(Txn, _Opts) ->
       price => price(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_gen_price_oracle_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -151,5 +168,12 @@ json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, price])).
 
+is_well_formed_test_() ->
+    [
+        ?_assertMatch(ok, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=1})),
+        ?_assertMatch({error, _}, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=0})),
+        ?_assertMatch({error, _}, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=-1})),
+        ?_assertMatch({error, _}, is_well_formed(#blockchain_txn_gen_price_oracle_v1_pb{price=undefined}))
+    ].
 
 -endif.

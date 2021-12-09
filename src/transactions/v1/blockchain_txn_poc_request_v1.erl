@@ -6,14 +6,15 @@
 -module(blockchain_txn_poc_request_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_caps.hrl").
 -include("blockchain_json.hrl").
-
--include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
+
+-include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
 
 -export([
     new/5,
@@ -29,6 +30,8 @@
     fee_payer/2,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -41,6 +44,8 @@
 
 -type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
 -export_type([txn_poc_request/0]).
+
+-define(HASH_SIZE, 32).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -153,66 +158,81 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
-
-    case blockchain_txn:validate_fields([{{secret_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
-                                         {{onion_key_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
-                                         {{block_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}}]) of
-        ok ->
-            case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
-                false ->
-                    {error, bad_signature};
-                true ->
-                    StartFind = maybe_start_duration(),
-                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-                        {error, not_found} ->
-                            {error, missing_gateway};
-                        {error, _Reason}=Error ->
-                            Error;
-                        {ok, Info} ->
-                            StartCap = maybe_log_duration(fetch_gw, StartFind),
-                            %% check the gateway mode to determine if its allowed to issue POC requests
-                            Mode = blockchain_ledger_gateway_v2:mode(Info),
-                            case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
-                                false -> {error, {gateway_not_allowed, blockchain_ledger_gateway_v2:mode(Info)}};
-                                true ->
-                                    StartRest = maybe_log_duration(check_cap, StartCap),
-                                    case blockchain_ledger_gateway_v2:location(Info) of
-                                        undefined ->
-                                            lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
-                                            {error, no_gateway_location};
-                                        _Location ->
-                                            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
-                                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
-                                                false ->
-                                                    {error, too_many_challenges};
-                                                true ->
-                                                    BlockHash = ?MODULE:block_hash(Txn),
-                                                    case blockchain:get_block_height(BlockHash, Chain) of
-                                                        {error, not_found} ->
-                                                            {error, missing_challenge_block_hash};
-                                                        {error, _}=Error ->
-                                                            Error;
-                                                        {ok, BlockHeight} ->
-                                                            case (BlockHeight + PoCInterval) > (Height+1) of
-                                                                false ->
-                                                                    {error, replaying_request};
-                                                                true ->
-                                                                    Fee = ?MODULE:fee(Txn),
-                                                                    Owner = blockchain_ledger_gateway_v2:owner_address(Info),
-                                                                    R = blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger),
-                                                                    maybe_log_duration(rest, StartRest),
-                                                                    R
-                                                            end
+    case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            StartFind = maybe_start_duration(),
+            case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                {error, not_found} ->
+                    {error, missing_gateway};
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, Info} ->
+                    StartCap = maybe_log_duration(fetch_gw, StartFind),
+                    %% check the gateway mode to determine if its allowed to issue POC requests
+                    Mode = blockchain_ledger_gateway_v2:mode(Info),
+                    case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGER, Ledger) of
+                        false -> {error, {gateway_not_allowed, blockchain_ledger_gateway_v2:mode(Info)}};
+                        true ->
+                            StartRest = maybe_log_duration(check_cap, StartCap),
+                            case blockchain_ledger_gateway_v2:location(Info) of
+                                undefined ->
+                                    lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
+                                    {error, no_gateway_location};
+                                _Location ->
+                                    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+                                    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
+                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                                    case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
+                                        false ->
+                                            {error, too_many_challenges};
+                                        true ->
+                                            BlockHash = ?MODULE:block_hash(Txn),
+                                            case blockchain:get_block_height(BlockHash, Chain) of
+                                                {error, not_found} ->
+                                                    {error, missing_challenge_block_hash};
+                                                {error, _}=Error ->
+                                                    Error;
+                                                {ok, BlockHeight} ->
+                                                    case (BlockHeight + PoCInterval) > (Height+1) of
+                                                        false ->
+                                                            {error, replaying_request};
+                                                        true ->
+                                                            Fee = ?MODULE:fee(Txn),
+                                                            Owner = blockchain_ledger_gateway_v2:owner_address(Info),
+                                                            R = blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger),
+                                                            maybe_log_duration(rest, StartRest),
+                                                            R
                                                     end
                                             end
                                     end
                             end
                     end
-            end;
-        Error -> Error
+            end
     end.
+
+-spec is_well_formed(txn_poc_request()) -> ok | {error, _}.
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_poc_request_v1_pb, T),
+        {kvl, [
+            {challenger    , {binary, any}},
+            {secret_hash   , {binary, {exactly, ?HASH_SIZE}}},
+            {onion_key_hash, {binary, {exactly, ?HASH_SIZE}}},
+            {block_hash    , {binary, {exactly, ?HASH_SIZE}}},
+            {fee           , {integer, {min, 0}}},
+            {signature     , {binary, any}},
+            {version       , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_poc_request(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_Txn, _Chain) ->
+    %% TODO No nonce in this tx. What else can be done/moved here?
+    {ok, yes}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -274,6 +294,9 @@ maybe_log_duration(Type, Start) ->
         _ -> ok
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_poc_request_v1_pb).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -333,5 +356,38 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, challenger, secret_hash, onion_key_hash, block_hash, version, fee])).
 
+-define(TSET(T, K, V), T#blockchain_txn_poc_request_v1_pb{K = V}).
+
+is_well_formed_test_() ->
+    GenBin = fun (N) -> list_to_binary(lists:duplicate(N, 0)) end,
+    HashGood         = GenBin(?HASH_SIZE),
+    HashBadTooSmall  = GenBin(?HASH_SIZE - 1),
+    HashBadTooBig    = GenBin(?HASH_SIZE + 1),
+    T =
+        #blockchain_txn_poc_request_v1_pb{
+            challenger     = <<"fake_gateway">>,
+            secret_hash    = HashGood,
+            onion_key_hash = HashGood,
+            block_hash     = HashGood,
+            fee            = 0,
+            signature      = <<>>,
+            version        = 0
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, version, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, challenger, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, secret_hash, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, secret_hash, HashBadTooSmall))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, secret_hash, HashBadTooBig))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, onion_key_hash, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, onion_key_hash, HashBadTooSmall))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, onion_key_hash, HashBadTooBig))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, block_hash, undefined))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, block_hash, HashBadTooSmall))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, block_hash, HashBadTooBig))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, signature, undefined)))
+    ].
 
 -endif.

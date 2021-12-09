@@ -16,6 +16,8 @@
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_price_oracle_v1_pb.hrl").
 
 -export([
@@ -29,6 +31,8 @@
     fee_payer/2,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -152,38 +156,65 @@ sign(Txn, SigFun) ->
 %% `price_oracle_height_delta' chain variable.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(Txn, Chain) ->
+-spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, _}.
+is_valid(T, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Price = ?MODULE:price(Txn),
-    Signature = ?MODULE:signature(Txn),
-    RawTxnPK = ?MODULE:public_key(Txn),
-    TxnPK = libp2p_crypto:bin_to_pubkey(RawTxnPK),
-    BlockHeight = ?MODULE:block_height(Txn),
-    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
-    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
-    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
-    OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
-
-    case blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {member, OracleKeys}},
-                                         {{price, Price}, {is_integer, 0}}]) of
-        ok ->
-            case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of
+    case is_valid_oracle(T, Ledger) of
+        true ->
+            case is_valid_signature(T) of
                 false ->
                     {error, bad_signature};
                 true ->
-                    case validate_block_height(RawTxnPK, BlockHeight,
-                                               LedgerHeight, MaxHeight, Ledger) of
-                        false ->
-                            {error, bad_block_height};
-                        true ->
-                            ok
-                    end
+                    ok
             end;
-        Error ->
-            Error
+        false ->
+            %% TODO Better error message?
+            {error, not_in_the_list_of_known_oracles}
+    end.
+
+-spec is_valid_signature(txn_price_oracle()) -> boolean().
+is_valid_signature(T) ->
+    Signature = ?MODULE:signature(T),
+    PubKeyBin = ?MODULE:public_key(T),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    BaseTxn = T#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+
+-spec is_valid_oracle(txn_price_oracle(), blockchain_ledger_v1:ledger()) ->
+    boolean().
+is_valid_oracle(T, Ledger) ->
+    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
+    OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
+    lists:member(?MODULE:public_key(T), OracleKeys).
+
+-spec is_well_formed(txn_price_oracle()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_price_oracle_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_price_oracle_v1_pb, T),
+        {kvl, [
+            {public_key, {address, libp2p}},
+            {price, {integer, {min, 1}}},
+            {block_height, {integer, {min, 1}}},
+            {signature, {binary, any}}
+        ]}
+    ).
+
+-spec is_prompt(txn_price_oracle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
+    BlockHeight = ?MODULE:block_height(Txn),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    PubKey = ?MODULE:public_key(Txn),
+    case
+        validate_block_height(PubKey, BlockHeight, LedgerHeight, MaxHeight, Ledger)
+    of
+        false ->
+            {ok, no};
+        true ->
+            {ok, yes}
     end.
 
 %%--------------------------------------------------------------------
@@ -251,6 +282,8 @@ validate_block_height(PK, MsgHeight, Current, MaxHeight, Ledger)
     end;
 validate_block_height(_PK, _MsgHeight, _Current, _MaxHeight, _Ledger) -> false.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_price_oracle_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -276,5 +309,21 @@ price_test() ->
 block_height_test() ->
     Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(2, block_height(Tx)).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_price_oracle_v1_pb{
+            public_key = Addr,
+            price = 1,
+            block_height = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.

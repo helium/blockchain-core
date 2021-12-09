@@ -6,12 +6,14 @@
 -module(blockchain_txn_transfer_validator_stake_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_transfer_validator_stake_v1_pb.hrl").
 
 -export([
@@ -30,6 +32,8 @@
          sign/2,
          new_owner_sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -280,6 +284,30 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(txn_transfer_validator_stake()) ->
+    blockchain_contract:result().
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_transfer_validator_stake_v1_pb, T),
+        {kvl, [
+            {old_address        , {address, libp2p}},
+            {new_address        , {address, libp2p}},
+            {old_owner          , {address, libp2p}},
+            {new_owner          , {address, libp2p}},
+            {old_owner_signature, {binary, any}},
+            {new_owner_signature, {binary, any}},
+            {fee                , {integer, {min, 0}}},
+            {stake_amount       , {integer, {min, 0}}},
+            {payment_amount     , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_transfer_validator_stake(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
+    %% TODO What temporal things can we check here?
+    {ok, yes}.
+
 -spec absorb(txn_transfer_validator_stake(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -362,6 +390,9 @@ to_json(Txn, _Opts) ->
       fee => fee(Txn)
      }.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_transfer_validator_stake_v1_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -374,5 +405,33 @@ to_json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_transfer_validator_stake_v1_pb))).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #blockchain_txn_transfer_validator_stake_v1_pb{
+            old_address = Addr,
+            new_address = Addr,
+            old_owner   = Addr,
+            new_owner   = Addr
+            %% For the rest - the defaults should suffice.
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+
+        %% Defaults for addresses are empty bins:
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [
+                {old_address, invalid_address},
+                {new_address, invalid_address},
+                {old_owner  , invalid_address},
+                {new_owner  , invalid_address}
+            ]}}},
+            is_well_formed(#blockchain_txn_transfer_validator_stake_v1_pb{})
+        )
+    ].
 
 -endif.

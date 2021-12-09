@@ -12,6 +12,7 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
@@ -33,6 +34,8 @@
     is_valid_owner/1,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -46,6 +49,9 @@
 
 -type txn_oui() :: #blockchain_txn_oui_v1_pb{}.
 -export_type([txn_oui/0]).
+
+-define(SUBNET_MIN, 8).
+-define(SUBNET_MAX, 65536).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -184,16 +190,93 @@ is_valid_payer(#blockchain_txn_oui_v1_pb{payer=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
--spec is_valid(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_oui(), blockchain:blockchain()) ->
+    ok | {error, Reason} when Reason :: bad_owner_signature | bad_payer_signature.
 is_valid(Txn, Chain) ->
-    case {?MODULE:is_valid_owner(Txn),
-          ?MODULE:is_valid_payer(Txn)} of
-        {false, _} ->
-            {error, bad_owner_signature};
-        {_, false} ->
-            {error, bad_payer_signature};
+    Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    StakingFee = ?MODULE:staking_fee(Txn),
+    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+    TxnFee = ?MODULE:fee(Txn),
+    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+        {false,_} ->
+            lager:error("Wrong txn fee: ~b. Expected: ~b", [TxnFee, ExpectedTxnFee]),
+            false;
+        {_,false} ->
+            lager:error("Wrong staking fee: ~b. Expected: ~b", [StakingFee, ExpectedStakingFee]),
+            false;
         {true, true} ->
-            do_oui_validation_checks(Txn, Chain)
+            Payer = ?MODULE:payer(Txn),
+            Owner = ?MODULE:owner(Txn),
+            ActualPayer =
+                case Payer of
+                    undefined    -> Owner;
+                    <<>>         -> Owner;
+                    <<_/binary>> -> Payer
+                end,
+            case
+                blockchain_ledger_v1:check_dc_or_hnt_balance(
+                    ActualPayer,
+                    TxnFee + StakingFee,
+                    Ledger,
+                    AreFeesEnabled
+                )
+            of
+                ok ->
+                    case ?MODULE:is_valid_owner(Txn) of
+                        false ->
+                            {error, bad_owner_signature};
+                        true ->
+                            case ?MODULE:is_valid_payer(Txn) of
+                                false ->
+                                    {error, bad_payer_signature};
+                                true ->
+                                    ok
+                            end
+                    end
+            end
+    end.
+
+-spec is_well_formed(txn_oui()) -> ok | {error, _}.
+is_well_formed(T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_oui_v1_pb, T),
+        {kvl, [
+            {owner          , {address, libp2p}},
+            {addresses      , {ordset, {max, 3}, {address, libp2p}}},
+            {staking_fee    , {integer, {min, 0}}},
+            {fee            , {integer, {min, 0}}},
+            {owner_signature, {binary, any}},
+            {payer_signature, {binary, any}},
+            {oui            , {integer, {min, 0}}},
+            {filter,
+                {forall, [
+                    {binary, any},
+                    {custom, fun validate_filter/1, invalid_filter}]}},
+            {requested_subnet_size,
+                {forall, [
+                    %% subnet size should be between 8 and 65536 as a power of two
+                    {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
+                    {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
+            {payer,
+                {either, [
+                    {address, libp2p},
+                    {binary, {exactly, 0}}]}}
+                    %% TODO Allow undefined? It is permitted by is_valid_payer
+        ]}
+    ).
+
+-spec is_prompt(txn_oui(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    OUI = ?MODULE:oui(Txn),
+    case validate_oui(OUI, Ledger) of
+        {false, _LedgerOUI} ->
+            {ok, no};
+        true ->
+            {ok, yes}
     end.
 
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -314,22 +397,8 @@ to_json(Txn, _Opts) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec validate_addresses([binary()]) -> boolean().
-validate_addresses([]) ->
-    true;
-validate_addresses(Addresses) ->
-    case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
-        {L, L} when L =< 3 ->
-            ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
-        _ ->
-            false
-    end.
-
-validate_subnet_size(Size) when Size < 8; Size > 65536 ->
-    false;
-validate_subnet_size(Size) ->
-    %% subnet size should be between 8 and 65536 as a power of two
-    Res = math:log2(Size),
+is_power_of_2(N) ->
+    Res = math:log2(N),
     %% check there's no floating point components of the number
     %% Erlang will coerce between floats and ints when you use ==
     trunc(Res) == Res.
@@ -357,52 +426,8 @@ validate_oui(OUI, Ledger) ->
             {false, OtherOUI}
     end.
 
--spec do_oui_validation_checks(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-%% TODO - get rid of this nested bunch of cases
-do_oui_validation_checks(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Owner = ?MODULE:owner(Txn),
-    OUI = ?MODULE:oui(Txn),
-    Addresses = ?MODULE:addresses(Txn),
-    case validate_oui(OUI, Ledger) of
-        {false, LedgerOUI} ->
-            {error, {invalid_oui, {OUI, LedgerOUI}}};
-        true ->
-            case validate_addresses(Addresses) of
-                false ->
-                    {error, invalid_addresses};
-                true ->
-                    case validate_subnet_size(?MODULE:requested_subnet_size(Txn)) of
-                        false ->
-                            {error, invalid_subnet_size};
-                        true ->
-                            case validate_filter(?MODULE:filter(Txn)) of
-                                false ->
-                                    {error, invalid_filter};
-                                true ->
-                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                    StakingFee = ?MODULE:staking_fee(Txn),
-                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
-                                    TxnFee = ?MODULE:fee(Txn),
-                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
-                                        {false,_} ->
-                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                        {_,false} ->
-                                            {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
-                                        {true, true} ->
-                                            Owner = ?MODULE:owner(Txn),
-                                            Payer = ?MODULE:payer(Txn),
-                                            ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                                                              true -> Owner;
-                                                              false -> Payer
-                                                          end,
-                                            blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
-                                    end
-                            end
-                    end
-            end
-    end.
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_oui_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -479,14 +504,18 @@ missing_payer_signature_test() ->
     Tx = missing_payer_signature_new(),
     ?assertNot(is_valid_payer(Tx)).
 
-sign_test() ->
+sign_test_() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined),
+    OwnerAddr = libp2p_crypto:pubkey_to_bin(PubKey),
+    Tx0 = new(1, OwnerAddr, [?KEY1], undefined, undefined),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = owner_signature(Tx1),
     EncodedTx1 = blockchain_txn_oui_v1_pb:encode_msg(Tx1#blockchain_txn_oui_v1_pb{owner_signature = <<>>, payer_signature= <<>>}),
-    ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+    [
+        ?_assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)),
+        ?_assert(is_valid_owner(Tx1))
+    ].
 
 sign_payer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -497,23 +526,77 @@ sign_payer_test() ->
     EncodedTx1 = blockchain_txn_oui_v1_pb:encode_msg(Tx1#blockchain_txn_oui_v1_pb{owner_signature = <<>>, payer_signature= <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
-validate_addresses_test() ->
-    ?assert(validate_addresses([])),
-    ?assert(validate_addresses([?KEY1])),
-    ?assertNot(validate_addresses([?KEY1, ?KEY1])),
-    ?assert(validate_addresses([?KEY1, ?KEY2])),
-    ?assert(validate_addresses([?KEY1, ?KEY2, ?KEY3])),
-    ?assertNot(validate_addresses([?KEY1, ?KEY2, ?KEY3, ?KEY4])),
-    ?assertNot(validate_addresses([<<"http://test.com">>])),
-    ?assertNot(validate_addresses([?KEY1, <<"http://test.com">>])),
-    ?assertNot(validate_addresses([?KEY1, ?KEY1, <<"http://test.com">>])),
-    ok.
-
 to_json_test() ->
     Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size, oui])).
 
+-define(TSET(T, K, V), T#blockchain_txn_oui_v1_pb{K = V}).
+
+validation_test_() ->
+    Gen =
+        fun () ->
+            #{public := P, secret := S} = libp2p_crypto:generate_keys(ecc_compact),
+            {libp2p_crypto:pubkey_to_bin(P), libp2p_crypto:mk_sig_fun(S)}
+        end,
+    {OwnerAddr, OwnerSigFun} = Gen(),
+    {Addr1, _} = Gen(),
+    {Addr2, _} = Gen(),
+    {Addr3, _} = Gen(),
+    {Addr4, _} = Gen(),
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    T0 =
+        #blockchain_txn_oui_v1_pb{
+            owner                 = OwnerAddr,
+            addresses             = [Addr1],
+            filter                = Filter,
+            requested_subnet_size = 8,
+            payer                 = <<>>,
+            staking_fee           = 0,
+            fee                   = 0,
+            owner_signature       = <<>>,
+            payer_signature       = <<>>,
+            oui                   = 1
+        },
+    T = sign(T0, OwnerSigFun),
+    [
+        ?_assert(is_valid_owner(T)),
+        ?_assert(is_valid_payer(T)),
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, filter, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, staking_fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, oui, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<"foo">>))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payer, Addr1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, payer, <<"foo">>))),
+
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN - 1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN * 2))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN + 1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MAX))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MAX + 1))),
+
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, []))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1]))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2]))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3]))),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_wrong_size, 4, {max, 3}}}]}}},
+            is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr4]))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_contains_duplicate_elements, [_]}}]}}},
+            is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_contains_invalid_elements, [_]}}]}}},
+            is_well_formed(?TSET(T, addresses, [<<"foo">>]))
+        )
+
+    ].
 
 -endif.

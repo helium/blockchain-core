@@ -14,11 +14,12 @@
 -module(blockchain_txn_rewards_v2).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
 
 -export([
@@ -36,6 +37,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_rewards/3,
     calculate_rewards_metadata/3,
@@ -143,6 +146,36 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+is_well_formed_reward(#blockchain_txn_reward_v2_pb{}=R) ->
+    blockchain_contract:is_satisfied(
+        record_to_kvl(blockchain_txn_reward_v2_pb, R),
+        {kvl, [
+            {account, {binary, any}},  % TODO address?
+            {amount , {integer, {min, 0}}}
+        ]}
+    );
+is_well_formed_reward(_) ->
+    false.
+
+-spec is_well_formed(txn_rewards_v2()) -> ok | {error, _}.
+is_well_formed(#blockchain_txn_rewards_v2_pb{}=T) ->
+    RewardContract = {custom, fun is_well_formed_reward/1, invalid_reward_v2},
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_rewards_v2_pb, T),
+        {kvl, [
+            {start_epoch, {integer, {min, 0}}},  % TODO Require lt end?
+            {end_epoch  , {integer, {min, 0}}},  % TODO Require gt start?
+            {rewards    , {list, any, RewardContract}} % TODO Require non-empty?
+        ]}
+    ).
+
+-spec is_prompt(txn_rewards_v2(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(_T, _Chain) ->
+    %% XXX No nonce in this tx type, so what can we do?
+    %% TODO Perhaps non-zero chain height?
+    {ok, yes}.
 
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
@@ -1509,6 +1542,10 @@ witness_decay(Count, Vars) ->
             1
     end.
 
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_reward_v2_pb);
+?DEFINE_RECORD_TO_KVL(blockchain_txn_rewards_v2_pb).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -2023,5 +2060,39 @@ consensus_epoch_reward_test() ->
              ?assertEqual(30.0,calculate_epoch_reward(1, 1, 50, 60000, 30, 43200, ledger)),
              meck:unload(blockchain_ledger_v1)
      end}.
+
+-define(TSET(T, K, V), T#blockchain_txn_rewards_v2_pb{K = V}).
+-define(RSET(R, K, V), R#blockchain_txn_reward_v2_pb{K = V}).
+
+is_well_formed_test_() ->
+    R =
+        #blockchain_txn_reward_v2_pb{
+            account = <<"fake_account">>,
+            amount = 0
+        },
+    T =
+        #blockchain_txn_rewards_v2_pb{
+            start_epoch = 0,
+            end_epoch   = 0,
+            rewards     = [R]
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, start_epoch, -1))),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(?TSET(T, end_epoch, -1))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, rewards, []))),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, rewards, [?RSET(R, account, undefined)]))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, rewards, [?RSET(R, amount, undefined)]))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(?TSET(T, rewards, [?RSET(R, amount, -1)]))
+        )
+    ].
 
 -endif.

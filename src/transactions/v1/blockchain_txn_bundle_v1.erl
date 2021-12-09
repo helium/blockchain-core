@@ -6,11 +6,12 @@
 -module(blockchain_txn_bundle_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_pb.hrl").
 
 -define(MAX_BUNDLE_SIZE, 5).
@@ -24,6 +25,8 @@
     fee_payer/2,
     txns/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     print/1,
     json_type/0,
     to_json/2
@@ -63,38 +66,61 @@ txns(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
     Txns.
 
 -spec is_valid(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
-    TxnBundleSize = length(Txns),
+is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txs}=T, Chain) ->
+    TxnBundleSize = length(Txs),
     MaxBundleSize = max_bundle_size(Chain),
 
-    %% check that the bundle contains minimum two transactions
-    case TxnBundleSize < 2 of
+    %% check that the bundle size doesn't exceed allowed max_bundle_size var
+    case TxnBundleSize > MaxBundleSize of
         true ->
-            {error, {invalid_min_bundle_size, Txn}};
+            {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
         false ->
-            %% check that the bundle size doesn't exceed allowed max_bundle_size var
-            case TxnBundleSize > MaxBundleSize of
+            %% check that there are no bundles in the bundle txn
+            case lists:any(fun(Tx) ->
+                                   blockchain_txn:type(Tx) == blockchain_txn_bundle_v1
+                           end,
+                           Txs) of
                 true ->
-                    {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
+                    {error, {invalid_bundleception, T}};
                 false ->
-                    %% check that there are no bundles in the bundle txn
-                    case lists:any(fun(T) ->
-                                           blockchain_txn:type(T) == blockchain_txn_bundle_v1
-                                   end,
-                                   Txns) of
-                        true ->
-                            {error, {invalid_bundleception, Txn}};
-                        false ->
-                            %% speculative check whether the bundle is valid
-                            case speculative_absorb(Txn, Chain) of
-                                [] ->
-                                    ok;
-                                List ->
-                                    {error, {invalid_bundled_txns, List}}
-                            end
+                    %% speculative check whether the bundle is valid
+                    case speculative_absorb(T, Chain) of
+                        [] ->
+                            ok;
+                        [_|_]=TxsInvalid ->
+                            {error, {invalid_bundled_txns, TxsInvalid}}
                     end
             end
     end.
+
+-spec is_well_formed(txn_bundle()) -> ok | {error, _}.
+is_well_formed(#blockchain_txn_bundle_v1_pb{}=T) ->
+    %% Min size is static, so we can check it here without any other info, but
+    %% max size check has to be deferred for later, since we first need to
+    %% lookup the current max in a chain var, for which we need the chain param.
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_bundle_v1_pb, T),
+        {kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
+    ).
+
+-spec is_prompt(txn_bundle(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(#blockchain_txn_bundle_v1_pb{transactions=[_, _]=Txs}, Chain) ->
+    %% TODO Maybe something more sophisticated than this brutal all-or-nothing?
+    lists:foldl(
+        fun (_, {error, _}=Err) ->
+                Err;
+            (_, {ok, no}=No) ->
+                No;
+            (_, {ok, {not_yet, _}}) ->
+                {ok, no};
+            (Tx, {ok, yes}) ->
+                TxType = blockchain_txn:type(Tx),
+                TxType:is_prompt(Tx, Chain)
+        end,
+        {ok, yes},
+        Txs
+    ).
 
 -spec print(txn_bundle()) -> iodata().
 print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
@@ -125,8 +151,8 @@ max_bundle_size(Chain) ->
             Size
     end.
 
--spec speculative_absorb(txn_bundle(), blockchain:blockchain()) -> [blockchain_txn:txns()].
-speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain0) ->
+-spec speculative_absorb(txn_bundle(), blockchain:blockchain()) -> [blockchain_txn:txn()].
+speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=[_, _ | _]=Txns}, Chain0) ->
     InitLedger = blockchain:ledger(Chain0),
     %% Check that the bundled transactions can be absorbed in order in this ledger context
     LedgerContext = blockchain_ledger_v1:new_context(InitLedger),
@@ -148,3 +174,48 @@ speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain0) ->
                               Txns),
     blockchain_ledger_v1:delete_context(LedgerContext),
     InvalidTxns.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_bundle_v1_pb).
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
+
+is_well_formed_test_() ->
+    Tx = blockchain_txn_assert_location_v1:gen_new_valid(),
+    [
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {not_a_list, undefined}}]}}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=undefined})
+        ),
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 0, {min, 2}}}]}}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[]})
+        ),
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 1, {min, 2}}}]}}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions=[Tx]})
+        ),
+        ?_assertEqual(
+            ok,
+            is_well_formed(#blockchain_txn_bundle_v1_pb{
+                transactions = [Tx, Tx]
+            })
+        ),
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [{not_a_txn, trust_me_im_a_txn}]}}]}}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [Tx, Tx, trust_me_im_a_txn]})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [
+                {txn_malformed, #blockchain_txn_assert_location_v1_pb{}}
+            ]}}]}}},
+            is_well_formed(#blockchain_txn_bundle_v1_pb{transactions = [
+                Tx,
+                Tx#blockchain_txn_assert_location_v1_pb{gateway = undefined}
+            ]})
+        )
+    ].
+-endif.

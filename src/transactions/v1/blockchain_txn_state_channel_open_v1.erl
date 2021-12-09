@@ -6,12 +6,14 @@
 -module(blockchain_txn_state_channel_open_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
@@ -29,6 +31,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -145,6 +149,36 @@ is_valid(Txn, Chain) ->
             do_is_valid_checks(Txn, Chain)
     end.
 
+-spec is_well_formed(txn_state_channel_open()) -> blockchain_contract:result().
+is_well_formed(#blockchain_txn_state_channel_open_v1_pb{}=T) ->
+    blockchain_contract:check(
+        record_to_kvl(blockchain_txn_state_channel_open_v1_pb, T),
+        {kvl, [
+            {id           , {binary, any}},
+            {owner        , {address, libp2p}},
+            {amount       , {integer, {min, 0}}},
+            {expire_within, {integer, {min, 0}}},
+            {oui          , {integer, {min, 0}}},
+            {nonce        , {integer, {min, 1}}},
+            {signature    , {binary, any}},
+            {fee          , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(txn_state_channel_open(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, _}.
+is_prompt(T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case {nonce(T), blockchain_ledger_v1:find_dc_entry(owner(T), Ledger)} of
+        {1, {error, dc_entry_not_found}} ->
+            {ok, yes};
+        {_, {error, _}=Err} ->
+            Err;
+        {Given, {ok, DCEntry}} ->
+            Current = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
+
 -spec absorb(Txn :: txn_state_channel_open(),
              Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
@@ -213,7 +247,6 @@ do_is_valid_checks(Txn, Chain) ->
     ExpireWithin = ?MODULE:expire_within(Txn),
     Owner = ?MODULE:owner(Txn),
     OUI = ?MODULE:oui(Txn),
-
     case blockchain:config(?min_expire_within, Ledger) of
         {ok, MinExpireWithin} ->
             case blockchain:config(?max_open_sc, Ledger) of
@@ -276,39 +309,23 @@ check_remaining(Txn, Ledger, Chain) ->
     Owner = ?MODULE:owner(Txn),
     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
         {error, not_found} ->
-            TxnNonce = ?MODULE:nonce(Txn),
-            %% No state channel with this ID for this Owner exists
-            LedgerNonce =
-            case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
-                {error, _} ->
-                    %% if we dont have a DC entry then default expected next nonce to 1
-                    0;
-                {ok, Entry} ->
-                    blockchain_ledger_data_credits_entry_v1:nonce(Entry)
-            end,
-            case TxnNonce =:= LedgerNonce + 1 of
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            TxnFee = ?MODULE:fee(Txn),
+            OriginalAmount = ?MODULE:amount(Txn),
+            ActualAmount = actual_amount(OriginalAmount, Ledger),
+            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                 false ->
-                    {error, {bad_nonce, {state_channel_open, TxnNonce, LedgerNonce}}};
+                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                 true ->
-
-                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                    TxnFee = ?MODULE:fee(Txn),
-                    OriginalAmount = ?MODULE:amount(Txn),
-                    ActualAmount = actual_amount(OriginalAmount, Ledger),
-                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                        false ->
-                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                        true ->
-                            case blockchain:config(?sc_open_validation_bugfix, Ledger) of
-                                {ok, 1} ->
-                                    %% Check whether the actual amount (overcommit *
-                                    %% original amount) + txn_fee is payable by this
-                                    %% owner
-                                    blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
-                                _ ->
-                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
-                            end
+                    case blockchain:config(?sc_open_validation_bugfix, Ledger) of
+                        {ok, 1} ->
+                            %% Check whether the actual amount (overcommit *
+                            %% original amount) + txn_fee is payable by this
+                            %% owner
+                            blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
+                        _ ->
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
                     end
             end;
         {ok, _} ->
@@ -316,6 +333,9 @@ check_remaining(Txn, Ledger, Chain) ->
         {error, _}=Err ->
             Err
     end.
+
+-spec record_to_kvl(atom(), tuple()) -> [{atom(), term()}].
+?DEFINE_RECORD_TO_KVL(blockchain_txn_state_channel_open_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -373,5 +393,20 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_state_channel_open_v1_pb{
+            owner = Addr,
+            nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.
