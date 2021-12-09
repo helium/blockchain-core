@@ -148,12 +148,13 @@ is_valid_owner(
 -spec is_valid(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-
+    BaseChecks = base_validity_checks(Txn, Ledger, Chain),
     case blockchain:config(?transaction_validity_version, Ledger) of
         {ok, 3} ->
-            is_valid_conditions_v3(Txn, Ledger, Chain);
+            OwnerFeeCheck = {fun() -> owner_can_pay_fee(Txn, Ledger) end, {error, gateway_owner_cannot_pay_fee}},
+            blockchain_utils:fold_condition_checks(BaseChecks ++ [OwnerFeeCheck]);
         {ok, 2} ->
-            is_valid_conditions_v2(Txn, Ledger, Chain);
+            blockchain_utils:fold_condition_checks(BaseChecks);
         _ ->
             {error, transaction_validity_version_not_set}
     end.
@@ -288,25 +289,12 @@ is_gateway_on_chain(#blockchain_txn_transfer_hotspot_v2_pb{gateway=GWPubkeyBin},
             false
     end.
 
--spec is_valid_conditions_v2(Txn :: txn_transfer_hotspot_v2(),
-                             Ledger :: blockchain_ledger_v1:ledger(),
-                             Chain :: blockchain:blockchain()) -> ok | {error, any()}.
-is_valid_conditions_v2(Txn, Ledger, Chain) ->
-    Conditions = conds(Txn, Ledger, Chain),
-    blockchain_utils:fold_condition_checks(Conditions).
-
--spec is_valid_conditions_v3(Txn :: txn_transfer_hotspot_v2(),
-                             Ledger :: blockchain_ledger_v1:ledger(),
-                             Chain :: blockchain:blockchain()) -> ok | {error, any()}.
-is_valid_conditions_v3(Txn, Ledger, Chain) ->
-    ExtraCond = {fun() -> owner_can_pay_fee(Txn, Ledger) end, {error, gateway_owner_cannot_pay_fee}},
-    Conditions = conds(Txn, Ledger, Chain) ++ [ExtraCond],
-    blockchain_utils:fold_condition_checks(Conditions).
-
--spec conds(Txn :: txn_transfer_hotspot_v2(),
-            Ledger :: blockchain_ledger_v1:ledger(),
-            Chain :: blockchain:blockchain()) -> [{fun(), {error, any()}}, ...].
-conds(Txn=#blockchain_txn_transfer_hotspot_v2_pb{owner=Owner, new_owner=NewOwner, nonce=Nonce}, Ledger, Chain) ->
+-spec base_validity_checks(Txn :: txn_transfer_hotspot_v2(),
+                           Ledger :: blockchain_ledger_v1:ledger(),
+                           Chain :: blockchain:blockchain()) -> [{fun(), {error, any()}}, ...].
+base_validity_checks(Txn=#blockchain_txn_transfer_hotspot_v2_pb{owner=Owner, new_owner=NewOwner, nonce=Nonce},
+                     Ledger,
+                     Chain) ->
     %% NOTE: Conditional checks are processed sequentially
     [
         {fun() -> is_gateway_on_chain(Txn, Ledger) end, {error, unknown_gateway}},
