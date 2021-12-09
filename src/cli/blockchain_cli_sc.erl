@@ -12,7 +12,8 @@
 -include("blockchain.hrl").
 
 register_cli() ->
-    register_all_usage(), register_all_cmds().
+    register_all_usage(),
+    register_all_cmds().
 
 register_all_usage() ->
     lists:foreach(
@@ -46,7 +47,8 @@ register_all_cmds() ->
 sc_usage() ->
     [
         ["sc"],
-        ["blockchain state channel commands\n\n",
+        [
+            "blockchain state channel commands\n\n",
             "  sc active                 - Show currently active state channel id (base64).\n"
             "  sc list                   - Show list of currently active state channels.\n"
             "  sc hotspot <hotspot name> - Show list of state channels where hotspot is in.\n"
@@ -69,7 +71,8 @@ sc_active_cmd() ->
 sc_active_usage() ->
     [
         ["sc", "active"],
-        ["sc active\n\n",
+        [
+            "sc active\n\n",
             "  Show currently active state channel id (base64).\n"
         ]
     ].
@@ -98,7 +101,8 @@ sc_list_cmd() ->
 sc_list_usage() ->
     [
         ["sc", "list"],
-        ["sc list\n\n",
+        [
+            "sc list\n\n",
             "  Show list of currently active state channels.\n"
         ]
     ].
@@ -120,24 +124,32 @@ format_sc_list(SCs) ->
     Chain = blockchain_worker:blockchain(),
     {ok, Height} = blockchain:height(Chain),
     {List, Total} = maps:fold(
-        fun(SCID, {SC, SCState, Pid}, {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}) ->
+        fun(
+            SCID,
+            {SC, SCState, Pid},
+            {Acc, {TActive0, TExpired0, TAmount0, TDCs0, TPackets0, TActors0, TMax0}}
+        ) ->
             ID = blockchain_utils:addr2name(SCID),
             SCNonce = blockchain_state_channel_v1:nonce(SC),
             Amount = blockchain_state_channel_v1:amount(SC),
-            State =  erlang:atom_to_list(SCState),
-            {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
+            State = erlang:atom_to_list(SCState),
+            {NumDCs, NumPackets, NumParticipants} = summarize(
+                blockchain_state_channel_v1:summaries(SC)
+            ),
             ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
             IsActive = SCState == active,
             MAxP = blockchain_ledger_v1:get_sc_max_actors(blockchain:ledger(Chain)),
-            TActive1 = case IsActive of
-                true -> TActive0 + 1;
-                false -> TActive0
-            end,
+            TActive1 =
+                case IsActive of
+                    true -> TActive0 + 1;
+                    false -> TActive0
+                end,
             Expired = ExpireAtBlock =< Height,
-            TExpired1 = case Expired of
-                true -> TExpired0 + 1;
-                false -> TExpired0
-            end,
+            TExpired1 =
+                case Expired of
+                    true -> TExpired0 + 1;
+                    false -> TExpired0
+                end,
             {
                 [
                     [
@@ -160,11 +172,11 @@ format_sc_list(SCs) ->
                 {
                     TActive1,
                     TExpired1,
-                    TAmount0+Amount,
-                    TDCs0+NumDCs,
-                    TPackets0+NumPackets,
-                    TActors0+NumParticipants,
-                    TMax0+MAxP
+                    TAmount0 + Amount,
+                    TDCs0 + NumDCs,
+                    TPackets0 + NumPackets,
+                    TActors0 + NumParticipants,
+                    TMax0 + MAxP
                 }
             }
         end,
@@ -208,9 +220,10 @@ sc_hotspot_cmd() ->
     ].
 
 sc_hotspot_cmd_usage() ->
-    [   
+    [
         ["sc", "hotspot"],
-        ["sc hotspot <hotspot name>\n\n",
+        [
+            "sc hotspot <hotspot name>\n\n",
             "  Show list of state channels where hotspot is in.\n"
         ]
     ].
@@ -235,7 +248,9 @@ get_sc_for_hotspot(HotspotName) ->
                 case
                     lists:filtermap(
                         fun(Summary) ->
-                            PubKeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                            PubKeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(
+                                Summary
+                            ),
                             case blockchain_utils:addr2name(PubKeyBin) == HotspotName of
                                 true -> {true, PubKeyBin};
                                 false -> false
@@ -263,18 +278,21 @@ get_sc_for_hotspot(HotspotName) ->
                     {ok, Summary} = blockchain_state_channel_v1:get_summary(PubKeyBin, SC),
                     ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
                     Amount = blockchain_state_channel_v1:amount(SC),
-                    {NumDCs, _NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
+                    {NumDCs, _NumPackets, NumParticipants} = summarize(
+                        blockchain_state_channel_v1:summaries(SC)
+                    ),
                     MAxP = blockchain_ledger_v1:get_sc_max_actors(blockchain:ledger(Chain)),
                     [
                         {hotspot_name, HotspotName},
                         {hotspot_b58, libp2p_crypto:bin_to_b58(PubKeyBin)},
                         {hotspot_num_dcs, blockchain_state_channel_summary_v1:num_dcs(Summary)},
-                        {hotspot_num_packets, blockchain_state_channel_summary_v1:num_packets(Summary)},
+                        {hotspot_num_packets,
+                            blockchain_state_channel_summary_v1:num_packets(Summary)},
                         {sc_name, blockchain_utils:addr2name(blockchain_state_channel_v1:id(SC))},
                         {sc_state, SCState},
                         {sc_expire_in, ExpireAtBlock - Height},
-                        {sc_dc_left, Amount-NumDCs},
-                        {sc_participants_left, MAxP-NumParticipants},
+                        {sc_dc_left, Amount - NumDCs},
+                        {sc_participants_left, MAxP - NumParticipants},
                         {sc_pid, io_lib:format("~p", [Pid])}
                     ]
                 end,
@@ -287,7 +305,7 @@ summarize(Summaries) ->
         fun(Summary, {DCs, Packets, Participants}) ->
             NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
             NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
-            {DCs + NumDCs, Packets + NumPackets, Participants+1}
+            {DCs + NumDCs, Packets + NumPackets, Participants + 1}
         end,
         {0, 0, 0},
         Summaries

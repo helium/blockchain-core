@@ -32,14 +32,16 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(Challengee :: libp2p_crypto:pubkey_bin(),
-          Receipt :: blockchain_poc_receipt_v1:poc_receipt() | undefined,
-          Witnesses :: blockchain_poc_witness_v1:poc_witnesses()) -> poc_element().
+-spec new(
+    Challengee :: libp2p_crypto:pubkey_bin(),
+    Receipt :: blockchain_poc_receipt_v1:poc_receipt() | undefined,
+    Witnesses :: blockchain_poc_witness_v1:poc_witnesses()
+) -> poc_element().
 new(Challengee, Receipt, Witnesses) ->
     #blockchain_poc_path_element_v1_pb{
-        challengee=Challengee,
-        receipt=Receipt,
-        witnesses=Witnesses
+        challengee = Challengee,
+        receipt = Receipt,
+        witnesses = Witnesses
     }.
 
 %%--------------------------------------------------------------------
@@ -69,19 +71,26 @@ witnesses(Element) ->
 print(undefined) ->
     <<"type=element undefined">>;
 print(#blockchain_poc_path_element_v1_pb{
-         challengee=Challengee,
-         receipt=Receipt,
-         witnesses=Witnesses
-        }) ->
-    io_lib:format("type=element challengee: ~s, receipt: ~s\n\t\twitnesses: ~s",
-                  [
-                   ?TO_ANIMAL_NAME(Challengee),
-                   blockchain_poc_receipt_v1:print(Receipt),
-                   string:join(lists:map(fun(Witness) ->
-                                                 blockchain_poc_witness_v1:print(Witness)
-                                         end,
-                                         Witnesses), "\n\t\t")
-                  ]).
+    challengee = Challengee,
+    receipt = Receipt,
+    witnesses = Witnesses
+}) ->
+    io_lib:format(
+        "type=element challengee: ~s, receipt: ~s\n\t\twitnesses: ~s",
+        [
+            ?TO_ANIMAL_NAME(Challengee),
+            blockchain_poc_receipt_v1:print(Receipt),
+            string:join(
+                lists:map(
+                    fun(Witness) ->
+                        blockchain_poc_witness_v1:print(Witness)
+                    end,
+                    Witnesses
+                ),
+                "\n\t\t"
+            )
+        ]
+    ).
 
 json_type() ->
     undefiend.
@@ -99,19 +108,21 @@ to_json(Elem, Opts) ->
             false ->
                 [{W, []} || W <- witnesses(Elem)];
             {tagged_witnesses, TaggedWitnesses} ->
-                lists:map(fun
-                              ({true, _, W}) ->
-                                  {W, [{is_valid, true}]};
-                              ({false, InvalidReason, W}) ->
-                                  {W, [{is_valid, false}, {invalid_reason, InvalidReason}]}
-                          end, TaggedWitnesses)
+                lists:map(
+                    fun
+                        ({true, _, W}) ->
+                            {W, [{is_valid, true}]};
+                        ({false, InvalidReason, W}) ->
+                            {W, [{is_valid, false}, {invalid_reason, InvalidReason}]}
+                    end,
+                    TaggedWitnesses
+                )
         end,
     #{
-      challengee => ?BIN_TO_B58(challengee(Elem)),
-      receipt => blockchain_poc_receipt_v1:to_json(receipt(Elem), ReceiptOpts),
-      witnesses => [blockchain_poc_witness_v1:to_json(W, WOpts) || {W, WOpts} <- Witnesses]
-     }.
-
+        challengee => ?BIN_TO_B58(challengee(Elem)),
+        receipt => blockchain_poc_receipt_v1:to_json(receipt(Elem), ReceiptOpts),
+        witnesses => [blockchain_poc_witness_v1:to_json(W, WOpts) || {W, WOpts} <- Witnesses]
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -120,9 +131,9 @@ to_json(Elem, Opts) ->
 
 new_test() ->
     Element = #blockchain_poc_path_element_v1_pb{
-        challengee= <<"challengee">>,
-        receipt= undefined,
-        witnesses= []
+        challengee = <<"challengee">>,
+        receipt = undefined,
+        witnesses = []
     },
     ?assertEqual(Element, new(<<"challengee">>, undefined, [])).
 
@@ -141,8 +152,11 @@ witnesses_test() ->
 to_json_test() ->
     Element = new(<<"challengee">>, undefined, []),
     Json = to_json(Element, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [challengee, receipt, witnesses])).
-
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [challengee, receipt, witnesses]
+        )
+    ).
 
 -endif.

@@ -34,7 +34,8 @@
 
 -define(SERVER, ?MODULE).
 -define(FP_RATE, 0.99).
--define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
+% lorawan max payload size is 255 bytes
+-define(MAX_PAYLOAD_SIZE, 255).
 -define(EXPIRED, expired).
 -define(OVERSPENT, overspent).
 
@@ -46,7 +47,7 @@
     db :: rocksdb:db_handle(),
     owner :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()},
     chain :: blockchain:blockchain(),
-    dc_payload_size ::pos_integer(),
+    dc_payload_size :: pos_integer(),
     sc_version :: non_neg_integer(),
     max_actors_allowed = ?SC_MAX_ACTORS :: pos_integer(),
     prevent_overspend = true,
@@ -62,7 +63,8 @@
 start(Args) ->
     gen_server:start(?SERVER, Args, []).
 
--spec get(Pid :: pid(), Timeout :: non_neg_integer()) -> blockchain_state_channel_v1:state_channel().
+-spec get(Pid :: pid(), Timeout :: non_neg_integer()) ->
+    blockchain_state_channel_v1:state_channel().
 get(Pid, Timeout) ->
     {SC, OwnerSigFun} = gen_server:call(Pid, get, Timeout),
     blockchain_state_channel_v1:sign(SC, OwnerSigFun).
@@ -77,8 +79,10 @@ handle_offer(Pid, Offer, HandlerPid) ->
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(Offer),
     case PayloadSize =< ?MAX_PAYLOAD_SIZE of
         false ->
-            lager:error("payload size (~p) exceeds maximum (~p). Sending rejection of offer ~p from ~p",
-                        [PayloadSize, ?MAX_PAYLOAD_SIZE, Offer, HandlerPid]),
+            lager:error(
+                "payload size (~p) exceeds maximum (~p). Sending rejection of offer ~p from ~p",
+                [PayloadSize, ?MAX_PAYLOAD_SIZE, Offer, HandlerPid]
+            ),
             reject;
         true ->
             gen_server:cast(Pid, {handle_offer, Offer, HandlerPid})
@@ -138,7 +142,7 @@ init(Args) ->
     },
     {ok, State}.
 
-handle_call(get, _From, #state{state_channel=SC, owner={_Owner, OwnerSigFun}}=State) ->
+handle_call(get, _From, #state{state_channel = SC, owner = {_Owner, OwnerSigFun}} = State) ->
     {reply, {SC, OwnerSigFun}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -154,10 +158,10 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({blockchain_event, {new_chain, Chain}}, State) ->
-    {noreply, State#state{chain=Chain}};
+    {noreply, State#state{chain = Chain}};
 handle_info(
     {blockchain_event, {add_block, _BlockHash, _Syncing, Ledger}},
-    #state{id=ID, state_channel=SC, owner={Owner, OwnerSigFun}}=State
+    #state{id = ID, state_channel = SC, owner = {Owner, OwnerSigFun}} = State
 ) ->
     Name = blockchain_utils:addr2name(ID),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -172,12 +176,12 @@ handle_info(
             Txn = blockchain_txn_state_channel_close_v1:new(SignedSC, Owner),
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
             ok = blockchain_worker:submit_txn(SignedTxn),
-            {stop, {shutdown, ?EXPIRED}, State#state{state_channel=SignedSC}}
+            {stop, {shutdown, ?EXPIRED}, State#state{state_channel = SignedSC}}
     end;
 handle_info(?OVERSPENT, State) ->
     lager:info("state channel overspent shuting down"),
     {stop, {shutdown, ?OVERSPENT}, State};
-handle_info({'DOWN', _Ref, process, Parent, _}, #state{parent=Parent}=State) ->
+handle_info({'DOWN', _Ref, process, Parent, _}, #state{parent = Parent} = State) ->
     {stop, {shutdown, parent_down}, State};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
@@ -186,12 +190,18 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(Reason, #state{id=ID, state_channel=SC, skewed=Skewed, db=DB, owner={_Owner, OwnerSigFun}}=_State) ->
+terminate(
+    Reason,
+    #state{id = ID, state_channel = SC, skewed = Skewed, db = DB, owner = {_Owner, OwnerSigFun}} =
+        _State
+) ->
     SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
     ok = blockchain_state_channels_server:update_state_channel(SignedSC),
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
     Deleted = blockchain_state_channels_cache:delete_pids(self()),
-    lager:info("terminate ~p for : ~p, deleted ~p from cache", [blockchain_utils:addr2name(ID), Reason, Deleted]),
+    lager:info("terminate ~p for : ~p, deleted ~p from cache", [
+        blockchain_utils:addr2name(ID), Reason, Deleted
+    ]),
     ok.
 
 %% ------------------------------------------------------------------
@@ -207,13 +217,13 @@ offer(
     HandlerPid,
     #state{
         state_channel = SC,
-        skewed=Skewed,
-        db=DB,
-        owner={_Owner, OwnerSigFun},
-        dc_payload_size=DCPayloadSize,
-        max_actors_allowed=MaxActorsAllowed,
-        prevent_overspend=PreventOverSpend
-    }=State0
+        skewed = Skewed,
+        db = DB,
+        owner = {_Owner, OwnerSigFun},
+        dc_payload_size = DCPayloadSize,
+        max_actors_allowed = MaxActorsAllowed,
+        prevent_overspend = PreventOverSpend
+    } = State0
 ) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
     HotspotName = blockchain_utils:addr2name(HotspotID),
@@ -252,7 +262,9 @@ offer(
                     ok = send_offer_rejection(HandlerPid, Offer),
                     {noreply, State0};
                 {ok, PurchaseSC} ->
-                    lager:debug("[~p] purchasing offer from ~p", [blockchain_state_channel_v1:id(PurchaseSC), HotspotName]),
+                    lager:debug("[~p] purchasing offer from ~p", [
+                        blockchain_state_channel_v1:id(PurchaseSC), HotspotName
+                    ]),
                     PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                     Region = blockchain_state_channel_offer_v1:region(Offer),
                     ok = blockchain_state_channel_common:send_purchase(
@@ -271,7 +283,7 @@ offer(
                             lager:info("next packet will overspend"),
                             _ = erlang:send_after(1000, self(), ?OVERSPENT)
                     end,
-                    {noreply, State0#state{state_channel=PurchaseSC}}
+                    {noreply, State0#state{state_channel = PurchaseSC}}
             end
     end.
 
@@ -284,14 +296,14 @@ packet(
     SCPacket,
     _HandlerPid,
     #state{
-        state_channel=SC0,
-        skewed=Skewed0,
-        db=DB,
-        dc_payload_size=DCPayloadSize,
-        sc_version=SCVer,
+        state_channel = SC0,
+        skewed = Skewed0,
+        db = DB,
+        dc_payload_size = DCPayloadSize,
+        sc_version = SCVer,
         max_actors_allowed = MaxActorsAllowed,
-        bloom=Bloom
-    }=State0
+        bloom = Bloom
+    } = State0
 ) ->
     Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
     Payload = blockchain_helium_packet_v1:payload(Packet),
@@ -303,28 +315,29 @@ packet(
         false ->
             lager:debug("updating skewed with ~p", [Payload]),
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC0, Skewed0),
-            SC2 = case SCVer of
-                2 ->
-                    %% we don't update the state channel summary here
-                    %% it happens in `send_purchase` for v2 SCs
-                    SC1;
-                _ ->
-                    {ok, SC} = 
-                        try_update_summary(
-                            SC1, 
-                            HotspotID,
-                            erlang:byte_size(Payload),
-                            DCPayloadSize,
-                            MaxActorsAllowed
-                        ),
-                    SC
-            end,
+            SC2 =
+                case SCVer of
+                    2 ->
+                        %% we don't update the state channel summary here
+                        %% it happens in `send_purchase` for v2 SCs
+                        SC1;
+                    _ ->
+                        {ok, SC} =
+                            try_update_summary(
+                                SC1,
+                                HotspotID,
+                                erlang:byte_size(Payload),
+                                DCPayloadSize,
+                                MaxActorsAllowed
+                            ),
+                        SC
+                end,
             ok = blockchain_state_channel_v1:save(DB, SC2, Skewed1),
-            State0#state{state_channel=SC2, skewed=Skewed1}
+            State0#state{state_channel = SC2, skewed = Skewed1}
     end.
 
-
--spec send_offer_rejection(HandlerPid :: pid(), Offer :: blockchain_state_channel_offer_v1:offer()) -> ok.
+-spec send_offer_rejection(HandlerPid :: pid(), Offer :: blockchain_state_channel_offer_v1:offer()) ->
+    ok.
 send_offer_rejection(HandlerPid, Offer) ->
     HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
     ok = blockchain_state_channels_cache:delete_hotspot(HotspotID),
@@ -343,42 +356,52 @@ send_offer_rejection(HandlerPid, Offer) ->
 try_update_summary(SC, HotspotID, PayloadSize, DCPayloadSize, MaxActorsAllowed) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
-    case update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, NewPurchaseSC0, MaxActorsAllowed) of
+    case
+        update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, NewPurchaseSC0, MaxActorsAllowed)
+    of
         {NewPurchaseSC1, true} -> {ok, NewPurchaseSC1};
         {_SC, false} -> {error, does_not_fit}
     end.
 
--spec update_sc_summary(HotspotID :: libp2p_crypto:pubkey_bin(),
-                        PayloadSize :: pos_integer(),
-                        DCPayloadSize :: undefined | pos_integer(),
-                        SC :: blockchain_state_channel_v1:state_channel(),
-                        MaxActorsAllowed :: non_neg_integer()) ->
+-spec update_sc_summary(
+    HotspotID :: libp2p_crypto:pubkey_bin(),
+    PayloadSize :: pos_integer(),
+    DCPayloadSize :: undefined | pos_integer(),
+    SC :: blockchain_state_channel_v1:state_channel(),
+    MaxActorsAllowed :: non_neg_integer()
+) ->
     {blockchain_state_channel_v1:state_channel(), boolean()}.
 update_sc_summary(HotspotID, PayloadSize, DCPayloadSize, SC, MaxActorsAllowed) ->
     case blockchain_state_channel_v1:get_summary(HotspotID, SC) of
         {error, not_found} ->
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(HotspotID, 1, NumDCs),
-            {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(HotspotID,
-                                                                             NewSummary,
-                                                                             SC,
-                                                                             MaxActorsAllowed),
+            {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(
+                HotspotID,
+                NewSummary,
+                SC,
+                MaxActorsAllowed
+            ),
             {NewSC, DidFit};
         {ok, ExistingSummary} ->
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
             NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
             ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
-            NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
-                                                                    ExistingNumPackets + 1,
-                                                                    ExistingSummary),
-            {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(HotspotID,
-                                                                             NewSummary,
-                                                                             SC,
-                                                                             MaxActorsAllowed),
+            NewSummary = blockchain_state_channel_summary_v1:update(
+                ExistingNumDCs + NumDCs,
+                ExistingNumPackets + 1,
+                ExistingSummary
+            ),
+            {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(
+                HotspotID,
+                NewSummary,
+                SC,
+                MaxActorsAllowed
+            ),
             {NewSC, DidFit}
     end.
 
--spec refresh_cache(SC :: blockchain_state_channel_v1:state_channel()) -> ok. 
+-spec refresh_cache(SC :: blockchain_state_channel_v1:state_channel()) -> ok.
 refresh_cache(SC) ->
     Pid = self(),
     Summaries = blockchain_state_channel_v1:summaries(SC),

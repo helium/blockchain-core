@@ -54,15 +54,18 @@
 %% txn is submitted
 %% @end
 %%--------------------------------------------------------------------
--spec new(OraclePublicKey :: binary(), Price :: non_neg_integer(),
-          BlockHeight :: non_neg_integer()) -> txn_price_oracle().
+-spec new(
+    OraclePublicKey :: binary(),
+    Price :: non_neg_integer(),
+    BlockHeight :: non_neg_integer()
+) -> txn_price_oracle().
 new(OraclePK, Price, BlockHeight) ->
     #blockchain_txn_price_oracle_v1_pb{
-       public_key=OraclePK,
-       price=Price,
-       block_height = BlockHeight,
-       signature = <<>>
-      }.
+        public_key = OraclePK,
+        price = Price,
+        block_height = BlockHeight,
+        signature = <<>>
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -104,7 +107,6 @@ signature(Txn) ->
 block_height(Txn) ->
     Txn#blockchain_txn_price_oracle_v1_pb.block_height.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% Provide the Base64 encoded public key from the oracle for this
@@ -125,7 +127,8 @@ public_key(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_price_oracle(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_price_oracle(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -138,7 +141,7 @@ fee_payer(_Txn, _Ledger) ->
 sign(Txn, SigFun) ->
     Zeroed = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(Zeroed),
-    Txn#blockchain_txn_price_oracle_v1_pb{signature=SigFun(EncodedTxn)}.
+    Txn#blockchain_txn_price_oracle_v1_pb{signature = SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -152,7 +155,8 @@ sign(Txn, SigFun) ->
 %% `price_oracle_height_delta' chain variable.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_price_oracle(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Price = ?MODULE:price(Txn),
@@ -167,15 +171,26 @@ is_valid(Txn, Chain) ->
     {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
     OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
 
-    case blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {member, OracleKeys}},
-                                         {{price, Price}, {is_integer, 0}}]) of
+    case
+        blockchain_txn:validate_fields([
+            {{oracle_public_key, RawTxnPK}, {member, OracleKeys}},
+            {{price, Price}, {is_integer, 0}}
+        ])
+    of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, TxnPK) of
                 false ->
                     {error, bad_signature};
                 true ->
-                    case validate_block_height(RawTxnPK, BlockHeight,
-                                               LedgerHeight, MaxHeight, Ledger) of
+                    case
+                        validate_block_height(
+                            RawTxnPK,
+                            BlockHeight,
+                            LedgerHeight,
+                            MaxHeight,
+                            Ledger
+                        )
+                    of
                         false ->
                             {error, bad_block_height};
                         true ->
@@ -192,17 +207,19 @@ is_valid(Txn, Chain) ->
 %% ledger
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_price_oracle(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, #block_info_v2{time = Time}} = blockchain:get_block_info(LedgerHeight, Chain),
 
     Entry = blockchain_ledger_oracle_price_entry:new(
-              Time,
-              LedgerHeight,
-              ?MODULE:public_key(Txn),
-              ?MODULE:price(Txn)),
+        Time,
+        LedgerHeight,
+        ?MODULE:public_key(Txn),
+        ?MODULE:price(Txn)
+    ),
 
     blockchain_ledger_v1:add_oracle_price(Entry, Ledger).
 
@@ -212,45 +229,56 @@ absorb(Txn, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec print(txn_price_oracle()) -> iodata().
-print(undefined) -> <<"type=price_oracle, undefined">>;
-print(#blockchain_txn_price_oracle_v1_pb{public_key=OraclePK,
-                                         price=Price, block_height = BH,
-                                         signature=Sig}) ->
-    io_lib:format("type=price_oracle oracle_signature=~p, price=~p, block_height=~p, signature=~p",
-                  [OraclePK, Price, BH, Sig]).
+print(undefined) ->
+    <<"type=price_oracle, undefined">>;
+print(#blockchain_txn_price_oracle_v1_pb{
+    public_key = OraclePK,
+    price = Price,
+    block_height = BH,
+    signature = Sig
+}) ->
+    io_lib:format(
+        "type=price_oracle oracle_signature=~p, price=~p, block_height=~p, signature=~p",
+        [OraclePK, Price, BH, Sig]
+    ).
 
 json_type() ->
     <<"price_oracle_v1">>.
 
 -spec to_json(txn_price_oracle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
-    #{ type => ?MODULE:json_type(),
-       hash => ?BIN_TO_B64(hash(Txn)),
-       fee => fee(Txn),
-       public_key => ?BIN_TO_B58(public_key(Txn)),
-       price => price(Txn),
-       block_height => block_height(Txn)
-     }.
+    #{
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        fee => fee(Txn),
+        public_key => ?BIN_TO_B58(public_key(Txn)),
+        price => price(Txn),
+        block_height => block_height(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% Private functions
 %% ------------------------------------------------------------------
 
-validate_block_height(PK, MsgHeight, Current, MaxHeight, Ledger)
-                                        when (Current - MsgHeight) =< MaxHeight ->
+validate_block_height(PK, MsgHeight, Current, MaxHeight, Ledger) when
+    (Current - MsgHeight) =< MaxHeight
+->
     case blockchain_ledger_v1:current_oracle_price_list(Ledger) of
-        {ok, []} -> true;
+        {ok, []} ->
+            true;
         {ok, PriceEntries} ->
-            MyReportingHeights = [ blockchain_ledger_oracle_price_entry:block_height(Entry)
-                                   || Entry <- PriceEntries,
-                                      blockchain_ledger_oracle_price_entry:public_key(Entry) == PK],
+            MyReportingHeights = [
+                blockchain_ledger_oracle_price_entry:block_height(Entry)
+             || Entry <- PriceEntries,
+                blockchain_ledger_oracle_price_entry:public_key(Entry) == PK
+            ],
             %% make sure this is not the empty list if we have not reported
             %% lately by prepending a 0 to the list
             MaxReportedHeight = lists:max([0 | MyReportingHeights]),
             MsgHeight > MaxReportedHeight
     end;
-validate_block_height(_PK, _MsgHeight, _Current, _MaxHeight, _Ledger) -> false.
-
+validate_block_height(_PK, _MsgHeight, _Current, _MaxHeight, _Ledger) ->
+    false.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

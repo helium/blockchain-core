@@ -40,20 +40,24 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(Gateway :: libp2p_crypto:pubkey_bin(),
-          Owner :: libp2p_crypto:pubkey_bin(),
-          Location :: undefined | h3:h3index(),
-          Nonce :: non_neg_integer()) -> txn_genesis_gateway().
+-spec new(
+    Gateway :: libp2p_crypto:pubkey_bin(),
+    Owner :: libp2p_crypto:pubkey_bin(),
+    Location :: undefined | h3:h3index(),
+    Nonce :: non_neg_integer()
+) -> txn_genesis_gateway().
 new(Gateway, Owner, Location, Nonce) ->
-    L = case Location of
+    L =
+        case Location of
             undefined -> undefined;
             _ -> h3:to_string(Location)
         end,
-    #blockchain_txn_gen_gateway_v1_pb{gateway=Gateway,
-                                      owner=Owner,
-                                      location=L,
-                                      nonce=Nonce}.
-
+    #blockchain_txn_gen_gateway_v1_pb{
+        gateway = Gateway,
+        owner = Owner,
+        location = L,
+        nonce = Nonce
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -93,7 +97,7 @@ owner(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec location(txn_genesis_gateway()) -> h3:h3index().
-location(#blockchain_txn_gen_gateway_v1_pb{location=[]}) ->
+location(#blockchain_txn_gen_gateway_v1_pb{location = []}) ->
     undefined;
 location(Txn) ->
     h3:from_string(Txn#blockchain_txn_gen_gateway_v1_pb.location).
@@ -106,7 +110,6 @@ location(Txn) ->
 nonce(Txn) ->
     Txn#blockchain_txn_gen_gateway_v1_pb.nonce.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -115,7 +118,8 @@ nonce(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_genesis_gateway(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_genesis_gateway(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -124,7 +128,8 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(_Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
@@ -138,31 +143,40 @@ is_valid(_Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_genesis_gateway(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gateway = ?MODULE:gateway(Txn),
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    blockchain_ledger_v1:add_gateway(Owner,
-                                     Gateway,
-                                     Location,
-                                     Nonce,
-                                     full,
-                                     Ledger).
+    blockchain_ledger_v1:add_gateway(
+        Owner,
+        Gateway,
+        Location,
+        Nonce,
+        full,
+        Ledger
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec print(txn_genesis_gateway()) -> iodata().
-print(undefined) -> <<"type=genesis_gateway, undefined">>;
+print(undefined) ->
+    <<"type=genesis_gateway, undefined">>;
 print(#blockchain_txn_gen_gateway_v1_pb{
-         gateway=Gateway, owner=Owner,
-         location=L, nonce=Nonce}) ->
-    io_lib:format("type=genesis_gateway gateway=~p, owner=~p, location=~p, nonce=~p",
-                  [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), L, Nonce]).
+    gateway = Gateway,
+    owner = Owner,
+    location = L,
+    nonce = Nonce
+}) ->
+    io_lib:format(
+        "type=genesis_gateway gateway=~p, owner=~p, location=~p, nonce=~p",
+        [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), L, Nonce]
+    ).
 
 json_type() ->
     <<"gen_gateway_v1">>.
@@ -170,14 +184,13 @@ json_type() ->
 -spec to_json(txn_genesis_gateway(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      gateway => ?BIN_TO_B58(gateway(Txn)),
-      owner => ?BIN_TO_B58(owner(Txn)),
-      location => ?MAYBE_H3(location(Txn)),
-      nonce => nonce(Txn)
-     }.
-
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        gateway => ?BIN_TO_B58(gateway(Txn)),
+        owner => ?BIN_TO_B58(owner(Txn)),
+        location => ?MAYBE_H3(location(Txn)),
+        nonce => nonce(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -187,10 +200,12 @@ to_json(Txn, _Opts) ->
 -define(TEST_LOCATION, 631210968840687103).
 
 new_test() ->
-    Tx = #blockchain_txn_gen_gateway_v1_pb{gateway = <<"0">>,
-                                           owner = <<"1">>,
-                                           location = h3:to_string(?TEST_LOCATION),
-                                           nonce=10},
+    Tx = #blockchain_txn_gen_gateway_v1_pb{
+        gateway = <<"0">>,
+        owner = <<"1">>,
+        location = h3:to_string(?TEST_LOCATION),
+        nonce = 10
+    },
     ?assertEqual(Tx, new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10)).
 
 gateway_test() ->
@@ -212,8 +227,11 @@ nonce_test() ->
 json_test() ->
     Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
     Json = to_json(Tx, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, gateway, owner, location, nonce])).
-
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [type, hash, gateway, owner, location, nonce]
+        )
+    ).
 
 -endif.

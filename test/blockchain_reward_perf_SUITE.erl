@@ -11,21 +11,20 @@
 -include_lib("common_test/include/ct.hrl").
 -include("blockchain_vars.hrl").
 
+-export([
+    suite/0,
+    all/0,
+    init_per_suite/1,
+    end_per_suite/1,
+    init_per_testcase/2,
+    end_per_testcase/2
+]).
 
 -export([
-         suite/0,
-         all/0,
-         init_per_suite/1,
-         end_per_suite/1,
-         init_per_testcase/2,
-         end_per_testcase/2
-        ]).
-
--export([
-         reward_perf_test/1,
-         hip15_vars/0,
-         hip17_vars/0
-        ]).
+    reward_perf_test/1,
+    hip15_vars/0,
+    hip17_vars/0
+]).
 
 %%--------------------------------------------------------------------
 %% @spec suite() -> Info
@@ -33,7 +32,7 @@
 %% @end
 %%--------------------------------------------------------------------
 suite() ->
-    [{timetrap,{seconds,200}}].
+    [{timetrap, {seconds, 200}}].
 
 %%--------------------------------------------------------------------
 %% @spec init_per_suite(Config0) ->
@@ -67,7 +66,8 @@ init_per_testcase(_TestCase, Config) ->
         try
             {ok, BinSnap1} = file:read_file(Filename),
             {ok, BinSnap1}
-        catch _:_ ->
+        catch
+            _:_ ->
                 os:cmd("wget https://snapshots.helium.wtf/mainnet/snap-933121"),
                 {ok, BinSnap2} = file:read_file(Filename),
                 {ok, BinSnap2}
@@ -87,11 +87,14 @@ init_per_testcase(_TestCase, Config) ->
 
     CLedger = blockchain_ledger_v1:new_context(Ledger1),
     blockchain_ledger_v1:cf_fold(
-      active_gateways,
-      fun({Addr, BG}, _) ->
-              G = blockchain_ledger_gateway_v2:deserialize(BG),
-              blockchain_ledger_v1:update_gateway(G, Addr, CLedger)
-      end, foo, CLedger),
+        active_gateways,
+        fun({Addr, BG}, _) ->
+            G = blockchain_ledger_gateway_v2:deserialize(BG),
+            blockchain_ledger_v1:update_gateway(G, Addr, CLedger)
+        end,
+        foo,
+        CLedger
+    ),
 
     _ = blockchain_ledger_v1:commit_context(CLedger),
 
@@ -120,10 +123,13 @@ reward_perf_test(Config) ->
 
     {Time, R} =
         timer:tc(
-          fun() ->
-                  {ok, Rewards} = blockchain_txn_rewards_v2:calculate_rewards(Height - 15, Height, Chain1),
-                  Rewards
-          end),
+            fun() ->
+                {ok, Rewards} = blockchain_txn_rewards_v2:calculate_rewards(
+                    Height - 15, Height, Chain1
+                ),
+                Rewards
+            end
+        ),
 
     %% don't think that this has issues, but keep it around just in case
     %% {Time3, _} =
@@ -134,12 +140,13 @@ reward_perf_test(Config) ->
     %%       end),
 
     %% hash will no longer match after we un-fix v1
-    ct:pal("basic calc took: ~p ms hash ~p ct ~p", [Time div 1000, erlang:phash2(lists:sort(R)), length(R)]),
+    ct:pal("basic calc took: ~p ms hash ~p ct ~p", [
+        Time div 1000, erlang:phash2(lists:sort(R)), length(R)
+    ]),
     %% ct:pal("json calc took: ~p ms", [Time3 div 1000]),
 
     %% error(print),
     ok.
-
 
 hip15_vars() ->
     #{

@@ -26,7 +26,9 @@
 -spec new(Spreads :: [{non_neg_integer(), atom()}]) -> region_spreading_v1().
 new(Spreads) ->
     Tags = [new_tagged_spread(Size, Spread) || {Size, Spread} <- Spreads],
-    #blockchain_region_spreading_v1_pb{tagged_spreading = lists:keysort(#tagged_spreading_pb.max_packet_size, Tags)}.
+    #blockchain_region_spreading_v1_pb{
+        tagged_spreading = lists:keysort(#tagged_spreading_pb.max_packet_size, Tags)
+    }.
 
 -spec tagged_spreading(Spreading :: region_spreading_v1()) -> [tagged_spreading()].
 tagged_spreading(Spreading) ->

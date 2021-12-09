@@ -7,7 +7,8 @@
 
 -export([
     new/1,
-    encode/1, decode/1
+    encode/1,
+    decode/1
 ]).
 
 -include("blockchain.hrl").
@@ -22,15 +23,17 @@
 
 -spec new(PacketHash :: binary()) -> rejection().
 new(PacketHash) ->
-    #blockchain_state_channel_rejection_v1_pb{ packet_hash = PacketHash}.
+    #blockchain_state_channel_rejection_v1_pb{packet_hash = PacketHash}.
 
 -spec encode(rejection()) -> binary().
-encode(#blockchain_state_channel_rejection_v1_pb{}=Rejection) ->
+encode(#blockchain_state_channel_rejection_v1_pb{} = Rejection) ->
     blockchain_state_channel_v1_pb:encode_msg(Rejection).
 
 -spec decode(binary()) -> rejection().
 decode(BinaryRejection) ->
-    blockchain_state_channel_v1_pb:decode_msg(BinaryRejection, blockchain_state_channel_rejection_v1_pb).
+    blockchain_state_channel_v1_pb:decode_msg(
+        BinaryRejection, blockchain_state_channel_rejection_v1_pb
+    ).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

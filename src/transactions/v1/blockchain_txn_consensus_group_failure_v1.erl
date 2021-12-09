@@ -76,7 +76,8 @@ signatures(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_consensus_group_failure(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_consensus_group_failure(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -145,25 +146,32 @@ is_valid(Txn, Chain) ->
 
         %% has there already been a report about this dkg
         lists:foreach(
-          fun(M) ->
-                  case blockchain_ledger_v1:get_validator(M, Ledger) of
-                      {ok, V} ->
-                          Failures = blockchain_ledger_validator_v1:penalties(V),
-                          case lists:any(fun(Penalty) ->
-                                                 Type = blockchain_ledger_validator_v1:penalty_type(Penalty),
-                                                 Ht = blockchain_ledger_validator_v1:penalty_height(Penalty),
-                                                 Type == dkg andalso
-                                                     Ht == TxnHeight + Delay
-                                         end, Failures) of
-                              true ->
-                                  throw(already_absorbed);
-                              false ->
-                                  ok
-                          end;
-                      GetErr ->
-                          throw({bad_validator, GetErr})
-                  end
-          end, FailedMembers),
+            fun(M) ->
+                case blockchain_ledger_v1:get_validator(M, Ledger) of
+                    {ok, V} ->
+                        Failures = blockchain_ledger_validator_v1:penalties(V),
+                        case
+                            lists:any(
+                                fun(Penalty) ->
+                                    Type = blockchain_ledger_validator_v1:penalty_type(Penalty),
+                                    Ht = blockchain_ledger_validator_v1:penalty_height(Penalty),
+                                    Type == dkg andalso
+                                        Ht == TxnHeight + Delay
+                                end,
+                                Failures
+                            )
+                        of
+                            true ->
+                                throw(already_absorbed);
+                            false ->
+                                ok
+                        end;
+                    GetErr ->
+                        throw({bad_validator, GetErr})
+                end
+            end,
+            FailedMembers
+        ),
 
         {ok, ElectionInterval} = blockchain:config(?election_interval, OldLedger),
         {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, OldLedger),
@@ -245,16 +253,21 @@ absorb(Txn, Chain) ->
 
     try
         lists:foreach(
-          fun(M) ->
-                  case blockchain_ledger_v1:get_validator(M, Ledger) of
-                      {ok, V} ->
-                          V1 = blockchain_ledger_validator_v1:add_penalty(V, Height+Delay, dkg, Penalty, Limit),
-                          blockchain_ledger_v1:update_validator(M, V1, Ledger);
-                      GetErr ->
-                          throw({bad_validator, GetErr})
-                  end
-          end, FailedMembers)
-    catch _:Err ->
+            fun(M) ->
+                case blockchain_ledger_v1:get_validator(M, Ledger) of
+                    {ok, V} ->
+                        V1 = blockchain_ledger_validator_v1:add_penalty(
+                            V, Height + Delay, dkg, Penalty, Limit
+                        ),
+                        blockchain_ledger_v1:update_validator(M, V1, Ledger);
+                    GetErr ->
+                        throw({bad_validator, GetErr})
+                end
+            end,
+            FailedMembers
+        )
+    catch
+        _:Err ->
             {error, Err}
     end.
 

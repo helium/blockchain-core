@@ -405,8 +405,10 @@ get_rewards_md_diff_at(Height, Ledger) ->
                 {ok, BinRes} ->
                     %% NOTE: This should return #{mdsum : MDSum, overall : OverallMDSum}
                     {ok, binary_to_term(BinRes)};
-                not_found -> {error, not_found};
-                Error -> Error
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
             end
     end.
 
@@ -752,9 +754,9 @@ overall_diff_rewards_md_sums_({ok, Key, BinRes}, Default) ->
     catch
         What:Why ->
             lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
-                                                                                        Key,
-                                                                                        What,
-                                                                                        Why
-                                                                                       ]),
+                Key,
+                What,
+                Why
+            ]),
             Default
     end.

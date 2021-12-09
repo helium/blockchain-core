@@ -117,59 +117,74 @@ init_per_testcase(TestCase, Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
     %% two tests rely on the swarm not being in the consensus group, so exclude them here
-    ExtraVars = case TestCase of
-                    election_v3_test ->
-                        #{election_version => 3,
-                          election_bba_penalty => 0.01,
-                          election_seen_penalty => 0.03};
-                    X when X == election_v4_test;
-                           X == dataonly_gw_election_v4_test;
-                           X == light_gw_election_v4_test ->
-                        #{election_version => 4,
-                          election_bba_penalty => 0.01,
-                          election_seen_penalty => 0.03};
-                    election_v5_test ->
-                        #{election_version => 5,
-                          validator_minimum_stake => ?bones(10000),
-                          validator_liveness_grace_period => 50,
-                          validator_liveness_interval => 200,
-                          validator_penalty_filter => 10.0,
-                          dkg_penalty => 1.0,
-                          penalty_history_limit => 100,
-                          election_bba_penalty => 0.01,
-                          election_seen_penalty => 0.03};
-                    election_v6_test ->
-                        #{election_version => 6,
-                          validator_minimum_stake => ?bones(10000),
-                          validator_liveness_grace_period => 50,
-                          validator_liveness_interval => 200,
-                          validator_penalty_filter => 10.0,
-                          dkg_penalty => 1.0,
-                          penalty_history_limit => 100,
-                          election_bba_penalty => 0.01,
-                          election_seen_penalty => 0.03};
-                    genesis_no_var_validation_stay_invalid_test ->
-                        %% Intentionally supply an incorrect (out-of-bound) chain variable here
-                        #{election_version => 10000};
-                    genesis_no_var_validation_make_valid_test ->
-                        %% Intentionally supply an incorrect (out-of-bound) chain variable here
-                        #{election_version => 10000, vars_commit_delay => 1};
-                    net_emissions_reward_test ->
-                        #{?net_emissions_enabled => true,
-                          ?rewards_txn_version => 2,
-                          ?reward_version => 5,
-                          ?monthly_reward => 10000,
-                          ?net_emissions_max_rate => 40000};
-                    _ ->
-                        #{allow_zero_amount => false,
-                          max_open_sc => 2,
-                          min_expire_within => 10,
-                          max_xor_filter_size => 1024*100,
-                          max_xor_filter_num => 5,
-                          max_subnet_size => 65536,
-                          min_subnet_size => 8,
-                          max_subnet_num => 20}
-                end,
+    ExtraVars =
+        case TestCase of
+            election_v3_test ->
+                #{
+                    election_version => 3,
+                    election_bba_penalty => 0.01,
+                    election_seen_penalty => 0.03
+                };
+            X when
+                X == election_v4_test;
+                X == dataonly_gw_election_v4_test;
+                X == light_gw_election_v4_test
+            ->
+                #{
+                    election_version => 4,
+                    election_bba_penalty => 0.01,
+                    election_seen_penalty => 0.03
+                };
+            election_v5_test ->
+                #{
+                    election_version => 5,
+                    validator_minimum_stake => ?bones(10000),
+                    validator_liveness_grace_period => 50,
+                    validator_liveness_interval => 200,
+                    validator_penalty_filter => 10.0,
+                    dkg_penalty => 1.0,
+                    penalty_history_limit => 100,
+                    election_bba_penalty => 0.01,
+                    election_seen_penalty => 0.03
+                };
+            election_v6_test ->
+                #{
+                    election_version => 6,
+                    validator_minimum_stake => ?bones(10000),
+                    validator_liveness_grace_period => 50,
+                    validator_liveness_interval => 200,
+                    validator_penalty_filter => 10.0,
+                    dkg_penalty => 1.0,
+                    penalty_history_limit => 100,
+                    election_bba_penalty => 0.01,
+                    election_seen_penalty => 0.03
+                };
+            genesis_no_var_validation_stay_invalid_test ->
+                %% Intentionally supply an incorrect (out-of-bound) chain variable here
+                #{election_version => 10000};
+            genesis_no_var_validation_make_valid_test ->
+                %% Intentionally supply an incorrect (out-of-bound) chain variable here
+                #{election_version => 10000, vars_commit_delay => 1};
+            net_emissions_reward_test ->
+                #{
+                    ?net_emissions_enabled => true,
+                    ?rewards_txn_version => 2,
+                    ?reward_version => 5,
+                    ?monthly_reward => 10000,
+                    ?net_emissions_max_rate => 40000
+                };
+            _ ->
+                #{
+                    allow_zero_amount => false,
+                    max_open_sc => 2,
+                    min_expire_within => 10,
+                    max_xor_filter_size => 1024 * 100,
+                    max_xor_filter_num => 5,
+                    max_subnet_size => 65536,
+                    min_subnet_size => 8,
+                    max_subnet_num => 20
+                }
+        end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain_with_opts(
@@ -179,7 +194,9 @@ init_per_testcase(TestCase, Config) ->
                 keys =>
                     {PrivKey, PubKey},
                 in_consensus =>
-                    not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
+                    not lists:member(TestCase, [
+                        bogus_coinbase_test, bogus_coinbase_with_good_payment_test
+                    ]),
                 have_init_dc =>
                     true,
                 extra_vars =>
@@ -194,10 +211,13 @@ init_per_testcase(TestCase, Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
     Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-        Balance = blockchain_ledger_entry_v1:balance(Entry),
-        0 = blockchain_ledger_entry_v1:nonce(Entry)
-    end, maps:values(Entries)),
+    _ = lists:foreach(
+        fun(Entry) ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            0 = blockchain_ledger_entry_v1:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
     [
         {balance, Balance},
@@ -241,7 +261,7 @@ basic_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -297,18 +317,23 @@ reload_test(Config) ->
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => N0}),
 
     % Create new genesis block
-    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
-                     || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
+    GenPaymentTxs = [
+        blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
+     || {Addr, _} <- ConsensusMembers
+    ],
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
+        [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0
+    ),
     Txs = InitialVars ++ GenPaymentTxs ++ [GenConsensusGroupTx],
     NewGenBlock = blockchain_block:new_genesis_block(Txs),
-    GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
+    %% create a second/alternative base dir
+    GenDir = BaseDir ++ "2",
     File = filename:join(GenDir, "genesis"),
     ok = test_utils:atomic_save(File, blockchain_block:serialize(NewGenBlock)),
 
     ct:pal("new start"),
 
-    {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
+    {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir} | Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
@@ -324,7 +349,8 @@ reload_test(Config) ->
 
 restart_test(Config) ->
     BaseDir = ?config(base_dir, Config),
-    GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
+    %% create a second/alternative base dir
+    GenDir = BaseDir ++ "2",
 
     ConsensusMembers = ?config(consensus_members, Config),
     Sup = ?config(sup, Config),
@@ -333,12 +359,14 @@ restart_test(Config) ->
     {ok, GenBlock} = blockchain:head_block(Chain0),
 
     % Add some blocks
-    [LastBlock| _Blocks] = lists:foldl(
+    [LastBlock | _Blocks] = lists:foldl(
         fun(_, Acc) ->
             {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-            _ = blockchain_gossip_handler:add_block(Block, Chain0, self(), blockchain_swarm:swarm()),
+            _ = blockchain_gossip_handler:add_block(
+                Block, Chain0, self(), blockchain_swarm:swarm()
+            ),
             timer:sleep(100),
-            [Block|Acc]
+            [Block | Acc]
         end,
         [],
         lists:seq(1, 10)
@@ -355,7 +383,7 @@ restart_test(Config) ->
     blockchain:close(Chain0),
 
     % Restart with an empty 'GenDir'
-    {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
+    {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir} | Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
@@ -366,7 +394,7 @@ restart_test(Config) ->
     ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain)),
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
-   %% Kill this blockchain sup
+    %% Kill this blockchain sup
     OldSwarm2 = blockchain_swarm:swarm(),
     ok = gen_server:stop(Sup1),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
@@ -378,7 +406,7 @@ restart_test(Config) ->
     ok = filelib:ensure_dir(filename:join([GenDir, "genesis"])),
     ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(GenBlock)),
 
-    {ok, Sup2} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
+    {ok, Sup2} = blockchain_sup:start_link([{update_dir, GenDir} | Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain1 = blockchain_worker:blockchain(),
@@ -391,7 +419,6 @@ restart_test(Config) ->
 
     true = erlang:exit(Sup2, normal),
     ok.
-
 
 htlc_payee_redeem_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
@@ -450,7 +477,8 @@ htlc_payee_redeem_test(Config) ->
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, RedeemSigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
-    timer:sleep(500), %% add block is a cast, need some time for this to happen
+    %% add block is a cast, need some time for this to happen
+    timer:sleep(500),
 
     % Check that the second block with the Redeem TX was mined properly
     {ok, HeadHash2} = blockchain:head_hash(Chain),
@@ -464,7 +492,10 @@ htlc_payee_redeem_test(Config) ->
 
     % confirm the replay of the previously absorbed txn fails validations
     % as we are reusing the same nonce
-    ?assertEqual({error,{bad_nonce,{create_htlc,1,2}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
+    ?assertEqual(
+        {error, {bad_nonce, {create_htlc, 1, 2}}},
+        blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)
+    ),
     ok.
 
 htlc_payer_redeem_test(Config) ->
@@ -487,7 +518,7 @@ htlc_payer_redeem_test(Config) ->
     %% confirm the txns passes validations
     ?assertEqual(ok, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
 
-      {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
@@ -511,7 +542,8 @@ htlc_payer_redeem_test(Config) ->
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
     {ok, Block3} = test_utils:create_block(ConsensusMembers, []),
     _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
-    timer:sleep(500), %% add block is a cast, need some time for this to happen
+    %% add block is a cast, need some time for this to happen
+    timer:sleep(500),
 
     % Check we are at height 4
     {ok, HeadHash2} = blockchain:head_hash(Chain),
@@ -534,7 +566,10 @@ htlc_payer_redeem_test(Config) ->
 
     % confirm the replay of the previously absorbed txn fails validations
     % as we are reusing the same nonce
-    ?assertEqual({error,{bad_nonce,{create_htlc,1,1}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
+    ?assertEqual(
+        {error, {bad_nonce, {create_htlc, 1, 1}}},
+        blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)
+    ),
 
     ok.
 
@@ -556,7 +591,7 @@ poc_request_test(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
     DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
@@ -576,8 +611,8 @@ poc_request_test(Config) ->
     ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
         end,
         lists:seq(1, 20)
     ),
@@ -605,12 +640,13 @@ poc_request_test(Config) ->
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
-
     % Add a Gateway
     AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
-    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
-      {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGatewayTx, GatewaySigFun
+    ),
+    {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
     _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
@@ -623,9 +659,15 @@ poc_request_test(Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
-    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
-    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(
+        Gateway, Owner, ?TEST_LOCATION, 1
+    ),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationRequestTx, GatewaySigFun
+    ),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationTxn, OwnerSigFun
+    ),
 
     {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
     ok = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
@@ -642,7 +684,9 @@ poc_request_test(Config) ->
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
     OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
-    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(
+        Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1
+    ),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
     {ok, Block26} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
     _ = blockchain_gossip_handler:add_block(Block26, Chain, self(), blockchain_swarm:swarm()),
@@ -691,7 +735,9 @@ poc_request_test(Config) ->
     #{public := OnionCompactKey1} = Keys1,
     SecretHash1 = crypto:hash(sha256, Secret1),
     OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
-    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block62), 1),
+    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(
+        Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block62), 1
+    ),
     SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:sign(PoCReqTxn1, GatewaySigFun),
     {ok, Block63} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
     _ = blockchain_gossip_handler:add_block(Block63, Chain, self(), blockchain_swarm:swarm()),
@@ -721,7 +767,9 @@ bogus_coinbase_test(Config) ->
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
 
     %% This should error out cuz this is an invalid txn
-    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
+    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(
+        ConsensusMembers, [BogusCoinbaseTxn]
+    ),
 
     %% Check that the chain didn't grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -737,15 +785,17 @@ bogus_coinbase_with_good_payment_test(Config) ->
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
 
     %% Create a good payment transaction as well
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% This should error out cuz this is an invalid txn
-    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers,
-                                                                          [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
+    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(
+        ConsensusMembers,
+        [BogusCoinbaseTxn, SignedGoodPaymentTxn]
+    ),
     %% Check that the chain didnt' grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
@@ -755,11 +805,13 @@ export_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     GenesisMembers = ?config(genesis_members, Config),
     Balance = ?config(balance, Config),
-    [_,
-     {Payer1, {PayerPubKey1, PayerPrivKey1, _}},
-     {Payer2, {_, PayerPrivKey2, _}},
-     {Payer3, {_, PayerPrivKey3, _}}
-     | _] = ConsensusMembers,
+    [
+        _,
+        {Payer1, {PayerPubKey1, PayerPrivKey1, _}},
+        {Payer2, {_, PayerPrivKey2, _}},
+        {Payer3, {_, PayerPrivKey3, _}}
+        | _
+    ] = ConsensusMembers,
     Amount = 2500,
     Fee = 0,
     N = length(ConsensusMembers),
@@ -774,12 +826,12 @@ export_test(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
         end,
         lists:seq(1, 20)
     ),
@@ -815,21 +867,41 @@ export_test(Config) ->
 
     % Add a Gateway
     AddGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
-    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx0, blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain)),
-    AddGatewayTx = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx1, blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx1, Chain)),
+    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(
+        AddGatewayTx0, blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain)
+    ),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:staking_fee(
+        AddGatewayTx1, blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx1, Chain)
+    ),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
-    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGatewayTx, GatewaySigFun
+    ),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
-    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
-    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(
+        Gateway, Owner, ?TEST_LOCATION, 1
+    ),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationRequestTx, GatewaySigFun
+    ),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationTxn, OwnerSigFun
+    ),
 
     %% adding the gateway and asserting a location depend on each other, but they should be able to appear in the same block
-    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, 2, blockchain_swarm:pubkey_bin()),
-    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, 1, blockchain_swarm:pubkey_bin()),
-    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, 1, blockchain_swarm:pubkey_bin()),
-    Txns0 = [SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3],
+    PaymentTxn1 = test_utils:create_payment_transaction(
+        Payer1, PayerPrivKey1, Amount, 2, blockchain_swarm:pubkey_bin()
+    ),
+    PaymentTxn2 = test_utils:create_payment_transaction(
+        Payer2, PayerPrivKey2, Amount, 1, blockchain_swarm:pubkey_bin()
+    ),
+    PaymentTxn3 = test_utils:create_payment_transaction(
+        Payer3, PayerPrivKey3, Amount, 1, blockchain_swarm:pubkey_bin()
+    ),
+    Txns0 = [
+        SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3
+    ],
     Txns1 = lists:sort(fun blockchain_txn:sort/2, Txns0),
     {ok, Block23} = test_utils:create_block(ConsensusMembers, Txns1),
     _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), blockchain_swarm:swarm()),
@@ -844,11 +916,12 @@ export_test(Config) ->
 
     timer:sleep(500),
 
-    [{securities, Securities},
-     {accounts, Accounts},
-     {gateways, Gateways},
-     {chain_vars, _ChainVars},
-     {dcs, DCs}
+    [
+        {securities, Securities},
+        {accounts, Accounts},
+        {gateways, Gateways},
+        {chain_vars, _ChainVars},
+        {dcs, DCs}
     ] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ct:pal("gateways ~p", [Gateways]),
@@ -856,7 +929,7 @@ export_test(Config) ->
     %% check DC balance for Payer1
     Payer1Addr = libp2p_crypto:bin_to_b58(Payer1),
     [[{address, _}, {dc_balance, Payer1DCBalance0}]] =
-        [DC || [{address, Addr}, {dc_balance, _}]=DC <- DCs, Addr =:= Payer1Addr],
+        [DC || [{address, Addr}, {dc_balance, _}] = DC <- DCs, Addr =:= Payer1Addr],
     ?assertEqual(Payer1DCBalance0, DCBalance0 + (OP * 10 - 2)),
 
     %% we added this after we add all of the existing gateways in the
@@ -864,38 +937,55 @@ export_test(Config) ->
     %% we're still getting the txn that we're looking for
     Gateways1 = [G || [_, _, _, {nonce, Nonce}] = G <- Gateways, Nonce == 1],
 
-    ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
-                   {owner_address, libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
-                   {location,?TEST_LOCATION},
-                   {nonce,1}]], Gateways1),
+    ?assertEqual(
+        [
+            [
+                {gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
+                {owner_address, libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
+                {location, ?TEST_LOCATION},
+                {nonce, 1}
+            ]
+        ],
+        Gateways1
+    ),
 
-    FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
-                                                   AccountAddress = proplists:get_value(address, Account),
-                                                   case libp2p_crypto:bin_to_b58(Payer1) == AccountAddress orelse
-                                                        libp2p_crypto:bin_to_b58(Payer2) == AccountAddress orelse
-                                                        libp2p_crypto:bin_to_b58(Payer3) == AccountAddress
-                                                   of
-                                                       true -> [Account | Acc];
-                                                       false -> Acc
-                                                   end
-                                           end, [], Accounts),
-    lists:all(fun(Account) ->
-                      (Balance - Amount - Fee) == proplists:get_value(balance, Account)
-              end, FilteredExportedAccounts),
+    FilteredExportedAccounts = lists:foldl(
+        fun(Account, Acc) ->
+            AccountAddress = proplists:get_value(address, Account),
+            case
+                libp2p_crypto:bin_to_b58(Payer1) == AccountAddress orelse
+                    libp2p_crypto:bin_to_b58(Payer2) == AccountAddress orelse
+                    libp2p_crypto:bin_to_b58(Payer3) == AccountAddress
+            of
+                true -> [Account | Acc];
+                false -> Acc
+            end
+        end,
+        [],
+        Accounts
+    ),
+    lists:all(
+        fun(Account) ->
+            (Balance - Amount - Fee) == proplists:get_value(balance, Account)
+        end,
+        FilteredExportedAccounts
+    ),
 
     %% check all genesis members are included in the exported securities
     ?assertEqual(length(Securities), length(GenesisMembers)),
 
     %% check security balance for each member
-    lists:all(fun(Security) ->
-                      Token = proplists:get_value(token, Security),
-                      Token == Balance
-              end, Securities),
+    lists:all(
+        fun(Security) ->
+            Token = proplists:get_value(token, Security),
+            Token == Balance
+        end,
+        Securities
+    ),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
-
 
 delayed_ledger_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
@@ -908,8 +998,8 @@ delayed_ledger_test(Config) ->
     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(DelayedLedger)),
 
-        % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Payee = blockchain_swarm:pubkey_bin(),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
@@ -948,10 +1038,14 @@ delayed_ledger_test(Config) ->
     {ok, Entry2} = blockchain_ledger_v1:find_entry(Payee, blockchain_ledger_v1:new_context(Ledger)),
     ?assertEqual(Balance + 100, blockchain_ledger_entry_v1:balance(Entry2)),
 
-    {ok, Entry3} = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:new_context(DelayedLedger)),
+    {ok, Entry3} = blockchain_ledger_v1:find_entry(
+        Payer, blockchain_ledger_v1:new_context(DelayedLedger)
+    ),
     ?assertEqual(Balance - 50, blockchain_ledger_entry_v1:balance(Entry3)),
 
-    {ok, Entry4} = blockchain_ledger_v1:find_entry(Payee, blockchain_ledger_v1:new_context(DelayedLedger)),
+    {ok, Entry4} = blockchain_ledger_v1:find_entry(
+        Payee, blockchain_ledger_v1:new_context(DelayedLedger)
+    ),
     ?assertEqual(Balance + 50, blockchain_ledger_entry_v1:balance(Entry4)),
 
     % We should not allow to query prior delayed ledger and obviously neither in the futur
@@ -967,7 +1061,7 @@ delayed_ledger_test(Config) ->
     {ok, Entry6} = blockchain_ledger_v1:find_entry(Payee, LedgerAt),
     ?assertEqual(Balance + 99, blockchain_ledger_entry_v1:balance(Entry6)),
 
-     % Check balances of payer and payee in  delayed ledger again making sure context did not explode
+    % Check balances of payer and payee in  delayed ledger again making sure context did not explode
     {ok, Entry3} = blockchain_ledger_v1:find_entry(Payer, DelayedLedger),
     ?assertEqual(Balance - 50, blockchain_ledger_entry_v1:balance(Entry3)),
 
@@ -979,7 +1073,7 @@ fees_since_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
 
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Payee = blockchain_swarm:pubkey_bin(),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
@@ -996,8 +1090,9 @@ fees_since_test(Config) ->
     lists:foreach(
         fun(X) ->
             Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, X),
-            ExpectedFeeSize = blockchain_txn_payment_v1:calculate_fee(Tx, Chain),  %% works out at 3 dc
-            Tx1 = Tx#blockchain_txn_payment_v1_pb{fee=ExpectedFeeSize},
+            %% works out at 3 dc
+            ExpectedFeeSize = blockchain_txn_payment_v1:calculate_fee(Tx, Chain),
+            Tx1 = Tx#blockchain_txn_payment_v1_pb{fee = ExpectedFeeSize},
             SignedTx = blockchain_txn_payment_v1:sign(Tx1, SigFun),
             {ok, B} = test_utils:create_block(ConsensusMembers, [SignedTx]),
             _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm())
@@ -1007,7 +1102,7 @@ fees_since_test(Config) ->
 
     ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
-    ?assertEqual({ok, 100*10}, blockchain:fees_since(2, Chain)),
+    ?assertEqual({ok, 100 * 10}, blockchain:fees_since(2, Chain)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     ?assert(meck:validate(blockchain_txn_payment_v1)),
     meck:unload(blockchain_ledger_v1),
@@ -1019,7 +1114,7 @@ security_token_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_security_exchange_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1047,7 +1142,7 @@ routing_test(Config) ->
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
 
-    [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}} | _] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     RouterSigFun = libp2p_crypto:mk_sig_fun(RouterPrivKey),
 
@@ -1072,8 +1167,15 @@ routing_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
-    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+    Routing0 = blockchain_ledger_routing_v1:new(
+        OUI1,
+        Payer,
+        Addresses0,
+        Filter,
+        <<0:25/integer-unsigned-big,
+            (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+        0
+    ),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
@@ -1085,8 +1187,15 @@ routing_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
-    Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
+    Routing1 = blockchain_ledger_routing_v1:new(
+        OUI1,
+        Payer,
+        Addresses1,
+        Filter,
+        <<0:25/integer-unsigned-big,
+            (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+        1
+    ),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     OUITxn3 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 2),
@@ -1098,16 +1207,24 @@ routing_test(Config) ->
     OUITxn4a = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2a, 4),
     SignedOUITxn4a = blockchain_txn_routing_v1:sign(OUITxn4a, SigFun),
 
-    {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3, SignedOUITxn4, SignedOUITxn4a]),
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [
+        SignedOUITxn3, SignedOUITxn4, SignedOUITxn4a
+    ]),
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
 
     ok = test_utils:wait_until(fun() -> {ok, 4} == blockchain:height(Chain) end),
 
     {ok, Routing2} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
     %Routing2 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter2, <<0,0,0,127,255,254>>, 3),
-    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
-                  <<32:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
-                 blockchain_ledger_routing_v1:subnets(Routing2)),
+    ?assertEqual(
+        [
+            <<0:25/integer-unsigned-big,
+                (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+            <<32:25/integer-unsigned-big,
+                (blockchain_ledger_routing_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>
+        ],
+        blockchain_ledger_routing_v1:subnets(Routing2)
+    ),
     ?assertEqual([Filter2, Filter2a], blockchain_ledger_routing_v1:filters(Routing2)),
     ?assertEqual(4, blockchain_ledger_routing_v1:nonce(Routing2)),
 
@@ -1117,7 +1234,7 @@ routing_test(Config) ->
     SignedOUITxn5 = blockchain_txn_routing_v1:sign(OUITxn5, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
 
-    Filter4 = crypto:strong_rand_bytes(1024*1024),
+    Filter4 = crypto:strong_rand_bytes(1024 * 1024),
     OUITxn6 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter4, 5),
     SignedOUITxn6 = blockchain_txn_routing_v1:sign(OUITxn6, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6]),
@@ -1162,17 +1279,28 @@ routing_test(Config) ->
     OUITxn4d = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2d, 7),
     SignedOUITxn4d = blockchain_txn_routing_v1:sign(OUITxn4d, SigFun),
 
-    {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4b, SignedOUITxn4c, SignedOUITxn4d]),
+    {ok, Block3} = test_utils:create_block(ConsensusMembers, [
+        SignedOUITxn4b, SignedOUITxn4c, SignedOUITxn4d
+    ]),
     _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
 
     ok = test_utils:wait_until(fun() -> {ok, 5} == blockchain:height(Chain) end),
 
     {ok, Routing3} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
     %Routing2 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter2, <<0,0,0,127,255,254>>, 3),
-    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
-                  <<32:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
-                 blockchain_ledger_routing_v1:subnets(Routing3)),
-    ?assertEqual([Filter2, Filter2a, Filter2b, Filter2c, Filter2d], blockchain_ledger_routing_v1:filters(Routing3)),
+    ?assertEqual(
+        [
+            <<0:25/integer-unsigned-big,
+                (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+            <<32:25/integer-unsigned-big,
+                (blockchain_ledger_routing_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>
+        ],
+        blockchain_ledger_routing_v1:subnets(Routing3)
+    ),
+    ?assertEqual(
+        [Filter2, Filter2a, Filter2b, Filter2c, Filter2d],
+        blockchain_ledger_routing_v1:filters(Routing3)
+    ),
     ?assertEqual(7, blockchain_ledger_routing_v1:nonce(Routing3)),
 
     %% no more filters can be added
@@ -1192,7 +1320,9 @@ routing_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 6} == blockchain:height(Chain) end),
 
-    Routing4 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, Filter, <<0,0,4,127,255,254>>, 0),
+    Routing4 = blockchain_ledger_routing_v1:new(
+        OUI2, Payer, Addresses0, Filter, <<0, 0, 4, 127, 255, 254>>, 0
+    ),
     ?assertEqual({ok, Routing4}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     %% Test if router (in addresses can modify filters)
@@ -1238,7 +1368,7 @@ max_subnet_test(Config) ->
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
 
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
     meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
@@ -1262,8 +1392,15 @@ max_subnet_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
-    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+    Routing0 = blockchain_ledger_routing_v1:new(
+        OUI1,
+        Payer,
+        Addresses0,
+        Filter,
+        <<0:25/integer-unsigned-big,
+            (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+        0
+    ),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
@@ -1275,21 +1412,34 @@ max_subnet_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
-    Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
+    Routing1 = blockchain_ledger_routing_v1:new(
+        OUI1,
+        Payer,
+        Addresses1,
+        Filter,
+        <<0:25/integer-unsigned-big,
+            (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+        1
+    ),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    RoutingTxns = lists:foldl(fun(I, Acc) ->
-                                      T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, I),
-                                      ST = blockchain_txn_routing_v1:sign(T, SigFun),
-                                      [ST | Acc]
-                              end,
-                              [],
-                              lists:seq(2, 20)),
+    RoutingTxns = lists:foldl(
+        fun(I, Acc) ->
+            T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, I),
+            ST = blockchain_txn_routing_v1:sign(T, SigFun),
+            [ST | Acc]
+        end,
+        [],
+        lists:seq(2, 20)
+    ),
 
-    RoutingTxn21 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 21), SigFun),
+    RoutingTxn21 = blockchain_txn_routing_v1:sign(
+        blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 21), SigFun
+    ),
 
-    {error, {invalid_txns, [{RoutingTxn21, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
+    {error, {invalid_txns, [{RoutingTxn21, _InvalidReason}]}} = test_utils:create_block(
+        ConsensusMembers, RoutingTxns ++ [RoutingTxn21]
+    ),
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
@@ -1302,7 +1452,7 @@ block_save_failed_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1339,7 +1489,7 @@ absorb_failed_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1391,7 +1541,7 @@ missing_last_block_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1399,8 +1549,8 @@ missing_last_block_test(Config) ->
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
     meck:new(blockchain, [passthrough]),
     meck:expect(blockchain, save_block, fun(_B, _C) ->
-            %% just don't save it
-            ok
+        %% just don't save it
+        ok
     end),
     blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
     ?assert(meck:validate(blockchain)),
@@ -1443,7 +1593,7 @@ epoch_reward_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
 
-    [_, {PubKeyBin, {_, _PrivKey, _}}|_] = ConsensusMembers,
+    [_, {PubKeyBin, {_, _PrivKey, _}} | _] = ConsensusMembers,
 
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
@@ -1460,22 +1610,27 @@ epoch_reward_test(Config) ->
     % Add few empty blocks to fake epoch
     Start = 1,
     End = 30,
-    _Blocks = lists:reverse(lists:foldl(
-        fun(X, Acc) ->
-            Txns = case X =:= 15 of
-                false ->
-                    [];
-                true ->
-                    POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []),
-                    [POCReceiptTxn]
+    _Blocks = lists:reverse(
+        lists:foldl(
+            fun(X, Acc) ->
+                Txns =
+                    case X =:= 15 of
+                        false ->
+                            [];
+                        true ->
+                            POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(
+                                PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []
+                            ),
+                            [POCReceiptTxn]
+                    end,
+                {ok, B} = test_utils:create_block(ConsensusMembers, Txns),
+                _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm()),
+                [B | Acc]
             end,
-            {ok, B} = test_utils:create_block(ConsensusMembers, Txns),
-            _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm()),
-            [B|Acc]
-        end,
-        [],
-        lists:seq(1, End+2)
-    )),
+            [],
+            lists:seq(1, End + 2)
+        )
+    ),
     {ok, Rewards} = blockchain_txn_rewards_v1:calculate_rewards(Start, End, Chain),
     ct:pal("rewards ~p", [Rewards]),
     Tx = blockchain_txn_rewards_v1:new(Start, End, Rewards),
@@ -1499,7 +1654,7 @@ net_emissions_reward_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
 
-    [_, {PubKeyBin, {_, PrivKey, _}}|_] = ConsensusMembers,
+    [_, {PubKeyBin, {_, PrivKey, _}} | _] = ConsensusMembers,
 
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
@@ -1516,29 +1671,37 @@ net_emissions_reward_test(Config) ->
     % Add few empty blocks to fake epoch
     Start = 1,
     End = 31,
-    _Blocks = lists:reverse(lists:foldl(
-        fun(X, Acc) ->
-            Txns = case X =:= 15 of
-                false ->
-                    [];
-                true ->
-                    POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []),
-                    [POCReceiptTxn]
+    _Blocks = lists:reverse(
+        lists:foldl(
+            fun(X, Acc) ->
+                Txns =
+                    case X =:= 15 of
+                        false ->
+                            [];
+                        true ->
+                            POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(
+                                PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []
+                            ),
+                            [POCReceiptTxn]
+                    end,
+                {ok, B} = test_utils:create_block(ConsensusMembers, Txns),
+                _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm()),
+                [B | Acc]
             end,
-            {ok, B} = test_utils:create_block(ConsensusMembers, Txns),
-            _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm()),
-            [B|Acc]
-        end,
-        [],
-        lists:seq(1, 30)
-    )),
+            [],
+            lists:seq(1, 30)
+        )
+    ),
     Ledger = blockchain:ledger(Chain),
 
     ?assertEqual({ok, 0}, blockchain_ledger_v1:net_overage(Ledger)),
 
-    commit(fun(L) ->
-                   ok = blockchain_ledger_v1:add_hnt_burned(20000, L)
-           end, Ledger),
+    commit(
+        fun(L) ->
+            ok = blockchain_ledger_v1:add_hnt_burned(20000, L)
+        end,
+        Ledger
+    ),
 
     ?assertEqual({ok, 20000}, blockchain_ledger_v1:hnt_burned(Ledger)),
 
@@ -1562,24 +1725,27 @@ net_emissions_reward_test(Config) ->
     End2 = 62,
 
     lists:foldl(
-      fun(_, Acc) ->
-              Txns = [],
-              {ok, Bl} = test_utils:create_block(ConsensusMembers, Txns),
-              _ = blockchain_gossip_handler:add_block(Bl, Chain, self(), blockchain_swarm:swarm()),
-              Acc
+        fun(_, Acc) ->
+            Txns = [],
+            {ok, Bl} = test_utils:create_block(ConsensusMembers, Txns),
+            _ = blockchain_gossip_handler:add_block(Bl, Chain, self(), blockchain_swarm:swarm()),
+            Acc
         end,
         [],
-        lists:seq(1, 30)),
+        lists:seq(1, 30)
+    ),
 
-    commit(fun(L) ->
-                   ok = blockchain_ledger_v1:add_hnt_burned(80000, L)
-           end, Ledger),
+    commit(
+        fun(L) ->
+            ok = blockchain_ledger_v1:add_hnt_burned(80000, L)
+        end,
+        Ledger
+    ),
 
     {ok, Rewards2} = blockchain_txn_rewards_v2:calculate_rewards(Start2, End2, Chain),
     Tx2 = blockchain_txn_rewards_v2:new(Start2, End2, Rewards2),
     {ok, B2} = test_utils:create_block(ConsensusMembers, [Tx2]),
     _ = blockchain_gossip_handler:add_block(B2, Chain, self(), blockchain_swarm:swarm()),
-
 
     ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
     ?assertEqual({ok, 40000}, blockchain_ledger_v1:net_overage(Ledger)),
@@ -1588,22 +1754,24 @@ net_emissions_reward_test(Config) ->
     Start3 = 64,
     End3 = 93,
     lists:foldl(
-      fun(_, Acc) ->
-              Txns = [],
-              {ok, Bl} = test_utils:create_block(ConsensusMembers, Txns),
-              _ = blockchain_gossip_handler:add_block(Bl, Chain, self(), blockchain_swarm:swarm()),
-              Acc
+        fun(_, Acc) ->
+            Txns = [],
+            {ok, Bl} = test_utils:create_block(ConsensusMembers, Txns),
+            _ = blockchain_gossip_handler:add_block(Bl, Chain, self(), blockchain_swarm:swarm()),
+            Acc
         end,
         [],
-        lists:seq(1, 30)),
+        lists:seq(1, 30)
+    ),
 
     ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
 
-    {ok, Rewards3} = blockchain_txn_rewards_v2:calculate_rewards(Start3, End3, blockchain:ledger(Ledger, Chain)),
+    {ok, Rewards3} = blockchain_txn_rewards_v2:calculate_rewards(
+        Start3, End3, blockchain:ledger(Ledger, Chain)
+    ),
     Tx3 = blockchain_txn_rewards_v2:new(Start3, End3, Rewards3),
     {ok, B3} = test_utils:create_block(ConsensusMembers, [Tx3]),
     _ = blockchain_gossip_handler:add_block(B3, Chain, self(), blockchain_swarm:swarm()),
-
 
     ?assertEqual(102999, blockchain_ledger_v1:query_circulating_hnt(Ledger)),
     ?assertEqual({ok, 0}, blockchain_ledger_v1:hnt_burned(Ledger)),
@@ -1612,8 +1780,9 @@ net_emissions_reward_test(Config) ->
     %% Burn 3000 with token burn and check it appears on the ledger
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     TBTxn = blockchain_txn_token_burn_v1:sign(
-              blockchain_txn_token_burn_v1:new(PubKeyBin, 3000, 1),
-              SigFun),
+        blockchain_txn_token_burn_v1:new(PubKeyBin, 3000, 1),
+        SigFun
+    ),
 
     {ok, B4} = test_utils:create_block(ConsensusMembers, [TBTxn], #{}, false),
     _ = blockchain_gossip_handler:add_block(B4, Chain, self(), blockchain_swarm:swarm()),
@@ -1648,22 +1817,24 @@ election_test(Config) ->
     %% add random alpha and beta to gateways
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
-         Alpha = (rand:uniform() * 10.0) + 1.0,
-         Beta = (rand:uniform() * 10.0) + 1.0,
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+            Alpha = (rand:uniform() * 10.0) + 1.0,
+            Beta = (rand:uniform() * 10.0) + 1.0,
+            I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+            blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
     ct:pal("old ~p", [OldGroup]),
 
     %% generate new group of the same length
-    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
-    New1 =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+    New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
 
     ct:pal("new ~p new1 ~p", [New, New1]),
 
@@ -1675,12 +1846,14 @@ election_test(Config) ->
 
     %% confirm that they're sorted by score
     Scored =
-        [begin
-             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
-             {Score, Addr}
-         end
-         || Addr <- New],
+        [
+            begin
+                {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+                {Score, Addr}
+            end
+         || Addr <- New
+        ],
 
     ct:pal("scored ~p", [Scored]),
 
@@ -1708,14 +1881,16 @@ election_v3_test(Config) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
     %% give good, equal scores to everyone
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
-         Alpha = 20.0,
-         Beta = 1.0,
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+            Alpha = 20.0,
+            Beta = 1.0,
+            I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+            blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
     %% we need to add some blocks here.   they have to have seen
@@ -1729,22 +1904,45 @@ election_v3_test(Config) ->
 
     %% it's possible to test unseen but bba-present here, but that seems impossible?
 
-    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
-                            || I <- lists:seq(1, N)]),
-    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
-                            || I <- lists:seq(1, N)]),
+    SeenA = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> true;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
+    SeenB = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
     Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
 
-    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
-                          || I <- lists:seq(1, N)]),
+    BBA0 = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                6 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
 
     {_, Seen} =
-        lists:foldl(fun(S, {I, Acc})->
-                            V = blockchain_utils:map_to_bitvector(S),
-                            {I + 1, [{I, V} | Acc]}
-                    end,
-                    {1, []},
-                    Seen0),
+        lists:foldl(
+            fun(S, {I, Acc}) ->
+                V = blockchain_utils:map_to_bitvector(S),
+                {I + 1, [{I, V} | Acc]}
+            end,
+            {1, []},
+            Seen0
+        ),
     BBA = blockchain_utils:map_to_bitvector(BBA0),
 
     %% maybe these should vary more?
@@ -1752,12 +1950,14 @@ election_v3_test(Config) ->
     BlockCt = 50,
 
     lists:foreach(
-      fun(_) ->
-              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
-                                                                      bba_completion => BBA}),
-              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
-      end,
-      lists:seq(1, BlockCt)
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{
+                seen_votes => Seen,
+                bba_completion => BBA
+            }),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, BlockCt)
     ),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -1778,23 +1978,26 @@ election_v3_test(Config) ->
 
     %% confirm that they're sorted by score
     Scored =
-        [begin
-             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
-             {Score, Addr}
-         end
-         || Addr <- New],
+        [
+            begin
+                {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+                {Score, Addr}
+            end
+         || Addr <- New
+        ],
 
     ScoredOldGroup =
-        [begin
-             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             %% this is at the wrong res but it shouldn't matter?
-             Loc = blockchain_ledger_gateway_v2:location(I),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
-             {Score, Loc, Addr}
-         end
-         || Addr <- OldGroup],
-
+        [
+            begin
+                {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                %% this is at the wrong res but it shouldn't matter?
+                Loc = blockchain_ledger_gateway_v2:location(I),
+                {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+                {Score, Loc, Addr}
+            end
+         || Addr <- OldGroup
+        ],
 
     ct:pal("scored ~p", [Scored]),
 
@@ -1816,7 +2019,9 @@ election_v3_test(Config) ->
     {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
-    FiveTarget = normalize_float(ControlScore - normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))),
+    FiveTarget = normalize_float(
+        ControlScore - normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))
+    ),
     ?assertEqual(FiveTarget, FiveScore),
 
     %% six should have taken only the BBA hit
@@ -1841,14 +2046,16 @@ election_v4_test(Config) ->
     %% add random alpha and beta to gateways
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
-         Alpha = 1.0 + rand:uniform(20),
-         Beta = 1.0 + rand:uniform(4),
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+            Alpha = 1.0 + rand:uniform(20),
+            Beta = 1.0 + rand:uniform(4),
+            I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+            blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
     %% we need to add some blocks here.   they have to have seen
@@ -1862,22 +2069,45 @@ election_v4_test(Config) ->
 
     %% it's possible to test unseen but bba-present here, but that seems impossible?
 
-    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
-                            || I <- lists:seq(1, N)]),
-    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
-                            || I <- lists:seq(1, N)]),
+    SeenA = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> true;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
+    SeenB = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
     Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
 
-    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
-                          || I <- lists:seq(1, N)]),
+    BBA0 = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                6 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
 
     {_, Seen} =
-        lists:foldl(fun(S, {I, Acc})->
-                            V = blockchain_utils:map_to_bitvector(S),
-                            {I + 1, [{I, V} | Acc]}
-                    end,
-                    {1, []},
-                    Seen0),
+        lists:foldl(
+            fun(S, {I, Acc}) ->
+                V = blockchain_utils:map_to_bitvector(S),
+                {I + 1, [{I, V} | Acc]}
+            end,
+            {1, []},
+            Seen0
+        ),
     BBA = blockchain_utils:map_to_bitvector(BBA0),
 
     %% maybe these should vary more?
@@ -1885,12 +2115,14 @@ election_v4_test(Config) ->
     BlockCt = 50,
 
     lists:foreach(
-      fun(_) ->
-              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
-                                                                      bba_completion => BBA}),
-              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
-      end,
-      lists:seq(1, BlockCt)
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{
+                seen_votes => Seen,
+                bba_completion => BBA
+            }),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, BlockCt)
     ),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -1910,26 +2142,29 @@ election_v4_test(Config) ->
     ?assertNotEqual(New, New1),
 
     Scored =
-        [begin
-             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
-             {Score, Addr}
-         end
-         || Addr <- New],
+        [
+            begin
+                {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+                {Score, Addr}
+            end
+         || Addr <- New
+        ],
 
     %% it should be really unlikely that they're sorted by score now
     ?assertNotEqual(lists:reverse(lists:sort(Scored)), Scored),
 
     ScoredOldGroup =
-        [begin
-             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             %% this is at the wrong res but it shouldn't matter?
-             Loc = blockchain_ledger_gateway_v2:location(I),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
-             {Score, Loc, Addr}
-         end
-         || Addr <- OldGroup],
-
+        [
+            begin
+                {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                %% this is at the wrong res but it shouldn't matter?
+                Loc = blockchain_ledger_gateway_v2:location(I),
+                {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+                {Score, Loc, Addr}
+            end
+         || Addr <- OldGroup
+        ],
 
     ct:pal("scored ~p", [Scored]),
 
@@ -1950,13 +2185,17 @@ election_v4_test(Config) ->
     {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
-    FiveTarget = normalize_float(element(1, lists:nth(5, ScoredOldGroup)) -
-                                     normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))),
+    FiveTarget = normalize_float(
+        element(1, lists:nth(5, ScoredOldGroup)) -
+            normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))
+    ),
     ?assertEqual(FiveTarget, FiveScore),
 
     %% six should have taken only the BBA hit
-    SixTarget = normalize_float(element(1, lists:nth(6, ScoredOldGroup))
-                                - (BlockCt * BBAPenalty)),
+    SixTarget = normalize_float(
+        element(1, lists:nth(6, ScoredOldGroup)) -
+            (BlockCt * BBAPenalty)
+    ),
     ?assertEqual(SixTarget, SixScore),
 
     %% seven should not have been penalized
@@ -1982,15 +2221,17 @@ light_gw_election_v4_test(Config) ->
     %% add random alpha and beta to gateways
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
-         Alpha = 1.0 + rand:uniform(20),
-         Beta = 1.0 + rand:uniform(4),
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         I3 = blockchain_ledger_gateway_v2:mode(light, I2),
-         blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+            Alpha = 1.0 + rand:uniform(20),
+            Beta = 1.0 + rand:uniform(4),
+            I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+            I3 = blockchain_ledger_gateway_v2:mode(light, I2),
+            blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
     %% we need to add some blocks here.   they have to have seen
@@ -2004,22 +2245,45 @@ light_gw_election_v4_test(Config) ->
 
     %% it's possible to test unseen but bba-present here, but that seems impossible?
 
-    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
-                            || I <- lists:seq(1, N)]),
-    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
-                            || I <- lists:seq(1, N)]),
+    SeenA = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> true;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
+    SeenB = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
     Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
 
-    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
-                          || I <- lists:seq(1, N)]),
+    BBA0 = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                6 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
 
     {_, Seen} =
-        lists:foldl(fun(S, {I, Acc})->
-                            V = blockchain_utils:map_to_bitvector(S),
-                            {I + 1, [{I, V} | Acc]}
-                    end,
-                    {1, []},
-                    Seen0),
+        lists:foldl(
+            fun(S, {I, Acc}) ->
+                V = blockchain_utils:map_to_bitvector(S),
+                {I + 1, [{I, V} | Acc]}
+            end,
+            {1, []},
+            Seen0
+        ),
     BBA = blockchain_utils:map_to_bitvector(BBA0),
 
     %% maybe these should vary more?
@@ -2027,12 +2291,14 @@ light_gw_election_v4_test(Config) ->
     BlockCt = 50,
 
     lists:foreach(
-      fun(_) ->
-              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
-                                                                      bba_completion => BBA}),
-              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
-      end,
-      lists:seq(1, BlockCt)
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{
+                seen_votes => Seen,
+                bba_completion => BBA
+            }),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, BlockCt)
     ),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -2045,12 +2311,14 @@ light_gw_election_v4_test(Config) ->
     Ledger2 = blockchain_ledger_v1:new_context(Ledger),
     {_, _SubGenesisMembers} = lists:split(2, GenesisMembers),
 
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger2),
-         I2 = blockchain_ledger_gateway_v2:mode(light, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger2),
+            I2 = blockchain_ledger_gateway_v2:mode(light, I),
+            blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger2),
 
     %% generate new group of the same length
@@ -2065,7 +2333,6 @@ light_gw_election_v4_test(Config) ->
     ?assertEqual(OldGroup, New),
     ?assertEqual(OldGroup, New1),
     ?assertEqual(New, New1),
-
 
     ok.
 
@@ -2087,15 +2354,17 @@ dataonly_gw_election_v4_test(Config) ->
     %% add random alpha and beta to gateways
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
-         Alpha = 1.0 + rand:uniform(20),
-         Beta = 1.0 + rand:uniform(4),
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         I3 = blockchain_ledger_gateway_v2:mode(dataonly, I2),
-         blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+            Alpha = 1.0 + rand:uniform(20),
+            Beta = 1.0 + rand:uniform(4),
+            I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+            I3 = blockchain_ledger_gateway_v2:mode(dataonly, I2),
+            blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
     %% we need to add some blocks here.   they have to have seen
@@ -2109,22 +2378,45 @@ dataonly_gw_election_v4_test(Config) ->
 
     %% it's possible to test unseen but bba-present here, but that seems impossible?
 
-    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
-                            || I <- lists:seq(1, N)]),
-    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
-                            || I <- lists:seq(1, N)]),
+    SeenA = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> true;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
+    SeenB = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
     Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
 
-    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
-                          || I <- lists:seq(1, N)]),
+    BBA0 = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                6 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
 
     {_, Seen} =
-        lists:foldl(fun(S, {I, Acc})->
-                            V = blockchain_utils:map_to_bitvector(S),
-                            {I + 1, [{I, V} | Acc]}
-                    end,
-                    {1, []},
-                    Seen0),
+        lists:foldl(
+            fun(S, {I, Acc}) ->
+                V = blockchain_utils:map_to_bitvector(S),
+                {I + 1, [{I, V} | Acc]}
+            end,
+            {1, []},
+            Seen0
+        ),
     BBA = blockchain_utils:map_to_bitvector(BBA0),
 
     %% maybe these should vary more?
@@ -2132,12 +2424,14 @@ dataonly_gw_election_v4_test(Config) ->
     BlockCt = 50,
 
     lists:foreach(
-      fun(_) ->
-              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
-                                                                      bba_completion => BBA}),
-              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
-      end,
-      lists:seq(1, BlockCt)
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{
+                seen_votes => Seen,
+                bba_completion => BBA
+            }),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, BlockCt)
     ),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -2150,12 +2444,14 @@ dataonly_gw_election_v4_test(Config) ->
     Ledger2 = blockchain_ledger_v1:new_context(Ledger),
     {_, _SubGenesisMembers} = lists:split(2, GenesisMembers),
 
-    [begin
-         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger2),
-         I2 = blockchain_ledger_gateway_v2:mode(dataonly, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
-     end
-     || {Addr, _} <- GenesisMembers],
+    [
+        begin
+            {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger2),
+            I2 = blockchain_ledger_gateway_v2:mode(dataonly, I),
+            blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
+        end
+     || {Addr, _} <- GenesisMembers
+    ],
     ok = blockchain_ledger_v1:commit_context(Ledger2),
 
     %% generate new group of the same length
@@ -2170,7 +2466,6 @@ dataonly_gw_election_v4_test(Config) ->
     ?assertEqual(OldGroup, New),
     ?assertEqual(OldGroup, New1),
     ?assertEqual(New, New1),
-
 
     ok.
 
@@ -2196,36 +2491,62 @@ election_v5_test(Config) ->
 
     %% it's possible to test unseen but bba-present here, but that seems impossible?
 
-    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
-                            || I <- lists:seq(1, N)]),
-    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
-                            || I <- lists:seq(1, N)]),
+    SeenA = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> true;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
+    SeenB = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
     Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
 
-    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
-                          || I <- lists:seq(1, N)]),
+    BBA0 = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                6 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
 
     {_, Seen} =
-        lists:foldl(fun(S, {I, Acc})->
-                            V = blockchain_utils:map_to_bitvector(S),
-                            {I + 1, [{I, V} | Acc]}
-                    end,
-                    {1, []},
-                    Seen0),
+        lists:foldl(
+            fun(S, {I, Acc}) ->
+                V = blockchain_utils:map_to_bitvector(S),
+                {I + 1, [{I, V} | Acc]}
+            end,
+            {1, []},
+            Seen0
+        ),
     BBA = blockchain_utils:map_to_bitvector(BBA0),
 
     %% maybe these should vary more?
 
     BlockCt0 = 50,
-    BlockCt = 49, % different offset
+    % different offset
+    BlockCt = 49,
 
     lists:foreach(
-      fun(_) ->
-              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
-                                                                      bba_completion => BBA}),
-              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
-      end,
-      lists:seq(1, BlockCt0)
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{
+                seen_votes => Seen,
+                bba_completion => BBA
+            }),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, BlockCt0)
     ),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -2248,17 +2569,18 @@ election_v5_test(Config) ->
     ?assertEqual(lists:usort(New), lists:sort(New)),
     ?assertEqual(lists:usort(New1), lists:sort(New1)),
 
-
     ct:pal("diff ~p", [New -- OldGroup]),
 
     ?assertEqual(2, length(New -- OldGroup)),
     ?assertEqual(3, length(New1 -- OldGroup)),
 
     OldGroupVals =
-        [begin
-             {val_v1, 1.0, 1, Addr}
-         end
-         || Addr <- OldGroup],
+        [
+            begin
+                {val_v1, 1.0, 1, Addr}
+            end
+         || Addr <- OldGroup
+        ],
 
     Adjusted = blockchain_election:adjust_old_group_v2(OldGroupVals, Ledger),
 
@@ -2272,15 +2594,19 @@ election_v5_test(Config) ->
     {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
-    FiveTarget = normalize_float(element(2, lists:nth(5, OldGroupVals)) +
-                                     normalize_float((BlockCt * BBAPenalty) + (BlockCt * SeenPenalty))),
+    FiveTarget = normalize_float(
+        element(2, lists:nth(5, OldGroupVals)) +
+            normalize_float((BlockCt * BBAPenalty) + (BlockCt * SeenPenalty))
+    ),
     ?assert(FiveTarget > FiveScore),
     ?assertEqual(2.4896087646484375, FiveScore),
 
     %% six should have taken only the BBA hit
     %% move to static targets here because this is no longer easy to calculate
-    SixTarget = normalize_float(element(2, lists:nth(6, OldGroupVals))
-                                + (BlockCt * BBAPenalty)),
+    SixTarget = normalize_float(
+        element(2, lists:nth(6, OldGroupVals)) +
+            (BlockCt * BBAPenalty)
+    ),
     ?assert(SixTarget > SixScore),
     ?assertEqual(1.372406005859375, SixScore),
 
@@ -2312,36 +2638,62 @@ election_v6_test(Config) ->
 
     %% it's possible to test unseen but bba-present here, but that seems impossible?
 
-    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
-                            || I <- lists:seq(1, N)]),
-    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
-                            || I <- lists:seq(1, N)]),
+    SeenA = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> true;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
+    SeenB = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                7 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
     Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
 
-    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
-                          || I <- lists:seq(1, N)]),
+    BBA0 = maps:from_list([
+        {I,
+            case I of
+                5 -> false;
+                6 -> false;
+                _ -> true
+            end}
+     || I <- lists:seq(1, N)
+    ]),
 
     {_, Seen} =
-        lists:foldl(fun(S, {I, Acc})->
-                            V = blockchain_utils:map_to_bitvector(S),
-                            {I + 1, [{I, V} | Acc]}
-                    end,
-                    {1, []},
-                    Seen0),
+        lists:foldl(
+            fun(S, {I, Acc}) ->
+                V = blockchain_utils:map_to_bitvector(S),
+                {I + 1, [{I, V} | Acc]}
+            end,
+            {1, []},
+            Seen0
+        ),
     BBA = blockchain_utils:map_to_bitvector(BBA0),
 
     %% maybe these should vary more?
 
     BlockCt0 = 50,
-    BlockCt = 49, % different offset
+    % different offset
+    BlockCt = 49,
 
     lists:foreach(
-      fun(_) ->
-              {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
-                                                                            bba_completion => BBA}),
-              _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
-      end,
-      lists:seq(1, BlockCt0)
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, [], #{
+                seen_votes => Seen,
+                bba_completion => BBA
+            }),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, BlockCt0)
     ),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -2368,10 +2720,12 @@ election_v6_test(Config) ->
     ?assertEqual(3, length(New1 -- OldGroup)),
 
     OldGroupVals =
-        [begin
-             {val_v1, 1.0, 1, Addr}
-         end
-         || Addr <- OldGroup],
+        [
+            begin
+                {val_v1, 1.0, 1, Addr}
+            end
+         || Addr <- OldGroup
+        ],
 
     Adjusted = blockchain_election:adjust_old_group_v2(OldGroupVals, Ledger),
 
@@ -2385,15 +2739,19 @@ election_v6_test(Config) ->
     {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
-    FiveTarget = normalize_float(element(2, lists:nth(5, OldGroupVals)) +
-                                     normalize_float((BlockCt * BBAPenalty) + (BlockCt * SeenPenalty))),
+    FiveTarget = normalize_float(
+        element(2, lists:nth(5, OldGroupVals)) +
+            normalize_float((BlockCt * BBAPenalty) + (BlockCt * SeenPenalty))
+    ),
     ?assert(FiveTarget > FiveScore),
     ?assertEqual(2.4896087646484375, FiveScore),
 
     %% six should have taken only the BBA hit
     %% move to static targets here because this is no longer easy to calculate
-    SixTarget = normalize_float(element(2, lists:nth(6, OldGroupVals))
-                                + (BlockCt * BBAPenalty)),
+    SixTarget = normalize_float(
+        element(2, lists:nth(6, OldGroupVals)) +
+            (BlockCt * BBAPenalty)
+    ),
     ?assert(SixTarget > SixScore),
     ?assertEqual(1.372406005859375, SixScore),
 
@@ -2425,17 +2783,18 @@ chain_vars_test(Config) ->
     %% Add some blocks,
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
-                {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(garbage_value, Ledger) of % ignore "?"
-                    {error, not_found} when Height < (Delay + 1) ->
-                        ok;
-                    {ok, 2} when Height >= (Delay + 1) ->
-                        ok;
-                    Res ->
-                        throw({error, {chain_var_wrong_height, Res, Height}})
-                end
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+            {ok, Height} = blockchain:height(Chain),
+            % ignore "?"
+            case blockchain:config(garbage_value, Ledger) of
+                {error, not_found} when Height < (Delay + 1) ->
+                    ok;
+                {ok, 2} when Height >= (Delay + 1) ->
+                    ok;
+                Res ->
+                    throw({error, {chain_var_wrong_height, Res, Height}})
+            end
         end,
         lists:seq(1, 15)
     ),
@@ -2465,17 +2824,18 @@ chain_vars_set_unset_test(Config) ->
     %% Add some blocks,
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
-                {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(garbage_value, Ledger) of % ignore "?"
-                    {error, not_found} when Height < (Delay + 1) ->
-                        ok;
-                    {ok, 2} when Height >= (Delay + 1) ->
-                        ok;
-                    Res ->
-                        throw({error, {chain_var_wrong_height, Res, Height}})
-                end
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+            {ok, Height} = blockchain:height(Chain),
+            % ignore "?"
+            case blockchain:config(garbage_value, Ledger) of
+                {error, not_found} when Height < (Delay + 1) ->
+                    ok;
+                {ok, 2} when Height >= (Delay + 1) ->
+                    ok;
+                Res ->
+                    throw({error, {chain_var_wrong_height, Res, Height}})
+            end
         end,
         lists:seq(1, 15)
     ),
@@ -2492,18 +2852,21 @@ chain_vars_set_unset_test(Config) ->
     %% Add some blocks,
     lists:foreach(
         fun(_) ->
-                {ok, Block1} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:swarm()),
-                {ok, Height1} = blockchain:height(Chain),
-                ct:pal("Height1 ~p", [Height1]),
-                case blockchain:config(garbage_value, Ledger) of % ignore "?"
-                    {ok, 2} when Height1 < (Height + Delay + 1) ->
-                        ok;
-                    {error, not_found} when Height1 >= (Height + Delay) ->
-                        ok;
-                    Res ->
-                        throw({error, {chain_var_wrong_height, Res, Height1, Height + Delay + 1}})
-                end
+            {ok, Block1} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(
+                Block1, Chain, self(), blockchain_swarm:swarm()
+            ),
+            {ok, Height1} = blockchain:height(Chain),
+            ct:pal("Height1 ~p", [Height1]),
+            % ignore "?"
+            case blockchain:config(garbage_value, Ledger) of
+                {ok, 2} when Height1 < (Height + Delay + 1) ->
+                    ok;
+                {error, not_found} when Height1 >= (Height + Delay) ->
+                    ok;
+                Res ->
+                    throw({error, {chain_var_wrong_height, Res, Height1, Height + Delay + 1}})
+            end
         end,
         lists:seq(1, 15)
     ),
@@ -2516,7 +2879,7 @@ token_burn_test(Config) ->
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
 
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Ledger = blockchain:ledger(Chain),
 
@@ -2545,7 +2908,9 @@ token_burn_test(Config) ->
     % Step 2: Token burn txn (without an oracle price set) should fail and stay at same block
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 2),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
-    {error, {invalid_txns, [{SignedBurnTx0, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    {error, {invalid_txns, [{SignedBurnTx0, _InvalidReason}]}} = test_utils:create_block(
+        ConsensusMembers, [SignedBurnTx0]
+    ),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -2559,12 +2924,12 @@ token_burn_test(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
         end,
         lists:seq(1, 20)
     ),
@@ -2598,7 +2963,8 @@ token_burn_test(Config) ->
     ?assertEqual(Balance + 2500 + 500, blockchain_ledger_entry_v1:balance(NewEntry3)),
     {ok, NewEntry4} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10 - 500, blockchain_ledger_entry_v1:balance(NewEntry4)),
-    TxnFee = 0, %% default fee will be zero
+    %% default fee will be zero
+    TxnFee = 0,
     {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     DCBalance2 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry2),
     ?assertEqual((10 * OP + DCBalance0) - TxnFee, DCBalance2),
@@ -2613,7 +2979,7 @@ payer_test(Config) ->
     Chain = ?config(chain, Config),
     Swarm = ?config(swarm, Config),
 
-    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}} | _] = ConsensusMembers,
     PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
     Ledger = blockchain:ledger(Chain),
@@ -2628,21 +2994,25 @@ payer_test(Config) ->
     % TODO: setup actual onchain oracle prices, get rid of these mecks
     OP = 1000,
     DefaultTxnFee = 0,
-    DefaultStakingFee = 1, %% NOTE not all txns have a default staking fee of 1, some are 0, be aware
+    %% NOTE not all txns have a default staking fee of 1, some are 0, be aware
+    DefaultStakingFee = 1,
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
-    meck:expect(blockchain_ledger_v1, config, fun(sc_version, _) -> {ok, 2};
-                                              (A, B) -> blockchain_ledger_v1_meck_original:config(A, B) end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
+    meck:expect(blockchain_ledger_v1, config, fun
+        (sc_version, _) -> {ok, 2};
+        (A, B) -> blockchain_ledger_v1_meck_original:config(A, B)
+    end),
 
     Blocks = lists:map(
-               fun(_) ->
-                       {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                       _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
-                       Block
-               end,
-               lists:seq(1, 20)),
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+            Block
+        end,
+        lists:seq(1, 20)
+    ),
     ?assertEqual({ok, OP}, blockchain_ledger_v1:current_oracle_price(Ledger)),
 
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 1),
@@ -2657,7 +3027,7 @@ payer_test(Config) ->
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
-    ?assertEqual(10*OP + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    ?assertEqual(10 * OP + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     OUI1 = 1,
@@ -2667,22 +3037,35 @@ payer_test(Config) ->
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
-
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer),
     SignedAddGatewayTx0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
-    SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTx0, GatewaySigFun),
-    SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedAddGatewayTx1, PayerSigFun),
+    SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(
+        SignedAddGatewayTx0, GatewaySigFun
+    ),
+    SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(
+        SignedAddGatewayTx1, PayerSigFun
+    ),
 
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1),
-    SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
-    SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(SignedAssertLocationTx0, OwnerSigFun),
-    SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(
+        Gateway, Owner, Payer, ?TEST_LOCATION, 1
+    ),
+    SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationRequestTx, GatewaySigFun
+    ),
+    SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(
+        SignedAssertLocationTx0, OwnerSigFun
+    ),
+    SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(
+        SignedAssertLocationTx1, PayerSigFun
+    ),
 
-    {ok, Block23} = test_utils:create_block(ConsensusMembers, [SignedOUITxn1, SignedAddGatewayTx2, SignedAssertLocationTx2]),
+    {ok, Block23} = test_utils:create_block(ConsensusMembers, [
+        SignedOUITxn1, SignedAddGatewayTx2, SignedAssertLocationTx2
+    ]),
     _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), blockchain_swarm:swarm()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
@@ -2690,10 +3073,14 @@ payer_test(Config) ->
     ?assertEqual({ok, 23}, blockchain:height(Chain)),
     ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
     {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
-    ?assertEqual((10*OP-((DefaultTxnFee + DefaultStakingFee)*3) + DCBalance0), blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)),
+    ?assertEqual(
+        (10 * OP - ((DefaultTxnFee + DefaultStakingFee) * 3) + DCBalance0),
+        blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)
+    ),
 
-
-    Routing = blockchain_ledger_routing_v1:new(1, Owner, Addresses0, Filter, <<0,0,0,127,255,254>>, 0),
+    Routing = blockchain_ledger_routing_v1:new(
+        1, Owner, Addresses0, Filter, <<0, 0, 0, 127, 255, 254>>, 0
+    ),
     ?assertEqual({ok, Routing}, blockchain_ledger_v1:find_routing(1, Ledger)),
 
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
@@ -2708,15 +3095,24 @@ payer_test(Config) ->
     ?assertEqual({ok, 23}, blockchain:height(NewChain)),
     ?assertEqual({ok, Block23}, blockchain:get_block(23, NewChain)),
     {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewChain)),
-    ?assertEqual((10*OP-((DefaultTxnFee + DefaultStakingFee )*3)) + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)),
+    ?assertEqual(
+        (10 * OP - ((DefaultTxnFee + DefaultStakingFee) * 3)) + DCBalance0,
+        blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)
+    ),
 
     blockchain:delete_block(Block22, NewChain),
 
-    ?assertEqual({error, {missing_block, blockchain_block:hash_block(Block22), blockchain_block:height(Block22)}}, blockchain:reset_ledger(NewChain)),
+    ?assertEqual(
+        {error,
+            {missing_block, blockchain_block:hash_block(Block22), blockchain_block:height(Block22)}},
+        blockchain:reset_ledger(NewChain)
+    ),
 
     {ok, NewerChain} = blockchain:reset_ledger(19, NewChain),
 
-    ?assertEqual(blockchain:head_hash(NewerChain), {ok, blockchain_block:hash_block(lists:nth(18, Blocks))}),
+    ?assertEqual(
+        blockchain:head_hash(NewerChain), {ok, blockchain_block:hash_block(lists:nth(18, Blocks))}
+    ),
     ?assertEqual({ok, 19}, blockchain:height(NewerChain)),
     ?assertEqual({ok, lists:nth(18, Blocks)}, blockchain:head_block(NewerChain)),
     ?assertEqual({ok, lists:nth(18, Blocks)}, blockchain:get_block(19, NewerChain)),
@@ -2728,7 +3124,10 @@ payer_test(Config) ->
     ?assertEqual({ok, 23}, blockchain:height(NewerChain)),
     ?assertEqual({ok, Block23}, blockchain:get_block(23, NewerChain)),
     {ok, DCEntry2} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
-    ?assertEqual((10*OP-((DefaultTxnFee + DefaultStakingFee )*3)) + DCBalance0, blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)),
+    ?assertEqual(
+        (10 * OP - ((DefaultTxnFee + DefaultStakingFee) * 3)) + DCBalance0,
+        blockchain_ledger_data_credits_entry_v1:balance(DCEntry2)
+    ),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
@@ -2756,7 +3155,7 @@ poc_sync_interval_test(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     ok = dump_empty_blocks(Chain, ConsensusMembers, 20),
 
@@ -2784,7 +3183,9 @@ poc_sync_interval_test(Config) ->
     %% Add gateway with a location
     {Gateway, GatewaySigFun} = create_gateway(),
     SignedAddGatewayTx = fake_add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun),
-    SignedAssertLocTx = fake_assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, ?TEST_LOCATION),
+    SignedAssertLocTx = fake_assert_location(
+        Owner, OwnerSigFun, Gateway, GatewaySigFun, ?TEST_LOCATION
+    ),
     Txns = [SignedAddGatewayTx, SignedAssertLocTx],
 
     %% Put the txns in a block
@@ -2808,11 +3209,14 @@ poc_sync_interval_test(Config) ->
     %% Prep chain vars
     POCVersion = 2,
     POCChallengeSyncInterval = 10,
-    VarTxn2 = fake_var_txn(Priv,
-                           3,
-                           #{poc_version => POCVersion,
-                             poc_challenge_sync_interval => POCChallengeSyncInterval}
-                          ),
+    VarTxn2 = fake_var_txn(
+        Priv,
+        3,
+        #{
+            poc_version => POCVersion,
+            poc_challenge_sync_interval => POCChallengeSyncInterval
+        }
+    ),
 
     %% Forge a chain var block
     {ok, Block24} = test_utils:create_block(ConsensusMembers, [VarTxn2]),
@@ -2825,10 +3229,14 @@ poc_sync_interval_test(Config) ->
     ok = dump_empty_blocks(Chain, ConsensusMembers, 20),
 
     %% Chain vars should have kicked in by now
-    ?assertEqual({ok, POCVersion},
-                 blockchain_ledger_v1:config(?poc_version, Ledger)),
-    ?assertEqual({ok, POCChallengeSyncInterval},
-                 blockchain_ledger_v1:config(?poc_challenge_sync_interval, Ledger)),
+    ?assertEqual(
+        {ok, POCVersion},
+        blockchain_ledger_v1:config(?poc_version, Ledger)
+    ),
+    ?assertEqual(
+        {ok, POCChallengeSyncInterval},
+        blockchain_ledger_v1:config(?poc_challenge_sync_interval, Ledger)
+    ),
 
     %% Chain should have moved further up
     ?assertEqual({ok, 44}, blockchain:height(Chain)),
@@ -2868,7 +3276,7 @@ zero_payment_v1_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Amount = 0,
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 1),
@@ -2885,7 +3293,7 @@ negative_payment_v1_test(Config) ->
     Chain = ?config(chain, Config),
 
     % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Amount = -100,
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 1),
@@ -2949,7 +3357,7 @@ update_gateway_oui_test(Config) ->
     Swarm = proplists:get_value(swarm, Config),
     Ledger = blockchain:ledger(Chain),
 
-    [_, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Owner, {_, OwnerPrivKey, _}} | _] = ConsensusMembers,
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
     % Step 3: fake an oracle price and a burn price, these figures are not representative
@@ -2958,12 +3366,12 @@ update_gateway_oui_test(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
         end,
         lists:seq(1, 20)
     ),
@@ -2984,13 +3392,17 @@ update_gateway_oui_test(Config) ->
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     AddGatewayTxn = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTxn = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, OwnerSigFun),
-    SignedGatewayAddGatewayTxn = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTxn, GatewaySigFun),
+    SignedGatewayAddGatewayTxn = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGatewayTxn, GatewaySigFun
+    ),
     OUI1 = 1,
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
     OUITxn = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses, Filter, 8),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
-    {ok, Block23} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
+    {ok, Block23} = test_utils:create_block(ConsensusMembers, [
+        SignedGatewayAddGatewayTxn, SignedOUITxn
+    ]),
     _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), blockchain_swarm:swarm()),
     ok = test_utils:wait_until(fun() -> {ok, 23} == blockchain:height(Chain) end),
 
@@ -3002,7 +3414,10 @@ update_gateway_oui_test(Config) ->
     % Step 4: Updating a Gateway's OUI
 
     UpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:new(Gateway, OUI1, 1),
-    SignedUpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGatewayOUITxn, OwnerSigFun), OwnerSigFun),
+    SignedUpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(
+        blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGatewayOUITxn, OwnerSigFun),
+        OwnerSigFun
+    ),
     {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedUpdateGatewayOUITxn]),
     _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
     ok = test_utils:wait_until(fun() -> {ok, 24} == blockchain:height(Chain) end),
@@ -3021,7 +3436,7 @@ replay_oui_test(Config) ->
     Swarm = proplists:get_value(swarm, Config),
     Ledger = blockchain:ledger(Chain),
 
-    [_, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Owner, {_, OwnerPrivKey, _}} | _] = ConsensusMembers,
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
     % Step 3: fake an oracle price and a burn price, these figures are not representative
@@ -3030,12 +3445,12 @@ replay_oui_test(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
         end,
         lists:seq(1, 20)
     ),
@@ -3062,12 +3477,12 @@ replay_oui_test(Config) ->
 
     %% wait 5 blocks, no good reason
     ok = lists:foreach(
-           fun(_) ->
-                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
-           end,
-           lists:seq(1, 5)
-          ),
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+        end,
+        lists:seq(1, 5)
+    ),
     ok = test_utils:wait_until(fun() -> {ok, 28} == blockchain:height(Chain) end),
 
     %% construct second oui txn
@@ -3080,12 +3495,12 @@ replay_oui_test(Config) ->
 
     %% wait 5 blocks, no good reason
     ok = lists:foreach(
-           fun(_) ->
-                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
-           end,
-           lists:seq(1, 5)
-          ),
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+        end,
+        lists:seq(1, 5)
+    ),
     ok = test_utils:wait_until(fun() -> {ok, 34} == blockchain:height(Chain) end),
 
     ?assertEqual({ok, 2}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
@@ -3100,12 +3515,12 @@ replay_oui_test(Config) ->
 
     %% wait 5 blocks, no good reason
     ok = lists:foreach(
-           fun(_) ->
-                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
-           end,
-           lists:seq(1, 5)
-          ),
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+        end,
+        lists:seq(1, 5)
+    ),
     ok = test_utils:wait_until(fun() -> {ok, 40} == blockchain:height(Chain) end),
 
     ?assertEqual({ok, 3}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
@@ -3154,7 +3569,6 @@ replay_oui_test(Config) ->
     meck:unload(blockchain_ledger_v1),
     ok.
 
-
 failed_txn_error_handling(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     PubKey = ?config(pubkey, Config),
@@ -3179,7 +3593,7 @@ failed_txn_error_handling(Config) ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
-    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT * OP} end),
 
     {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
     DCBalance0 = blockchain_ledger_data_credits_entry_v1:balance(DCEntry0),
@@ -3202,8 +3616,8 @@ failed_txn_error_handling(Config) ->
     ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
         end,
         lists:seq(1, 20)
     ),
@@ -3234,8 +3648,10 @@ failed_txn_error_handling(Config) ->
     % Add a Gateway
     AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
-    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
-      {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGatewayTx, GatewaySigFun
+    ),
+    {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
     _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
@@ -3248,9 +3664,15 @@ failed_txn_error_handling(Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
-    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
-    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(
+        Gateway, Owner, ?TEST_LOCATION, 1
+    ),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationRequestTx, GatewaySigFun
+    ),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationTxn, OwnerSigFun
+    ),
 
     {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
     ok = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
@@ -3267,7 +3689,9 @@ failed_txn_error_handling(Config) ->
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
     OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
-    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(
+        Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1
+    ),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
 
     %%
@@ -3276,11 +3700,17 @@ failed_txn_error_handling(Config) ->
     meck:new(blockchain_utils, [passthrough]),
 
     %% meck out the pmap function to simulate it returning an error msg in the format {error, Reason}
-    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {error, txn_fail_reason}}] end),
-    {[], [{SignedPoCReqTxn0, txn_fail_reason}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+    meck:expect(blockchain_utils, pmap, fun(_, _) ->
+        [{SignedPoCReqTxn0, {error, txn_fail_reason}}]
+    end),
+    {[], [{SignedPoCReqTxn0, txn_fail_reason}]} = blockchain_txn:validate(
+        [SignedPoCReqTxn0], Chain
+    ),
 
     %% meck out the pmap function to simulate it returning an error msg in the format {error, {Reason, Details}}
-    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {error, {bad_nonce, {nonce_type, cur_nonce, ledger_nonce}}}}] end),
+    meck:expect(blockchain_utils, pmap, fun(_, _) ->
+        [{SignedPoCReqTxn0, {error, {bad_nonce, {nonce_type, cur_nonce, ledger_nonce}}}}]
+    end),
     {[], [{SignedPoCReqTxn0, bad_nonce}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
 
     %% meck out the pmap function to simulate it returning an exit crash msg with body formatted as an atom
@@ -3288,12 +3718,16 @@ failed_txn_error_handling(Config) ->
     {[], [{SignedPoCReqTxn0, exit_reason}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
 
     %% meck out the pmap function to simulate it returning an exit crash msg with body formatted as {{Error, Reason, Stack}
-    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {'EXIT', {{badmatch,{error, crash_in_pmap}}, []}}}] end),
+    meck:expect(blockchain_utils, pmap, fun(_, _) ->
+        [{SignedPoCReqTxn0, {'EXIT', {{badmatch, {error, crash_in_pmap}}, []}}}]
+    end),
     {[], [{SignedPoCReqTxn0, crash_in_pmap}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
 
     %% meck out the pmap function to simulate it returning an error msg in an unexpected format {error, unexpected_reason, unexpected_details}
     %% this will default to a generic error msg
-    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {crash, something_unexpected}}] end),
+    meck:expect(blockchain_utils, pmap, fun(_, _) ->
+        [{SignedPoCReqTxn0, {crash, something_unexpected}}]
+    end),
     {[], [{SignedPoCReqTxn0, txn_failed}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
 
     ?assert(meck:validate(blockchain_utils)),
@@ -3356,21 +3790,21 @@ genesis_no_var_validation_make_valid_test(Config) ->
 
     %% Add some blocks, and check that election_version is set to 5 after delay is reached
     ok = lists:foreach(
-           fun(_) ->
-                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
-                   {ok, Height} = blockchain:height(Chain),
-                   case blockchain:config(election_version, Ledger) of
-                       {ok, 10000} when Height < (Delay + 1) ->
-                           ok;
-                       {ok, 5} when Height >= (Delay + 1) ->
-                           ok;
-                       Res ->
-                           throw({error, {chain_var_wrong_height, Res, Height}})
-                   end
-           end,
-           lists:seq(1, 5)
-          ),
+        fun(_) ->
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+            {ok, Height} = blockchain:height(Chain),
+            case blockchain:config(election_version, Ledger) of
+                {ok, 10000} when Height < (Delay + 1) ->
+                    ok;
+                {ok, 5} when Height >= (Delay + 1) ->
+                    ok;
+                Res ->
+                    throw({error, {chain_var_wrong_height, Res, Height}})
+            end
+        end,
+        lists:seq(1, 5)
+    ),
     ?assertEqual({ok, 7}, blockchain:height(Chain)),
     ?assertEqual({ok, 5}, blockchain:config(election_version, Ledger)),
 
@@ -3394,7 +3828,9 @@ fake_add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun) ->
 fake_assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, Loc) ->
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Loc, 1),
-    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationRequestTx, GatewaySigFun
+    ),
     blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun).
 
 fake_var_txn(Priv, Nonce, Vars) ->
@@ -3405,8 +3841,8 @@ fake_var_txn(Priv, Nonce, Vars) ->
 dump_empty_blocks(Chain, ConsensusMembers, Count) ->
     lists:foreach(
         fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
         end,
         lists:seq(1, Count)
     ).
@@ -3417,5 +3853,7 @@ fake_poc_request(Gateway, GatewaySigFun, BlockHash) ->
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
     OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
-    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, BlockHash, 1),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(
+        Gateway, SecretHash0, OnionKeyHash0, BlockHash, 1
+    ),
     blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun).

@@ -8,14 +8,14 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-         enable_implicit_burn_test/1,
-         disabled_implicit_burn_test/1
-        ]).
+    enable_implicit_burn_test/1,
+    disabled_implicit_burn_test/1
+]).
 
 all() ->
     [
-     enable_implicit_burn_test,
-     disabled_implicit_burn_test
+        enable_implicit_burn_test,
+        disabled_implicit_burn_test
     ].
 
 -define(MAX_PAYMENTS, 20).
@@ -37,7 +37,8 @@ init_per_testcase(TestCase, Config) ->
                 balance => Balance,
                 keys => {PrivKey, PubKey},
                 in_consensus => true,
-                have_init_dc => false,  % 0 init DC triggers implicit burn
+                % 0 init DC triggers implicit burn
+                have_init_dc => false,
                 extra_vars => ExtraVars
             }
         ),
@@ -49,26 +50,29 @@ init_per_testcase(TestCase, Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
     Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-                              Balance = blockchain_ledger_entry_v1:balance(Entry),
-                              0 = blockchain_ledger_entry_v1:nonce(Entry)
-                      end, maps:values(Entries)),
+    _ = lists:foreach(
+        fun(Entry) ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            0 = blockchain_ledger_entry_v1:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
     meck:new(blockchain_ledger_v1, [passthrough]),
 
     [
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {chain, Chain},
-     {swarm, Swarm},
-     {n, N},
-     {consensus_members, ConsensusMembers},
-     {genesis_members, GenesisMembers},
-     Keys
-     | Config0
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {chain, Chain},
+        {swarm, Swarm},
+        {n, N},
+        {consensus_members, ConsensusMembers},
+        {genesis_members, GenesisMembers},
+        Keys
+        | Config0
     ].
 
 %%--------------------------------------------------------------------
@@ -79,7 +83,8 @@ end_per_testcase(Case, Config) ->
     case Case of
         enable_implicit_burn_test ->
             meck:unload(blockchain_ledger_v1);
-        _ -> ok
+        _ ->
+            ok
     end,
     Sup = ?config(sup, Config),
     % Make sure blockchain saved on file = in memory
@@ -106,7 +111,7 @@ enable_implicit_burn_test(Config) ->
         blockchain_ledger_v1,
         current_oracle_price,
         fun(_) ->
-                {ok, 15 * ?BONES_PER_HNT}
+            {ok, 15 * ?BONES_PER_HNT}
         end
     ),
 
@@ -114,7 +119,7 @@ enable_implicit_burn_test(Config) ->
     ok = application:set_env(blockchain, store_implicit_burns, true),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -170,7 +175,7 @@ disabled_implicit_burn_test(Config) ->
     ok = application:set_env(blockchain, store_implicit_burns, false),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -199,4 +204,9 @@ disabled_implicit_burn_test(Config) ->
 %% HELPERS
 %%--------------------------------------------------------------------
 extra_vars(_) ->
-    #{?txn_fees => true, ?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?txn_fee_multiplier => 5000}.
+    #{
+        ?txn_fees => true,
+        ?max_payments => ?MAX_PAYMENTS,
+        ?allow_zero_amount => false,
+        ?txn_fee_multiplier => 5000
+    }.

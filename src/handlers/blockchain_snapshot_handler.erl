@@ -7,7 +7,6 @@
 
 -behavior(libp2p_framed_stream).
 
-
 -include_lib("helium_proto/include/blockchain_snapshot_handler_pb.hrl").
 
 %% ------------------------------------------------------------------
@@ -28,12 +27,11 @@
     handle_info/3
 ]).
 
--record(state,
-        {
-         chain :: blockchain:blochain(),
-         hash :: any(),
-         owner = undefined :: undefined | pid()
-        }).
+-record(state, {
+    chain :: blockchain:blochain(),
+    hash :: any(),
+    owner = undefined :: undefined | pid()
+}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -53,13 +51,12 @@ init(client, _Conn, [Hash, Height, Chain]) ->
             {stop, normal};
         false ->
             Msg = #blockchain_snapshot_req_pb{height = Height, hash = Hash},
-            {ok, #state{chain = Chain, hash = Hash},
-             blockchain_snapshot_handler_pb:encode_msg(Msg)}
+            {ok, #state{chain = Chain, hash = Hash}, blockchain_snapshot_handler_pb:encode_msg(Msg)}
     end;
 init(client, _Conn, [Hash, Height, Chain, Owner]) ->
     Msg = #blockchain_snapshot_req_pb{height = Height, hash = Hash},
     {ok, #state{chain = Chain, hash = Hash, owner = Owner},
-     blockchain_snapshot_handler_pb:encode_msg(Msg)};
+        blockchain_snapshot_handler_pb:encode_msg(Msg)};
 init(server, _Conn, [_Path, _, Chain]) ->
     {ok, #state{chain = Chain}}.
 
@@ -70,19 +67,25 @@ handle_data(client, Data, #state{chain = Chain, hash = Hash, owner = undefined} 
         {ok, Snapshot} ->
             Height = blockchain_ledger_snapshot_v1:height(Snapshot),
 
-            case blockchain:have_snapshot(Height, Chain) orelse
-                ok == blockchain:add_bin_snapshot(BinSnap, Height, Hash, Chain) of
+            case
+                blockchain:have_snapshot(Height, Chain) orelse
+                    ok == blockchain:add_bin_snapshot(BinSnap, Height, Hash, Chain)
+            of
                 true ->
-                    lager:info("retrieved and stored snapshot ~p, installing",
-                               [Height]),
+                    lager:info(
+                        "retrieved and stored snapshot ~p, installing",
+                        [Height]
+                    ),
                     blockchain_worker:install_snapshot(Hash, Snapshot);
                 false ->
                     lager:info("could not install retrieved snapshot ~p", [Height]),
                     ok
             end;
         {error, Reason} ->
-            lager:info("could not deserialize retrieved snapshot ~p: ~p",
-                       [Reason]),
+            lager:info(
+                "could not deserialize retrieved snapshot ~p: ~p",
+                [Reason]
+            ),
             ok
     end,
     {stop, normal, State};

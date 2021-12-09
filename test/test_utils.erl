@@ -46,7 +46,7 @@ init(BaseDir, {PrivKey, PubKey}) ->
 init_chain(Balance, Keys) ->
     init_chain(Balance, Keys, true, #{}).
 
-init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
+init_chain(Balance, {_PrivKey, _PubKey} = Keys, InConsensus, ExtraVars) ->
     Opts =
         #{
             balance => Balance,
@@ -58,10 +58,10 @@ init_chain(Balance, {_PrivKey, _PubKey}=Keys, InConsensus, ExtraVars) ->
 
 -spec init_genesis_members({Pub, Priv}, boolean()) ->
     [{Addr :: binary(), {Pub, Priv, Sign}}]
-    when
-        Pub  :: libp2p_crypto:pubkey(),
-        Priv :: libp2p_crypto:privkey(),
-        Sign :: fun((binary()) -> binary()).
+when
+    Pub :: libp2p_crypto:pubkey(),
+    Priv :: libp2p_crypto:privkey(),
+    Sign :: fun((binary()) -> binary()).
 init_genesis_members({Priv, Pub}, InConsensus) ->
     % Generate fake blockchains (just the keys)
     Members0 =
@@ -101,24 +101,27 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
-    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- GenesisMembers],
+    GenPaymentTxs = [
+        blockchain_txn_coinbase_v1:new(Addr, Balance)
+     || {Addr, _} <- GenesisMembers
+    ],
     GenDCsTxs =
         [
             blockchain_txn_dc_coinbase_v1:new(Addr, Balance)
-        ||
-            {Addr, _} <- GenesisMembers,
+         || {Addr, _} <- GenesisMembers,
             maps:get(have_init_dc, Opts, false)
         ],
 
-    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- GenesisMembers],
+    GenSecPaymentTxs = [
+        blockchain_txn_security_coinbase_v1:new(Addr, Balance)
+     || {Addr, _} <- GenesisMembers
+    ],
 
     Addresses = [Addr || {Addr, _} <- GenesisMembers],
 
     Locations = lists:foldl(
         fun(I, Acc) ->
-            [h3:from_geo({37.780586, -122.469470 + I/100}, 12)|Acc]
+            [h3:from_geo({37.780586, -122.469470 + I / 100}, 12) | Acc]
         end,
         [],
         lists:seq(1, length(Addresses))
@@ -126,21 +129,27 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
     InitialConsensusTxn =
         case ExtraVars of
             #{election_version := V} when V >= 5 ->
-                [blockchain_txn_gen_validator_v1:new(Addr, Addr, ?bones(10000))
-                 || Addr <- Addresses];
+                [
+                    blockchain_txn_gen_validator_v1:new(Addr, Addr, ?bones(10000))
+                 || Addr <- Addresses
+                ];
             _ ->
-                [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
-                 || {Addr, Loc} <- lists:zip(Addresses, Locations)]
+                [
+                    blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
+                 || {Addr, Loc} <- lists:zip(Addresses, Locations)
+                ]
         end,
     ConsensusMembers = lists:sublist(GenesisMembers, 7),
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
-                            [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
-    Txs = InitialVars ++
-        GenPaymentTxs ++
-        GenDCsTxs ++
-        GenSecPaymentTxs ++
-        InitialConsensusTxn ++
-        [GenConsensusGroupTx],
+        [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0
+    ),
+    Txs =
+        InitialVars ++
+            GenPaymentTxs ++
+            GenDCsTxs ++
+            GenSecPaymentTxs ++
+            InitialConsensusTxn ++
+            [GenConsensusGroupTx],
     ct:pal("initial transactions: ~p", [Txs]),
 
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
@@ -148,7 +157,7 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
-    ok = test_utils:wait_until(fun() ->{ok, 1} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
 
     ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
     ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
@@ -157,31 +166,41 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     {ok, GenesisMembers, GenesisBlock, ConsensusMembers, Keys}.
 
-init_chain_with_fixed_locations(Balance, GenesisMembers, Locations, ExtraVars) when is_list(Locations),
-                                                                                    is_list(GenesisMembers),
-                                                                                    is_map(ExtraVars) ->
+init_chain_with_fixed_locations(Balance, GenesisMembers, Locations, ExtraVars) when
+    is_list(Locations),
+    is_list(GenesisMembers),
+    is_map(ExtraVars)
+->
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
-    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- GenesisMembers],
+    GenPaymentTxs = [
+        blockchain_txn_coinbase_v1:new(Addr, Balance)
+     || {Addr, _} <- GenesisMembers
+    ],
 
-    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- GenesisMembers],
+    GenSecPaymentTxs = [
+        blockchain_txn_security_coinbase_v1:new(Addr, Balance)
+     || {Addr, _} <- GenesisMembers
+    ],
 
     Addresses = [Addr || {Addr, _} <- GenesisMembers],
 
-    InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
-                         || {Addr, Loc} <- lists:zip(Addresses, Locations)],
+    InitialGatewayTxn = [
+        blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
+     || {Addr, Loc} <- lists:zip(Addresses, Locations)
+    ],
 
     ConsensusMembers = lists:sublist(GenesisMembers, 7),
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
-                            [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
-    Txs = InitialVars ++
-        GenPaymentTxs ++
-        GenSecPaymentTxs ++
-        InitialGatewayTxn ++
-        [GenConsensusGroupTx],
+        [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0
+    ),
+    Txs =
+        InitialVars ++
+            GenPaymentTxs ++
+            GenSecPaymentTxs ++
+            InitialGatewayTxn ++
+            [GenConsensusGroupTx],
     lager:info("initial transactions: ~p", [Txs]),
 
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
@@ -189,7 +208,7 @@ init_chain_with_fixed_locations(Balance, GenesisMembers, Locations, ExtraVars) w
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
-    ok = test_utils:wait_until(fun() ->{ok, 1} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
 
     ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
     ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
@@ -202,10 +221,10 @@ generate_plain_keys(N, Type) ->
     lists:foldl(
         fun(_, Acc) ->
             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), PubKey, PrivKey}|Acc]
-        end
-        ,[]
-        ,lists:seq(1, N)
+            [{libp2p_crypto:pubkey_to_bin(PubKey), PubKey, PrivKey} | Acc]
+        end,
+        [],
+        lists:seq(1, N)
     ).
 
 generate_keys(N) ->
@@ -216,10 +235,10 @@ generate_keys(N, Type) ->
         fun(_, Acc) ->
             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
-        end
-        ,[]
-        ,lists:seq(1, N)
+            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}} | Acc]
+        end,
+        [],
+        lists:seq(1, N)
     ).
 
 wait_until(Fun) ->
@@ -234,7 +253,7 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
             {fail, Res};
         _ ->
             timer:sleep(Delay),
-            wait_until(Fun, Retry-1, Delay)
+            wait_until(Fun, Retry - 1, Delay)
     end.
 
 create_block(ConsensusMembers, Txs) ->
@@ -256,7 +275,7 @@ create_block(ConsensusMembers, Txs, Override, RunValidation) ->
             case blockchain_txn:validate(STxs, Blockchain) of
                 {_, []} ->
                     {ok, make_block(Blockchain, ConsensusMembers, STxs, Override)};
-                {_, [_|_]=Invalid} ->
+                {_, [_ | _] = Invalid} ->
                     {error, {invalid_txns, Invalid}}
             end
     end.
@@ -290,17 +309,18 @@ make_block(Blockchain, ConsensusMembers, STxs, BlockParamsOverride) ->
 
 sign(ConsensusMembers, BinBlock) ->
     lists:foldl(
-      fun({A, {_, _, F}}, Acc) ->
-              Sig = F(BinBlock),
-              [{A, Sig}|Acc];
-         %% NOTE: This clause matches the consensus members generated for the dist suite
-         ({A, _, F}, Acc) ->
-              Sig = F(BinBlock),
-              [{A, Sig}|Acc]
-      end
-      ,[]
-      ,ConsensusMembers
-     ).
+        fun
+            ({A, {_, _, F}}, Acc) ->
+                Sig = F(BinBlock),
+                [{A, Sig} | Acc];
+            %% NOTE: This clause matches the consensus members generated for the dist suite
+            ({A, _, F}, Acc) ->
+                Sig = F(BinBlock),
+                [{A, Sig} | Acc]
+        end,
+        [],
+        ConsensusMembers
+    ).
 %%--------------------------------------------------------------------
 %% @doc
 %% generate a tmp directory to be used as a scratch by eunit tests
@@ -322,21 +342,18 @@ tmp_dir(SubDir) ->
 %% @end
 %%-------------------------------------------------------------------
 -spec cleanup_tmp_dir(list()) -> ok.
-cleanup_tmp_dir(Dir)->
+cleanup_tmp_dir(Dir) ->
     os:cmd("rm -rf " ++ Dir),
     ok.
 
-
-nonl([$\n|T]) -> nonl(T);
-nonl([H|T]) -> [H|nonl(T)];
+nonl([$\n | T]) -> nonl(T);
+nonl([H | T]) -> [H | nonl(T)];
 nonl([]) -> [].
 
 create_payment_transaction(Payer, PayerPrivKey, Amount, Nonce, Recipient) ->
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
-
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -350,6 +367,5 @@ atomic_save(File, Bin) ->
     file:rename(TmpFile, File).
 
 -spec create_tmp_dir(list()) -> list().
-create_tmp_dir(Path)->
-    ?MODULE:nonl(os:cmd("mktemp -d " ++  Path)).
-
+create_tmp_dir(Path) ->
+    ?MODULE:nonl(os:cmd("mktemp -d " ++ Path)).

@@ -9,7 +9,8 @@
     new/0, new/2,
     nonce/1, nonce/2,
     balance/1, balance/2,
-    serialize/1, deserialize/1
+    serialize/1,
+    deserialize/1
 ]).
 
 -ifdef(TEST).
@@ -33,16 +34,16 @@
 new() ->
     #data_credits_entry_v1{}.
 
- -spec new(non_neg_integer(), non_neg_integer()) -> data_credits_entry().
+-spec new(non_neg_integer(), non_neg_integer()) -> data_credits_entry().
 new(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
-    #data_credits_entry_v1{nonce=Nonce, balance=Balance}.
+    #data_credits_entry_v1{nonce = Nonce, balance = Balance}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec nonce(data_credits_entry()) -> non_neg_integer().
-nonce(#data_credits_entry_v1{nonce=Nonce}) ->
+nonce(#data_credits_entry_v1{nonce = Nonce}) ->
     Nonce.
 
 %%--------------------------------------------------------------------
@@ -51,14 +52,14 @@ nonce(#data_credits_entry_v1{nonce=Nonce}) ->
 %%--------------------------------------------------------------------
 -spec nonce(non_neg_integer(), data_credits_entry()) -> data_credits_entry().
 nonce(Nonce, Entry) ->
-    Entry#data_credits_entry_v1{nonce=Nonce}.
+    Entry#data_credits_entry_v1{nonce = Nonce}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec balance(data_credits_entry()) -> non_neg_integer().
-balance(#data_credits_entry_v1{balance=Balance}) ->
+balance(#data_credits_entry_v1{balance = Balance}) ->
     Balance.
 
 %%--------------------------------------------------------------------
@@ -67,7 +68,7 @@ balance(#data_credits_entry_v1{balance=Balance}) ->
 %%--------------------------------------------------------------------
 -spec balance(non_neg_integer(), data_credits_entry()) -> data_credits_entry().
 balance(Balance, Entry) ->
-    Entry#data_credits_entry_v1{balance=Balance}.
+    Entry#data_credits_entry_v1{balance = Balance}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -119,4 +120,4 @@ balance_test() ->
     ?assertEqual(0, balance(Entry)),
     ?assertEqual(1, balance(balance(1, Entry))).
 
- -endif.
+-endif.

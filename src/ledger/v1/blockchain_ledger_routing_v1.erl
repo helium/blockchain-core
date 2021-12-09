@@ -14,8 +14,10 @@
     subnets/1,
     update/3,
     nonce/1, nonce/2,
-    serialize/1, deserialize/1,
-    subnet_mask_to_size/1, subnet_size_to_mask/1,
+    serialize/1,
+    deserialize/1,
+    subnet_mask_to_size/1,
+    subnet_size_to_mask/1,
     is_routing/1
 ]).
 
@@ -23,7 +25,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
+%% biggest unsigned number in 23 bits
+-define(BITS_23, 8388607).
 
 -record(routing_v1, {
     oui :: non_neg_integer(),
@@ -38,18 +41,21 @@
 
 -export_type([routing/0]).
 
--spec new(non_neg_integer(),  binary(), [binary()], binary(), <<_:48>>, non_neg_integer()) -> routing().
-new(OUI, Owner, Addresses, Filter, Subnet, Nonce) when Owner /= undefined andalso
-                                       OUI /= undefined andalso
-                                       Addresses /= undefined andalso
-                                       Nonce /= undefined ->
+-spec new(non_neg_integer(), binary(), [binary()], binary(), <<_:48>>, non_neg_integer()) ->
+    routing().
+new(OUI, Owner, Addresses, Filter, Subnet, Nonce) when
+    Owner /= undefined andalso
+        OUI /= undefined andalso
+        Addresses /= undefined andalso
+        Nonce /= undefined
+->
     #routing_v1{
-        oui=OUI,
-        owner=Owner,
-        router_addresses=Addresses,
-        filters=[Filter],
-        subnets=[Subnet],
-        nonce=Nonce
+        oui = OUI,
+        owner = Owner,
+        router_addresses = Addresses,
+        filters = [Filter],
+        subnets = [Subnet],
+        nonce = Nonce
     }.
 
 %%--------------------------------------------------------------------
@@ -57,7 +63,7 @@ new(OUI, Owner, Addresses, Filter, Subnet, Nonce) when Owner /= undefined andals
 %% @end
 %%--------------------------------------------------------------------
 -spec oui(routing()) -> non_neg_integer().
-oui(#routing_v1{oui=OUI}) ->
+oui(#routing_v1{oui = OUI}) ->
     OUI.
 
 %%--------------------------------------------------------------------
@@ -66,14 +72,14 @@ oui(#routing_v1{oui=OUI}) ->
 %%--------------------------------------------------------------------
 -spec oui(non_neg_integer(), routing()) -> routing().
 oui(OUI, Entry) ->
-    Entry#routing_v1{oui=OUI}.
+    Entry#routing_v1{oui = OUI}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec owner(routing()) -> binary().
-owner(#routing_v1{owner=Owner}) ->
+owner(#routing_v1{owner = Owner}) ->
     Owner.
 
 %%--------------------------------------------------------------------
@@ -82,37 +88,37 @@ owner(#routing_v1{owner=Owner}) ->
 %%--------------------------------------------------------------------
 -spec owner(binary(), routing()) -> routing().
 owner(Owner, Entry) ->
-    Entry#routing_v1{owner=Owner}.
+    Entry#routing_v1{owner = Owner}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec addresses(routing()) -> [libp2p_crypto:pubkey_bin()].
-addresses(#routing_v1{router_addresses=Addresses}) ->
+addresses(#routing_v1{router_addresses = Addresses}) ->
     Addresses.
 
 -spec filters(routing()) -> [binary()].
-filters(#routing_v1{filters=Filters}) ->
+filters(#routing_v1{filters = Filters}) ->
     Filters.
 
 -spec subnets(routing()) -> [binary()].
-subnets(#routing_v1{subnets=Subnets}) ->
+subnets(#routing_v1{subnets = Subnets}) ->
     Subnets.
 
 -spec update(routing(), term(), pos_integer()) -> routing().
 update(Routing0, Action, Nonce) ->
-    Routing = Routing0#routing_v1{nonce=Nonce},
+    Routing = Routing0#routing_v1{nonce = Nonce},
     case Action of
         {update_routers, Routers} ->
-            Routing#routing_v1{router_addresses=Routers};
+            Routing#routing_v1{router_addresses = Routers};
         {new_xor, Filter} ->
-            Routing#routing_v1{filters=Routing#routing_v1.filters++[Filter]};
+            Routing#routing_v1{filters = Routing#routing_v1.filters ++ [Filter]};
         {update_xor, Index, Filter} ->
-            Routing#routing_v1{filters=replace(Index, Filter, Routing#routing_v1.filters)};
+            Routing#routing_v1{filters = replace(Index, Filter, Routing#routing_v1.filters)};
         {request_subnet, Subnet} when is_binary(Subnet), byte_size(Subnet) == 6 ->
             %% subnet was already allocated prior to getting here
-            Routing#routing_v1{subnets=Routing#routing_v1.subnets++[Subnet]}
+            Routing#routing_v1{subnets = Routing#routing_v1.subnets ++ [Subnet]}
     end.
 
 %%--------------------------------------------------------------------
@@ -120,7 +126,7 @@ update(Routing0, Action, Nonce) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec nonce(routing()) -> non_neg_integer().
-nonce(#routing_v1{nonce=Nonce}) ->
+nonce(#routing_v1{nonce = Nonce}) ->
     Nonce.
 
 %%--------------------------------------------------------------------
@@ -129,7 +135,7 @@ nonce(#routing_v1{nonce=Nonce}) ->
 %%--------------------------------------------------------------------
 -spec nonce(non_neg_integer(), routing()) -> routing().
 nonce(Nonce, Entry) ->
-    Entry#routing_v1{nonce=Nonce}.
+    Entry#routing_v1{nonce = Nonce}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -150,7 +156,6 @@ serialize(Entry) ->
 deserialize(<<_:1/binary, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
 
-
 -spec subnet_mask_to_size(integer()) -> integer().
 subnet_mask_to_size(Mask) ->
     (((Mask bxor ?BITS_23) bsl 2) + 2#11) + 1.
@@ -170,7 +175,7 @@ is_routing(_) ->
 %% ------------------------------------------------------------------
 
 replace(Index, Element, List) ->
-    {Head, [_ToRemove|Tail]} = lists:split(Index, List),
+    {Head, [_ToRemove | Tail]} = lists:split(Index, List),
     Head ++ [Element] ++ Tail.
 
 %% ------------------------------------------------------------------
@@ -178,21 +183,26 @@ replace(Index, Element, List) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
--define(KEY1, <<0,105,110,41,229,175,44,3,221,73,181,25,27,184,120,84,
-               138,51,136,194,72,161,94,225,240,73,70,45,135,23,41,96,78>>).
--define(KEY2, <<1,72,253,248,131,224,194,165,164,79,5,144,254,1,168,254,
-                111,243,225,61,41,178,207,35,23,54,166,116,128,38,164,87,212>>).
--define(KEY3, <<1,124,37,189,223,186,125,185,240,228,150,61,9,164,28,75,
-                44,232,76,6,121,96,24,24,249,85,177,48,246,236,14,49,80>>).
-
+-define(KEY1,
+    <<0, 105, 110, 41, 229, 175, 44, 3, 221, 73, 181, 25, 27, 184, 120, 84, 138, 51, 136, 194, 72,
+        161, 94, 225, 240, 73, 70, 45, 135, 23, 41, 96, 78>>
+).
+-define(KEY2,
+    <<1, 72, 253, 248, 131, 224, 194, 165, 164, 79, 5, 144, 254, 1, 168, 254, 111, 243, 225, 61, 41,
+        178, 207, 35, 23, 54, 166, 116, 128, 38, 164, 87, 212>>
+).
+-define(KEY3,
+    <<1, 124, 37, 189, 223, 186, 125, 185, 240, 228, 150, 61, 9, 164, 28, 75, 44, 232, 76, 6, 121,
+        96, 24, 24, 249, 85, 177, 48, 246, 236, 14, 49, 80>>
+).
 
 new_test() ->
     Routing = #routing_v1{
         owner = ?KEY2,
         oui = 1,
         router_addresses = [?KEY1],
-        filters=[<<>>],
-        subnets=[<<>>],
+        filters = [<<>>],
+        subnets = [<<>>],
         nonce = 0
     },
     ?assertEqual(Routing, new(1, ?KEY2, [?KEY1], <<>>, <<>>, 0)).

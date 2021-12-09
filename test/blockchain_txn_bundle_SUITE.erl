@@ -140,7 +140,7 @@ double_spend_test(Cfg0) ->
     ),
 
     %% All balances remain, since all txns were rejected, not just the bad one.
-    ?assertEqual(SrcBalance0 , t_chain:get_balance(Chain, Src)),
+    ?assertEqual(SrcBalance0, t_chain:get_balance(Chain, Src)),
     ?assertEqual(Dst1Balance0, t_chain:get_balance(Chain, Dst1)),
     ?assertEqual(Dst2Balance0, t_chain:get_balance(Chain, Dst2)),
 
@@ -173,9 +173,9 @@ successive_test(Cfg0) ->
     TxnBundle = blockchain_txn_bundle_v1:new(Txns),
 
     ?assertMatch(ok, t_chain:commit(Chain, ConsensusGroup, [TxnBundle])),
-    ?assertEqual(A_Balance0 - AmountAToB             , t_chain:get_balance(Chain, A)),
+    ?assertEqual(A_Balance0 - AmountAToB, t_chain:get_balance(Chain, A)),
     ?assertEqual(B_Balance0 + AmountAToB - AmountBToC, t_chain:get_balance(Chain, B)),
-    ?assertEqual(C_Balance0 + AmountBToC             , t_chain:get_balance(Chain, C)),
+    ?assertEqual(C_Balance0 + AmountBToC, t_chain:get_balance(Chain, C)),
 
     ok.
 
@@ -197,7 +197,8 @@ invalid_successive_test(Cfg0) ->
     Chain = ?config(chain, Cfg),
 
     AmountAToB = A_Balance0,
-    AmountBToC = B_Balance0 + AmountAToB + 1,  % overdraw attempt
+    % overdraw attempt
+    AmountBToC = B_Balance0 + AmountAToB + 1,
     Txns =
         [
             t_txn:pay(A, B, AmountAToB, 1),
@@ -243,8 +244,8 @@ single_payer_test(Cfg0) ->
 
     ?assertMatch(ok, t_chain:commit(Chain, ConsensusGroup, [TxnBundle])),
     ?assertEqual(A_Balance0 - AmountAToB - AmountAToC, t_chain:get_balance(Chain, A)),
-    ?assertEqual(B_Balance0 + AmountAToB             , t_chain:get_balance(Chain, B)),
-    ?assertEqual(C_Balance0 + AmountAToC             , t_chain:get_balance(Chain, C)),
+    ?assertEqual(B_Balance0 + AmountAToB, t_chain:get_balance(Chain, B)),
+    ?assertEqual(C_Balance0 + AmountAToC, t_chain:get_balance(Chain, C)),
 
     ok.
 
@@ -276,7 +277,7 @@ single_payer_invalid_test(Cfg0) ->
 
     % Sanity checks
     ?assert(A_Balance0 >= AmountAToB),
-    ?assert(A_Balance0 <  (AmountAToB + AmountAToC)),
+    ?assert(A_Balance0 < (AmountAToB + AmountAToC)),
 
     Txns =
         [

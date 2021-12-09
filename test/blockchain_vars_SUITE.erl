@@ -112,7 +112,6 @@ master_key_test(Cfg) ->
     Proof2 = blockchain_txn_vars_v1:create_proof(Priv1, Txn2_0),
     Txn2_1 = blockchain_txn_vars_v1:proof(Txn2_0, Proof2),
 
-
     KeyProof2 = blockchain_txn_vars_v1:create_proof(Priv2, Txn2_0),
     Txn2_2_Good = blockchain_txn_vars_v1:key_proof(Txn2_1, KeyProof2),
 
@@ -159,12 +158,17 @@ master_key_test(Cfg) ->
     BinPub7 = libp2p_crypto:pubkey_to_bin(Pub7),
 
     Txn7_0 = blockchain_txn_vars_v1:new(
-               #{Key => goat_jokes_are_so_single_key}, nonce_next(Chain),
-               #{multi_keys => [BinPub2, BinPub3, BinPub4, BinPub5, BinPub6]}),
-    Proofs7 = [blockchain_txn_vars_v1:create_proof(P, Txn7_0)
-               %% shuffle the proofs to make sure we no longer need
-               %% them in the correct order
-               || P <- blockchain_utils:shuffle([Priv2, Priv3, Priv4, Priv5, Priv6])],
+        #{Key => goat_jokes_are_so_single_key},
+        nonce_next(Chain),
+        #{multi_keys => [BinPub2, BinPub3, BinPub4, BinPub5, BinPub6]}
+    ),
+    Proofs7 = [
+        blockchain_txn_vars_v1:create_proof(P, Txn7_0)
+     || %% shuffle the proofs to make sure we no longer need
+
+        %% them in the correct order
+        P <- blockchain_utils:shuffle([Priv2, Priv3, Priv4, Priv5, Priv6])
+    ],
     Txn7_1 = blockchain_txn_vars_v1:multi_key_proofs(Txn7_0, Proofs7),
     Proof7 = blockchain_txn_vars_v1:create_proof(Priv2, Txn7_1),
     Txn7 = blockchain_txn_vars_v1:proof(Txn7_1, Proof7),
@@ -193,8 +197,10 @@ master_key_test(Cfg) ->
 
     %% try with two valid and one corrupted key proof (and fail again)
     Txn10_0 = blockchain_txn_vars_v1:new(#{Key => cmon}, nonce_next(Chain)),
-    Proofs10_0 = [blockchain_txn_vars_v1:create_proof(P, Txn10_0)
-                || P <- [Priv2, Priv3, Priv4]],
+    Proofs10_0 = [
+        blockchain_txn_vars_v1:create_proof(P, Txn10_0)
+     || P <- [Priv2, Priv3, Priv4]
+    ],
     [Proof10 | Rem] = Proofs10_0,
     Proof10Corrupted = <<Proof10/binary, "asdasdasdas">>,
     Txn10 = blockchain_txn_vars_v1:multi_proofs(Txn10_0, [Proof10Corrupted | Rem]),
@@ -242,13 +248,18 @@ master_key_test(Cfg) ->
             nonce_next(Chain),
             #{multi_keys => [BinPub3, BinPub4, BinPub5, BinPub6, BinPub7]}
         ),
-    Proofs12 = [blockchain_txn_vars_v1:create_proof(P, Txn12_0)
-                %% shuffle the proofs to make sure we no longer need
-                %% them in the correct order
-                || P <- blockchain_utils:shuffle([Priv7])],
+    Proofs12 = [
+        blockchain_txn_vars_v1:create_proof(P, Txn12_0)
+     || %% shuffle the proofs to make sure we no longer need
+
+        %% them in the correct order
+        P <- blockchain_utils:shuffle([Priv7])
+    ],
     Txn12_1 = blockchain_txn_vars_v1:multi_key_proofs(Txn12_0, Proofs12),
-    Proofs = [blockchain_txn_vars_v1:create_proof(P, Txn12_1)
-               || P <- [Priv3, Priv4, Priv5]],
+    Proofs = [
+        blockchain_txn_vars_v1:create_proof(P, Txn12_1)
+     || P <- [Priv3, Priv4, Priv5]
+    ],
     Txn12 = blockchain_txn_vars_v1:multi_proofs(Txn12_1, Proofs),
     ?assertMatch(ok, t_chain:commit(Chain, ConsensusMembers, [Txn12])),
     ?assertMatch({ok, so_true}, var_get(Key, Chain)),
@@ -305,7 +316,6 @@ cache_test(Config) ->
     %true = Hits2 > 0,
 
     ok.
-
 
 %% Helpers --------------------------------------------------------------------
 

@@ -310,7 +310,9 @@ unstake_fail_invalid_stake_release_height(Config) ->
     NonConsensus = Genesis -- Consensus,
     [{OwnerPubkeyBin, {_OwnerPub, _OwnerPriv, OwnerSigFun}} | _] = NonConsensus,
 
-    Txn = blockchain_txn_unstake_validator_v1:new(OwnerPubkeyBin, OwnerPubkeyBin, ?bones(10000), 1, 123),
+    Txn = blockchain_txn_unstake_validator_v1:new(
+        OwnerPubkeyBin, OwnerPubkeyBin, ?bones(10000), 1, 123
+    ),
     SignedTxn = blockchain_txn_unstake_validator_v1:sign(Txn, OwnerSigFun),
     ct:pal("SignedUnstakeTxn: ~p", [SignedTxn]),
 
@@ -332,7 +334,9 @@ unstake_fail_already_cooldown(Config) ->
     NonConsensus = Genesis -- Consensus,
     [{OwnerPubkeyBin, {_OwnerPub, _OwnerPriv, OwnerSigFun}} | _] = NonConsensus,
 
-    Txn = blockchain_txn_unstake_validator_v1:new(OwnerPubkeyBin, OwnerPubkeyBin, ?bones(10000), 1, 123),
+    Txn = blockchain_txn_unstake_validator_v1:new(
+        OwnerPubkeyBin, OwnerPubkeyBin, ?bones(10000), 1, 123
+    ),
     SignedTxn = blockchain_txn_unstake_validator_v1:sign(Txn, OwnerSigFun),
     ct:pal("SignedUnstakeTxn: ~p", [SignedTxn]),
 
@@ -355,7 +359,9 @@ unstake_fail_already_unstaked(Config) ->
     NonConsensus = Genesis -- Consensus,
     [{OwnerPubkeyBin, {_OwnerPub, _OwnerPriv, OwnerSigFun}} | _] = NonConsensus,
 
-    Txn = blockchain_txn_unstake_validator_v1:new(OwnerPubkeyBin, OwnerPubkeyBin, ?bones(10000), 1, 123),
+    Txn = blockchain_txn_unstake_validator_v1:new(
+        OwnerPubkeyBin, OwnerPubkeyBin, ?bones(10000), 1, 123
+    ),
     SignedTxn = blockchain_txn_unstake_validator_v1:sign(Txn, OwnerSigFun),
     ct:pal("SignedUnstakeTxn: ~p", [SignedTxn]),
 
@@ -442,8 +448,11 @@ unstake_ok_at_same_height(Config) ->
     Genesis = ?config(genesis_members, Config),
     Consensus = ?config(consensus_members, Config),
     NonConsensus = Genesis -- Consensus,
-    [{Owner1PubkeyBin, {_Owner1Pub, _Owner1Priv, Owner1SigFun}},
-     {Owner2PubkeyBin, {_Owner2Pub, _Owner2Priv, Owner2SigFun}} | _] = NonConsensus,
+    [
+        {Owner1PubkeyBin, {_Owner1Pub, _Owner1Priv, Owner1SigFun}},
+        {Owner2PubkeyBin, {_Owner2Pub, _Owner2Priv, Owner2SigFun}}
+        | _
+    ] = NonConsensus,
 
     ct:pal("Owner1PubkeyBin: ~p", [Owner1PubkeyBin]),
     ct:pal("Owner2PubkeyBin: ~p", [Owner2PubkeyBin]),
@@ -483,18 +492,19 @@ unstake_ok_at_same_height(Config) ->
         Error1 -> ct:fail("error: ~p", [Error1])
     end,
 
-
     {ok, Block} = test_utils:create_block(Consensus, [SignedTxn1, SignedTxn2]),
     _ = blockchain:add_block(Block, Chain),
 
     _ = lists:map(
-          fun(_) ->
-                  {ok, B} = test_utils:create_block(Consensus, []),
-                  _ = blockchain:add_block(B, Chain)
-          end,
-          lists:seq(1, 11)),
+        fun(_) ->
+            {ok, B} = test_utils:create_block(Consensus, []),
+            _ = blockchain:add_block(B, Chain)
+        end,
+        lists:seq(1, 11)
+    ),
 
-    ExpectedHeight = Height+12, % 11 + 1 for the unstake txn block
+    % 11 + 1 for the unstake txn block
+    ExpectedHeight = Height + 12,
     {ok, ExpectedHeight} = blockchain:height(Chain),
 
     Ledger = blockchain:ledger(Chain),

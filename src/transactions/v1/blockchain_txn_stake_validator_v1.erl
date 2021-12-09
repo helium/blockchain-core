@@ -15,21 +15,22 @@
 -include_lib("helium_proto/include/blockchain_txn_stake_validator_v1_pb.hrl").
 
 -export([
-         new/4,
-         hash/1,
-         validator/1,
-         owner/1,
-         stake/1,
-         owner_signature/1,
-         fee/1, calculate_fee/2, calculate_fee/5,
-         fee_payer/2,
-         sign/2,
-         is_valid/2,
-         absorb/2,
-         print/1,
-         json_type/0,
-         to_json/2
-        ]).
+    new/4,
+    hash/1,
+    validator/1,
+    owner/1,
+    stake/1,
+    owner_signature/1,
+    fee/1,
+    calculate_fee/2, calculate_fee/5,
+    fee_payer/2,
+    sign/2,
+    is_valid/2,
+    absorb/2,
+    print/1,
+    json_type/0,
+    to_json/2
+]).
 
 -type txn_stake_validator() :: #blockchain_txn_stake_validator_v1_pb{}.
 -export_type([txn_stake_validator/0]).
@@ -37,9 +38,9 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -export([
-         is_valid_owner/1,
-         owner_signature/2
-        ]).
+    is_valid_owner/1,
+    owner_signature/2
+]).
 
 -spec owner_signature(any(), txn_stake_validator()) -> txn_stake_validator().
 owner_signature(Sig, Txn) ->
@@ -47,16 +48,24 @@ owner_signature(Sig, Txn) ->
 
 -endif.
 
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          pos_integer(), non_neg_integer()) ->
-          txn_stake_validator().
-new(ValidatorAddress, OwnerAddress,
-    Stake, Fee) ->
+-spec new(
+    libp2p_crypto:pubkey_bin(),
+    libp2p_crypto:pubkey_bin(),
+    pos_integer(),
+    non_neg_integer()
+) ->
+    txn_stake_validator().
+new(
+    ValidatorAddress,
+    OwnerAddress,
+    Stake,
+    Fee
+) ->
     #blockchain_txn_stake_validator_v1_pb{
-       address = ValidatorAddress,
-       owner = OwnerAddress,
-       stake = Stake,
-       fee = Fee
+        address = ValidatorAddress,
+        owner = OwnerAddress,
+        stake = Stake,
+        fee = Fee
     }.
 
 -spec hash(txn_stake_validator()) -> blockchain_txn:hash().
@@ -81,23 +90,34 @@ stake(Txn) ->
 fee(Txn) ->
     Txn#blockchain_txn_stake_validator_v1_pb.fee.
 
--spec fee_payer(txn_stake_validator(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_stake_validator(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(Txn, _Ledger) ->
     owner(Txn).
 
 -spec calculate_fee(txn_stake_validator(), blockchain:blockchain()) ->
-          non_neg_integer().
+    non_neg_integer().
 calculate_fee(Txn, Chain) ->
     ?calculate_fee_prep(Txn, Chain).
 
--spec calculate_fee(txn_stake_validator(), blockchain_ledger_v1:ledger(),
-                    pos_integer(), pos_integer(), boolean()) ->
-          non_neg_integer().
+-spec calculate_fee(
+    txn_stake_validator(),
+    blockchain_ledger_v1:ledger(),
+    pos_integer(),
+    pos_integer(),
+    boolean()
+) ->
+    non_neg_integer().
 calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, _) ->
-    ?calculate_fee(Txn#blockchain_txn_stake_validator_v1_pb{fee=0,
-                                                            owner_signature = <<0:512>>},
-    Ledger, DCPayloadSize, TxnFeeMultiplier).
-
+    ?calculate_fee(
+        Txn#blockchain_txn_stake_validator_v1_pb{
+            fee = 0,
+            owner_signature = <<0:512>>
+        },
+        Ledger,
+        DCPayloadSize,
+        TxnFeeMultiplier
+    ).
 
 -spec owner_signature(txn_stake_validator()) -> binary().
 owner_signature(Txn) ->
@@ -105,20 +125,24 @@ owner_signature(Txn) ->
 
 -spec sign(txn_stake_validator(), libp2p_crypto:sig_fun()) -> txn_stake_validator().
 sign(Txn, SigFun) ->
-    BaseTxn = Txn#blockchain_txn_stake_validator_v1_pb{owner_signature= <<>>},
+    BaseTxn = Txn#blockchain_txn_stake_validator_v1_pb{owner_signature = <<>>},
     EncodedTxn = blockchain_txn_stake_validator_v1_pb:encode_msg(BaseTxn),
-    Txn#blockchain_txn_stake_validator_v1_pb{owner_signature=SigFun(EncodedTxn)}.
+    Txn#blockchain_txn_stake_validator_v1_pb{owner_signature = SigFun(EncodedTxn)}.
 
 -spec is_valid_owner(txn_stake_validator()) -> boolean().
-is_valid_owner(#blockchain_txn_stake_validator_v1_pb{owner=PubKeyBin,
-                                                     owner_signature=Signature}=Txn) ->
-    BaseTxn = Txn#blockchain_txn_stake_validator_v1_pb{owner_signature= <<>>},
+is_valid_owner(
+    #blockchain_txn_stake_validator_v1_pb{
+        owner = PubKeyBin,
+        owner_signature = Signature
+    } = Txn
+) ->
+    BaseTxn = Txn#blockchain_txn_stake_validator_v1_pb{owner_signature = <<>>},
     EncodedTxn = blockchain_txn_stake_validator_v1_pb:encode_msg(BaseTxn),
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 -spec is_valid(txn_stake_validator(), blockchain:blockchain()) ->
-          ok | {error, atom()} | {error, {atom(), any()}}.
+    ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
@@ -134,7 +158,8 @@ is_valid(Txn, Chain) ->
                 case blockchain:config(?validator_version, Ledger) of
                     {ok, Vers} when Vers >= 1 ->
                         ok;
-                    _ -> throw(unsupported_txn)
+                    _ ->
+                        throw(unsupported_txn)
                 end,
                 {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
                 %% check that the network is correct
@@ -144,10 +169,12 @@ is_valid(Txn, Chain) ->
                         try
                             libp2p_crypto:bin_to_pubkey(Validator),
                             ok
-                        catch throw:Why ->
-                                  throw({unusable_miner_key, Why})
+                        catch
+                            throw:Why ->
+                                throw({unusable_miner_key, Why})
                         end;
-                    _ -> ok
+                    _ ->
+                        ok
                 end,
                 %% check fee
                 AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
@@ -185,15 +212,18 @@ is_valid(Txn, Chain) ->
                                 throw(Error)
                         end,
                         ok;
-                    {error, Reason} -> throw({validator_fetch_error, Reason})
+                    {error, Reason} ->
+                        throw({validator_fetch_error, Reason})
                 end,
                 ok
-            catch throw:Cause ->
+            catch
+                throw:Cause ->
                     {error, Cause}
             end
     end.
 
--spec absorb(txn_stake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_stake_validator(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = owner(Txn),
@@ -205,7 +235,8 @@ absorb(Txn, Chain) ->
     Nonce = blockchain_ledger_entry_v1:nonce(Entry),
 
     case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, true, Hash, Chain) of
-        {error, _Reason} = Err -> Err;
+        {error, _Reason} = Err ->
+            Err;
         ok ->
             case blockchain_ledger_v1:debit_account(Owner, Stake, Nonce + 1, Ledger) of
                 {error, _Reason} = Err1 -> Err1;
@@ -214,13 +245,17 @@ absorb(Txn, Chain) ->
     end.
 
 -spec print(txn_stake_validator()) -> iodata().
-print(undefined) -> <<"type=stake_validator, undefined">>;
+print(undefined) ->
+    <<"type=stake_validator, undefined">>;
 print(#blockchain_txn_stake_validator_v1_pb{
-         owner = O,
-         address = Val,
-         stake = S}) ->
-    io_lib:format("type=stake_validator, owner=~p, validator=~p, stake=~p",
-                  [?TO_B58(O), ?TO_ANIMAL_NAME(Val), S]).
+    owner = O,
+    address = Val,
+    stake = S
+}) ->
+    io_lib:format(
+        "type=stake_validator, owner=~p, validator=~p, stake=~p",
+        [?TO_B58(O), ?TO_ANIMAL_NAME(Val), S]
+    ).
 
 json_type() ->
     <<"stake_validator_v1">>.
@@ -228,14 +263,14 @@ json_type() ->
 -spec to_json(txn_stake_validator(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      address => ?BIN_TO_B58(validator(Txn)),
-      owner => ?BIN_TO_B58(owner(Txn)),
-      owner_signature => ?BIN_TO_B64(owner_signature(Txn)),
-      fee => fee(Txn),
-      stake => stake(Txn)
-     }.
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        address => ?BIN_TO_B58(validator(Txn)),
+        owner => ?BIN_TO_B58(owner(Txn)),
+        owner_signature => ?BIN_TO_B64(owner_signature(Txn)),
+        fee => fee(Txn),
+        stake => stake(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -245,8 +280,9 @@ to_json(Txn, _Opts) ->
 to_json_test() ->
     Tx = new(<<"validator_address">>, <<"owner_address">>, 1000, 20),
     Json = to_json(Tx, []),
-    ?assertEqual(lists:sort(maps:keys(Json)),
-                 lists:sort([type, hash] ++ record_info(fields, blockchain_txn_stake_validator_v1_pb))).
-
+    ?assertEqual(
+        lists:sort(maps:keys(Json)),
+        lists:sort([type, hash] ++ record_info(fields, blockchain_txn_stake_validator_v1_pb))
+    ).
 
 -endif.

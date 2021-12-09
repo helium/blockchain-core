@@ -47,50 +47,59 @@ server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
 -spec dial(
-        SwarmTID :: ets:tab(),
-        Chain :: blockchain:blockchain(),
-        Peer :: libp2p_crypto:pubkey_bin()
+    SwarmTID :: ets:tab(),
+    Chain :: blockchain:blockchain(),
+    Peer :: libp2p_crypto:pubkey_bin()
 ) -> {ok, pid()} | {error, any()}.
 dial(SwarmTID, Chain, Peer) ->
     DialFun =
         fun
-            Dial([])->
-                lager:debug("dialing FF stream failed, no compatible protocol versions",[]),
+            Dial([]) ->
+                lager:debug("dialing FF stream failed, no compatible protocol versions", []),
                 {error, no_supported_protocols};
             Dial([ProtocolVersion | Rest]) ->
                 case blockchain_fastforward_handler:dial(SwarmTID, Chain, Peer, ProtocolVersion) of
-                        {ok, Stream} ->
-                            lager:info("dialing FF stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
-                            {ok, Stream};
-                        {error, protocol_unsupported} ->
-                            lager:debug("dialing FF stream failed with protocol version: ~p, trying next supported protocol version",[ProtocolVersion]),
-                            Dial(Rest);
-                        {error, Reason} ->
-                            lager:debug("dialing FF stream failed: ~p",[Reason]),
-                            {error, Reason}
+                    {ok, Stream} ->
+                        lager:info(
+                            "dialing FF stream successful, stream pid: ~p, protocol version: ~p", [
+                                Stream, ProtocolVersion
+                            ]
+                        ),
+                        {ok, Stream};
+                    {error, protocol_unsupported} ->
+                        lager:debug(
+                            "dialing FF stream failed with protocol version: ~p, trying next supported protocol version",
+                            [ProtocolVersion]
+                        ),
+                        Dial(Rest);
+                    {error, Reason} ->
+                        lager:debug("dialing FF stream failed: ~p", [Reason]),
+                        {error, Reason}
                 end
         end,
     DialFun(?SUPPORTED_FASTFORWARD_PROTOCOLS).
 
 -spec dial(
-        SwarmTID :: ets:tab(),
-        Chain :: blockchain:blockchain(),
-        Peer :: libp2p_crypto:pubkey_bin(),
-        ProtocolVersion :: string()
+    SwarmTID :: ets:tab(),
+    Chain :: blockchain:blockchain(),
+    Peer :: libp2p_crypto:pubkey_bin(),
+    ProtocolVersion :: string()
 ) -> {ok, pid()} | {error, any()}.
-dial(SwarmTID, Chain, Peer, ProtocolVersion)->
-    libp2p_swarm:dial_framed_stream(SwarmTID,
-                                    Peer,
-                                    ProtocolVersion,
-                                    ?MODULE,
-                                    [ProtocolVersion, Chain]).
+dial(SwarmTID, Chain, Peer, ProtocolVersion) ->
+    libp2p_swarm:dial_framed_stream(
+        SwarmTID,
+        Peer,
+        ProtocolVersion,
+        ?MODULE,
+        [ProtocolVersion, Chain]
+    ).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [Path, Blockchain]) ->
     lager:debug("started fastforward_handler client"),
-    {ok, #state{blockchain=Blockchain, path=Path}};
+    {ok, #state{blockchain = Blockchain, path = Path}};
 init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
     lager:debug("started fastforward_handler server"),
     %% use the process registry as a poor man's singleton
@@ -101,19 +110,21 @@ init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
             %% in case we have a slow peer
             erlang:send_after(15000, self(), timeout),
             {ok, Hash} = blockchain:head_hash(Blockchain),
-            Msg = #blockchain_sync_hash_pb{hash=Hash},
-            {ok, #state{blockchain=Blockchain, path=Path}, blockchain_sync_handler_pb:encode_msg(Msg)}
-    catch _:_ ->
-              {stop, normal}
+            Msg = #blockchain_sync_hash_pb{hash = Hash},
+            {ok, #state{blockchain = Blockchain, path = Path},
+                blockchain_sync_handler_pb:encode_msg(Msg)}
+    catch
+        _:_ ->
+            {stop, normal}
     end.
 
-handle_data(client, Data, #state{blockchain=Blockchain}=State) ->
-    #blockchain_sync_hash_pb{hash=Hash} =
-    blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_hash_pb),
+handle_data(client, Data, #state{blockchain = Blockchain} = State) ->
+    #blockchain_sync_hash_pb{hash = Hash} =
+        blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_hash_pb),
     case blockchain:get_block_height(Hash, Blockchain) of
         {ok, Height} ->
             Blocks = blockchain:build(Height, Blockchain, 200),
-            Msg0 = #blockchain_sync_blocks_pb{blocks=[B || {_H, B} <- Blocks]},
+            Msg0 = #blockchain_sync_blocks_pb{blocks = [B || {_H, B} <- Blocks]},
             Msg = blockchain_sync_handler_pb:encode_msg(Msg0),
 
             case State#state.path of
@@ -126,14 +137,14 @@ handle_data(client, Data, #state{blockchain=Blockchain}=State) ->
             %% peer is ahead of us
             {stop, normal, State}
     end;
-handle_data(server, Data0, #state{blockchain=Blockchain, path=Path}=State) ->
+handle_data(server, Data0, #state{blockchain = Blockchain, path = Path} = State) ->
     Data =
         case Path of
             ?FASTFORWARD_PROTOCOL_V1 -> Data0;
             ?FASTFORWARD_PROTOCOL_V2 -> zlib:uncompress(Data0)
         end,
 
-    #blockchain_sync_blocks_pb{blocks=BinBlocks} =
+    #blockchain_sync_blocks_pb{blocks = BinBlocks} =
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     lager:info("adding blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),

@@ -8,14 +8,14 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-         enable_htlc_receipt_test/1,
-         disabled_htlc_receipt_test/1
-        ]).
+    enable_htlc_receipt_test/1,
+    disabled_htlc_receipt_test/1
+]).
 
 all() ->
     [
-     enable_htlc_receipt_test,
-     disabled_htlc_receipt_test
+        enable_htlc_receipt_test,
+        disabled_htlc_receipt_test
     ].
 
 -define(MAX_PAYMENTS, 20).
@@ -41,26 +41,29 @@ init_per_testcase(TestCase, Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
     Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-                              Balance = blockchain_ledger_entry_v1:balance(Entry),
-                              0 = blockchain_ledger_entry_v1:nonce(Entry)
-                      end, maps:values(Entries)),
+    _ = lists:foreach(
+        fun(Entry) ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            0 = blockchain_ledger_entry_v1:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
     meck:new(blockchain_ledger_v1, [passthrough]),
 
     [
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {chain, Chain},
-     {swarm, Swarm},
-     {n, N},
-     {consensus_members, ConsensusMembers},
-     {genesis_members, GenesisMembers},
-     Keys
-     | Config0
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {chain, Chain},
+        {swarm, Swarm},
+        {n, N},
+        {consensus_members, ConsensusMembers},
+        {genesis_members, GenesisMembers},
+        Keys
+        | Config0
     ].
 
 %%--------------------------------------------------------------------
@@ -92,7 +95,7 @@ enable_htlc_receipt_test(Config) ->
         blockchain_ledger_v1,
         current_oracle_price,
         fun(_) ->
-                {ok, 15 * ?BONES_PER_HNT}
+            {ok, 15 * ?BONES_PER_HNT}
         end
     ),
 
@@ -100,7 +103,7 @@ enable_htlc_receipt_test(Config) ->
     ok = application:set_env(blockchain, store_htlc_receipts, true),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     % Create a Payee
     #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -141,7 +144,8 @@ enable_htlc_receipt_test(Config) ->
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx1, RedeemSigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
-    timer:sleep(500), %% add block is a cast, need some time for this to happen
+    %% add block is a cast, need some time for this to happen
+    timer:sleep(500),
 
     %% Check that there is a htlc receipt
     {ok, HTLCReceipt} = blockchain:get_htlc_receipt(HTLCAddress, Chain),
@@ -167,7 +171,7 @@ disabled_htlc_receipt_test(Config) ->
         blockchain_ledger_v1,
         current_oracle_price,
         fun(_) ->
-                {ok, 15 * ?BONES_PER_HNT}
+            {ok, 15 * ?BONES_PER_HNT}
         end
     ),
 
@@ -175,7 +179,7 @@ disabled_htlc_receipt_test(Config) ->
     ok = application:set_env(blockchain, store_htlc_receipts, false),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     % Create a Payee
     #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -216,7 +220,8 @@ disabled_htlc_receipt_test(Config) ->
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx1, RedeemSigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
-    timer:sleep(500), %% add block is a cast, need some time for this to happen
+    %% add block is a cast, need some time for this to happen
+    timer:sleep(500),
 
     %% Check that there is NO htlc receipt
     {error, not_found} = blockchain:get_htlc_receipt(HTLCAddress, Chain),
@@ -228,4 +233,9 @@ disabled_htlc_receipt_test(Config) ->
 %% HELPERS
 %%--------------------------------------------------------------------
 extra_vars(_) ->
-    #{?txn_fees => true, ?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?txn_fee_multiplier => 5000}.
+    #{
+        ?txn_fees => true,
+        ?max_payments => ?MAX_PAYMENTS,
+        ?allow_zero_amount => false,
+        ?txn_fee_multiplier => 5000
+    }.

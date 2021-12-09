@@ -10,10 +10,12 @@
 %% ------------------------------------------------------------------
 %% API
 %% ------------------------------------------------------------------
--export([start_link/1,
-         start_dialer/1,
-         stop_dialer/1,
-         stop_dialers/1]).
+-export([
+    start_link/1,
+    start_dialer/1,
+    stop_dialer/1,
+    stop_dialers/1
+]).
 
 -export([init/1]).
 
@@ -27,14 +29,20 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
 init(_Args) ->
-    SupFlags = #{strategy => simple_one_for_one,
-                 intensity => 0,
-                 period => 1},
-    ChildSpecs = [#{id => blockchain_txn_dialer,
-                    start => {blockchain_txn_dialer, start_link, []},
-                    type => worker,
-                    restart => temporary,
-                    shutdown => brutal_kill}],
+    SupFlags = #{
+        strategy => simple_one_for_one,
+        intensity => 0,
+        period => 1
+    },
+    ChildSpecs = [
+        #{
+            id => blockchain_txn_dialer,
+            start => {blockchain_txn_dialer, start_link, []},
+            type => worker,
+            restart => temporary,
+            shutdown => brutal_kill
+        }
+    ],
     {ok, {SupFlags, ChildSpecs}}.
 
 start_dialer([Parent, TxnKey, Txn, ConsensusMember]) ->

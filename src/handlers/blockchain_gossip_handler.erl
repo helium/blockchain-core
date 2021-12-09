@@ -17,12 +17,12 @@
 %% ------------------------------------------------------------------
 
 -export([
-         init_gossip_data/1,
-         handle_gossip_data/3,
-         gossip_data_v1/2,
-         gossip_data_v2/3,
-         regossip_block/2, regossip_block/4
-        ]).
+    init_gossip_data/1,
+    handle_gossip_data/3,
+    gossip_data_v1/2,
+    gossip_data_v2/3,
+    regossip_block/2, regossip_block/4
+]).
 
 -ifdef(TEST).
 -export([add_block/4]).
@@ -51,19 +51,25 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
             #blockchain_gossip_block_pb{from = From, hash = Hash, height = Height, block = <<>>} ->
                 %% try to cheaply check if we have the block already
                 case blockchain:get_block_hash(Height, Blockchain) of
-                    {ok, Hash} -> ok;
+                    {ok, Hash} ->
+                        ok;
                     {ok, OtherHash} when is_binary(OtherHash) ->
-                        lager:warning("got non-matching hash ~p for height ~p from ~p",
-                                      [Hash, Height, blockchain_utils:addr2name(From)]),
+                        lager:warning(
+                            "got non-matching hash ~p for height ~p from ~p",
+                            [Hash, Height, blockchain_utils:addr2name(From)]
+                        ),
                         ok;
                     {error, not_found} ->
                         %% don't appear to have the block, do we have a plausible block?
                         case blockchain:have_plausible_block(Hash, Blockchain) of
                             true ->
                                 case find_missing_blocks(Hash, Blockchain) of
-                                    [] -> ok;
+                                    [] ->
+                                        ok;
                                     Missing ->
-                                        lager:info("requesting missing blocks ~p from ~p", [Missing, blockchain_utils:addr2name(From)]),
+                                        lager:info("requesting missing blocks ~p from ~p", [
+                                            Missing, blockchain_utils:addr2name(From)
+                                        ]),
                                         blockchain_worker:target_sync(From, Missing, Hash)
                                 end;
                             false ->
@@ -71,8 +77,9 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                                 blockchain_worker:target_sync(From, [], Hash)
                         end
                 end;
-            #blockchain_gossip_block_pb{from=From, block=BinBlock} ->
-                SizeLimit = application:get_env(blockchain, gossip_block_limit_mb, 25) * 1024 * 1024,
+            #blockchain_gossip_block_pb{from = From, block = BinBlock} ->
+                SizeLimit =
+                    application:get_env(blockchain, gossip_block_limit_mb, 25) * 1024 * 1024,
                 case byte_size(BinBlock) < SizeLimit of
                     true ->
                         Block = blockchain_block:deserialize(BinBlock),
@@ -89,7 +96,9 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
                                             true ->
                                                 lager:debug("Got block: ~p from: ~p", [Block, From]),
                                                 %% don't block the gossip server
-                                                spawn(fun() -> add_block(Block, Blockchain, From, SwarmTID) end),
+                                                spawn(fun() ->
+                                                    add_block(Block, Blockchain, From, SwarmTID)
+                                                end),
                                                 ok;
                                             false ->
                                                 blockchain_worker:maybe_sync(),
@@ -109,30 +118,29 @@ handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
     end,
     noreply.
 
-
--spec find_missing_blocks(Hash :: blockchain_block:hash(), Chain :: blockchain:blockchain()) -> [pos_integer()].
+-spec find_missing_blocks(Hash :: blockchain_block:hash(), Chain :: blockchain:blockchain()) ->
+    [pos_integer()].
 find_missing_blocks(Hash, Chain) ->
     {ok, Block} = blockchain:get_plausible_block(Hash, Chain),
     find_missing_blocks(blockchain_block:prev_hash(Block), blockchain_block:height(Block), Chain).
-
 
 find_missing_blocks(Hash, LastHeight, Chain) ->
     case blockchain:get_plausible_block(Hash, Chain) of
         {ok, Block} ->
             BlockHeight = blockchain_block:height(Block),
             case BlockHeight == LastHeight - 1 of
-                 true ->
+                true ->
                     find_missing_blocks(blockchain_block:prev_hash(Block), BlockHeight, Chain);
                 false ->
                     %% some kind of wacky chain break, ignore the plausible block that does not fit
                     {ok, ChainHeight} = blockchain:height(Chain),
-                    block_range(ChainHeight+1, LastHeight - 1)
+                    block_range(ChainHeight + 1, LastHeight - 1)
             end;
         _ ->
             %% found a break in the plausible chain, so now we know we need any
             %% missing heights between this block and the chain's HEAD block
             {ok, ChainHeight} = blockchain:height(Chain),
-            block_range(ChainHeight+1, LastHeight - 1)
+            block_range(ChainHeight + 1, LastHeight - 1)
     end.
 
 block_range(A, B) when A >= B ->
@@ -143,7 +151,10 @@ block_range(A, B) ->
 
 add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
-    case blockchain:has_block(Block, Chain) == false andalso blockchain:is_block_plausible(Block, Chain) of
+    case
+        blockchain:has_block(Block, Chain) == false andalso
+            blockchain:is_block_plausible(Block, Chain)
+    of
         true ->
             %% eagerly re-gossip plausible blocks we don't have
             ok = regossip_block(Block, SwarmTID);
@@ -162,15 +173,21 @@ add_block(Block, Chain, Sender, SwarmTID) ->
                     %% pass it along
                     ok;
                 plausible ->
-                    lager:info("plausible gossipped block ~p doesn't fit with our chain, will start sync if not already active", [blockchain_block:height(Block)]),
+                    lager:info(
+                        "plausible gossipped block ~p doesn't fit with our chain, will start sync if not already active",
+                        [blockchain_block:height(Block)]
+                    ),
                     blockchain_worker:maybe_sync(),
                     %% pass it along
                     ok;
                 exists ->
                     ok;
                 {error, disjoint_chain} ->
-                    lager:warning("gossipped block ~p doesn't fit with our chain,"
-                                " will start sync if not already active", [blockchain_block:height(Block)]),
+                    lager:warning(
+                        "gossipped block ~p doesn't fit with our chain,"
+                        " will start sync if not already active",
+                        [blockchain_block:height(Block)]
+                    ),
                     blockchain_worker:maybe_sync(),
                     ok;
                 {error, disjoint_assumed_valid_block} ->
@@ -192,26 +209,26 @@ add_block(Block, Chain, Sender, SwarmTID) ->
 gossip_data_v1(SwarmTID, Block) ->
     PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
     BinBlock = blockchain_block:serialize(Block),
-    Msg = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
+    Msg = #blockchain_gossip_block_pb{from = PubKeyBin, block = BinBlock},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
 -spec gossip_data_v2(libp2p_swarm:swarm(), binary(), pos_integer()) -> binary().
 gossip_data_v2(SwarmTID, Hash, Height) ->
     PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
-    Msg = #blockchain_gossip_block_pb{from=PubKeyBin, hash=Hash, height=Height},
+    Msg = #blockchain_gossip_block_pb{from = PubKeyBin, hash = Hash, height = Height},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
 regossip_block(Block, SwarmTID) ->
-        case application:get_env(blockchain, gossip_version, 1) of
-            1 ->
-                %% this is awful but safe
-                regossip_block(Block, height, hash, SwarmTID);
-            2 ->
-                %% this is not super efficient but the cost should tail off over time.
-                Height = blockchain_block:height(Block),
-                Hash = blockchain_block:hash_block(Block),
-                regossip_block(Block, Height, Hash, SwarmTID)
-        end.
+    case application:get_env(blockchain, gossip_version, 1) of
+        1 ->
+            %% this is awful but safe
+            regossip_block(Block, height, hash, SwarmTID);
+        2 ->
+            %% this is not super efficient but the cost should tail off over time.
+            Height = blockchain_block:height(Block),
+            Hash = blockchain_block:hash_block(Block),
+            regossip_block(Block, Height, Hash, SwarmTID)
+    end.
 
 regossip_block(Block, Height, Hash, SwarmTID) ->
     Data =
@@ -222,8 +239,8 @@ regossip_block(Block, Height, Hash, SwarmTID) ->
                 gossip_data_v2(SwarmTID, Hash, Height)
         end,
     libp2p_group_gossip:send(
-      libp2p_swarm:gossip_group(SwarmTID),
-      ?GOSSIP_PROTOCOL_V1,
-      Data
-     ),
+        libp2p_swarm:gossip_group(SwarmTID),
+        ?GOSSIP_PROTOCOL_V1,
+        Data
+    ),
     ok.

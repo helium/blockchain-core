@@ -13,30 +13,31 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-         start_link/1,
-         dial/1
-        ]).
+    start_link/1,
+    dial/1
+]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 -export([
-         init/1,
-         handle_call/3,
-         handle_info/2,
-         handle_cast/2,
-         terminate/2,
-         code_change/3
-        ]).
+    init/1,
+    handle_call/3,
+    handle_info/2,
+    handle_cast/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(state, {
-          parent :: pid(),
-          txn_key :: blockchain_txn_mgr:txn_key(),
-          txn :: blockchain_txn:txn(),
-          member :: libp2p_crypto:pubkey_bin(),
-          timeout = make_ref() :: reference(),
-          protocol_version :: undefined | string() % set at dial
-         }).
+    parent :: pid(),
+    txn_key :: blockchain_txn_mgr:txn_key(),
+    txn :: blockchain_txn:txn(),
+    member :: libp2p_crypto:pubkey_bin(),
+    timeout = make_ref() :: reference(),
+    % set at dial
+    protocol_version :: undefined | string()
+}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -54,12 +55,12 @@ init(Args) ->
     lager:debug("blockchain_txn_dialer started with ~p", [Args]),
     [Parent, TxnKey, Txn, Member] = Args,
     Ref = erlang:send_after(30000, Parent, {timeout, {self(), TxnKey, Txn, Member}}),
-    {ok, #state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}}.
+    {ok, #state{parent = Parent, txn_key = TxnKey, txn = Txn, member = Member, timeout = Ref}}.
 
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_cast(dial, State=#state{}) ->
+handle_cast(dial, State = #state{}) ->
     case dial_(State) of
         ok ->
             {noreply, State};
@@ -69,11 +70,17 @@ handle_cast(dial, State=#state{}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info(
+    {blockchain_txn_response, {ok, _TxnHash}},
+    State = #state{parent = Parent, txn_key = TxnKey, txn = Txn, member = Member, timeout = Ref}
+) ->
     erlang:cancel_timer(Ref),
     Parent ! {accepted, {self(), TxnKey, Txn, Member}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {no_group, _TxnHash}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info(
+    {blockchain_txn_response, {no_group, _TxnHash}},
+    State = #state{parent = Parent, txn_key = TxnKey, txn = Txn, member = Member, timeout = Ref}
+) ->
     erlang:cancel_timer(Ref),
     Parent ! {no_group, {self(), TxnKey, Txn, Member}},
     {stop, normal, State};
@@ -85,7 +92,7 @@ handle_info(
         txn = Txn,
         member = Member,
         timeout = Ref
-    }=State
+    } = State
 ) ->
     erlang:cancel_timer(Ref),
     TxnDataOut =
@@ -112,15 +119,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal ===================================================================
 
 -spec dial_(#state{}) -> ok | {error, _}.
-dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Ref}) ->
+dial_(#state{member = Member, txn_key = TxnKey, txn = Txn, parent = Parent, timeout = Ref}) ->
     SwarmTID = blockchain_swarm:tid(),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
     TxnHash = blockchain_txn:hash(Txn),
     (fun
-        Dial ([]) ->
+        Dial([]) ->
             lager:debug("txn dialing failed - no compatible protocol versions"),
             {error, no_supported_protocols};
-        Dial ([ProtocolVersion | SupportedProtocolVersions]) ->
+        Dial([ProtocolVersion | SupportedProtocolVersions]) ->
             case
                 libp2p_swarm:dial_framed_stream(
                     SwarmTID,
@@ -137,7 +144,7 @@ dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Re
                         [ProtocolVersion]
                     ),
                     Dial(SupportedProtocolVersions);
-                {error, Reason}=Error ->
+                {error, Reason} = Error ->
                     erlang:cancel_timer(Ref),
                     lager:error(
                         "libp2p_framed_stream dial failed. "
@@ -149,7 +156,7 @@ dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Re
                 {ok, Stream} ->
                     DataToSend = blockchain_txn:serialize(Txn),
                     case libp2p_framed_stream:send(Stream, DataToSend) of
-                        {error, Reason}=Error ->
+                        {error, Reason} = Error ->
                             erlang:cancel_timer(Ref),
                             lager:error(
                                 "libp2p_framed_stream send failed. "
@@ -162,4 +169,6 @@ dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Re
                             ok
                     end
             end
-    end)(?SUPPORTED_TX_PROTOCOLS).
+    end)(
+        ?SUPPORTED_TX_PROTOCOLS
+    ).

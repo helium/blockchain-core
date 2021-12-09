@@ -7,9 +7,15 @@
 
 -export([
     new/3, new/4,
-    packet/1, hotspot/1, region/1, signature/1, hold_time/1,
-    sign/2, validate/2,
-    encode/1, decode/1
+    packet/1,
+    hotspot/1,
+    region/1,
+    signature/1,
+    hold_time/1,
+    sign/2,
+    validate/2,
+    encode/1,
+    decode/1
 ]).
 
 -include("blockchain.hrl").
@@ -26,40 +32,42 @@
 new(Packet, Hotspot, Region) ->
     new(Packet, Hotspot, Region, 0).
 
--spec new(blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin(), atom(), non_neg_integer()) -> packet().
+-spec new(
+    blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin(), atom(), non_neg_integer()
+) -> packet().
 new(Packet, Hotspot, Region, HoldTime) ->
     #blockchain_state_channel_packet_v1_pb{
-        packet=Packet,
-        hotspot=Hotspot,
-        region=Region,
-        hold_time=HoldTime
+        packet = Packet,
+        hotspot = Hotspot,
+        region = Region,
+        hold_time = HoldTime
     }.
 
 -spec packet(packet()) -> blockchain_helium_packet_v1:packet().
-packet(#blockchain_state_channel_packet_v1_pb{packet=Packet}) ->
+packet(#blockchain_state_channel_packet_v1_pb{packet = Packet}) ->
     Packet.
 
 -spec hotspot(packet()) -> libp2p_crypto:pubkey_bin().
-hotspot(#blockchain_state_channel_packet_v1_pb{hotspot=Hotspot}) ->
+hotspot(#blockchain_state_channel_packet_v1_pb{hotspot = Hotspot}) ->
     Hotspot.
 
 -spec region(packet()) -> atom().
-region(#blockchain_state_channel_packet_v1_pb{region=Region}) ->
+region(#blockchain_state_channel_packet_v1_pb{region = Region}) ->
     Region.
 
 -spec signature(packet()) -> binary().
-signature(#blockchain_state_channel_packet_v1_pb{signature=Signature}) ->
+signature(#blockchain_state_channel_packet_v1_pb{signature = Signature}) ->
     Signature.
 
 -spec hold_time(packet()) -> non_neg_integer().
-hold_time(#blockchain_state_channel_packet_v1_pb{hold_time=HoldTime}) ->
+hold_time(#blockchain_state_channel_packet_v1_pb{hold_time = HoldTime}) ->
     HoldTime.
 
 -spec sign(packet(), function()) -> packet().
 sign(Packet, SigFun) ->
-    EncodedReq = ?MODULE:encode(Packet#blockchain_state_channel_packet_v1_pb{signature= <<>>}),
+    EncodedReq = ?MODULE:encode(Packet#blockchain_state_channel_packet_v1_pb{signature = <<>>}),
     Signature = SigFun(EncodedReq),
-    Packet#blockchain_state_channel_packet_v1_pb{signature=Signature}.
+    Packet#blockchain_state_channel_packet_v1_pb{signature = Signature}.
 
 -spec validate(packet(), blockchain_state_channel_offer_v1:offer()) -> true | {error, any()}.
 validate(Packet, Offer) ->
@@ -69,24 +77,34 @@ validate(Packet, Offer) ->
     PubKeyBin = ?MODULE:hotspot(Packet),
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     case libp2p_crypto:verify(EncodedPacket, Signature, PubKey) of
-        false -> {error, bad_signature};
+        false ->
+            {error, bad_signature};
         true ->
             %% compute the offer from the packet and check it compares to the original offer
-            ExpectedOffer = blockchain_state_channel_offer_v1:from_packet(packet(Packet), hotspot(Packet), region(Packet)),
+            ExpectedOffer = blockchain_state_channel_offer_v1:from_packet(
+                packet(Packet), hotspot(Packet), region(Packet)
+            ),
             %% signatures won't be the same, but we can compare everything else
             lager:info("Original offer ~p, calculated offer ~p", [Offer, ExpectedOffer]),
-            case blockchain_state_channel_offer_v1:packet_hash(Offer) == blockchain_state_channel_offer_v1:packet_hash(ExpectedOffer) andalso
-                 blockchain_state_channel_offer_v1:payload_size(Offer) == blockchain_state_channel_offer_v1:payload_size(ExpectedOffer) andalso
-                 blockchain_state_channel_offer_v1:routing(Offer) == blockchain_state_channel_offer_v1:routing(ExpectedOffer) andalso
-                 blockchain_state_channel_offer_v1:region(Offer) == blockchain_state_channel_offer_v1:region(ExpectedOffer) andalso
-                 blockchain_state_channel_offer_v1:hotspot(Offer) == blockchain_state_channel_offer_v1:hotspot(ExpectedOffer) of
+            case
+                blockchain_state_channel_offer_v1:packet_hash(Offer) ==
+                    blockchain_state_channel_offer_v1:packet_hash(ExpectedOffer) andalso
+                    blockchain_state_channel_offer_v1:payload_size(Offer) ==
+                        blockchain_state_channel_offer_v1:payload_size(ExpectedOffer) andalso
+                    blockchain_state_channel_offer_v1:routing(Offer) ==
+                        blockchain_state_channel_offer_v1:routing(ExpectedOffer) andalso
+                    blockchain_state_channel_offer_v1:region(Offer) ==
+                        blockchain_state_channel_offer_v1:region(ExpectedOffer) andalso
+                    blockchain_state_channel_offer_v1:hotspot(Offer) ==
+                        blockchain_state_channel_offer_v1:hotspot(ExpectedOffer)
+            of
                 false -> {error, packet_offer_mismatch};
                 true -> true
             end
     end.
 
 -spec encode(packet()) -> binary().
-encode(#blockchain_state_channel_packet_v1_pb{}=Packet) ->
+encode(#blockchain_state_channel_packet_v1_pb{} = Packet) ->
     blockchain_state_channel_v1_pb:encode_msg(Packet).
 
 -spec decode(binary()) -> packet().
@@ -104,7 +122,7 @@ decode(BinaryPacket) ->
 
 new_test() ->
     Packet = #blockchain_state_channel_packet_v1_pb{
-        packet= blockchain_helium_packet_v1:new(),
+        packet = blockchain_helium_packet_v1:new(),
         hotspot = <<"hotspot">>
     },
     ?assertEqual(Packet, new(blockchain_helium_packet_v1:new(), <<"hotspot">>, 'US915')).

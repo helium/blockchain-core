@@ -2,27 +2,28 @@
 
 -include("blockchain_json.hrl").
 
--callback to_json(blockchain_block:block()
-                 | blockchain_txn:txn(),
-                  Opts::[tuple()]
-                 ) -> map().
-
+-callback to_json(
+    blockchain_block:block()
+    | blockchain_txn:txn(),
+    Opts :: [tuple()]
+) -> map().
 
 -type json_object() :: map().
 -type json_opts() :: [tuple()].
 
--export_type([json_object/0,
-              json_opts/0
-             ]).
+-export_type([
+    json_object/0,
+    json_opts/0
+]).
 
 -export([
-         maybe_undefined/1,
-         maybe_fn/2,
-         maybe_b64/1,
-         maybe_b58/1,
-         maybe_h3/1,
-         maybe_list_to_binary/1
-        ]).
+    maybe_undefined/1,
+    maybe_fn/2,
+    maybe_b64/1,
+    maybe_b58/1,
+    maybe_h3/1,
+    maybe_list_to_binary/1
+]).
 
 %%
 %% Utilities
@@ -62,8 +63,12 @@ maybe_h3(V) ->
 
 -spec maybe_list_to_binary(undefined | list()) -> undefined | binary().
 maybe_list_to_binary(V) ->
-    maybe_fn(fun ([]) -> undefined;
-                 (I) when is_list(I) -> list_to_binary(I);
-                 (<<>>) -> undefined;
-                 (I) when is_binary(I) -> I
-             end, V).
+    maybe_fn(
+        fun
+            ([]) -> undefined;
+            (I) when is_list(I) -> list_to_binary(I);
+            (<<>>) -> undefined;
+            (I) when is_binary(I) -> I
+        end,
+        V
+    ).

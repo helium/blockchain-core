@@ -16,40 +16,40 @@
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 
 -export([
-         new/2, new/3,
-         hash/1,
-         fee/1,
-         fee_payer/2,
-         is_valid/2,
-         master_key/1,
-         multi_keys/1,
-         key_proof/1, key_proof/2,
-         multi_key_proofs/1, multi_key_proofs/2,
-         proof/1, proof/2,
-         multi_proofs/1, multi_proofs/2,
-         vars/1,
-         to_var/2,
-         from_var/1,
-         decoded_vars/1,
-         version_predicate/1,
-         unsets/1,
-         cancels/1,
-         nonce/1,
-         absorb/2,
-         rescue_absorb/2,
-         sign/2,
-         print/1,
-         json_type/0,
-         to_json/2
-        ]).
+    new/2, new/3,
+    hash/1,
+    fee/1,
+    fee_payer/2,
+    is_valid/2,
+    master_key/1,
+    multi_keys/1,
+    key_proof/1, key_proof/2,
+    multi_key_proofs/1, multi_key_proofs/2,
+    proof/1, proof/2,
+    multi_proofs/1, multi_proofs/2,
+    vars/1,
+    to_var/2,
+    from_var/1,
+    decoded_vars/1,
+    version_predicate/1,
+    unsets/1,
+    cancels/1,
+    nonce/1,
+    absorb/2,
+    rescue_absorb/2,
+    sign/2,
+    print/1,
+    json_type/0,
+    to_json/2
+]).
 
 %% helper API
 -export([
-         create_proof/2,
-         legacy_create_proof/2,
-         maybe_absorb/3,
-         delayed_absorb/2
-        ]).
+    create_proof/2,
+    legacy_create_proof/2,
+    maybe_absorb/3,
+    delayed_absorb/2
+]).
 
 -ifdef(TEST).
 -include_lib("stdlib/include/assert.hrl").
@@ -69,7 +69,7 @@
 -define(min_snap_interval, 1).
 -define(expire_lower_bound, 2).
 -else.
--define(min_snap_interval, 4*60).
+-define(min_snap_interval, 4 * 60).
 -define(expire_lower_bound, 9).
 -endif.
 
@@ -95,7 +95,6 @@
 %%     repeated bytes multi_key_proof = 11;
 %% }
 
-
 -spec new(#{}, integer()) -> txn_vars().
 new(Vars, Nonce) ->
     new(Vars, Nonce, #{}).
@@ -112,21 +111,26 @@ new(Vars, Nonce, Optional) ->
     %% note that string inputs are normalized on creation, which has
     %% an effect on proof encoding :/
 
-    #blockchain_txn_vars_v1_pb{vars = lists:sort(encode_vars(Vars)),
-                               version_predicate = VersionP,
-                               unsets = encode_unsets(Unsets),
-                               cancels = Cancels,
-                               nonce = Nonce,
-                               master_key = MasterKey,
-                               key_proof = KeyProof,
-                               multi_keys = MultiKeys,
-                               multi_key_proofs = MultiKeyProofs}.
+    #blockchain_txn_vars_v1_pb{
+        vars = lists:sort(encode_vars(Vars)),
+        version_predicate = VersionP,
+        unsets = encode_unsets(Unsets),
+        cancels = Cancels,
+        nonce = Nonce,
+        master_key = MasterKey,
+        key_proof = KeyProof,
+        multi_keys = MultiKeys,
+        multi_key_proofs = MultiKeyProofs
+    }.
 
 encode_vars(Vars) ->
     V = maps:to_list(Vars),
-    lists:map(fun({K, Val}) ->
-                      to_var(atom_to_list(K), Val)
-              end,V).
+    lists:map(
+        fun({K, Val}) ->
+            to_var(atom_to_list(K), Val)
+        end,
+        V
+    ).
 
 encode_unsets(Unsets) ->
     lists:map(fun(U) -> atom_to_binary(U, utf8) end, Unsets).
@@ -147,13 +151,14 @@ to_var(_Name, _V) ->
 
 decode_vars(PBList) ->
     lists:foldl(
-      fun(V, Acc) ->
-              {K, V1} = from_var(V),
-              K1 = list_to_atom(K),
-              Acc#{K1 => V1}
-      end,
-      #{},
-      PBList).
+        fun(V, Acc) ->
+            {K, V1} = from_var(V),
+            K1 = list_to_atom(K),
+            Acc#{K1 => V1}
+        end,
+        #{},
+        PBList
+    ).
 
 from_var(#blockchain_var_v1_pb{name = Name, type = "binary", value = V}) ->
     {Name, V};
@@ -183,7 +188,8 @@ sign(Txn, _SigFun) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_vars(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_vars(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -218,10 +224,12 @@ multi_proofs(Txn, Proofs) ->
     Txn#blockchain_txn_vars_v1_pb{multi_proofs = Proofs}.
 
 unset_proofs(Txn) ->
-    Txn#blockchain_txn_vars_v1_pb{proof = <<>>,
-                                  key_proof = <<>>,
-                                  multi_proofs = [],
-                                  multi_key_proofs = []}.
+    Txn#blockchain_txn_vars_v1_pb{
+        proof = <<>>,
+        key_proof = <<>>,
+        multi_proofs = [],
+        multi_key_proofs = []
+    }.
 
 vars(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.vars.
@@ -282,20 +290,24 @@ is_valid(Txn, Chain) ->
                 end,
 
                 case Gen of
-                    true -> ok; %% genesis block doesn't validate vars
+                    %% genesis block doesn't validate vars
+                    true ->
+                        ok;
                     _ ->
                         %% do these before the proof, so we can check validation on unsigned txns
                         %% NB: validation errors MUST throw
                         maps:map(fun validate_var/2, Vars)
                 end,
                 lists:foreach(
-                  fun(VarName) ->
-                          case blockchain:config(VarName, Ledger) of % ignore this one using "?"
-                              {ok, _} -> ok;
-                              {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
-                          end
-                  end,
-                  decode_unsets(unsets(Txn))),
+                    fun(VarName) ->
+                        % ignore this one using "?"
+                        case blockchain:config(VarName, Ledger) of
+                            {ok, _} -> ok;
+                            {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
+                        end
+                    end,
+                    decode_unsets(unsets(Txn))
+                ),
 
                 %% here we can accept a valid master key
                 ok = validate_master_keys(Txn, Gen, Artifact, Ledger),
@@ -314,9 +326,14 @@ is_valid(Txn, Chain) ->
                                         MaxProofs = length(MultiKeys),
                                         Proofs = multi_proofs(Txn),
                                         case length(Proofs) > MaxProofs of
-                                            true -> throw({error, too_many_proofs});
+                                            true ->
+                                                throw({error, too_many_proofs});
                                             false ->
-                                                case blockchain_utils:verify_multisig(Artifact, Proofs, MultiKeys) of
+                                                case
+                                                    blockchain_utils:verify_multisig(
+                                                        Artifact, Proofs, MultiKeys
+                                                    )
+                                                of
                                                     true -> ok;
                                                     false -> throw({error, insufficient_votes})
                                                 end
@@ -346,7 +363,8 @@ is_valid(Txn, Chain) ->
                 %% the router and the API that only want to validate vars.
 
                 ok
-            catch throw:Ret ->
+            catch
+                throw:Ret ->
                     lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
                     Ret
             end;
@@ -414,13 +432,15 @@ legacy_is_valid(Txn, Chain) ->
                 end
         end,
         lists:foreach(
-          fun(VarName) ->
-                  case blockchain:config(VarName, Ledger) of % ignore this one using "?"
-                      {ok, _} -> ok;
-                      {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
-                  end
-          end,
-          decode_unsets(unsets(Txn))),
+            fun(VarName) ->
+                % ignore this one using "?"
+                case blockchain:config(VarName, Ledger) of
+                    {ok, _} -> ok;
+                    {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
+                end
+            end,
+            decode_unsets(unsets(Txn))
+        ),
 
         %% TODO: validate that a cancelled transaction is actually on
         %% the chain
@@ -430,7 +450,8 @@ legacy_is_valid(Txn, Chain) ->
         %% the router and the API that only want to validate vars.
 
         ok
-    catch throw:Ret ->
+    catch
+        throw:Ret ->
             lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
             Ret
     end.
@@ -450,10 +471,11 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
                     %% system uses its singular proof to ensure that we have a valid and known key.
                     %% the more complicated logic here is to make sure we don't have to re-prove old
                     %% keys, and to ensure that all new keys have one proof associated with them.
-                    OldMultiKeys = case blockchain_ledger_v1:multi_keys(Ledger) of
-                                       {ok, Keys} -> Keys;
-                                       {error, not_found} -> []
-                                   end,
+                    OldMultiKeys =
+                        case blockchain_ledger_v1:multi_keys(Ledger) of
+                            {ok, Keys} -> Keys;
+                            {error, not_found} -> []
+                        end,
                     %% remove all existing keys from the new list. They don't need to re-prove
                     %% themselves and cannot 'vote' for the change here.  Their votes as to the
                     %% signedness of the transaction are counted elsewhere.
@@ -469,7 +491,8 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
                     %% count_votes here counts the number of proofs that can be validated by the
                     %% keys in MultiKeys, with each key only being allowed to be used once.
                     case length(KeyProofs) > MaxProofs of
-                        true -> throw({error, too_many_key_proofs});
+                        true ->
+                            throw({error, too_many_key_proofs});
                         false ->
                             Votes = blockchain_utils:count_votes(Artifact, MultiKeys, KeyProofs),
                             %% ProofKeys here is the number of new keys in the list of multi-keys, so if the
@@ -478,8 +501,10 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
                                 true ->
                                     ok;
                                 _ ->
-                                    lager:warning("not enough votes: votes ~p new keys ~p",
-                                                  [Votes, length(ProofKeys)]),
+                                    lager:warning(
+                                        "not enough votes: votes ~p new keys ~p",
+                                        [Votes, length(ProofKeys)]
+                                    ),
                                     throw({error, bad_multi_key_proof})
                             end
                     end
@@ -571,26 +596,30 @@ check_members(Members, Target, Ledger) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
         {ok, N} when N >= 5 ->
             lists:all(
-              fun(M) ->
-                      case blockchain_ledger_v1:get_validator(M, Ledger) of
-                          {ok, Val} ->
-                              V = blockchain_ledger_validator_v1:version(Val),
-                              V >= Target;
-                          _Err -> false
-                      end
-              end,
-              Members);
+                fun(M) ->
+                    case blockchain_ledger_v1:get_validator(M, Ledger) of
+                        {ok, Val} ->
+                            V = blockchain_ledger_validator_v1:version(Val),
+                            V >= Target;
+                        _Err ->
+                            false
+                    end
+                end,
+                Members
+            );
         _ ->
             lists:all(
-              fun(M) ->
-                      case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
-                          {ok, Gw} ->
-                              V = blockchain_ledger_gateway_v2:version(Gw),
-                              V >= Target;
-                          _ -> false
-                      end
-              end,
-              Members)
+                fun(M) ->
+                    case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
+                        {ok, Gw} ->
+                            V = blockchain_ledger_gateway_v2:version(Gw),
+                            V >= Target;
+                        _ ->
+                            false
+                    end
+                end,
+                Members
+            )
     end.
 
 delayed_absorb(Txn, Ledger) ->
@@ -619,7 +648,7 @@ sum_higher(Target, Proplist) ->
 
 sum_higher(_Target, [], Sum) ->
     Sum;
-sum_higher(Target, [{Vers, Pct}| T], Sum) ->
+sum_higher(Target, [{Vers, Pct} | T], Sum) ->
     case Vers >= Target of
         true ->
             sum_higher(Target, T, Sum + Pct);
@@ -631,17 +660,34 @@ decode_unsets(Unsets) ->
     lists:map(fun(U) -> binary_to_atom(U, utf8) end, Unsets).
 
 -spec print(txn_vars()) -> iodata().
-print(undefined) -> <<"type=vars undefined">>;
-print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
-                                 master_key = MasterKey, key_proof = KeyProof,
-                                 multi_keys = MultiKeys, multi_key_proofs = MultiKeyProofs,
-                                 unsets = Unsets, cancels = Cancels,
-                                 nonce = Nonce}) ->
-    io_lib:format("type=vars vars=~p nonce=~p unsets=~p version_predicate=~p master_key=~p key_proof=~p "
-                  "multi_keys=~p multi_key_proofs=~p cancels=~p",
-                  [Vars, Nonce, Unsets, VersionP,
-                   MasterKey, KeyProof,
-                   MultiKeys, MultiKeyProofs, Cancels]).
+print(undefined) ->
+    <<"type=vars undefined">>;
+print(#blockchain_txn_vars_v1_pb{
+    vars = Vars,
+    version_predicate = VersionP,
+    master_key = MasterKey,
+    key_proof = KeyProof,
+    multi_keys = MultiKeys,
+    multi_key_proofs = MultiKeyProofs,
+    unsets = Unsets,
+    cancels = Cancels,
+    nonce = Nonce
+}) ->
+    io_lib:format(
+        "type=vars vars=~p nonce=~p unsets=~p version_predicate=~p master_key=~p key_proof=~p "
+        "multi_keys=~p multi_key_proofs=~p cancels=~p",
+        [
+            Vars,
+            Nonce,
+            Unsets,
+            VersionP,
+            MasterKey,
+            KeyProof,
+            MultiKeys,
+            MultiKeyProofs,
+            Cancels
+        ]
+    ).
 
 json_type() ->
     <<"vars_v1">>.
@@ -649,25 +695,30 @@ json_type() ->
 -spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      vars => maps:map(fun(_, V) when is_binary(V) ->
-                               case lists:all(fun(C) -> C >= 32 andalso  C =< 127 end, binary_to_list(V)) of
-                                   true ->
-                                       V;
-                                   false ->
-                                       base64:encode(V)
-                               end;
-                          (_, V) -> V
-                       end, decoded_vars(Txn)),
-      version_predicate => version_predicate(Txn),
-      proof => ?BIN_TO_B64(proof(Txn)),
-      master_key => ?MAYBE_B58(master_key(Txn)),
-      key_proof => ?BIN_TO_B64(key_proof(Txn)),
-      cancels => cancels(Txn),
-      unsets => unsets(Txn),
-      nonce => nonce(Txn)
-     }.
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        vars => maps:map(
+            fun
+                (_, V) when is_binary(V) ->
+                    case lists:all(fun(C) -> C >= 32 andalso C =< 127 end, binary_to_list(V)) of
+                        true ->
+                            V;
+                        false ->
+                            base64:encode(V)
+                    end;
+                (_, V) ->
+                    V
+            end,
+            decoded_vars(Txn)
+        ),
+        version_predicate => version_predicate(Txn),
+        proof => ?BIN_TO_B64(proof(Txn)),
+        master_key => ?MAYBE_B58(master_key(Txn)),
+        key_proof => ?BIN_TO_B64(key_proof(Txn)),
+        cancels => cancels(Txn),
+        unsets => unsets(Txn),
+        nonce => nonce(Txn)
+    }.
 
 %%%
 %%% Helper API
@@ -703,8 +754,13 @@ validate_int(Value, Name, Min, Max, InfOK) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
-                _ -> ok
+                    throw(
+                        {error, {
+                            list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max
+                        }}
+                    );
+                _ ->
+                    ok
             end
     end.
 
@@ -717,8 +773,13 @@ validate_float(Value, Name, Min, Max) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
-                _ -> ok
+                    throw(
+                        {error, {
+                            list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max
+                        }}
+                    );
+                _ ->
+                    ok
             end
     end.
 
@@ -726,8 +787,9 @@ validate_oracle_public_keys_format(Str) when is_binary(Str) ->
     PubKeys = blockchain_utils:bin_keys_to_list(Str),
     validate_oracle_keys(PubKeys).
 
-validate_oracle_keys([]) -> ok;
-validate_oracle_keys([H|T]) ->
+validate_oracle_keys([]) ->
+    ok;
+validate_oracle_keys([H | T]) ->
     try
         _ = libp2p_crypto:bin_to_pubkey(H),
         validate_oracle_keys(T)
@@ -740,8 +802,9 @@ validate_staking_keys_format(Str) when is_binary(Str) ->
     PubKeys = blockchain_utils:bin_keys_to_list(Str),
     validate_staking_keys(PubKeys).
 
-validate_staking_keys([]) -> ok;
-validate_staking_keys([H|T]) ->
+validate_staking_keys([]) ->
+    ok;
+validate_staking_keys([H | T]) ->
     try
         _ = libp2p_crypto:bin_to_pubkey(H),
         validate_staking_keys(T)
@@ -753,10 +816,11 @@ validate_staking_keys([H|T]) ->
 validate_staking_keys_to_mode_mappings_format(Bin) when is_binary(Bin) ->
     Mappings = blockchain_utils:bin_to_prop(Bin, 8),
     validate_staking_keys_to_mode_mappings(Mappings);
-validate_staking_keys_to_mode_mappings_format(_Bin)  ->
+validate_staking_keys_to_mode_mappings_format(_Bin) ->
     throw({error, invalid_staking_to_mode_mappings_format}).
 
-validate_staking_keys_to_mode_mappings([]) -> ok;
+validate_staking_keys_to_mode_mappings([]) ->
+    ok;
 validate_staking_keys_to_mode_mappings([{PubKey, GWMode} | T]) ->
     try
         _ = libp2p_crypto:bin_to_pubkey(PubKey),
@@ -767,13 +831,14 @@ validate_staking_keys_to_mode_mappings([{PubKey, GWMode} | T]) ->
             throw({error, {invalid_staking_to_mode_mapping, {PubKey, GWMode}}})
     end.
 
-validate_staking_key_mode_mapping_value(GWMode) when GWMode == <<"dataonly">>;
-                                                     GWMode == <<"light">>;
-                                                     GWMode == <<"full">> ->
+validate_staking_key_mode_mapping_value(GWMode) when
+    GWMode == <<"dataonly">>;
+    GWMode == <<"light">>;
+    GWMode == <<"full">>
+->
     ok;
 validate_staking_key_mode_mapping_value(GWMode) ->
     throw({error, {invalid_staking_to_mode_mapping_value, GWMode}}).
-
 
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
@@ -784,10 +849,11 @@ validate_var(?election_version, Value) ->
         2 -> ok;
         3 -> ok;
         4 -> ok;
-        5 -> ok;  % validator move trigger
-        6 -> ok;  % move to maps
-        _ ->
-            throw({error, {invalid_election_version, Value}})
+        % validator move trigger
+        5 -> ok;
+        % move to maps
+        6 -> ok;
+        _ -> throw({error, {invalid_election_version, Value}})
     end;
 validate_var(?election_selection_pct, Value) ->
     validate_int(Value, "election_selection_pct", 1, 99, false);
@@ -809,7 +875,6 @@ validate_var(?election_bba_penalty, Value) ->
     validate_float(Value, "election_bba_penalty", 0.001, 0.5);
 validate_var(?election_seen_penalty, Value) ->
     validate_float(Value, "election_seen_penalty", 0.001, 0.5);
-
 %% ledger vars
 validate_var(?var_gw_inactivity_threshold, Value) ->
     validate_int(Value, "var_gw_inactivity_threshold", 15, 2880, false);
@@ -817,7 +882,6 @@ validate_var(?witness_refresh_interval, Value) ->
     validate_int(Value, "witness_refresh_interval", 1, 20000, false);
 validate_var(?witness_refresh_rand_n, Value) ->
     validate_int(Value, "witness_refresh_rand_n", 50, 1000, false);
-
 %% meta vars
 validate_var(?vars_commit_delay, Value) ->
     validate_int(Value, "vars_commit_delay", 1, 60, false);
@@ -825,8 +889,7 @@ validate_var(?chain_vars_version, Value) ->
     case Value of
         1 -> ok;
         2 -> ok;
-        _ ->
-            throw({error, {chain_vars_version, Value}})
+        _ -> throw({error, {chain_vars_version, Value}})
     end;
 validate_var(?predicate_threshold, Value) ->
     validate_float(Value, "predicate_threshold", 0.0, 1.0);
@@ -844,7 +907,6 @@ validate_var(?predicate_callback_fun, Value) ->
         _ ->
             throw({error, {predicate_callback_fun, Value}})
     end;
-
 %% miner vars
 validate_var(?num_consensus_members, Value) ->
     validate_int(Value, "num_consensus_members", 4, 100, false),
@@ -872,7 +934,6 @@ validate_var(?dkg_curve, Value) ->
         _ ->
             throw({error, {invalid_dkg_curve, Value}})
     end;
-
 %% burn vars
 validate_var(?token_burn_exchange_rate, Value) ->
     case is_integer(Value) andalso Value >= 0 of
@@ -881,7 +942,6 @@ validate_var(?token_burn_exchange_rate, Value) ->
         _ ->
             throw({error, {invalid_token_burn_exchange_rate, Value}})
     end;
-
 %% poc related vars
 validate_var(?h3_exclusion_ring_dist, Value) ->
     validate_int(Value, "h3_exclusion_ring_dist", 1, 10, false);
@@ -897,7 +957,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 11 ->
+        N when is_integer(N), N >= 1, N =< 11 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -970,7 +1030,6 @@ validate_var(?check_snr, Value) ->
         false -> ok;
         _ -> throw({error, {invalid_check_snr, Value}})
     end;
-
 %% score vars
 validate_var(?alpha_decay, Value) ->
     validate_float(Value, "alpha_decay", 0.0, 0.1);
@@ -978,7 +1037,6 @@ validate_var(?beta_decay, Value) ->
     validate_float(Value, "beta_decay", 0.0, 0.1);
 validate_var(?max_staleness, Value) ->
     validate_int(Value, "max_staleness", 1000, 1000000, false);
-
 %% reward vars
 validate_var(?monthly_reward, Value) ->
     validate_int(Value, "monthly_reward", ?bones(1000), ?bones(10000000), false);
@@ -1000,7 +1058,7 @@ validate_var(?poc_reward_decay_rate, Value) ->
     validate_float(Value, "poc_reward_decay_rate", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 6 ->
+        N when is_integer(N), N >= 1, N =< 6 ->
             ok;
         _ ->
             throw({error, {invalid_reward_version, Value}})
@@ -1018,41 +1076,34 @@ validate_var(?witness_reward_decay_rate, Value) ->
     validate_float(Value, "witness_reward_decay_rate", 0.0, 5.0);
 validate_var(?witness_reward_decay_exclusion, Value) ->
     validate_int(Value, "witness_reward_decay_exclusion", 0, 10, false);
-
 %% bundle vars
 validate_var(?max_bundle_size, Value) ->
     validate_int(Value, "max_bundle_size", 5, 100, false);
-
 %% txn payment_v2 vars
 validate_var(?max_payments, Value) ->
     validate_int(Value, "max_payments", 5, 50, false);
-
 validate_var(?deprecate_payment_v1, Value) ->
     case Value of
         true -> ok;
         false -> ok;
         _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
     end;
-
 validate_var(?allow_payment_v2_memos, Value) ->
     case Value of
         true -> ok;
         false -> ok;
         _ -> throw({error, {invalid_allow_payment_v2_memos, Value}})
     end;
-
 validate_var(?allow_zero_amount, Value) ->
     case Value of
         true -> ok;
         false -> ok;
         _ -> throw({error, {invalid_allow_zero_amount, Value}})
     end;
-
 %% general txn vars
 
 validate_var(?txn_field_validation_version, Value) ->
     validate_int(Value, "txn_field_validation_version", 1, 50, false);
-
 %% state channel vars
 %% XXX: what are some reasonable limits here?
 validate_var(?min_expire_within, Value) ->
@@ -1060,7 +1111,7 @@ validate_var(?min_expire_within, Value) ->
 validate_var(?max_open_sc, Value) ->
     validate_int(Value, "max_open_sc", 1, 100, false);
 validate_var(?max_xor_filter_size, Value) ->
-    validate_int(Value, "max_xor_filter_size", 1024, 1024*100, false);
+    validate_int(Value, "max_xor_filter_size", 1024, 1024 * 100, false);
 validate_var(?max_xor_filter_num, Value) ->
     validate_int(Value, "max_xor_filter_num", 3, 6, false);
 validate_var(?max_subnet_size, Value) ->
@@ -1076,7 +1127,8 @@ validate_var(?dc_payload_size, Value) ->
 validate_var(?sc_version, Value) ->
     validate_int(Value, "sc_version", 1, 10, false);
 validate_var(?sc_overcommit, Value) ->
-    validate_int(Value, "sc_overcommit", 1, 10, false); %% integer multiplier of amount
+    %% integer multiplier of amount
+    validate_int(Value, "sc_overcommit", 1, 10, false);
 validate_var(?sc_open_validation_bugfix, Value) ->
     %% NOTE: Can't just increment this directly and expect version to update.
     %% It would need to be set to 51, and the limits would have to be increased.
@@ -1093,7 +1145,6 @@ validate_var(?sc_only_count_open_active, Value) ->
         false -> ok;
         Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
     end;
-
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
     case Value of
@@ -1108,29 +1159,25 @@ validate_var(?snapshot_version, Value) ->
 %% -else.
 %% -define(min_snap_interval, 4 * 60).
 %% -endif.
-validate_var(?snapshot_interval, Value) -> % half day to two weeks
-    validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
 
+% half day to two weeks
+validate_var(?snapshot_interval, Value) ->
+    validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
 validate_var(?price_oracle_public_keys, Value) ->
     validate_oracle_public_keys_format(Value);
-
 validate_var(?price_oracle_price_scan_delay, Value) ->
     %% Allowed: 0 seconds to 86400 seconds (1 day)
     validate_int(Value, "price_oracle_price_scan_delay", 0, 86400, false);
-
 validate_var(?price_oracle_price_scan_max, Value) ->
     %% Allowed: 0 seconds to 604800 seconds (7 days)
     validate_int(Value, "price_oracle_price_scan_max", 0, 604800, false);
-
 validate_var(?price_oracle_refresh_interval, Value) ->
     %% How many blocks to skip between price refreshes
     validate_int(Value, "price_oracle_refresh_interval", 0, 5000, false);
-
 validate_var(?price_oracle_height_delta, Value) ->
     %% How many blocks to allow between when a txn is
     %% submitted and when it is committed to the ledger
     validate_int(Value, "price_oracle_height_delta", 0, 500, false);
-
 %% txn fee related vars
 validate_var(?txn_fees, Value) ->
     case Value of
@@ -1138,65 +1185,54 @@ validate_var(?txn_fees, Value) ->
         false -> ok;
         _ -> throw({error, {invalid_txn_fees, Value}})
     end;
-
 validate_var(?staking_keys, Value) ->
     validate_staking_keys_format(Value);
-
 validate_var(?staking_keys_to_mode_mappings, Value) ->
     %% the staking key mode mappings, a key value list of staking keys and their associated gateway types ( dataonly, light, and full )
     validate_staking_keys_to_mode_mappings_format(Value);
-
 %% txn fee vars below are in DC
 validate_var(?staking_fee_txn_oui_v1, Value) ->
     %% the staking fee price for an OUI, in DC
     validate_int(Value, "staking_fee_txn_oui_v1", 0, 1000 * ?USD_TO_DC, false);
-
 validate_var(?staking_fee_txn_oui_v1_per_address, Value) ->
     %% the staking fee price for each OUI address, in DC
     validate_int(Value, "staking_fee_txn_oui_v1_per_address", 0, 1000 * ?USD_TO_DC, false);
-
 validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn, in DC
     validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
-
 validate_var(?staking_fee_txn_add_dataonly_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn where the gateway is of mode dataonly, in DC
     validate_int(Value, "staking_fee_txn_add_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
-
 validate_var(?staking_fee_txn_add_light_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn where the gateway is of mode light, in DC
     validate_int(Value, "staking_fee_txn_add_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
-
 validate_var(?staking_fee_txn_assert_location_v1, Value) ->
     %% the staking fee price for an assert location txn, in DC
     validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
-
 validate_var(?staking_fee_txn_assert_location_dataonly_gateway_v1, Value) ->
     %% the staking fee price for an assert location txn for a dataonly gw, in DC
-    validate_int(Value, "staking_fee_txn_assert_location_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
-
+    validate_int(
+        Value, "staking_fee_txn_assert_location_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false
+    );
 validate_var(?staking_fee_txn_assert_location_light_gateway_v1, Value) ->
     %% the staking fee price for an assert location txn for a light gw, in DC
-    validate_int(Value, "staking_fee_txn_assert_location_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
-
+    validate_int(
+        Value, "staking_fee_txn_assert_location_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false
+    );
 validate_var(?txn_fee_multiplier, Value) ->
     %% a multiplier applied to txn fee, in DC
     validate_int(Value, "txn_fee_multiplier", 1, 65536, false);
-
 %% Data aggregation vars
 validate_var(?data_aggregation_version, Value) ->
     validate_int(Value, "data_aggregation_version", 1, 3, false);
-
 validate_var(?use_multi_keys, Value) ->
     case Value of
         true -> ok;
         false -> ok;
         _ -> throw({error, {invalid_multi_keys, Value}})
     end;
-
 validate_var(?transfer_hotspot_stale_poc_blocks, Value) ->
     validate_int(Value, "transfer_hotspot_stale_poc_blocks", 1, 50000, false);
-
 %% HIP 17 vars
 validate_var(?hip17_res_0, Value) ->
     validate_hip17_vars(Value, "hip17_res_0");
@@ -1228,7 +1264,6 @@ validate_var(?density_tgt_res, Value) ->
     validate_int(Value, "density_tgt_res", 1, 15, false);
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
-
 validate_var(?transaction_validity_version, Value) ->
     case Value of
         2 -> ok;
@@ -1245,33 +1280,28 @@ validate_var(?min_antenna_gain, Value) ->
 validate_var(?max_antenna_gain, Value) ->
     %% Initially set to 150 to imply 15 dBi
     validate_int(Value, "max_antenna_gain", 10, 200, false);
-
 validate_var(?dataonly_gateway_capabilities_mask, Value) ->
     %% a bitmask determining capabilities of a dataonly gateway - using a 16bit mask.
     %% see blockchain_caps.hrl for capability list
     %% TODO - allow for > 16 bit mask here?
     validate_int(Value, "dataonly_gateway_capabilities_mask", 0, 65536, false);
-
 validate_var(?light_gateway_capabilities_mask, Value) ->
     %% a bitmask determining capabilities of a light gateway - using a 16bit mask.
     %% see blockchain_caps.hrl for capability list
     %% TODO - allow for > 16 bit mask here?
     validate_int(Value, "light_gateway_capabilities_mask", 0, 65536, false);
-
 validate_var(?full_gateway_capabilities_mask, Value) ->
     %% a bitmask determining capabilities of a full gateway - using a 16bit mask.
     %% see blockchain_caps.hrl for capability list
     %% TODO - allow for > 16 bit mask here?
     validate_int(Value, "full_gateway_capabilities_mask", 0, 65536, false);
-
 %% validators vars
 validate_var(?validator_version, Value) ->
     case Value of
         1 -> ok;
         2 -> ok;
         3 -> ok;
-        _ ->
-            throw({error, {invalid_validator_version, Value}})
+        _ -> throw({error, {invalid_validator_version, Value}})
     end;
 validate_var(?validator_minimum_stake, Value) ->
     validate_int(Value, "validator_minimum_stake", ?bones(5000), ?bones(100000), false);
@@ -1291,7 +1321,6 @@ validate_var(?stake_withdrawal_cooldown, Value) ->
     validate_int(Value, "stake_withdrawal_cooldown", 5, 1000000, false);
 validate_var(?stake_withdrawal_max, Value) ->
     validate_int(Value, "stake_withdrawal_max", 50, 1000, false);
-
 validate_var(?dkg_penalty, Value) ->
     validate_float(Value, "dkg_penalty", 0.0, 5.0);
 validate_var(?tenure_penalty, Value) ->
@@ -1302,7 +1331,6 @@ validate_var(?penalty_history_limit, Value) ->
     %% low end is low for testing and an out if these become corrupted
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
-
 validate_var(?net_emissions_enabled, Value) ->
     case Value of
         true -> ok;
@@ -1311,7 +1339,6 @@ validate_var(?net_emissions_enabled, Value) ->
     end;
 validate_var(?net_emissions_max_rate, Value) ->
     validate_int(Value, "net_emissions_max_rate", 0, ?bones(200), false);
-
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
     %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
@@ -1333,13 +1360,12 @@ validate_var(?discard_zero_freq_witness, Value) ->
         _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
     end;
 validate_var(?block_size_limit, Value) ->
-    validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
-
+    validate_int(Value, "block_size_limit", 1 * 1024 * 1024, 512 * 1024 * 1024, false);
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
     case atom_to_list(Var) of
-        StrVar="region_"++_ ->
-            case lists:sublist(StrVar, length(StrVar) -5, 6) of
+        StrVar = "region_" ++ _ ->
+            case lists:sublist(StrVar, length(StrVar) - 5, 6) of
                 "params" ->
                     validate_region_params(Var, Value);
                 _ ->
@@ -1359,16 +1385,18 @@ validate_region_var(Var, Value) when is_binary(Value) ->
                 %% All serialized regions we know so far are below 1MB
                 B when B =< 1 * 1024 * 1024 ->
                     ok;
-                _ -> throw({error, {invalid_region_var_byte_size, Var, Value}})
+                _ ->
+                    throw({error, {invalid_region_var_byte_size, Var, Value}})
             end;
-        _ -> throw({error, {invalid_region_var_size, Var, Value}})
+        _ ->
+            throw({error, {invalid_region_var_size, Var, Value}})
     end;
 validate_region_var(Var, Value) ->
     throw({error, {invalid_region_var, Var, Value}}).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
-        {error, _}=E0 ->
+        {error, _} = E0 ->
             lager:error("unable to get density var, reason: ~p", [E0]),
             throw({error, {invalid_density_var, Var, Value}});
         {ok, Res} ->
@@ -1383,17 +1411,17 @@ validate_hip17_vars(Value, Var) when is_binary(Value) ->
                     CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 200000),
 
                     case CheckSiblings of
-                        {error, _}=E1 ->
+                        {error, _} = E1 ->
                             lager:error("invalid_siblings, reason: ~p", [E1]),
                             throw({error, {invalid_siblings, Var, Value}});
                         ok ->
                             case CheckDensityTgt of
-                                {error, _}=E2 ->
+                                {error, _} = E2 ->
                                     lager:error("invalid_density_tgt, reason: ~p", [E2]),
                                     throw({error, {invalid_density_tgt, Var, Value}});
                                 ok ->
                                     case CheckDensityMax of
-                                        {error, _}=E3 ->
+                                        {error, _} = E3 ->
                                             lager:error("invalid_density_max, reason: ~p", [E3]),
                                             throw({error, {invalid_density_max, Var, Value}});
                                         ok ->
@@ -1428,7 +1456,8 @@ get_density_var(Value) ->
 
 -ifdef(TEST).
 invalid_var(Var, Value) ->
-    case lists:member(Var, ?exceptions) of % test only
+    % test only
+    case lists:member(Var, ?exceptions) of
         true ->
             ok;
         _ ->
@@ -1446,11 +1475,11 @@ validate_region_params(Var, Value) when is_binary(Value) ->
         true ->
             %% TODO: Maybe add some checks around deserialized key-values
             ok;
-        _ -> throw({error, {invalid_region_param_roundtrip, Var, Value}})
+        _ ->
+            throw({error, {invalid_region_param_roundtrip, Var, Value}})
     end;
 validate_region_params(Var, Value) ->
     throw({error, {invalid_region_param_not_binary, Var, Value}}).
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1461,10 +1490,12 @@ key_test() ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
     BPub = libp2p_crypto:pubkey_to_bin(Pub),
-    Vars = #{a => 1,
-             b => 2000,
-             c => 2.5,
-             d => <<"have to include a string">>},
+    Vars = #{
+        a => 1,
+        b => 2000,
+        c => 2.5,
+        d => <<"have to include a string">>
+    },
     %% run vars through encode decode cycle
     Vars1 = encode_vars(Vars),
     Vars2 = decode_vars(Vars1),
@@ -1482,10 +1513,12 @@ legacy_key_test() ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
     BPub = libp2p_crypto:pubkey_to_bin(Pub),
-    Vars = #{a => 1,
-             b => 2000,
-             c => 2.5,
-             d => <<"have to include a string">>},
+    Vars = #{
+        a => 1,
+        b => 2000,
+        c => 2.5,
+        d => <<"have to include a string">>
+    },
     Proof = legacy_create_proof(Priv, Vars),
     %% run vars through encode decode cycle
     Vars1 = encode_vars(Vars),
@@ -1497,19 +1530,35 @@ to_json_test() ->
     #{secret := _Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
     BPub = libp2p_crypto:pubkey_to_bin(Pub),
-    Vars = #{a => 1,
-             b => 2000,
-             c => 2.5,
-             d => <<"have to include a string">>,
-             %% we didn't add a binary type but accidentally put binary vars in
-             f => <<"f is for ffffff\0">>},
+    Vars = #{
+        a => 1,
+        b => 2000,
+        c => 2.5,
+        d => <<"have to include a string">>,
+        %% we didn't add a binary type but accidentally put binary vars in
+        f => <<"f is for ffffff\0">>
+    },
 
     Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BPub}),
     Json = to_json(Txn, []),
 
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])),
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [
+                type,
+                hash,
+                vars,
+                version_predicate,
+                proof,
+                master_key,
+                key_proof,
+                cancels,
+                unsets,
+                nonce
+            ]
+        )
+    ),
     ?assertEqual(<<"f is for ffffff\0">>, base64:decode(maps:get(f, maps:get(vars, Json)))).
-
 
 -endif.

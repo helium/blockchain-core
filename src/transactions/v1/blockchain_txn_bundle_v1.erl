@@ -34,15 +34,16 @@
 
 -spec new(Txns :: blockchain_txn:txns()) -> txn_bundle().
 new(Txns) ->
-    #blockchain_txn_bundle_v1_pb{transactions=Txns}.
+    #blockchain_txn_bundle_v1_pb{transactions = Txns}.
 
 -spec hash(txn_bundle()) -> blockchain_txn:hash().
-hash(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
+hash(#blockchain_txn_bundle_v1_pb{transactions = Txns}) ->
     TxnHashes = [blockchain_txn:hash(T) || T <- Txns],
     crypto:hash(sha256, TxnHashes).
 
--spec absorb(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}=_Txn, Chain) ->
+-spec absorb(txn_bundle(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
+absorb(#blockchain_txn_bundle_v1_pb{transactions = Txns} = _Txn, Chain) ->
     lists:foreach(fun(T) -> blockchain_txn:absorb(T, Chain) end, Txns).
 
 -spec sign(txn_bundle(), libp2p_crypto:sig_fun()) -> txn_bundle().
@@ -54,16 +55,18 @@ sign(TxnBundle, _SigFun) ->
 fee(_TxnBundle) ->
     0.
 
--spec fee_payer(txn_bundle(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_bundle(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_TxnBundle, _Ledger) ->
     undefined.
 
 -spec txns(txn_bundle()) -> blockchain_txn:txns().
-txns(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
+txns(#blockchain_txn_bundle_v1_pb{transactions = Txns}) ->
     Txns.
 
--spec is_valid(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
-is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
+-spec is_valid(txn_bundle(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
+is_valid(#blockchain_txn_bundle_v1_pb{transactions = Txns} = Txn, Chain) ->
     TxnBundleSize = length(Txns),
     MaxBundleSize = max_bundle_size(Chain),
 
@@ -78,10 +81,14 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
                     {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
                 false ->
                     %% check that there are no bundles in the bundle txn
-                    case lists:any(fun(T) ->
-                                           blockchain_txn:type(T) == blockchain_txn_bundle_v1
-                                   end,
-                                   Txns) of
+                    case
+                        lists:any(
+                            fun(T) ->
+                                blockchain_txn:type(T) == blockchain_txn_bundle_v1
+                            end,
+                            Txns
+                        )
+                    of
                         true ->
                             {error, {invalid_bundleception, Txn}};
                         false ->
@@ -97,10 +104,10 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     end.
 
 -spec print(txn_bundle()) -> iodata().
-print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
+print(#blockchain_txn_bundle_v1_pb{transactions = Txns}) ->
     io_lib:format("type=bundle, txns=~p", [
-                                           [blockchain_txn:print(T) || T <- Txns]
-                                          ]).
+        [blockchain_txn:print(T) || T <- Txns]
+    ]).
 
 json_type() ->
     <<"bundle_v1">>.
@@ -108,11 +115,11 @@ json_type() ->
 -spec to_json(txn_bundle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      fee => fee(Txn),
-      txns => [blockchain_txn:to_json(T, Opts) || T <- txns(Txn)]
-     }.
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        fee => fee(Txn),
+        txns => [blockchain_txn:to_json(T, Opts) || T <- txns(Txn)]
+    }.
 
 -spec max_bundle_size(blockchain:blockchain()) -> pos_integer().
 max_bundle_size(Chain) ->
@@ -126,25 +133,27 @@ max_bundle_size(Chain) ->
     end.
 
 -spec speculative_absorb(txn_bundle(), blockchain:blockchain()) -> [blockchain_txn:txns()].
-speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain0) ->
+speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions = Txns}, Chain0) ->
     InitLedger = blockchain:ledger(Chain0),
     %% Check that the bundled transactions can be absorbed in order in this ledger context
     LedgerContext = blockchain_ledger_v1:new_context(InitLedger),
     Chain = blockchain:ledger(LedgerContext, Chain0),
-    InvalidTxns = lists:foldl(fun(Txn, Acc) ->
-                                      case blockchain_txn:is_valid(Txn, Chain) of
-                                          {error, _} ->
-                                              [Txn | Acc];
-                                          ok ->
-                                              case blockchain_txn:absorb(Txn, Chain) of
-                                                  {error, _} ->
-                                                      [Txn | Acc];
-                                                  ok ->
-                                                      Acc
-                                              end
-                                      end
-                              end,
-                              [],
-                              Txns),
+    InvalidTxns = lists:foldl(
+        fun(Txn, Acc) ->
+            case blockchain_txn:is_valid(Txn, Chain) of
+                {error, _} ->
+                    [Txn | Acc];
+                ok ->
+                    case blockchain_txn:absorb(Txn, Chain) of
+                        {error, _} ->
+                            [Txn | Acc];
+                        ok ->
+                            Acc
+                    end
+            end
+        end,
+        [],
+        Txns
+    ),
     blockchain_ledger_v1:delete_context(LedgerContext),
     InvalidTxns.

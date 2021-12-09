@@ -18,9 +18,10 @@
     purge_witness_test/1
 ]).
 
-all() -> [
-   %% purge_witness_test
-].
+all() ->
+    [
+        %% purge_witness_test
+    ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
@@ -34,33 +35,33 @@ init_per_testcase(TestCase, Config0) ->
     {ok, EncodedOracleKeys} = make_encoded_oracle_keys(OracleKeys),
 
     ExtraVars0 = #{
-      poc_version => 2,
-      poc_challenge_sync_interval => 10,
-      price_oracle_public_keys => EncodedOracleKeys,
-      price_oracle_refresh_interval => 25,
-      price_oracle_height_delta => 10,
-      price_oracle_price_scan_delay => 0,
-      price_oracle_price_scan_max => 50,
-      txn_fees => true,
-      txn_fee_multiplier => 5000,
-      max_payments => 10
+        poc_version => 2,
+        poc_challenge_sync_interval => 10,
+        price_oracle_public_keys => EncodedOracleKeys,
+        price_oracle_refresh_interval => 25,
+        price_oracle_height_delta => 10,
+        price_oracle_price_scan_delay => 0,
+        price_oracle_price_scan_max => 50,
+        txn_fees => true,
+        txn_fee_multiplier => 5000,
+        max_payments => 10
     },
-
 
     Balance = 50000 * ?BONES_PER_HNT,
     BlocksN = 50,
 
     {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
-            test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars0),
+        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars0),
     Chain = blockchain_worker:blockchain(),
 
     _Blocks0 = [
-               begin
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                blockchain:add_block(Block, Chain),
-                Block
-               end || _ <- lists:seq(1, BlocksN) ],
-
+        begin
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            blockchain:add_block(Block, Chain),
+            Block
+        end
+     || _ <- lists:seq(1, BlocksN)
+    ],
 
     {ExpectedPrices, Txns} = lists:unzip(make_oracle_txns(1, OracleKeys, 50)),
 
@@ -68,41 +69,51 @@ init_per_testcase(TestCase, Config0) ->
     blockchain:add_block(PriceBlock, Chain),
 
     _Blocks1 = [
-               begin
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                blockchain:add_block(Block, Chain),
-                Block
-               end || _ <- lists:seq(1, BlocksN) ],
+        begin
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            blockchain:add_block(Block, Chain),
+            Block
+        end
+     || _ <- lists:seq(1, BlocksN)
+    ],
 
     Ledger = blockchain:ledger(Chain),
 
     ct:pal("expected prices: ~p", [ExpectedPrices]),
     ct:pal("current oracle price: ~p", [median(ExpectedPrices)]),
-    ?assertEqual({ok, median(ExpectedPrices)},
-                    blockchain_ledger_v1:current_oracle_price(Ledger)),
-    ?assertEqual({ok, lists:sort(ExpectedPrices)}, get_prices(
-                    blockchain_ledger_v1:current_oracle_price_list(Ledger))),
-
+    ?assertEqual(
+        {ok, median(ExpectedPrices)},
+        blockchain_ledger_v1:current_oracle_price(Ledger)
+    ),
+    ?assertEqual(
+        {ok, lists:sort(ExpectedPrices)},
+        get_prices(
+            blockchain_ledger_v1:current_oracle_price_list(Ledger)
+        )
+    ),
 
     Ledger = blockchain:ledger(Chain),
 
-    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}} | _] = ConsensusMembers,
     PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
-    PayerOpenHNTBal =  blockchain_ledger_entry_v1:balance(NewEntry0),
+    PayerOpenHNTBal = blockchain_ledger_entry_v1:balance(NewEntry0),
     ct:pal("payer opening HNT balance: ~p", [PayerOpenHNTBal]),
-    [{sup, Sup},
-     {balance, Balance},
-     {payer, Payer},
-     {payer_sig_fun, PayerSigFun},
-     {owner, Owner},
-     {owner_sig_fun, OwnerSigFun},
-     {ledger, Ledger},
-     {chain, Chain},
-     {consensus_members, ConsensusMembers},
-     {payer_opening_hnt_bal, PayerOpenHNTBal} | Config ].
+    [
+        {sup, Sup},
+        {balance, Balance},
+        {payer, Payer},
+        {payer_sig_fun, PayerSigFun},
+        {owner, Owner},
+        {owner_sig_fun, OwnerSigFun},
+        {ledger, Ledger},
+        {chain, Chain},
+        {consensus_members, ConsensusMembers},
+        {payer_opening_hnt_bal, PayerOpenHNTBal}
+        | Config
+    ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -145,11 +156,11 @@ purge_witness_test(Config) ->
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, Balance div 2, 1),
     %% get the fees for this txn
     BurnTxFee = blockchain_txn_token_burn_v1:calculate_fee(BurnTx0, Chain),
-    ct:pal("Token burn txn fee ~p, staking fee ~p, total: ~p", [BurnTxFee, 'NA', BurnTxFee ]),
+    ct:pal("Token burn txn fee ~p, staking fee ~p, total: ~p", [BurnTxFee, 'NA', BurnTxFee]),
 
     %% get the payers HNT bal pre the burn
     {ok, PayerPreBurnEntry} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
-    PayerPreBurnHNTBal =  blockchain_ledger_entry_v1:balance(PayerPreBurnEntry),
+    PayerPreBurnHNTBal = blockchain_ledger_entry_v1:balance(PayerPreBurnEntry),
 
     %% set the fees on the base txn and then sign the various txns
     BurnTx1 = blockchain_txn_token_burn_v1:fee(BurnTx0, BurnTxFee),
@@ -159,12 +170,16 @@ purge_witness_test(Config) ->
     {ok, BurnBlock} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
     %% add the block
     blockchain:add_block(BurnBlock, Chain),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 1} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 1} =:= blockchain:height(Chain)
+    end),
 
     %% confirm DC balances are credited
     {ok, PayerPostBurnEntry} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
-    PayerPostBurnHNTBal =  blockchain_ledger_entry_v1:balance(PayerPostBurnEntry),
-    ct:pal("Payer pre burn hnt bal: ~p, post burn hnt bal: ~p",[PayerPreBurnHNTBal, PayerPostBurnHNTBal]),
+    PayerPostBurnHNTBal = blockchain_ledger_entry_v1:balance(PayerPostBurnEntry),
+    ct:pal("Payer pre burn hnt bal: ~p, post burn hnt bal: ~p", [
+        PayerPreBurnHNTBal, PayerPostBurnHNTBal
+    ]),
 
     %% create an owner for the gateways
     #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -183,40 +198,69 @@ purge_witness_test(Config) ->
     AddGW1TxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGW1Tx0, Chain),
     AddGW1StFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGW1Tx0, Chain),
 
-    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGW1TxFee, AddGW1StFee, AddGW1TxFee + AddGW1StFee]),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [
+        AddGW1TxFee, AddGW1StFee, AddGW1TxFee + AddGW1StFee
+    ]),
     %% set the fees on the base txn and then sign the various txns
     AddGW1Tx1 = blockchain_txn_add_gateway_v1:fee(AddGW1Tx0, AddGW1TxFee),
     AddGW1Tx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGW1Tx1, AddGW1StFee),
     SignedOwnerAddGW1Tx2 = blockchain_txn_add_gateway_v1:sign(AddGW1Tx2, OwnerSigFun),
-    SignedGatewayAddGW1Tx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGW1Tx2, GW1SigFun),
-    SignedPayerAddGW1Tx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGW1Tx2, PayerSigFun),
+    SignedGatewayAddGW1Tx2 = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGW1Tx2, GW1SigFun
+    ),
+    SignedPayerAddGW1Tx2 = blockchain_txn_add_gateway_v1:sign_payer(
+        SignedGatewayAddGW1Tx2, PayerSigFun
+    ),
     ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGW1Tx2, Chain)),
 
     {ok, AddGW1Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGW1Tx2]),
     %% add the block
     _ = blockchain:add_block(AddGW1Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 2} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 2} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% Assert gateway 1
     %%
-    AssertLocationGW1Tx = blockchain_txn_assert_location_v1:new(GW1, Owner, Payer, ?TEST_LOCATION, 1),
-    AssertLocationGW1TxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationGW1Tx, Chain),
-    AssertLocationGW1StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationGW1Tx, Chain),
-    AssertLocationGW1Tx1 = blockchain_txn_assert_location_v1:fee(AssertLocationGW1Tx, AssertLocationGW1TxFee),
-    AssertLocationGW1Tx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationGW1Tx1, AssertLocationGW1StFee),
-    PartialAssertLocationGW1Txn = blockchain_txn_assert_location_v1:sign_request(AssertLocationGW1Tx2, GW1SigFun),
-    SignedAssertLocationGW1Tx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationGW1Txn, OwnerSigFun),
-    SignedPayerAssertLocationGW1Tx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationGW1Tx, PayerSigFun),
-    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW1Tx, Chain)),
+    AssertLocationGW1Tx = blockchain_txn_assert_location_v1:new(
+        GW1, Owner, Payer, ?TEST_LOCATION, 1
+    ),
+    AssertLocationGW1TxFee = blockchain_txn_assert_location_v1:calculate_fee(
+        AssertLocationGW1Tx, Chain
+    ),
+    AssertLocationGW1StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(
+        AssertLocationGW1Tx, Chain
+    ),
+    AssertLocationGW1Tx1 = blockchain_txn_assert_location_v1:fee(
+        AssertLocationGW1Tx, AssertLocationGW1TxFee
+    ),
+    AssertLocationGW1Tx2 = blockchain_txn_assert_location_v1:staking_fee(
+        AssertLocationGW1Tx1, AssertLocationGW1StFee
+    ),
+    PartialAssertLocationGW1Txn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationGW1Tx2, GW1SigFun
+    ),
+    SignedAssertLocationGW1Tx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationGW1Txn, OwnerSigFun
+    ),
+    SignedPayerAssertLocationGW1Tx = blockchain_txn_assert_location_v1:sign_payer(
+        SignedAssertLocationGW1Tx, PayerSigFun
+    ),
+    ?assertEqual(
+        ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW1Tx, Chain)
+    ),
 
-    {ok, AssertLocationGW1Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationGW1Tx]),
+    {ok, AssertLocationGW1Block} = test_utils:create_block(ConsensusMembers, [
+        SignedPayerAssertLocationGW1Tx
+    ]),
     %% add the block
     _ = blockchain:add_block(AssertLocationGW1Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 3} =:= blockchain:height(Chain) end),
-
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 3} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% add gateway 2
@@ -230,39 +274,69 @@ purge_witness_test(Config) ->
     AddGW2TxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGW2Tx0, Chain),
     AddGW2StFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGW2Tx0, Chain),
 
-    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGW2TxFee, AddGW2StFee, AddGW2TxFee + AddGW2StFee]),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [
+        AddGW2TxFee, AddGW2StFee, AddGW2TxFee + AddGW2StFee
+    ]),
     %% set the fees on the base txn and then sign the various txns
     AddGW2Tx1 = blockchain_txn_add_gateway_v1:fee(AddGW2Tx0, AddGW2TxFee),
     AddGW2Tx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGW2Tx1, AddGW2StFee),
     SignedOwnerAddGW2Tx2 = blockchain_txn_add_gateway_v1:sign(AddGW2Tx2, OwnerSigFun),
-    SignedGatewayAddGW2Tx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGW2Tx2, GW2SigFun),
-    SignedPayerAddGW2Tx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGW2Tx2, PayerSigFun),
+    SignedGatewayAddGW2Tx2 = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGW2Tx2, GW2SigFun
+    ),
+    SignedPayerAddGW2Tx2 = blockchain_txn_add_gateway_v1:sign_payer(
+        SignedGatewayAddGW2Tx2, PayerSigFun
+    ),
     ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGW2Tx2, Chain)),
 
     {ok, AddGW2Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGW2Tx2]),
     %% add the block
     _ = blockchain:add_block(AddGW2Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 4} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 4} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% Assert gateway 2
     %%
-    AssertLocationGW2Tx = blockchain_txn_assert_location_v1:new(GW2, Owner, Payer, ?TEST_LOCATION, 1),
-    AssertLocationGW2TxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationGW2Tx, Chain),
-    AssertLocationGW2StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationGW2Tx, Chain),
-    AssertLocationGW2Tx1 = blockchain_txn_assert_location_v1:fee(AssertLocationGW2Tx, AssertLocationGW2TxFee),
-    AssertLocationGW2Tx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationGW2Tx1, AssertLocationGW2StFee),
-    PartialAssertLocationGW2Txn = blockchain_txn_assert_location_v1:sign_request(AssertLocationGW2Tx2, GW2SigFun),
-    SignedAssertLocationGW2Tx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationGW2Txn, OwnerSigFun),
-    SignedPayerAssertLocationGW2Tx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationGW2Tx, PayerSigFun),
-    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW2Tx, Chain)),
+    AssertLocationGW2Tx = blockchain_txn_assert_location_v1:new(
+        GW2, Owner, Payer, ?TEST_LOCATION, 1
+    ),
+    AssertLocationGW2TxFee = blockchain_txn_assert_location_v1:calculate_fee(
+        AssertLocationGW2Tx, Chain
+    ),
+    AssertLocationGW2StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(
+        AssertLocationGW2Tx, Chain
+    ),
+    AssertLocationGW2Tx1 = blockchain_txn_assert_location_v1:fee(
+        AssertLocationGW2Tx, AssertLocationGW2TxFee
+    ),
+    AssertLocationGW2Tx2 = blockchain_txn_assert_location_v1:staking_fee(
+        AssertLocationGW2Tx1, AssertLocationGW2StFee
+    ),
+    PartialAssertLocationGW2Txn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationGW2Tx2, GW2SigFun
+    ),
+    SignedAssertLocationGW2Tx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationGW2Txn, OwnerSigFun
+    ),
+    SignedPayerAssertLocationGW2Tx = blockchain_txn_assert_location_v1:sign_payer(
+        SignedAssertLocationGW2Tx, PayerSigFun
+    ),
+    ?assertEqual(
+        ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW2Tx, Chain)
+    ),
 
-    {ok, AssertLocationGW2Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationGW2Tx]),
+    {ok, AssertLocationGW2Block} = test_utils:create_block(ConsensusMembers, [
+        SignedPayerAssertLocationGW2Tx
+    ]),
     %% add the block
     _ = blockchain:add_block(AssertLocationGW2Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 5} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 5} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% add gateway 3
@@ -276,39 +350,69 @@ purge_witness_test(Config) ->
     AddGW3TxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGW3Tx0, Chain),
     AddGW3StFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGW3Tx0, Chain),
 
-    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGW3TxFee, AddGW3StFee, AddGW3TxFee + AddGW3StFee]),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [
+        AddGW3TxFee, AddGW3StFee, AddGW3TxFee + AddGW3StFee
+    ]),
     %% set the fees on the base txn and then sign the various txns
     AddGW3Tx1 = blockchain_txn_add_gateway_v1:fee(AddGW3Tx0, AddGW3TxFee),
     AddGW3Tx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGW3Tx1, AddGW3StFee),
     SignedOwnerAddGW3Tx2 = blockchain_txn_add_gateway_v1:sign(AddGW3Tx2, OwnerSigFun),
-    SignedGatewayAddGW3Tx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGW3Tx2, GW3SigFun),
-    SignedPayerAddGW3Tx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGW3Tx2, PayerSigFun),
+    SignedGatewayAddGW3Tx2 = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGW3Tx2, GW3SigFun
+    ),
+    SignedPayerAddGW3Tx2 = blockchain_txn_add_gateway_v1:sign_payer(
+        SignedGatewayAddGW3Tx2, PayerSigFun
+    ),
     ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGW3Tx2, Chain)),
 
     {ok, AddGW3Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGW3Tx2]),
     %% add the block
     _ = blockchain:add_block(AddGW3Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 6} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 6} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% Assert gateway 3
     %%
-    AssertLocationGW3Tx = blockchain_txn_assert_location_v1:new(GW3, Owner, Payer, ?TEST_LOCATION, 1),
-    AssertLocationGW3TxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationGW3Tx, Chain),
-    AssertLocationGW3StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationGW3Tx, Chain),
-    AssertLocationGW3Tx1 = blockchain_txn_assert_location_v1:fee(AssertLocationGW3Tx, AssertLocationGW3TxFee),
-    AssertLocationGW3Tx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationGW3Tx1, AssertLocationGW3StFee),
-    PartialAssertLocationGW3Txn = blockchain_txn_assert_location_v1:sign_request(AssertLocationGW3Tx2, GW3SigFun),
-    SignedAssertLocationGW3Tx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationGW3Txn, OwnerSigFun),
-    SignedPayerAssertLocationGW3Tx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationGW3Tx, PayerSigFun),
-    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW3Tx, Chain)),
+    AssertLocationGW3Tx = blockchain_txn_assert_location_v1:new(
+        GW3, Owner, Payer, ?TEST_LOCATION, 1
+    ),
+    AssertLocationGW3TxFee = blockchain_txn_assert_location_v1:calculate_fee(
+        AssertLocationGW3Tx, Chain
+    ),
+    AssertLocationGW3StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(
+        AssertLocationGW3Tx, Chain
+    ),
+    AssertLocationGW3Tx1 = blockchain_txn_assert_location_v1:fee(
+        AssertLocationGW3Tx, AssertLocationGW3TxFee
+    ),
+    AssertLocationGW3Tx2 = blockchain_txn_assert_location_v1:staking_fee(
+        AssertLocationGW3Tx1, AssertLocationGW3StFee
+    ),
+    PartialAssertLocationGW3Txn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationGW3Tx2, GW3SigFun
+    ),
+    SignedAssertLocationGW3Tx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationGW3Txn, OwnerSigFun
+    ),
+    SignedPayerAssertLocationGW3Tx = blockchain_txn_assert_location_v1:sign_payer(
+        SignedAssertLocationGW3Tx, PayerSigFun
+    ),
+    ?assertEqual(
+        ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW3Tx, Chain)
+    ),
 
-    {ok, AssertLocationGW3Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationGW3Tx]),
+    {ok, AssertLocationGW3Block} = test_utils:create_block(ConsensusMembers, [
+        SignedPayerAssertLocationGW3Tx
+    ]),
     %% add the block
     _ = blockchain:add_block(AssertLocationGW3Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 7} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 7} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% add gateway 4
@@ -322,40 +426,69 @@ purge_witness_test(Config) ->
     AddGW4TxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGW4Tx0, Chain),
     AddGW4StFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGW4Tx0, Chain),
 
-    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGW4TxFee, AddGW4StFee, AddGW4TxFee + AddGW4StFee]),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [
+        AddGW4TxFee, AddGW4StFee, AddGW4TxFee + AddGW4StFee
+    ]),
     %% set the fees on the base txn and then sign the various txns
     AddGW4Tx1 = blockchain_txn_add_gateway_v1:fee(AddGW4Tx0, AddGW4TxFee),
     AddGW4Tx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGW4Tx1, AddGW4StFee),
     SignedOwnerAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign(AddGW4Tx2, OwnerSigFun),
-    SignedGatewayAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGW4Tx2, GW4SigFun),
-    SignedPayerAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGW4Tx2, PayerSigFun),
+    SignedGatewayAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign_request(
+        SignedOwnerAddGW4Tx2, GW4SigFun
+    ),
+    SignedPayerAddGW4Tx2 = blockchain_txn_add_gateway_v1:sign_payer(
+        SignedGatewayAddGW4Tx2, PayerSigFun
+    ),
     ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGW4Tx2, Chain)),
 
     {ok, AddGW4Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGW4Tx2]),
     %% add the block
     _ = blockchain:add_block(AddGW4Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 8} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 8} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% Assert gateway 4
     %%
-    AssertLocationGW4Tx = blockchain_txn_assert_location_v1:new(GW4, Owner, Payer, ?TEST_LOCATION, 1),
-    AssertLocationGW4TxFee = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationGW4Tx, Chain),
-    AssertLocationGW4StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationGW4Tx, Chain),
-    AssertLocationGW4Tx1 = blockchain_txn_assert_location_v1:fee(AssertLocationGW4Tx, AssertLocationGW4TxFee),
-    AssertLocationGW4Tx2 = blockchain_txn_assert_location_v1:staking_fee(AssertLocationGW4Tx1, AssertLocationGW4StFee),
-    PartialAssertLocationGW4Txn = blockchain_txn_assert_location_v1:sign_request(AssertLocationGW4Tx2, GW4SigFun),
-    SignedAssertLocationGW4Tx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationGW4Txn, OwnerSigFun),
-    SignedPayerAssertLocationGW4Tx = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationGW4Tx, PayerSigFun),
-    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW4Tx, Chain)),
+    AssertLocationGW4Tx = blockchain_txn_assert_location_v1:new(
+        GW4, Owner, Payer, ?TEST_LOCATION, 1
+    ),
+    AssertLocationGW4TxFee = blockchain_txn_assert_location_v1:calculate_fee(
+        AssertLocationGW4Tx, Chain
+    ),
+    AssertLocationGW4StFee = blockchain_txn_assert_location_v1:calculate_staking_fee(
+        AssertLocationGW4Tx, Chain
+    ),
+    AssertLocationGW4Tx1 = blockchain_txn_assert_location_v1:fee(
+        AssertLocationGW4Tx, AssertLocationGW4TxFee
+    ),
+    AssertLocationGW4Tx2 = blockchain_txn_assert_location_v1:staking_fee(
+        AssertLocationGW4Tx1, AssertLocationGW4StFee
+    ),
+    PartialAssertLocationGW4Txn = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationGW4Tx2, GW4SigFun
+    ),
+    SignedAssertLocationGW4Tx = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationGW4Txn, OwnerSigFun
+    ),
+    SignedPayerAssertLocationGW4Tx = blockchain_txn_assert_location_v1:sign_payer(
+        SignedAssertLocationGW4Tx, PayerSigFun
+    ),
+    ?assertEqual(
+        ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW4Tx, Chain)
+    ),
 
-    {ok, AssertLocationGW4Block} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationGW4Tx]),
+    {ok, AssertLocationGW4Block} = test_utils:create_block(ConsensusMembers, [
+        SignedPayerAssertLocationGW4Tx
+    ]),
     %% add the block
     _ = blockchain:add_block(AssertLocationGW4Block, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 9} =:= blockchain:height(Chain) end),
-
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 9} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% Start POC 1
@@ -371,13 +504,17 @@ purge_witness_test(Config) ->
     #{public := POC1OnionCompactKey} = POC1Keys,
     POC1SecretHash = crypto:hash(sha256, POC1Secret),
     POC1OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(POC1OnionCompactKey)),
-    POC1ReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, POC1SecretHash, POC1OnionKeyHash, blockchain_block:hash_block(BurnBlock), 2),
+    POC1ReqTxn0 = blockchain_txn_poc_request_v1:new(
+        GW1, POC1SecretHash, POC1OnionKeyHash, blockchain_block:hash_block(BurnBlock), 2
+    ),
     SignedPOC1ReqTxn0 = blockchain_txn_poc_request_v1:sign(POC1ReqTxn0, GW1SigFun),
     ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPOC1ReqTxn0, Chain)),
 
     {ok, POC1ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC1ReqTxn0]),
     _ = blockchain_gossip_handler:add_block(POC1ReqBlock, Chain, self(), blockchain_swarm:swarm()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 10} =:= blockchain:height(Chain)
+    end),
 
     Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
@@ -439,7 +576,9 @@ purge_witness_test(Config) ->
     %% add the block
     _ = blockchain:add_block(AddPOC1ReceiptsBlock, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 11} =:= blockchain:height(Chain)
+    end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW3
     {ok, GW2InfoB} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
@@ -448,27 +587,48 @@ purge_witness_test(Config) ->
     ?assertEqual(1, maps:size(GW2WitnessesPOC1)),
     ?assertNotEqual(not_found, maps:get(GW3, GW2WitnessesPOC1, not_found)),
 
-
     %%
     %% Re Assert gateway 3
     %% GW2 has a witness report from GW3, it is now stale
     %% and should be purged on next witnesses read of GW2
     %%
-    AssertLocationGW3TxB = blockchain_txn_assert_location_v1:new(GW3, Owner, Payer, ?TEST_LOCATION2, 2),
-    AssertLocationGW3TxFeeB = blockchain_txn_assert_location_v1:calculate_fee(AssertLocationGW3TxB, Chain),
-    AssertLocationGW3StFeeB = blockchain_txn_assert_location_v1:calculate_staking_fee(AssertLocationGW3TxB, Chain),
-    AssertLocationGW3Tx1B = blockchain_txn_assert_location_v1:fee(AssertLocationGW3TxB, AssertLocationGW3TxFeeB),
-    AssertLocationGW3Tx2B = blockchain_txn_assert_location_v1:staking_fee(AssertLocationGW3Tx1B, AssertLocationGW3StFeeB),
-    PartialAssertLocationGW3TxnB = blockchain_txn_assert_location_v1:sign_request(AssertLocationGW3Tx2B, GW3SigFun),
-    SignedAssertLocationGW3TxB = blockchain_txn_assert_location_v1:sign(PartialAssertLocationGW3TxnB, OwnerSigFun),
-    SignedPayerAssertLocationGW3TxB = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationGW3TxB, PayerSigFun),
-    ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW3TxB, Chain)),
+    AssertLocationGW3TxB = blockchain_txn_assert_location_v1:new(
+        GW3, Owner, Payer, ?TEST_LOCATION2, 2
+    ),
+    AssertLocationGW3TxFeeB = blockchain_txn_assert_location_v1:calculate_fee(
+        AssertLocationGW3TxB, Chain
+    ),
+    AssertLocationGW3StFeeB = blockchain_txn_assert_location_v1:calculate_staking_fee(
+        AssertLocationGW3TxB, Chain
+    ),
+    AssertLocationGW3Tx1B = blockchain_txn_assert_location_v1:fee(
+        AssertLocationGW3TxB, AssertLocationGW3TxFeeB
+    ),
+    AssertLocationGW3Tx2B = blockchain_txn_assert_location_v1:staking_fee(
+        AssertLocationGW3Tx1B, AssertLocationGW3StFeeB
+    ),
+    PartialAssertLocationGW3TxnB = blockchain_txn_assert_location_v1:sign_request(
+        AssertLocationGW3Tx2B, GW3SigFun
+    ),
+    SignedAssertLocationGW3TxB = blockchain_txn_assert_location_v1:sign(
+        PartialAssertLocationGW3TxnB, OwnerSigFun
+    ),
+    SignedPayerAssertLocationGW3TxB = blockchain_txn_assert_location_v1:sign_payer(
+        SignedAssertLocationGW3TxB, PayerSigFun
+    ),
+    ?assertEqual(
+        ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationGW3TxB, Chain)
+    ),
 
-    {ok, AssertLocationGW3BlockB} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationGW3TxB]),
+    {ok, AssertLocationGW3BlockB} = test_utils:create_block(ConsensusMembers, [
+        SignedPayerAssertLocationGW3TxB
+    ]),
     %% add the block
     _ = blockchain:add_block(AssertLocationGW3BlockB, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 12} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 12} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% confirm GW2 still has 1 witness
@@ -491,14 +651,13 @@ purge_witness_test(Config) ->
     ?assertEqual(0, maps:size(GW2WitnessesD)),
     ?assertEqual(not_found, maps:get(GW3, GW2WitnessesD, not_found)),
 
-
     %%
     %% Start POC 2
     %% GW1 = challenger, GW2 = Challengee, GWW = Witness
     %%
 
     %% add some fake blocks to get POC1 past poc interval
-    Swarm =  blockchain_swarm:swarm(),
+    Swarm = blockchain_swarm:swarm(),
     LastFakeBlock = add_and_gossip_fake_blocks(30, ConsensusMembers, Swarm, Chain, GW1),
 
     POC2Keys = libp2p_crypto:generate_keys(ecc_compact),
@@ -506,13 +665,17 @@ purge_witness_test(Config) ->
     #{public := POC2OnionCompactKey} = POC2Keys,
     POC2SecretHash = crypto:hash(sha256, POC2Secret),
     POC2OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(POC2OnionCompactKey)),
-    POC2ReqTxn0 = blockchain_txn_poc_request_v1:new(GW1, POC2SecretHash, POC2OnionKeyHash, blockchain_block:hash_block(LastFakeBlock), 2),
+    POC2ReqTxn0 = blockchain_txn_poc_request_v1:new(
+        GW1, POC2SecretHash, POC2OnionKeyHash, blockchain_block:hash_block(LastFakeBlock), 2
+    ),
     SignedPOC2ReqTxn0 = blockchain_txn_poc_request_v1:sign(POC2ReqTxn0, GW1SigFun),
     ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPOC2ReqTxn0, Chain)),
 
     {ok, POC2ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC2ReqTxn0]),
     _ = blockchain_gossip_handler:add_block(POC2ReqBlock, Chain, self(), blockchain_swarm:swarm()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 43} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 43} =:= blockchain:height(Chain)
+    end),
 
     %%
     %% Make GW2 the challengee, GW4 a witness
@@ -558,7 +721,9 @@ purge_witness_test(Config) ->
     %% add the block
     _ = blockchain:add_block(AddPOC2ReceiptsBlock, Chain),
     %% confirm the block is added
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 44} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, CurHeight + 44} =:= blockchain:height(Chain)
+    end),
 
     %% confirm the challengee GW2, now contains a single witness report and from GW4
     {ok, GW2InfoE} = blockchain_ledger_v1:find_gateway_info(GW2, Ledger),
@@ -578,36 +743,42 @@ purge_witness_test(Config) ->
     ?assertNotEqual(not_found, maps:get(GW4, GW2WitnessesF, not_found)),
     ?assertEqual(not_found, maps:get(GW3, GW2WitnessesF, not_found)),
 
-
     ok.
 
 %%--------------------------------------------------------------------
 %% TEST HELPERS
 %%--------------------------------------------------------------------
-prices() -> [ 10000000, 20000000, 30000000]. %% 10 cents, 20 cents, 30 cents multiplied by 100 million
+
+%% 10 cents, 20 cents, 30 cents multiplied by 100 million
+prices() -> [10000000, 20000000, 30000000].
 
 random_price(Prices) ->
     Pos = rand:uniform(length(Prices)),
     lists:nth(Pos, Prices).
 
 make_oracles(N) ->
-    {ok, [ libp2p_crypto:generate_keys(ecc_compact) || _ <- lists:seq(1, N) ]}.
+    {ok, [libp2p_crypto:generate_keys(ecc_compact) || _ <- lists:seq(1, N)]}.
 
 %% N: how many sets of txns to make
 %% Keys: the actual key material
 %% BlockHeight: the block height to put in the transaction
 make_oracle_txns(N, Keys, BlockHeight) ->
     lists:flatten([
-       [
-        begin
-         Price = random_price(prices()),
-         {Price, make_and_sign_txn(K, Price, BlockHeight)}
-        end || K <- Keys ]
-                || _ <- lists:seq(1, N) ]).
+        [
+            begin
+                Price = random_price(prices()),
+                {Price, make_and_sign_txn(K, Price, BlockHeight)}
+            end
+         || K <- Keys
+        ]
+     || _ <- lists:seq(1, N)
+    ]).
 
 make_and_sign_txn(#{public := PubKey, secret := SecretKey}, Price, BlockHeight) ->
     SignFun = libp2p_crypto:mk_sig_fun(SecretKey),
-    RawTxn = blockchain_txn_price_oracle_v1:new(libp2p_crypto:pubkey_to_bin(PubKey), Price, BlockHeight),
+    RawTxn = blockchain_txn_price_oracle_v1:new(
+        libp2p_crypto:pubkey_to_bin(PubKey), Price, BlockHeight
+    ),
     blockchain_txn_price_oracle_v1:sign(RawTxn, SignFun).
 
 prep_public_key(#{public := K}) ->
@@ -615,10 +786,10 @@ prep_public_key(#{public := K}) ->
     <<(byte_size(BinPK)):8/unsigned-integer, BinPK/binary>>.
 
 make_encoded_oracle_keys(Keys) ->
-    {ok, << <<(prep_public_key(K))/binary>> || K <- Keys >> }.
+    {ok, <<<<(prep_public_key(K))/binary>> || K <- Keys>>}.
 
 get_prices({ok, Ps}) ->
-    {ok, lists:sort([ blockchain_ledger_oracle_price_entry:price(P) || P <- Ps ])}.
+    {ok, lists:sort([blockchain_ledger_oracle_price_entry:price(P) || P <- Ps])}.
 
 median(Ps) ->
     blockchain_ledger_v1:median(Ps).
@@ -629,7 +800,7 @@ add_and_gossip_fake_blocks(NumFakeBlocks, ConsensusMembers, Swarm, Chain, From) 
             {ok, B} = test_utils:create_block(ConsensusMembers, []),
             _ = blockchain_gossip_handler:add_block(B, Chain, From, Swarm)
         end,
-        lists:seq(1, NumFakeBlocks-1)
+        lists:seq(1, NumFakeBlocks - 1)
     ),
     {ok, LastFakeBlock} = test_utils:create_block(ConsensusMembers, []),
     _ = blockchain_gossip_handler:add_block(LastFakeBlock, Chain, From, Swarm),

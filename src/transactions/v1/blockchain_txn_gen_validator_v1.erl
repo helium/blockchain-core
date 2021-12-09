@@ -35,14 +35,17 @@
 -type txn_genesis_validator() :: #blockchain_txn_gen_validator_v1_pb{}.
 -export_type([txn_genesis_validator/0]).
 
--spec new(Address :: libp2p_crypto:pubkey_bin(),
-          Owner :: libp2p_crypto:pubkey_bin(),
-          Stake :: pos_integer()) -> txn_genesis_validator().
+-spec new(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Owner :: libp2p_crypto:pubkey_bin(),
+    Stake :: pos_integer()
+) -> txn_genesis_validator().
 new(Address, Owner, Stake) ->
-    #blockchain_txn_gen_validator_v1_pb{address = Address,
-                                        owner = Owner,
-                                        stake = Stake}.
-
+    #blockchain_txn_gen_validator_v1_pb{
+        address = Address,
+        owner = Owner,
+        stake = Stake
+    }.
 
 -spec hash(txn_genesis_validator()) -> blockchain_txn:hash().
 hash(Txn) ->
@@ -69,7 +72,8 @@ stake(Txn) ->
 fee(_Txn) ->
     0.
 
--spec fee_payer(txn_genesis_validator(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-spec fee_payer(txn_genesis_validator(), blockchain_ledger_v1:ledger()) ->
+    libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
 
@@ -78,7 +82,8 @@ fee_payer(_Txn, _Ledger) ->
 %% This transaction should only be absorbed when it is in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec is_valid(txn_genesis_validator(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(_Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
@@ -88,24 +93,32 @@ is_valid(_Txn, Chain) ->
             {error, not_in_genesis_block}
     end.
 
--spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-spec absorb(txn_genesis_validator(), blockchain:blockchain()) ->
+    ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Address = ?MODULE:address(Txn),
     Owner = ?MODULE:owner(Txn),
     Stake = ?MODULE:stake(Txn),
-    blockchain_ledger_v1:add_validator(Address,
-                                       Owner,
-                                       Stake,
-                                       Ledger).
+    blockchain_ledger_v1:add_validator(
+        Address,
+        Owner,
+        Stake,
+        Ledger
+    ).
 
 -spec print(txn_genesis_validator()) -> iodata().
-print(undefined) -> <<"type=genesis_validator, undefined">>;
+print(undefined) ->
+    <<"type=genesis_validator, undefined">>;
 print(#blockchain_txn_gen_validator_v1_pb{
-         address = Address, owner = Owner,
-         stake = Stake}) ->
-    io_lib:format("type=genesis_validator Address=~p, owner=~p, stake=~p",
-                  [?TO_ANIMAL_NAME(Address), ?TO_B58(Owner), Stake]).
+    address = Address,
+    owner = Owner,
+    stake = Stake
+}) ->
+    io_lib:format(
+        "type=genesis_validator Address=~p, owner=~p, stake=~p",
+        [?TO_ANIMAL_NAME(Address), ?TO_B58(Owner), Stake]
+    ).
 
 json_type() ->
     <<"gen_validator_v1">>.
@@ -113,13 +126,12 @@ json_type() ->
 -spec to_json(txn_genesis_validator(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => ?MODULE:json_type(),
-      hash => ?BIN_TO_B64(hash(Txn)),
-      address => ?BIN_TO_B58(address(Txn)),
-      owner => ?BIN_TO_B58(owner(Txn)),
-      stake => stake(Txn)
-     }.
-
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        address => ?BIN_TO_B58(address(Txn)),
+        owner => ?BIN_TO_B58(owner(Txn)),
+        stake => stake(Txn)
+    }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -127,9 +139,11 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_gen_validator_v1_pb{address = <<"0">>,
-                                             owner = <<"1">>,
-                                             stake = 10000},
+    Tx = #blockchain_txn_gen_validator_v1_pb{
+        address = <<"0">>,
+        owner = <<"1">>,
+        stake = 10000
+    },
     ?assertEqual(Tx, new(<<"0">>, <<"1">>, 10000)).
 
 validator_test() ->
@@ -147,7 +161,9 @@ stake_test() ->
 json_test() ->
     Tx = new(<<"0">>, <<"1">>, 1000),
     Json = to_json(Tx, []),
-    ?assertEqual(lists:sort(maps:keys(Json)),
-                 lists:sort([type, hash] ++ record_info(fields, blockchain_txn_gen_validator_v1_pb))).
+    ?assertEqual(
+        lists:sort(maps:keys(Json)),
+        lists:sort([type, hash] ++ record_info(fields, blockchain_txn_gen_validator_v1_pb))
+    ).
 
 -endif.
