@@ -395,6 +395,7 @@ active_gateways(Ledger, Challenger) ->
     maps:fold(
       fun(PubkeyBin, {Gateway, Score}, Acc0) ->
               CheckSync = check_sync(Gateway, Ledger),
+              Mode = blockchain_ledger_gateway_v2:mode(Gateway),
               case
                   %% if we're some other gateway who has a location
                   %% and hasn't been added to the graph and our score
@@ -404,7 +405,7 @@ active_gateways(Ledger, Challenger) ->
                    blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
                    maps:is_key(PubkeyBin, Acc0) orelse
                    Score =< MinScore) orelse
-                   not blockchain_ledger_gateway_v2:is_valid_capability(Gateway, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
+                   not blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
 
               of
                   true ->
