@@ -1224,18 +1224,21 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             DstPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
             SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(PreviousElement),
             {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
+            {ok, SourceRegion} = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger),
             {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
+            {ok, DestinationRegion} = blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
 
-            case is_same_region(Ledger, SourceLoc, DestinationLoc) of
+            case is_same_region(Ledger, SourceRegion, DestinationRegion) of
                 false ->
-                    lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
+                    lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p,"
+                                " SourceRegion: ~p, DestinationRegion: ~p",
                                 [blockchain_utils:addr2name(SrcPubkeyBin),
                                  blockchain_utils:addr2name(DstPubkeyBin),
-                                 SourceLoc, DestinationLoc]),
+                                 SourceRegion, DestinationRegion]),
                     undefined;
                 true ->
                     case is_too_far(Ledger, SourceLoc, DestinationLoc) of
@@ -1262,7 +1265,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                                            RSSI, MinRcvSig, SNR]),
                                             undefined;
                                         true ->
-                                            case check_valid_frequency(SourceLoc, Freq, Ledger) of
+                                            case check_valid_frequency(SourceRegion, Freq, Ledger) of
                                                 true ->
                                                     case blockchain:config(?data_aggregation_version, Ledger) of
                                                         {ok, DataAggVsn} when DataAggVsn > 1 ->
@@ -1338,19 +1341,13 @@ is_too_far(Ledger, SrcLoc, DstLoc) ->
 -spec check_valid_frequency(Location :: h3:h3_index(),
                             Frequency :: float(),
                             Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
-check_valid_frequency(Location, Frequency, Ledger) ->
+check_valid_frequency(Region, Frequency, Ledger ) ->
     %% only check this if poc 11
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V > 10 ->
-            case blockchain_region_v1:h3_to_region(Location, Ledger) of
-                {ok, Region} ->
-                    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-                    ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
-                    lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
-                {error, Reason} ->
-                    lager:error("Unable to find region for H3: ~p, Reason: ~p", [Location, Reason]),
-                    false
-            end;
+            {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+            ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
+            lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
         _ ->
             %% We're not in poc-v11+
             true
@@ -1361,28 +1358,10 @@ check_valid_frequency(Location, Frequency, Ledger) ->
     SourceLoc :: h3:h3_index(),
     DstLoc :: h3:h3_index()
 ) -> boolean().
-is_same_region(Ledger, SourceLoc, DstLoc) ->
+is_same_region(Ledger, SourceRegion, DstRegion) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V > 10 ->
-            case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
-                {ok, SrcRegionVar} ->
-                    %% Check DstLoc is in the same region as SourceLoc
-                    case blockchain_region_v1:h3_in_region(DstLoc, SrcRegionVar, Ledger) of
-                        false -> false;
-                        true -> true;
-                        {error, _} ->
-                            %% If this errored out:
-                            %% - either the var is not set (improbable because we'll set it)
-                            %% - dst location is somehow not found in the regions we know about but SourceLoc was, sus
-                            false
-                    end;
-                {error, _}=E ->
-                    %% We're in poc-v11+ but we could not find the region for the SourceLoc
-                    %% If there is an aux ledger, this will be true to maintain syncing
-                    %% If there is no aux ledger, this will be false since we cannot make an informed decision here
-                    lager:error("h3_to_region failed with error: ~p", [E]),
-                    blockchain_ledger_v1:has_aux(Ledger)
-            end;
+            SourceRegion == DstRegion;
         _ ->
             %% We're not in poc-v11+
             true
@@ -1589,17 +1568,12 @@ get_channels_(Ledger, Path, LayerData) ->
             %% We assert that all path members (which is only 1 member, beacon right now)
             %% will be in the same region
             Challengee = hd(Path),
-            case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
+            case blockchain_ledger_v1:find_gateway_region(Challengee, Ledger) of
                 {error, _}=E ->
-                    E;
-                {ok, ChallengeeLoc} ->
-                    case blockchain_region_v1:h3_to_region(ChallengeeLoc, Ledger) of
-                        {error, _}=E ->
-                            throw(E);
-                        {ok, Region} ->
-                            {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-                            length(Params)
-                    end
+                    throw(E);
+                {ok, Region} ->
+                    {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
+                    length(Params)
             end;
         _ ->
             %% we used to assume 8 channels
@@ -1664,16 +1638,16 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, DstPubkeyBin, DestinationLoc, Freq) ->
     end.
 
 calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger) ->
-    {ok, DstGW} = blockchain_ledger_v1:find_gateway_info(DstPubkeyBin, Ledger),
+    {ok, DstGR} = blockchain_ledger_v1:find_gateway_gain(DstPubkeyBin, Ledger),
     %% NOTE: Transmit gain is set to 0 when calculating free_space_path_loss
     %% This is because the packet forwarder will be configured to subtract the antenna
     %% gain and miner will always transmit at region EIRP.
     GT = 0,
-    GR = blockchain_ledger_gateway_v2:gain(DstGW) / 10,
+    GR = DstGR / 10,
     blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq, GT, GR).
 
 estimated_tx_power(SourceLoc, Freq, Ledger) ->
-    case blockchain_region_v1:h3_to_region(SourceLoc, Ledger) of
+    case blockchain_ledger_v1:find_ate(SourceLoc, Ledger) of
         {ok, Region} ->
             {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
             FreqEirps = [{blockchain_region_param_v1:channel_frequency(I),

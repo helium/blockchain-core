@@ -58,6 +58,8 @@
     find_gateway_owner/2,
     find_gateway_last_challenge/2,
     find_gateway_mode/2,
+    find_gateway_gain/2,
+    find_gateway_region/2,
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -1220,6 +1222,13 @@ load_gateways(Gws, Ledger) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
               Location = blockchain_ledger_gateway_v2:location(Gw),
               Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              Gain = blockchain_ledger_gateway_v2:gain(Gw),
+              Region =
+                  case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                      {ok, Reg} ->
+                          Reg;
+                      _ -> unknown
+                  end,
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
@@ -1227,6 +1236,8 @@ load_gateways(Gws, Ledger) ->
                         term_to_binary(LastChallenge)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain)),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-region">>, term_to_binary(Region)),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
@@ -1457,6 +1468,55 @@ find_gateway_mode(Address, Ledger) ->
                     Error
             end
     end.
+
+find_gateway_gain(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
+        {ok, BinGain} ->
+            {ok, binary_to_term(BinGain)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+                    {ok, Gain};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
+find_gateway_region(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
+        {ok, BinRegion} ->
+            case binary_to_term(BinRegion) of
+                unknown ->
+                    {error, unknown_region};
+                Region ->
+                    {ok, Region}
+            end;
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Location = blockchain_ledger_gateway_v2:location(Gw),
+                    case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                        {ok, Region} ->
+                            {ok, Region};
+                        _ ->
+                            {error, unknown_region}
+                    end;
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
 
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
