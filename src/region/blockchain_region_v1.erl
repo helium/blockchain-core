@@ -35,11 +35,12 @@ get_all_regions(Ledger) ->
 h3_to_region(H3, Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    Parent = h3:parent(H3, 8),
     e2qc:cache(
         ?H3_TO_REGION_CACHE,
-        {HasAux, VarsNonce, H3},
+        {HasAux, VarsNonce, Parent},
         fun() ->
-            h3_to_region_(H3, Ledger)
+            h3_to_region_(Parent, Ledger)
         end
     ).
 
@@ -49,7 +50,8 @@ h3_to_region(H3, Ledger) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> boolean() | {error, any()}.
 h3_in_region(H3, RegionVar, Ledger) ->
-    case h3_to_region(H3, Ledger) of
+    Parent = h3:parent(H3, 8),
+    case h3_to_region(Parent, Ledger) of
         {ok, Region} -> Region == RegionVar;
         Other -> Other
     end.
