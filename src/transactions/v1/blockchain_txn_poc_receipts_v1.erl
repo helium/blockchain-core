@@ -1435,7 +1435,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                               RSSI, MinRcvSig, SNR]),
                                                                  [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
                                                              true ->
-                                                                 case check_valid_frequency(SourceLoc, Freq, Ledger) of
+                                                                 case check_valid_frequency(SourceRegion, Freq, Ledger) of
                                                                      true ->
                                                                          case blockchain:config(?data_aggregation_version, Ledger) of
                                                                              {ok, DataAggVsn} when DataAggVsn > 1 ->
