@@ -1629,13 +1629,22 @@ update_gateway(Gw0, GwAddr, Ledger) ->
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
     Location = blockchain_ledger_gateway_v2:location(Gw),
     Mode = blockchain_ledger_gateway_v2:mode(Gw),
+    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+    Region =
+        case blockchain_region_v1:h3_to_region(Location, Ledger) of
+            {ok, Reg} ->
+                Reg;
+            _ -> unknown
+        end,
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
     Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
               term_to_binary(LastChallenge)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-gain">>, term_to_binary(Gain)),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-region">>, term_to_binary(Region)).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -4253,13 +4262,22 @@ bootstrap_gw_denorm(Ledger) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
               Location = blockchain_ledger_gateway_v2:location(Gw),
               Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              Gain = blockchain_ledger_gateway_v2:gain(Gw),
+              Region =
+                  case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                      {ok, Reg} ->
+                          Reg;
+                      _ -> unknown
+                  end,
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-gain">>, term_to_binary(Gain)),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-region">>, term_to_binary(Region))
       end,
       ignore).
 
