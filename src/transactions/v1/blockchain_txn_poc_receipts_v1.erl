@@ -1386,7 +1386,13 @@ tagged_witnesses(Element, Channel, Ledger) ->
     lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                          {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
-                         {ok, DestinationRegion} = blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger),
+                         DestinationRegion =
+                            case blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger) of
+                                {error, unknown_region} ->
+                                    unknown;
+                                {ok, DR} ->
+                                    DR
+                            end,
                          {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
                          {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
                          SourceParentIndex = h3:parent(SourceLoc, ParentRes),
