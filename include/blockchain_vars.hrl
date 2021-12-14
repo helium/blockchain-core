@@ -164,6 +164,8 @@
 %% define whether to check snr or not, boolean
 -define(check_snr, check_snr).
 
+%% resolution for h3 polyfills, defaulted to 7 before we set it
+-define(polyfill_resolution, polyfill_resolution).
 %%%
 %%% score vars
 %%%
