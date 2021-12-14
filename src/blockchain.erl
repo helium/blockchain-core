@@ -2398,8 +2398,21 @@ init_quick_sync(undefined, Blockchain, _Data) ->
     maybe_continue_resync(process_upgrades(Blockchain));
 init_quick_sync(assumed_valid, Blockchain, Data) ->
     init_assumed_valid(process_upgrades(Blockchain), Data);
-init_quick_sync(blessed_snapshot, Blockchain, Data) ->
+init_quick_sync(blessed_snapshot, Blockchain, Data0) ->
     %% don't process upgrades here, check if we need to pull a snap first
+    FetchLatest = application:get_env(blockchain, fetch_latest_from_snap_source, true),
+    Data = case FetchLatest of
+        true ->
+            BaseUrl = application:get_env(blockchain, snap_source_base_url, undefined),
+            try blockchain_worker:fetch_and_parse_latest_snapshot(BaseUrl) of
+                {Height, Hash} ->
+                    %% these are backwards for some reason, so reverse em
+                    {Hash, Height}
+            catch _:_ -> Data0
+            end;
+        _ ->
+            Data0
+    end,
     init_blessed_snapshot(Blockchain, Data).
 
 init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->

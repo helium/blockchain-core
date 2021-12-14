@@ -51,7 +51,7 @@
     reset_ledger_to_snap/2,
     async_reset/1,
 
-    grab_snapshot/2,
+    grab_snapshot/2, fetch_and_parse_latest_snapshot/1,
 
     add_commit_hook/3, add_commit_hook/4,
     remove_commit_hook/1
@@ -1016,7 +1016,7 @@ start_snapshot_sync(Hash, Height, Peer,
                                                       application:get_env(blockchain, blessed_snapshot_block_height),
                                                   {BlessedHeight, Hash};
                                               true ->
-                                                  fetch_and_parse_latest(BaseUrl)
+                                                  fetch_and_parse_latest_snapshot(BaseUrl)
                                           end,
                                       {ok, Filename} = attempt_fetch_snap_source_snapshot(BaseUrl,
                                                                                  ConfigHeight),
@@ -1067,7 +1067,7 @@ attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer) ->
             ok
     end.
 
-fetch_and_parse_latest(URL) ->
+fetch_and_parse_latest_snapshot(URL) ->
     Headers = [
                {"user-agent", "blockchain-worker-2"}
               ],
