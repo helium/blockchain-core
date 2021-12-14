@@ -1539,7 +1539,6 @@ find_gateway_gain(Address, Ledger) ->
     end.
 
 find_gateway_region(Address, Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
     GwDenormCF = gw_denorm_cf(Ledger),
     case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
         {ok, BinRegion} ->
@@ -1550,10 +1549,8 @@ find_gateway_region(Address, Ledger) ->
                     {ok, Region}
             end;
         _ ->
-            case cache_get(Ledger, AGwsCF, Address, []) of
-                {ok, BinGw} ->
-                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-                    Location = blockchain_ledger_gateway_v2:location(Gw),
+            case find_gateway_location(Address, Ledger) of
+                {ok, Location} ->
                     case blockchain_region_v1:h3_to_region(Location, Ledger) of
                         {ok, Region} ->
                             {ok, Region};
