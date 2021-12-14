@@ -1442,12 +1442,10 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
         V when is_integer(V), V >= 9 ->
             try
                 %% Get channels without validation
-                {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
+                {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Version, Chain),
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
                 ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
-                %% lager:info("ValidWitnesses: ~p",
-                           %% [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
                 ValidWitnesses
             catch
                 throw:{error, {unknown_region, Region}}:_ST ->

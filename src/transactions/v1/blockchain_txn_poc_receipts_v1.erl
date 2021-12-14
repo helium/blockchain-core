@@ -40,7 +40,7 @@
     good_quality_witnesses/2,
     valid_witnesses/3,
     tagged_witnesses/3,
-    get_channels/2
+    get_channels/2, get_channels/3
 ]).
 
 -ifdef(TEST).
@@ -361,7 +361,7 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
-                                                    Channels = get_channels_(OldLedger, Path, LayerData),
+                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer),
                                                     %% We are on poc v9
                                                     %% %% run validations
                                                     Ret = case POCVer >= 10 of
@@ -1229,6 +1229,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             {ok, DestinationRegion} = blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+            Version = poc_version(Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
 
@@ -1255,7 +1256,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
                                     MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion,
-                                                            DstPubkeyBin, DestinationLoc, Freq),
+                                                            DstPubkeyBin, DestinationLoc, Version, Freq),
                                     case RSSI < MinRcvSig of
                                         false ->
                                             %% RSSI is impossibly high discard this receipt
@@ -1266,7 +1267,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                                            RSSI, MinRcvSig, SNR]),
                                             undefined;
                                         true ->
-                                            case check_valid_frequency(SourceRegion, Freq, Ledger) of
+                                            case check_valid_frequency(SourceRegion, Freq, Ledger, Version) of
                                                 true ->
                                                     case blockchain:config(?data_aggregation_version, Ledger) of
                                                         {ok, DataAggVsn} when DataAggVsn > 1 ->
@@ -1321,11 +1322,11 @@ valid_witnesses(Element, Channel, Ledger) ->
     TaggedWitnesses = tagged_witnesses(Element, Channel, Ledger),
     [ W || {true, _, W} <- TaggedWitnesses ].
 
--spec is_too_far(Ledger:: blockchain_ledger_v1:ledger(),
+-spec is_too_far(Limit :: any(),
                  SrcLoc :: h3:h3_index(),
                  DstLoc :: h3:h3_index()) -> {true, float()} | false.
-is_too_far(Ledger, SrcLoc, DstLoc) ->
-    case blockchain:config(?poc_distance_limit, Ledger) of
+is_too_far(Limit, SrcLoc, DstLoc) ->
+    case Limit of
         {ok, L} ->
             Distance = blockchain_utils:distance(SrcLoc, DstLoc),
             case Distance > L of
@@ -1341,10 +1342,11 @@ is_too_far(Ledger, SrcLoc, DstLoc) ->
 
 -spec check_valid_frequency(Location :: h3:h3_index(),
                             Frequency :: float(),
-                            Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
-check_valid_frequency(Region, Frequency, Ledger ) ->
+                            Ledger :: blockchain_ledger_v1:ledger(),
+                            Version :: non_neg_integer()) -> boolean().
+check_valid_frequency(Region, Frequency, Ledger, Version) ->
     %% only check this if poc 11
-    case blockchain:config(?poc_version, Ledger) of
+    case Version of
         {ok, V} when V > 10 ->
             {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
             ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
@@ -1355,13 +1357,13 @@ check_valid_frequency(Region, Frequency, Ledger ) ->
     end.
 
 -spec is_same_region(
-    Ledger :: blockchain_ledger_v1:ledger(),
+    Version :: non_neg_integer(),
     SourceLoc :: h3:h3_index(),
     DstLoc :: h3:h3_index()
 ) -> boolean().
-is_same_region(Ledger, SourceRegion, DstRegion) ->
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V > 10 ->
+is_same_region(Version, SourceRegion, DstRegion) ->
+    case Version of
+        V when V > 10 ->
             SourceRegion == DstRegion;
         _ ->
             %% We're not in poc-v11+
@@ -1377,11 +1379,18 @@ tagged_witnesses(Element, Channel, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
     {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
     {ok, SourceRegion} = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger),
+    {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+    SourceParentIndex = h3:parent(SourceLoc, ParentRes),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
     DiscardZeroFreq = blockchain_ledger_v1:config(?discard_zero_freq_witness, Ledger),
+    {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
+    %% intentionally do not require
+    DAV = blockchain:config(?data_aggregation_version, Ledger),
+    Limit = blockchain:config(?poc_distance_limit, Ledger),
+    Version = poc_version(Ledger),
 
     lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
@@ -1389,13 +1398,12 @@ tagged_witnesses(Element, Channel, Ledger) ->
                          DestinationRegion =
                             case blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger) of
                                 {error, unknown_region} ->
+                                    lager:warning("saw unknown region for ~p loc ~p",
+                                                  [DstPubkeyBin, DestinationLoc]),
                                     unknown;
                                 {ok, DR} ->
                                     DR
                             end,
-                         {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
-                         {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
-                         SourceParentIndex = h3:parent(SourceLoc, ParentRes),
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
                          Freq = blockchain_poc_witness_v1:frequency(Witness),
 
@@ -1403,7 +1411,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                              {{ok, true}, 0.0} ->
                                 [{false, <<"witness_zero_freq">>, Witness} | Acc];
                              _ ->
-                                 case is_same_region(Ledger, SourceRegion, DestinationRegion) of
+                                 case is_same_region(Version, SourceRegion, DestinationRegion) of
                                      false ->
                                          lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
                                                      [blockchain_utils:addr2name(SrcPubkeyBin),
@@ -1411,7 +1419,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                       SourceLoc, DestinationLoc]),
                                          [{false, <<"witness_not_same_region">>, Witness} | Acc];
                                      true ->
-                                         case is_too_far(Ledger, SourceLoc, DestinationLoc) of
+                                         case is_too_far(Limit, SourceLoc, DestinationLoc) of
                                              {true, Distance} ->
                                                  lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
                                                              [blockchain_utils:addr2name(SrcPubkeyBin),
@@ -1429,7 +1437,8 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                                  SourceRegion,
                                                                                  DstPubkeyBin,
                                                                                  DestinationLoc,
-                                                                                 Freq),
+                                                                                 Freq,
+                                                                                 Version),
 
                                                          case RSSI < MinRcvSig of
                                                              false ->
@@ -1441,11 +1450,11 @@ tagged_witnesses(Element, Channel, Ledger) ->
                                                                               RSSI, MinRcvSig, SNR]),
                                                                  [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
                                                              true ->
-                                                                 case check_valid_frequency(SourceRegion, Freq, Ledger) of
+                                                                 case check_valid_frequency(SourceRegion, Freq, Ledger, Version) of
                                                                      true ->
-                                                                         case blockchain:config(?data_aggregation_version, Ledger) of
+                                                                         case DAV of
                                                                              {ok, DataAggVsn} when DataAggVsn > 1 ->
-                                                                                 case check_rssi_snr(Ledger, RSSI, SNR) of
+                                                                                 case check_rssi_snr_vers(RSSI, SNR, Version) of
                                                                                      true ->
                                                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                                                              true ->
@@ -1496,8 +1505,12 @@ scale_unknown_snr(UnknownSNR) ->
     {Low + (Low * ScaleFactor), High + (High * ScaleFactor)}.
 
 check_rssi_snr(Ledger, RSSI, SNR) ->
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, POCVersion} when POCVersion >= 11 ->
+    Version = poc_version(Ledger),
+    check_rssi_snr_vers(RSSI, SNR, Version).
+
+check_rssi_snr_vers(RSSI, SNR, Version) ->
+    case Version of
+        POCVersion when POCVersion >= 11 ->
             %% no checks
             true;
         _ ->
@@ -1523,6 +1536,11 @@ calculate_rssi_bounds_from_snr(SNR) ->
 -spec get_channels(Txn :: txn_poc_receipts(),
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
 get_channels(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Version = poc_version(Ledger),
+    get_channels(Txn, Version, Chain).
+
+get_channels(Txn, Version, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
     Path0 = ?MODULE:path(Txn),
     Secret = ?MODULE:secret(Txn),
@@ -1531,8 +1549,8 @@ get_channels(Txn, Chain) ->
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Ledger = blockchain:ledger(Chain),
 
-    BlockHash = case blockchain:config(?poc_version, Ledger) of
-        {ok, POCVer} when POCVer >= 10 ->
+    BlockHash = case Version of
+        POCVer when POCVer >= 10 ->
             ?MODULE:request_block_hash(Txn);
         _ ->
             %% Retry by walking the chain and attempt to find the last challenge block
@@ -1563,16 +1581,18 @@ get_channels(Txn, Chain) ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
             [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
             Path = [blockchain_poc_path_element_v1:challengee(Element) || Element <- Path0],
-            Channels = get_channels_(Ledger, Path, LayerData),
+            Channels = get_channels_(Ledger, Path, LayerData, Version),
             {ok, Channels}
     end.
 
 -spec get_channels_(Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
-                    LayerData :: [binary()]) -> [non_neg_integer()].
-get_channels_(Ledger, Path, LayerData) ->
-    ChannelCount = case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V > 10 ->
+                    LayerData :: [binary()],
+                    Version :: integer()) ->
+          [non_neg_integer()].
+get_channels_(Ledger, Path, LayerData, Version) ->
+    ChannelCount = case Version of
+        V when V > 10 ->
             %% Get from region vars
             %% Just get the channels using the challengee's region from head of the path
             %% We assert that all path members (which is only 1 member, beacon right now)
@@ -1600,11 +1620,12 @@ get_channels_(Ledger, Path, LayerData) ->
                   SourceRegion :: atom(),
                   DstPubkeyBin :: libp2p_crypto:pubkey_bin(),
                   DestinationLoc :: h3:h3_index(),
-                  Freq :: float()) -> float().
-min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq) ->
+                  Freq :: float(),
+                  Version :: non_neg_integer()) -> float().
+min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq, Version) ->
     %% Receipt can be undefined
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, POCVersion} when POCVersion >= 11 ->
+    case Version of
+        POCVersion when POCVersion >= 11 ->
             %% Estimate tx power because there is no receipt with attached tx_power
             lager:debug("SourceLoc: ~p, Freq: ~p", [SourceLoc, Freq]),
 
@@ -1626,15 +1647,16 @@ min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, Destinatio
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
     end;
-min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq) ->
+min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq, Version) ->
     %% We do have a receipt
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, POCVersion} when POCVersion >= 11 ->
+    case Version of
+        POCVersion when POCVersion >= 11 ->
             %% Get tx_power from attached receipt and use it to calculate min_rcv_sig
             case blockchain_poc_receipt_v1:tx_power(Receipt) of
                 %% Missing protobuf fields have default value as 0
                 TxPower when TxPower == undefined; TxPower == 0 ->
-                    min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq);
+                    min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion,
+                                DstPubkeyBin, DestinationLoc, Freq, Version);
                 TxPower ->
                     FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
                     case blockchain:config(?fspl_loss, Ledger) of
@@ -1675,6 +1697,13 @@ eirp_from_closest_freq(Freq, [ {NFreq, NEirp} | Rest ], {BestFreq, BestEIRP}) ->
             eirp_from_closest_freq(Freq, Rest, {NFreq, NEirp});
         false ->
             eirp_from_closest_freq(Freq, Rest, {BestFreq, BestEIRP})
+    end.
+
+-spec poc_version(blockchain_ledger_v1:ledger()) -> non_neg_integer().
+poc_version(Ledger) ->
+    case blockchain:config(?poc_version, Ledger) of
+        {error, not_found} -> 0;
+        {ok, V} -> V
     end.
 
 %% ------------------------------------------------------------------
