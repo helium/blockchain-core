@@ -30,7 +30,7 @@
 get_all_regions(Ledger) ->
     case blockchain:config(?regulatory_regions, Ledger) of
         {ok, Bin} ->
-            {ok, lists:map(fun erlang:binary_to_atom/1, binary:split(Bin, <<",">>, [global, trim]))};
+            {ok, lists:map(fun(R) -> list_to_atom(binary_to_list(R)) end, binary:split(Bin, <<",">>, [global, trim]))};
         _ ->
             {error, regulatory_regions_not_set}
     end.

@@ -1344,8 +1344,8 @@ vars(Vars, Unset, Ledger) ->
     ChangedRegions0 =
         maps:filter(
           fun(Var, _V) ->
-                  case atom_to_list(Var) of
-                      "region_" ++ _ -> true;
+                  case Var of
+                      <<"region_", _/binary>> -> true;
                       _ -> false
                   end
           end,
@@ -1685,7 +1685,11 @@ update_gateway(Gw0, GwAddr, Ledger) ->
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
-    write_gw_denorm_values(GwAddr, Gw, Ledger, true).
+    DoRegion = case ?MODULE:config(?poc_version, Ledger) of
+                  {ok, V} when V >= 11 -> true;
+                  _ -> false
+              end,
+    write_gw_denorm_values(GwAddr, Gw, Ledger, DoRegion).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -3876,7 +3880,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        {C, undefined} when C == undefined; C == direct ->
+        {C, _} when C == undefined; C == direct ->
             %% fold rocks directly
             rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
         {Cache, _GwCache} ->
