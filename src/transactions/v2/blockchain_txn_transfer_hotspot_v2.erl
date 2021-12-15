@@ -243,8 +243,6 @@ owner_can_pay_fee(
                 {ok, BalanceEntry} ->
                     {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger0),
                     EntryBalance = blockchain_ledger_entry_v1:balance(BalanceEntry),
-                    ct:pal("EntryBalance: ~p, Fee: ~p, FeeInHNT: ~p, DCEntry: ~p",
-                           [EntryBalance, Fee, FeeInHNT, blockchain_ledger_v1:find_dc_entry(Owner, Ledger)]),
                     (EntryBalance - FeeInHNT) >= 0
             end
     end,
