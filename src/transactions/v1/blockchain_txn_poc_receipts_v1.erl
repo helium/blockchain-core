@@ -361,8 +361,8 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
-                                                    %% TODO maybe cache this in the pdict?
-                                                    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(OldLedger),
+                                                    %% errors get checked lower
+                                                    RegionVars = blockchain_region_v1:get_all_region_bins(OldLedger),
                                                     Channels = get_channels_(OldLedger, Path, LayerData, POCVer, RegionVars),
                                                     %% We are on poc v9
                                                     %% %% run validations
@@ -1600,9 +1600,9 @@ get_channels(Txn, Version, RegionVars, Chain) ->
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
                     Version :: integer(),
-                    RegionVars :: #{atom() => binary()}) ->
+                    RegionVars :: #{atom() => binary()} | {error, any()}) ->
           [non_neg_integer()].
-get_channels_(Ledger, Path, LayerData, Version, RegionVars) ->
+get_channels_(Ledger, Path, LayerData, Version, RegionVars0) ->
     ChannelCount = case Version of
         V when V > 10 ->
             %% Get from region vars
@@ -1610,6 +1610,12 @@ get_channels_(Ledger, Path, LayerData, Version, RegionVars) ->
             %% We assert that all path members (which is only 1 member, beacon right now)
             %% will be in the same region
             Challengee = hd(Path),
+            RegionVars =
+                case RegionVars0 of
+                    {ok, RV} -> RV;
+                    RV when is_map(RV) -> RV;
+                    {error, Reason} -> error({get_channels_region, Reason})
+                end,
             case blockchain_ledger_v1:find_gateway_region(Challengee, Ledger, RegionVars) of
                 {error, _}=E ->
                     throw(E);
