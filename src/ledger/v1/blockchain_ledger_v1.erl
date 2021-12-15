@@ -59,7 +59,7 @@
     find_gateway_last_challenge/2,
     find_gateway_mode/2,
     find_gateway_gain/2,
-    find_gateway_region/2,
+    find_gateway_region/2, find_gateway_region/3,
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -1539,6 +1539,9 @@ find_gateway_gain(Address, Ledger) ->
     end.
 
 find_gateway_region(Address, Ledger) ->
+    find_gateway_region(Address, Ledger, no_prefetch).
+
+find_gateway_region(Address, Ledger, RegionBins) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
         {ok, BinRegion} ->
@@ -1551,7 +1554,14 @@ find_gateway_region(Address, Ledger) ->
         _ ->
             case find_gateway_location(Address, Ledger) of
                 {ok, Location} ->
-                    case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                    Res =
+                        case RegionBins of
+                            no_prefetch ->
+                                blockchain_region_v1:h3_to_region(Location, Ledger);
+                            _ ->
+                                blockchain_region_v1:h3_to_region(Location, Ledger, RegionBins)
+                        end,
+                    case Res of
                         {ok, Region} ->
                             {ok, Region};
                         _ ->

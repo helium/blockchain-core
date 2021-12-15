@@ -38,9 +38,9 @@
     to_json/2,
     poc_id/1,
     good_quality_witnesses/2,
-    valid_witnesses/3,
+    valid_witnesses/3, valid_witnesses/4,
     tagged_witnesses/3,
-    get_channels/2, get_channels/3
+    get_channels/2, get_channels/4
 ]).
 
 -ifdef(TEST).
@@ -361,7 +361,8 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
-                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer),
+                                                    %% TODO fix old code paths
+                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer, #{}),
                                                     %% We are on poc v9
                                                     %% %% run validations
                                                     Ret = case POCVer >= 10 of
@@ -1322,6 +1323,10 @@ valid_witnesses(Element, Channel, Ledger) ->
     TaggedWitnesses = tagged_witnesses(Element, Channel, Ledger),
     [ W || {true, _, W} <- TaggedWitnesses ].
 
+valid_witnesses(Element, Channel, RegionVars, Ledger) ->
+    TaggedWitnesses = tagged_witnesses(Element, Channel, RegionVars, Ledger),
+    [ W || {true, _, W} <- TaggedWitnesses ].
+
 -spec is_too_far(Limit :: any(),
                  SrcLoc :: h3:h3_index(),
                  DstLoc :: h3:h3_index()) -> {true, float()} | false.
@@ -1376,9 +1381,13 @@ is_same_region(Version, SourceRegion, DstRegion) ->
                        Channel :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
+    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
+    tagged_witnesses(Element, Channel, RegionVars, Ledger).
+
+tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
     {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
-    {ok, SourceRegion} = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger),
+    {ok, SourceRegion} = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger, RegionVars),
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
     SourceParentIndex = h3:parent(SourceLoc, ParentRes),
 
@@ -1396,7 +1405,7 @@ tagged_witnesses(Element, Channel, Ledger) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                          {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
                          DestinationRegion =
-                            case blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger) of
+                            case blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger, RegionVars) of
                                 {error, unknown_region} ->
                                     lager:warning("saw unknown region for ~p loc ~p",
                                                   [DstPubkeyBin, DestinationLoc]),
@@ -1538,9 +1547,10 @@ calculate_rssi_bounds_from_snr(SNR) ->
 get_channels(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Version = poc_version(Ledger),
-    get_channels(Txn, Version, Chain).
+    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
+    get_channels(Txn, Version, RegionVars, Chain).
 
-get_channels(Txn, Version, Chain) ->
+get_channels(Txn, Version, RegionVars, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
     Path0 = ?MODULE:path(Txn),
     Secret = ?MODULE:secret(Txn),
@@ -1581,16 +1591,17 @@ get_channels(Txn, Version, Chain) ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
             [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
             Path = [blockchain_poc_path_element_v1:challengee(Element) || Element <- Path0],
-            Channels = get_channels_(Ledger, Path, LayerData, Version),
+            Channels = get_channels_(Ledger, Path, LayerData, Version, RegionVars),
             {ok, Channels}
     end.
 
 -spec get_channels_(Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
-                    Version :: integer()) ->
+                    Version :: integer(),
+                    RegionVars :: #{atom() => binary()}) ->
           [non_neg_integer()].
-get_channels_(Ledger, Path, LayerData, Version) ->
+get_channels_(Ledger, Path, LayerData, Version, RegionVars) ->
     ChannelCount = case Version of
         V when V > 10 ->
             %% Get from region vars
@@ -1598,7 +1609,7 @@ get_channels_(Ledger, Path, LayerData, Version) ->
             %% We assert that all path members (which is only 1 member, beacon right now)
             %% will be in the same region
             Challengee = hd(Path),
-            case blockchain_ledger_v1:find_gateway_region(Challengee, Ledger) of
+            case blockchain_ledger_v1:find_gateway_region(Challengee, Ledger, RegionVars) of
                 {error, _}=E ->
                     throw(E);
                 {ok, Region} ->
