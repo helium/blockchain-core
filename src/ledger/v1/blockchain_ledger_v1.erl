@@ -1547,7 +1547,11 @@ find_gateway_region(Address, Ledger, RegionBins) ->
         {ok, BinRegion} ->
             case binary_to_term(BinRegion) of
                 unknown ->
-                    {error, unknown_region};
+                    case find_gateway_location(Address, Ledger) of
+                        {ok, Location} ->
+                            {error, {unknown_region, Location}};
+                        Error -> Error
+                    end;
                 Region ->
                     {ok, Region}
             end;
@@ -1565,7 +1569,7 @@ find_gateway_region(Address, Ledger, RegionBins) ->
                         {ok, Region} ->
                             {ok, Region};
                         _ ->
-                            {error, unknown_region}
+                            {error, {unknown_region, Location}}
                     end;
                 Error ->
                     Error
