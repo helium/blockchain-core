@@ -4095,8 +4095,8 @@ set_hexes(HexMap, Ledger) ->
     {ok, Height} = current_height(Ledger),
     Key1 = {'$ledger_hexes_map', Height},
     Key2 = {'$ledger_hexes_list', Height},
-    erase(Key1),
-    erase(Key2),
+    put(Key1, HexMap),
+    put(Key2, L),
     cache_put(Ledger, CF, ?hex_list, term_to_binary(L, [compressed])).
 
 -spec get_hexes(Ledger :: ledger()) -> {ok, hexmap()} | {error, any()}.
