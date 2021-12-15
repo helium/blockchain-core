@@ -1225,23 +1225,23 @@ load_gateways(Gws, Ledger) ->
       maps:from_list(Gws)),
     ok.
 
-write_gw_denorm_values(Address, Gw, new, Ledger, DoRegion) ->
+write_gw_denorm_values(Address, Gw, new, Ledger, _DoRegion) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     Location = blockchain_ledger_gateway_v2:location(Gw),
-    case DoRegion of
-        true ->
-            Region =
-                case Location == undefined of
-                    true -> unknown;
-                    false ->
-                        case blockchain_region_v1:h3_to_region(Location, Ledger) of
-                            {ok, Reg} -> Reg;
-                                    _ -> unknown
-                        end
-                end,
-            cache_put(Ledger, GwDenormCF, <<Address/binary, "-region">>, term_to_binary(Region));
-        false -> ok
-    end,
+    %% case DoRegion of
+    %%     true ->
+    %%         Region =
+    %%             case Location == undefined of
+    %%                 true -> unknown;
+    %%                 false ->
+    %%                     case blockchain_region_v1:h3_to_region(Location, Ledger) of
+    %%                         {ok, Reg} -> Reg;
+    %%                                 _ -> unknown
+    %%                     end
+    %%             end,
+    %%         cache_put(Ledger, GwDenormCF, <<Address/binary, "-region">>, term_to_binary(Region));
+    %%     false -> ok
+    %% end,
 
     Mode = blockchain_ledger_gateway_v2:mode(Gw),
     Gain = blockchain_ledger_gateway_v2:gain(Gw),
@@ -1253,25 +1253,26 @@ write_gw_denorm_values(Address, Gw, new, Ledger, DoRegion) ->
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain));
-write_gw_denorm_values(Address, Gw, update, Ledger, DoRegion) ->
+write_gw_denorm_values(Address, Gw, update, Ledger, _DoRegion) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     Location = blockchain_ledger_gateway_v2:location(Gw),
     case maybe_update_field(<<Address/binary, "-loc">>, term_to_binary(Location), GwDenormCF, Ledger) of
         true ->
-            case DoRegion of
-                true ->
-                    Region =
-                        case Location == undefined of
-                            true -> unknown;
-                            false ->
-                                case blockchain_region_v1:h3_to_region(Location, Ledger) of
-                                    {ok, Reg} -> Reg;
-                                    _ -> unknown
-                                end
-                        end,
-                    maybe_update_field(<<Address/binary, "-region">>, term_to_binary(Region), GwDenormCF, Ledger);
-                false -> ok
-            end;
+            %% case DoRegion of
+            %%     true ->
+            %%         Region =
+            %%             case Location == undefined of
+            %%                 true -> unknown;
+            %%                 false ->
+            %%                     case blockchain_region_v1:h3_to_region(Location, Ledger) of
+            %%                         {ok, Reg} -> Reg;
+            %%                         _ -> unknown
+            %%                     end
+            %%             end,
+            %%         maybe_update_field(<<Address/binary, "-region">>, term_to_binary(Region), GwDenormCF, Ledger);
+            %%     false -> ok
+            %% end;
+            ok;
         false -> ok
     end,
     Mode = blockchain_ledger_gateway_v2:mode(Gw),
@@ -1582,38 +1583,38 @@ find_gateway_region(Address, Ledger) ->
     find_gateway_region(Address, Ledger, no_prefetch).
 
 find_gateway_region(Address, Ledger, RegionBins) ->
-    GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
-        {ok, BinRegion} ->
-            case binary_to_term(BinRegion) of
-                unknown ->
-                    case find_gateway_location(Address, Ledger) of
-                        {ok, Location} ->
-                            {error, {unknown_region, Location}};
-                        Error -> Error
-                    end;
-                Region ->
-                    {ok, Region}
+    %% GwDenormCF = gw_denorm_cf(Ledger),
+    %% case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
+    %%     {ok, BinRegion} ->
+    %%         case binary_to_term(BinRegion) of
+    %%             unknown ->
+    %%                 case find_gateway_location(Address, Ledger) of
+    %%                     {ok, Location} ->
+    %%                         {error, {unknown_region, Location}};
+    %%                     Error -> Error
+    %%                 end;
+    %%             Region ->
+    %%                 {ok, Region}
+    %%         end;
+    %%     _ ->
+    case find_gateway_location(Address, Ledger) of
+        {ok, Location} ->
+            Res =
+                case RegionBins of
+                    no_prefetch ->
+                        blockchain_region_v1:h3_to_region(Location, Ledger);
+                    _ ->
+                        blockchain_region_v1:h3_to_region(Location, Ledger, RegionBins)
+                end,
+            case Res of
+                {ok, Region} ->
+                    {ok, Region};
+                _ ->
+                    {error, {unknown_region, Location}}
             end;
-        _ ->
-            case find_gateway_location(Address, Ledger) of
-                {ok, Location} ->
-                    Res =
-                        case RegionBins of
-                            no_prefetch ->
-                                blockchain_region_v1:h3_to_region(Location, Ledger);
-                            _ ->
-                                blockchain_region_v1:h3_to_region(Location, Ledger, RegionBins)
-                        end,
-                    case Res of
-                        {ok, Region} ->
-                            {ok, Region};
-                        _ ->
-                            {error, {unknown_region, Location}}
-                    end;
-                Error ->
-                    Error
-            end
+        Error ->
+            Error
+    %% end
     end.
 
 
