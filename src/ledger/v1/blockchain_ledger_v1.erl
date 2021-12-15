@@ -1459,6 +1459,9 @@ find_gateway_mode(Address, Ledger) ->
             end
     end.
 
+%%===================================================================
+%% NOTE: These two functions are primarily for debugging interactively.
+%% DO NOT depend on these for code as they will be SLOW.
 fold_gateways(Fun, InitAcc, Ledger) ->
     cache_fold(
       Ledger,
@@ -1479,6 +1482,7 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
                   false -> Acc
               end
       end, [], Ledger).
+%%===================================================================
 
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
