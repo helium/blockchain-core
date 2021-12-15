@@ -38,8 +38,8 @@ get_all_regions(Ledger) ->
 -spec get_all_region_bins(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, #{atom() => binary()}} | {error, any()}.
 get_all_region_bins(Ledger) ->
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    Key = {'$ledger_region_bins', Height},
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    Key = {'$ledger_region_bins', Nonce},
     case get(Key) of
         undefined ->
             case get_all_regions(Ledger) of
