@@ -361,8 +361,9 @@ check_is_valid_poc(Txn, Chain) ->
 
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
-                                                    %% TODO fix old code paths
-                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer, #{}),
+                                                    %% TODO maybe cache this in the pdict?
+                                                    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(OldLedger),
+                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer, RegionVars),
                                                     %% We are on poc v9
                                                     %% %% run validations
                                                     Ret = case POCVer >= 10 of
