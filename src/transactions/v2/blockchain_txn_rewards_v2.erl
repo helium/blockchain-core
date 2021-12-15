@@ -1122,10 +1122,11 @@ poc_witness_reward(Txn, AccIn,
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
+    RegionVars = maps:get(region_vars, Vars), % explode on purpose
 
     try
         %% Get channels without validation
-        {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
+        {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, POCVersion, RegionVars, Chain),
         Path = blockchain_txn_poc_receipts_v1:path(Txn),
 
         %% Do the new thing for witness filtering
@@ -1135,6 +1136,7 @@ poc_witness_reward(Txn, AccIn,
                         WitnessChannel = lists:nth(ElemPos, Channels),
                         case blockchain_txn_poc_receipts_v1:valid_witnesses(Elem,
                                                                             WitnessChannel,
+                                                                            RegionVars,
                                                                             Ledger) of
                             [] -> Acc1;
                             ValidWitnesses ->
