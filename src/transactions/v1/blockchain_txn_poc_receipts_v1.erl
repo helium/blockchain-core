@@ -1234,7 +1234,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
 
-            case is_same_region(Ledger, SourceRegion, DestinationRegion) of
+            case is_same_region(Version, SourceRegion, DestinationRegion) of
                 false ->
                     lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p,"
                                 " SourceRegion: ~p, DestinationRegion: ~p",
@@ -1257,7 +1257,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
                                     MinRcvSig = min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion,
-                                                            DstPubkeyBin, DestinationLoc, Version, Freq),
+                                                            DstPubkeyBin, DestinationLoc, Freq, Version),
                                     case RSSI < MinRcvSig of
                                         false ->
                                             %% RSSI is impossibly high discard this receipt
@@ -1352,7 +1352,7 @@ is_too_far(Limit, SrcLoc, DstLoc) ->
 check_valid_frequency(Region, Frequency, Ledger, Version) ->
     %% only check this if poc 11
     case Version of
-        {ok, V} when V > 10 ->
+        V when V > 10 ->
             {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
             ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
             lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
@@ -1640,17 +1640,11 @@ min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, Destinatio
             %% Estimate tx power because there is no receipt with attached tx_power
             lager:debug("SourceLoc: ~p, Freq: ~p", [SourceLoc, Freq]),
 
-            case estimated_tx_power(SourceRegion, Freq, Ledger) of
-                {ok, TxPower} ->
-                    FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-                    case blockchain:config(?fspl_loss, Ledger) of
-                        {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
-                        _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
-                    end;
-                {error, _}=E ->
-                    %% we should never get here because min_rcv_sig is always guarded by
-                    %% a same region check
-                    throw(E)
+            {ok, TxPower} = estimated_tx_power(SourceRegion, Freq, Ledger),
+            FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
+            case blockchain:config(?fspl_loss, Ledger) of
+                {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
+                _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
             end;
         _ ->
             %% Prior to poc-v11
