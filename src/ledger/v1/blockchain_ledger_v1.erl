@@ -1282,7 +1282,8 @@ write_gw_denorm_values(Address, Gw, update, Ledger, DoRegion) ->
     maybe_update_field(<<Address/binary, "-last-challenge">>, term_to_binary(LastChallenge),
                        GwDenormCF, Ledger),
     Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-    maybe_update_field(<<Address/binary, "-owner">>, Owner, GwDenormCF, Ledger).
+    maybe_update_field(<<Address/binary, "-owner">>, Owner, GwDenormCF, Ledger),
+    ok.
 
 %% this requires the values to be pre-encoded, and returns a boolean that is true if the value was written
 maybe_update_field(Field, Value, CF, Ledger) ->
