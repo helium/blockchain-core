@@ -1406,7 +1406,7 @@ tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
                          {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
                          DestinationRegion =
                             case blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger, RegionVars) of
-                                {error, unknown_region} ->
+                                {error, {unknown_region, _Loc}} ->
                                     lager:warning("saw unknown region for ~p loc ~p",
                                                   [DstPubkeyBin, DestinationLoc]),
                                     unknown;
