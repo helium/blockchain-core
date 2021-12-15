@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -12,10 +13,27 @@
     gateway_not_owned_by_owner_test/1,
     unknown_gateway_test/1,
     buyback_test/1,
-    var_not_set_test/1
+    var_not_set_test/1,
+    owner_can_afford_test/1,
+    owner_cannot_afford_test/1,
+    groups/0,
+    init_per_group/2,
+    end_per_group/2
 ]).
 
-all() ->
+groups() ->
+    [
+        {validity_ver_2, [], validity_ver_2()},
+        {validity_ver_3, [], validity_ver_3()}
+    ].
+
+validity_ver_3() ->
+    test_cases() ++ [owner_can_afford_test, owner_cannot_afford_test].
+
+validity_ver_2() ->
+    test_cases().
+
+test_cases() ->
     [
         basic_validity_test,
         bad_owner_signature_test,
@@ -25,19 +43,45 @@ all() ->
         var_not_set_test
     ].
 
+all() ->
+    [
+        {group, validity_ver_2},
+        {group, validity_ver_3}
+    ].
+
+%%--------------------------------------------------------------------
+%% Test group setup
+%%--------------------------------------------------------------------
+init_per_group(validity_ver_3, Config) ->
+    [{transaction_validity_version, 3} | Config];
+init_per_group(validity_ver_2, Config) ->
+    [{transaction_validity_version, 2} | Config].
+
+%%--------------------------------------------------------------------
+%% group teardown
+%%--------------------------------------------------------------------
+end_per_group(_, _Config) ->
+    ok.
+
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    Balance = 5000,
+    Balance = ?bones(300),
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
     ExtraVars =
         case TestCase of
             var_not_set_test -> #{};
-            _ -> #{?transaction_validity_version => 2}
+            owner_cannot_afford_test ->
+                #{?transaction_validity_version => ?config(transaction_validity_version, Config0),
+                  ?txn_fees => true,
+                  ?max_payments => 10
+                 };
+            _ ->
+                #{?transaction_validity_version => ?config(transaction_validity_version, Config0)}
         end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
@@ -353,5 +397,130 @@ unknown_gateway_test(Config) ->
     ct:pal("IsValidOwner: ~p", [blockchain_txn_transfer_hotspot_v2:is_valid_owner(OwnerSignedTxn)]),
 
     {error, unknown_gateway} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
+
+    ok.
+
+owner_can_afford_test(Config) ->
+    %% TODO: Don't meck, instead construct an original price_oracle txn...
+    OraclePrice = 30,
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OraclePrice} end),
+    meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OraclePrice]} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OraclePrice} end),
+
+    GenesisMembers = ?config(genesis_members, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    %% In the test, OwnerPubkeyBin = GatewayPubkeyBin
+
+    %% Get some owner and their gateway
+    [
+        {OwnerPubkeyBin, Gateway},
+        {NewOwnerPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+
+    %% Get owner privkey and sigfun
+    {_OwnerPubkey, OwnerPrivKey, _} = proplists:get_value(OwnerPubkeyBin, GenesisMembers),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    ct:pal("Owner: ~p", [OwnerPubkeyBin]),
+    ct:pal("Gateway: ~p", [Gateway]),
+    ct:pal("NewOwnerPubkeyBin: ~p", [NewOwnerPubkeyBin]),
+
+    Txn0 = blockchain_txn_transfer_hotspot_v2:new(
+        OwnerPubkeyBin,
+        OwnerPubkeyBin,
+        NewOwnerPubkeyBin,
+        1
+    ),
+    Fee0 = blockchain_txn_transfer_hotspot_v2:calculate_fee(Txn0, Chain),
+    Txn = blockchain_txn_transfer_hotspot_v2:fee(Txn0, Fee0),
+    OwnerSignedTxn = blockchain_txn_transfer_hotspot_v2:sign(Txn, OwnerSigFun),
+    ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
+
+    ct:pal("oracle price: ~p", [blockchain_ledger_v1:current_oracle_price(Ledger)]),
+
+    ok = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
+
+    meck:unload(blockchain_ledger_v1),
+
+    ok.
+
+owner_cannot_afford_test(Config) ->
+    %% Gateway owner transfers part of their balance to some other member thus failing the txn
+    %% as they won't be able to afford the fee
+
+    %% TODO: Don't meck, instead construct an original price_oracle txn...
+    OraclePrice = 30,
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OraclePrice} end),
+    meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OraclePrice]} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OraclePrice} end),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    GenesisMembers = ?config(genesis_members, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+    {ok, Ht} = blockchain:height(Chain),
+
+    %% In the test, OwnerPubkeyBin = GatewayPubkeyBin
+
+    %% Get some owner and their gateway
+    [
+        {OwnerPubkeyBin, Gateway},
+        {NewOwnerPubkeyBin, _},
+        {OtherPubkeyBin, _}
+        | _
+    ] = maps:to_list(blockchain_ledger_v1:active_gateways(Ledger)),
+
+    %% Get owner privkey and sigfun
+    {_OwnerPubkey, OwnerPrivKey, _} = proplists:get_value(OwnerPubkeyBin, GenesisMembers),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    ct:pal("Owner: ~p", [OwnerPubkeyBin]),
+    ct:pal("OtherPubkeyBin: ~p", [OtherPubkeyBin]),
+
+    Amt = 300,
+    Payment = blockchain_payment_v2:new(OtherPubkeyBin, Amt),
+    PaymentTxn0 = blockchain_txn_payment_v2:new(OwnerPubkeyBin, [Payment], 1),
+    Fee = blockchain_txn_payment_v2:calculate_fee(PaymentTxn0, Chain),
+    PaymentTxn = blockchain_txn_payment_v2:fee(PaymentTxn0, Fee),
+    SignedPaymentTxn = blockchain_txn_payment_v2:sign(PaymentTxn, OwnerSigFun),
+
+    ct:pal("SignedPaymentTxn: ~p", [SignedPaymentTxn]),
+    ok = blockchain_txn:is_valid(SignedPaymentTxn, Chain),
+
+    {ok, B1} = test_utils:create_block(ConsensusMembers, [SignedPaymentTxn]),
+    _ = blockchain_gossip_handler:add_block(B1, Chain, self(), blockchain_swarm:swarm()),
+
+    ct:pal("New Balance: ~p", [blockchain_ledger_v1:find_entry(OwnerPubkeyBin, Ledger)]),
+
+    ok = test_utils:wait_until(fun() -> {ok, Ht + 1} =:= blockchain:height(Chain) end),
+
+    ct:pal("Owner: ~p", [OwnerPubkeyBin]),
+    ct:pal("Gateway: ~p", [Gateway]),
+    ct:pal("NewOwnerPubkeyBin: ~p", [NewOwnerPubkeyBin]),
+
+    ct:pal("Owner Entry: ~p", [blockchain_ledger_v1:find_entry(OwnerPubkeyBin, Ledger)]),
+    ct:pal("Owner DCEntry: ~p", [blockchain_ledger_v1:find_dc_entry(OwnerPubkeyBin, Ledger)]),
+
+    Txn0 = blockchain_txn_transfer_hotspot_v2:new(
+        OwnerPubkeyBin,
+        OwnerPubkeyBin,
+        NewOwnerPubkeyBin,
+        1
+    ),
+    Fee0 = blockchain_txn_transfer_hotspot_v2:calculate_fee(Txn0, Chain),
+    Txn = blockchain_txn_transfer_hotspot_v2:fee(Txn0, Fee0),
+    OwnerSignedTxn = blockchain_txn_transfer_hotspot_v2:sign(Txn, OwnerSigFun),
+    ct:pal("SignedTxn: ~p", [OwnerSignedTxn]),
+
+    ct:pal("oracle price: ~p", [blockchain_ledger_v1:current_oracle_price(Ledger)]),
+
+    {error, gateway_owner_cannot_pay_fee} = blockchain_txn:is_valid(OwnerSignedTxn, Chain),
+
+    meck:unload(blockchain_ledger_v1),
 
     ok.

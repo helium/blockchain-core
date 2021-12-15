@@ -97,8 +97,12 @@ calculate_fee(Txn, Chain) ->
     Txn :: txn_transfer_hotspot_v2(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> libp2p_crypto:pubkey_bin() | undefined.
-fee_payer(Txn, _Ledger) ->
-    new_owner(Txn).
+fee_payer(Txn, Ledger) ->
+    case blockchain:config(?transaction_validity_version, Ledger) of
+        {ok, 3} -> owner(Txn);
+        {ok, 2} -> new_owner(Txn);
+        _ -> undefined
+    end.
 
 -spec calculate_fee(
     txn_transfer_hotspot_v2(),
@@ -144,10 +148,13 @@ is_valid_owner(
 -spec is_valid(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-
+    BaseChecks = base_validity_checks(Txn, Ledger, Chain),
     case blockchain:config(?transaction_validity_version, Ledger) of
+        {ok, 3} ->
+            OwnerFeeCheck = {fun() -> owner_can_pay_fee(Txn, Ledger) end, {error, gateway_owner_cannot_pay_fee}},
+            blockchain_utils:fold_condition_checks(BaseChecks ++ [OwnerFeeCheck]);
         {ok, 2} ->
-            is_valid_conditions(Txn, Ledger, Chain);
+            blockchain_utils:fold_condition_checks(BaseChecks);
         _ ->
             {error, transaction_validity_version_not_set}
     end.
@@ -161,10 +168,12 @@ absorb(Txn, Chain) ->
     Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
+    FeePayer = fee_payer(Txn, Ledger),
 
     {ok, GWInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+
     %% fees here are in DC
-    case blockchain_ledger_v1:debit_fee(NewOwner, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
+    case blockchain_ledger_v1:debit_fee(FeePayer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason} = Error ->
             Error;
         ok ->
@@ -220,6 +229,38 @@ owner_owns_gateway(
             Owner == GwOwner
     end.
 
+-spec owner_can_pay_fee(txn_transfer_hotspot_v2(), blockchain_ledger_v1:ledger()) -> boolean().
+owner_can_pay_fee(
+    #blockchain_txn_transfer_hotspot_v2_pb{owner = Owner, fee = Fee},
+    Ledger
+) ->
+    BalanceCheckFun =
+    fun(Owner0, Ledger0) ->
+            %% check if the owner has enough HNT to cover the fee
+            case blockchain_ledger_v1:find_entry(Owner0, Ledger0) of
+                {error, _} ->
+                    false;
+                {ok, BalanceEntry} ->
+                    {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger0),
+                    EntryBalance = blockchain_ledger_entry_v1:balance(BalanceEntry),
+                    (EntryBalance - FeeInHNT) >= 0
+            end
+    end,
+
+    case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
+        {error, _} ->
+            BalanceCheckFun(Owner, Ledger);
+        {ok, DCEntry} ->
+            DCBalance = blockchain_ledger_data_credits_entry_v1:balance(DCEntry),
+            case (DCBalance - Fee) >= 0 of
+                false ->
+                    BalanceCheckFun(Owner, Ledger);
+                true ->
+                    %% Owner has enough DC balance to pay the required fee
+                    true
+            end
+    end.
+
 -spec txn_fee_valid(txn_transfer_hotspot_v2(), blockchain:blockchain(), boolean()) -> boolean().
 txn_fee_valid(#blockchain_txn_transfer_hotspot_v2_pb{fee = Fee} = Txn, Chain, AreFeesEnabled) ->
     ExpectedTxnFee = calculate_fee(Txn, Chain),
@@ -246,27 +287,21 @@ is_gateway_on_chain(#blockchain_txn_transfer_hotspot_v2_pb{gateway=GWPubkeyBin},
             false
     end.
 
--spec is_valid_conditions(Txn :: txn_transfer_hotspot_v2(),
-                          Ledger :: blockchain_ledger_v1:ledger(),
-                          Chain :: blockchain:blockchain()) -> ok | {error, any()}.
-is_valid_conditions(#blockchain_txn_transfer_hotspot_v2_pb{
-                       owner = Owner,
-                       new_owner = NewOwner,
-                       nonce = Nonce
-                      } = Txn,
-                    Ledger, Chain) ->
-    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+-spec base_validity_checks(Txn :: txn_transfer_hotspot_v2(),
+                           Ledger :: blockchain_ledger_v1:ledger(),
+                           Chain :: blockchain:blockchain()) -> [{fun(), {error, any()}}, ...].
+base_validity_checks(Txn=#blockchain_txn_transfer_hotspot_v2_pb{owner=Owner, new_owner=NewOwner, nonce=Nonce},
+                     Ledger,
+                     Chain) ->
     %% NOTE: Conditional checks are processed sequentially
-    Conditions = [
+    [
         {fun() -> is_gateway_on_chain(Txn, Ledger) end, {error, unknown_gateway}},
         {fun() -> is_valid_nonce(Txn, Ledger) end, {error, {invalid_nonce, Nonce}}},
         {fun() -> ?MODULE:is_valid_owner(Txn) end, {error, bad_owner_signature}},
         {fun() -> Owner /= NewOwner end, {error, owner_is_buyer}},
         {fun() -> owner_owns_gateway(Txn, Ledger) end, {error, gateway_not_owned_by_owner}},
-        {fun() -> txn_fee_valid(Txn, Chain, AreFeesEnabled) end, {error, wrong_txn_fee}}
-    ],
-    blockchain_utils:fold_condition_checks(Conditions).
-
+        {fun() -> txn_fee_valid(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)) end, {error, wrong_txn_fee}}
+    ].
 
 -ifdef(TEST).
 new_test() ->
