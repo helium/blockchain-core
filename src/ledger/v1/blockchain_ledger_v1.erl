@@ -1435,8 +1435,9 @@ config(ConfigName, Ledger) ->
     end.
 
 vars_nonce(Ledger) ->
-    case ?MODULE:get_context(Ledger) of
-        undefined ->
+    %% getting the context is really expensive, do this kind of hacky thing instead
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} ->
             {ok, Height} = current_height(Ledger),
             e2qc:cache(
               ?VAR_CACHE,
@@ -4090,30 +4091,51 @@ set_hexes(HexMap, Ledger) ->
     HexList = maps:to_list(HexMap),
     L = lists:sort(HexList),
     CF = default_cf(Ledger),
+    {ok, Height} = current_height(Ledger),
+    Key1 = {'$ledger_hexes_map', Height},
+    Key2 = {'$ledger_hexes_list', Height},
+    erase(Key1),
+    erase(Key2),
     cache_put(Ledger, CF, ?hex_list, term_to_binary(L, [compressed])).
 
 -spec get_hexes(Ledger :: ledger()) -> {ok, hexmap()} | {error, any()}.
 get_hexes(Ledger) ->
     CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, ?hex_list, []) of
-        {ok, BinList} ->
-            {ok, maps:from_list(binary_to_term(BinList))};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+    {ok, Height} = current_height(Ledger),
+    Key = {'$ledger_hexes_map', Height},
+    case get(Key) of
+        undefined ->
+            case cache_get(Ledger, CF, ?hex_list, []) of
+                {ok, BinList} ->
+                    Map = maps:from_list(binary_to_term(BinList)),
+                    put(Key, Map),
+                    {ok, Map};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end;
+        Map -> {ok, Map}
     end.
 
 -spec get_hexes_list(Ledger :: ledger()) -> {ok, []} | {error, any()}.
 get_hexes_list(Ledger) ->
     CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, ?hex_list, []) of
-        {ok, BinList} ->
-            {ok, binary_to_term(BinList)};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+    {ok, Height} = current_height(Ledger),
+    Key = {'$ledger_hexes_list', Height},
+    case get(Key) of
+        undefined ->
+            case cache_get(Ledger, CF, ?hex_list, []) of
+                {ok, BinList} ->
+                    List = binary_to_term(BinList),
+                    put(Key, List),
+                    {ok, List};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end;
+        List -> {ok, List}
     end.
 
 -spec set_hex(Hex :: h3:h3_index(),

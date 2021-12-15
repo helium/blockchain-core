@@ -38,14 +38,22 @@ get_all_regions(Ledger) ->
 -spec get_all_region_bins(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, #{atom() => binary()}} | {error, any()}.
 get_all_region_bins(Ledger) ->
-    case get_all_regions(Ledger) of
-        {ok, Regions} ->
-            {ok, maps:from_list(lists:map(fun(Reg) ->
-                                                  {ok, Bin} = blockchain:config(Reg, Ledger),
-                                                  {Reg, Bin}
-                                          end, Regions))};
-        Error ->
-            Error
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Key = {'$ledger_region_bins', Height},
+    case get(Key) of
+        undefined ->
+            case get_all_regions(Ledger) of
+                {ok, Regions} ->
+                    Map = maps:from_list(lists:map(fun(Reg) ->
+                                                           {ok, Bin} = blockchain:config(Reg, Ledger),
+                                                           {Reg, Bin}
+                                                   end, Regions)),
+                    put(Key, Map),
+                    {ok, Map};
+                Error ->
+                    Error
+            end;
+        Map -> {ok, Map}
     end.
 
 -spec h3_to_region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
