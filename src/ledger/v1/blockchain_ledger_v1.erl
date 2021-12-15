@@ -1219,35 +1219,32 @@ load_gateways(Gws, Ledger) ->
     maps:map(
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
-              write_gw_denorm_values(Address, Gw, Ledger, false),
+              write_gw_denorm_values(Address, Gw, new, Ledger, false),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
     ok.
 
-write_gw_denorm_values(Address, Gw, Ledger, DoRegion) ->
+write_gw_denorm_values(Address, Gw, new, Ledger, DoRegion) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     Location = blockchain_ledger_gateway_v2:location(Gw),
-    Mode = blockchain_ledger_gateway_v2:mode(Gw),
-    Gain = blockchain_ledger_gateway_v2:gain(Gw),
     case DoRegion of
         true ->
             Region =
                 case Location == undefined of
-                    true ->
-                        unknown;
+                    true -> unknown;
                     false ->
                         case blockchain_region_v1:h3_to_region(Location, Ledger) of
-                            {ok, Reg} ->
-                                Reg;
-                            _ -> unknown
+                            {ok, Reg} -> Reg;
+                                    _ -> unknown
                         end
                 end,
             cache_put(Ledger, GwDenormCF, <<Address/binary, "-region">>, term_to_binary(Region));
-        false ->
-            ok
+        false -> ok
     end,
 
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+    Gain = blockchain_ledger_gateway_v2:gain(Gw),
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
     Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
@@ -1255,7 +1252,48 @@ write_gw_denorm_values(Address, Gw, Ledger, DoRegion) ->
               term_to_binary(LastChallenge)),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
-    cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain)).
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain));
+write_gw_denorm_values(Address, Gw, update, Ledger, DoRegion) ->
+    GwDenormCF = gw_denorm_cf(Ledger),
+    Location = blockchain_ledger_gateway_v2:location(Gw),
+    case maybe_update_field(<<Address/binary, "-loc">>, term_to_binary(Location), GwDenormCF, Ledger) of
+        true ->
+            case DoRegion of
+                true ->
+                    Region =
+                        case Location == undefined of
+                            true -> unknown;
+                            false ->
+                                case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                                    {ok, Reg} -> Reg;
+                                    _ -> unknown
+                                end
+                        end,
+                    maybe_update_field(<<Address/binary, "-region">>, term_to_binary(Region), GwDenormCF, Ledger);
+                false -> ok
+            end;
+        false -> ok
+    end,
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+    maybe_update_field(<<Address/binary, "-mode">>, term_to_binary(Mode), GwDenormCF, Ledger),
+    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+    maybe_update_field(<<Address/binary, "-gain">>, term_to_binary(Gain), GwDenormCF, Ledger),
+    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+    maybe_update_field(<<Address/binary, "-last-challenge">>, term_to_binary(LastChallenge),
+                       GwDenormCF, Ledger),
+    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+    maybe_update_field(<<Address/binary, "-owner">>, Owner, GwDenormCF, Ledger).
+
+%% this requires the values to be pre-encoded, and returns a boolean that is true if the value was written
+maybe_update_field(Field, Value, CF, Ledger) ->
+    case cache_get(Ledger, CF, Field, []) of
+        {ok, Value} ->
+            false;
+        %% this catchall covers if the value was different or missing
+        _ ->
+            cache_put(Ledger, CF, Field, Value),
+            true
+    end.
 
 -spec entries(ledger()) -> entries().
 entries(Ledger) ->
@@ -1689,7 +1727,7 @@ update_gateway(Gw0, GwAddr, Ledger) ->
                   {ok, V} when V >= 11 -> true;
                   _ -> false
               end,
-    write_gw_denorm_values(GwAddr, Gw, Ledger, DoRegion).
+    write_gw_denorm_values(GwAddr, Gw, update, Ledger, DoRegion).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -4304,7 +4342,7 @@ bootstrap_gw_denorm(Ledger) ->
       AGwsCF,
       fun({GwAddr, Binary}, _) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-              write_gw_denorm_values(GwAddr, Gw, Ledger, false)
+              write_gw_denorm_values(GwAddr, Gw, new, Ledger, false)
       end,
       ignore).
 
