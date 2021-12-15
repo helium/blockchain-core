@@ -40,7 +40,10 @@ get_all_regions(Ledger) ->
 get_all_region_bins(Ledger) ->
     case get_all_regions(Ledger) of
         {ok, Regions} ->
-            {ok, maps:from_list(lists:map(fun(Reg) -> {Reg, blockchain:config(Reg, Ledger)} end, Regions))};
+            {ok, maps:from_list(lists:map(fun(Reg) ->
+                                                  {ok, Bin} = blockchain:config(Reg, Ledger),
+                                                  {Reg, Bin}
+                                          end, Regions))};
         Error ->
             Error
     end.

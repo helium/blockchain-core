@@ -1567,8 +1567,6 @@ find_gateway_region(Address, Ledger, RegionBins) ->
                         _ ->
                             {error, unknown_region}
                     end;
-                not_found ->
-                    {error, not_found};
                 Error ->
                     Error
             end
