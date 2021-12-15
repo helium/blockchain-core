@@ -185,10 +185,16 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
             new(Dir, GenBlock, QuickSyncMode, QuickSyncData);
         {Blockchain, {error, Reason}} ->
             lager:warning("failed to load genesis block ~p, integrating new one", [Reason]),
-            ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
-            Ledger = blockchain:ledger(Blockchain),
-            mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
-            {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
+            try ?MODULE:integrate_genesis(GenBlock, Blockchain) of
+                ok ->
+                    Ledger = blockchain:ledger(Blockchain),
+                    mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
+                    {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)}
+            catch What:Why ->
+                    lager:warning("failed to integrate genesis block ~p, wiping chain", [{What, Why}]),
+                    ok = clean(Blockchain),
+                    new(Dir, GenBlock, QuickSyncMode, QuickSyncData)
+            end;
         {Blockchain, {ok, GenBlock}} ->
             lager:info("new gen = old gen"),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
