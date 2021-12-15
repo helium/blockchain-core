@@ -58,6 +58,7 @@
     find_gateway_owner/2,
     find_gateway_last_challenge/2,
     find_gateway_mode/2,
+    find_gateways_by_owner/2,
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -1457,6 +1458,31 @@ find_gateway_mode(Address, Ledger) ->
                     Error
             end
     end.
+
+%%===================================================================
+%% NOTE: These two functions are primarily for debugging interactively.
+%% DO NOT depend on these for code as they will be SLOW.
+fold_gateways(Fun, InitAcc, Ledger) ->
+    cache_fold(
+      Ledger,
+      active_gateways_cf(Ledger),
+      fun({Addr, BinGW}, Acc) ->
+              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
+              Fun({Addr, GW}, Acc)
+      end,
+      InitAcc
+     ).
+
+-spec find_gateways_by_owner(OwnerPubkeyBin :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) -> [{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}].
+find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
+    fold_gateways(
+      fun({Addr, GW}, Acc) ->
+              case blockchain_ledger_gateway_v2:owner_address(GW) == OwnerPubkeyBin of
+                  true -> [{Addr, GW} | Acc];
+                  false -> Acc
+              end
+      end, [], Ledger).
+%%===================================================================
 
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
