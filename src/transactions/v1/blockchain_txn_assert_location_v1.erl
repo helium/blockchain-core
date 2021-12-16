@@ -27,6 +27,7 @@
     nonce/1,
     staking_fee/1, staking_fee/2,
     fee/1, fee/2,
+    fee_payer/2,
     sign_request/2,
     sign_payer/2,
     sign/2,
@@ -38,6 +39,7 @@
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -140,6 +142,14 @@ staking_fee(Txn, Fee) ->
 fee(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.fee.
 
+-spec fee_payer(txn_assert_location(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    Payer = ?MODULE:payer(Txn),
+    case Payer == undefined orelse Payer == <<>> of
+        true -> ?MODULE:owner(Txn);
+        false -> Payer
+    end.
+
 -spec fee(txn_assert_location(), non_neg_integer()) -> txn_assert_location().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_assert_location_v1_pb{fee=Fee}.
@@ -182,9 +192,18 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec calculate_staking_fee(txn_assert_location(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Fee = blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger),
+    Gateway = ?MODULE:gateway(Txn),
+    Fee =
+        case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+            {error, _} ->
+                %% err we cant find gateway what to do??
+                %% defaulting to regular fee
+                 blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger);
+            {ok, GwInfo} ->
+                GWMode = blockchain_ledger_gateway_v2:mode(GwInfo),
+                staking_fee_for_gw_mode(GWMode, Ledger)
+        end,
     calculate_staking_fee(Txn, Ledger, Fee, [],blockchain_ledger_v1:txn_fees_active(Ledger)).
-
 -spec calculate_staking_fee(txn_assert_location(), blockchain_ledger_v1:ledger(), non_neg_integer(), [{atom(), non_neg_integer()}], boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Ledger, _Fee, _ExtraData, false) ->
     ?LEGACY_STAKING_FEE;
@@ -323,7 +342,7 @@ is_valid(Txn, Chain) ->
                             Error;
                         ok ->
                             Gateway = ?MODULE:gateway(Txn),
-                            case blockchain_gateway_cache:get(Gateway, Ledger) of
+                            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
                                 {error, _} ->
                                     {error, {unknown_gateway, {Gateway, Ledger}}};
                                 {ok, GwInfo} ->
@@ -361,19 +380,15 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Gateway = ?MODULE:gateway(Txn),
-    Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Fee = ?MODULE:fee(Txn),
-    Payer = ?MODULE:payer(Txn),
-    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-        true -> Owner;
-        false -> Payer
-    end,
+    Hash = ?MODULE:hash(Txn),
+    ActualPayer = fee_payer(Txn, Ledger),
 
-    {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
+    {ok, OldGw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->
@@ -433,7 +448,7 @@ absorb(Txn, Chain) ->
                     %% TODO gc this nonsense in some deterministic way
                     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
                     Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
-                    {ok, Gw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
+                    {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
                     ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
                     Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
                     ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
@@ -456,10 +471,13 @@ print(#blockchain_txn_assert_location_v1_pb{
                   [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), ?TO_B58(Payer),
 		   Loc, GS, OS, PS, Nonce, StakingFee, Fee]).
 
+json_type() ->
+    <<"assert_location_v1">>.
+
 -spec to_json(txn_assert_location(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"assert_location_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),
@@ -469,6 +487,14 @@ to_json(Txn, _Opts) ->
       staking_fee => staking_fee(Txn),
       fee => fee(Txn)
      }.
+
+-spec staking_fee_for_gw_mode(blockchain_ledger_gateway_v2:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+staking_fee_for_gw_mode(dataonly, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger);
+staking_fee_for_gw_mode(light, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_assert_location_light_gateway_v1(Ledger);
+staking_fee_for_gw_mode(_, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

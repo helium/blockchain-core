@@ -5,8 +5,8 @@
 -module(blockchain_poc_witness_v1).
 
 -behavior(blockchain_json).
+-include("blockchain_caps.hrl").
 -include("blockchain_json.hrl").
-
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
@@ -22,8 +22,9 @@
     datarate/1,
     signature/1,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -129,26 +130,43 @@ sign(Witness, SigFun) ->
     EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
     Witness#blockchain_poc_witness_v1_pb{signature=SigFun(EncodedWitness)}.
 
--spec is_valid(Witness :: poc_witness()) -> boolean().
-is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signature}) ->
+-spec is_valid(Witness :: poc_witness(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(Witness=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signature}, Ledger) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
     BaseWitness = Witness#blockchain_poc_witness_v1_pb{signature = <<>>},
     EncodedWitness = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseWitness),
-    libp2p_crypto:verify(EncodedWitness, Signature, PubKey).
+    case libp2p_crypto:verify(EncodedWitness, Signature, PubKey) of
+        false -> false;
+        true ->
+            case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
+                {error, _Reason} ->
+                    false;
+                {ok, GWMode} ->
+                    %% check this gateway is allowed to witness
+                    blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_WITNESS, Ledger)
+            end
+    end.
+
 
 print(undefined) ->
     <<"type=witness undefined">>;
 print(#blockchain_poc_witness_v1_pb{
          gateway=Gateway,
          timestamp=TS,
-         signal=Signal
+         signal=Signal,
+         frequency=Freq,
+         snr=SNR
         }) ->
-    io_lib:format("type=witness gateway: ~p timestamp: ~p signal: ~p",
+    io_lib:format("type=witness gateway: ~p timestamp: ~p signal: ~p snr: ~p freq ~p",
                   [
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
-                   Signal
+                   Signal,
+                   SNR,
+                   Freq
                   ]).
+json_type() ->
+    undefined.
 
 -spec to_json(poc_witness(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Witness, Opts) ->

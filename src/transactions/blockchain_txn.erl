@@ -16,6 +16,7 @@
              | blockchain_txn_coinbase_v1:txn_coinbase()
              | blockchain_txn_security_coinbase_v1:txn_security_coinbase()
              | blockchain_txn_consensus_group_v1:txn_consensus_group()
+             | blockchain_txn_consensus_group_failure_v1:txn_consensus_group()
              | blockchain_txn_gen_gateway_v1:txn_genesis_gateway()
              | blockchain_txn_payment_v1:txn_payment()
              | blockchain_txn_security_exchange_v1:txn_security_exchange()
@@ -37,13 +38,23 @@
              | blockchain_txn_price_oracle_v1:txn_price_oracle()
              | blockchain_txn_gen_price_oracle_v1:txn_genesis_price_oracle()
              | blockchain_txn_transfer_hotspot_v1:txn_transfer_hotspot()
-             | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
+             | blockchain_txn_state_channel_close_v1:txn_state_channel_close()
+             | blockchain_txn_rewards_v2:txn_rewards_v2()
+             | blockchain_txn_assert_location_v2:txn_assert_location()
+             | blockchain_txn_gen_validator_v1:txn_gen_validator()
+             | blockchain_txn_stake_validator_v1:txn_stake_validator()
+             | blockchain_txn_transfer_validator_stake_v1:txn_transfer_validator_stake()
+             | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
+             | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat()
+             | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
 
 -callback fee(txn()) -> non_neg_integer().
+-callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+-callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -61,6 +72,8 @@
 -export([
     block_delay/0,
     hash/1,
+    fee/1,
+    fee_payer/2,
     validate/2, validate/3,
     absorb/2,
     print/1, print/2,
@@ -79,6 +92,7 @@
     is_valid/2,
     validate_fields/1,
     depends_on/2,
+    json_type/1,
     to_json/2
 ]).
 
@@ -113,7 +127,17 @@
     {blockchain_txn_price_oracle_v1, 23},
     {blockchain_txn_state_channel_close_v1, 24},
     {blockchain_txn_token_burn_v1, 25},
-    {blockchain_txn_transfer_hotspot_v1, 26}
+    {blockchain_txn_transfer_hotspot_v1, 26},
+    {blockchain_txn_rewards_v2, 27},
+    {blockchain_txn_assert_location_v2, 28},
+    {blockchain_txn_gen_validator_v1, 29},
+    {blockchain_txn_stake_validator_v1, 30},
+    {blockchain_txn_transfer_validator_stake_v1, 31},
+    {blockchain_txn_unstake_validator_v1, 32},
+    {blockchain_txn_validator_heartbeat_v1, 33},
+    {blockchain_txn_gen_price_oracle_v1, 34},
+    {blockchain_txn_consensus_group_failure_v1, 35},
+    {blockchain_txn_transfer_hotspot_v2, 36}
 ]).
 
 block_delay() ->
@@ -122,14 +146,26 @@ block_delay() ->
 hash(Txn) ->
     (type(Txn)):hash(Txn).
 
+fee(Txn) ->
+    (type(Txn)):fee(Txn).
+
+fee_payer(Txn, Ledger) ->
+    (type(Txn)):fee_payer(Txn, Ledger).
+
 sign(Txn, SigFun) ->
     (type(Txn)):sign(Txn, SigFun).
 
+-spec serialize(txn()) -> binary().
 serialize(Txn) ->
     blockchain_txn_pb:encode_msg(wrap_txn(Txn)).
 
+-spec deserialize(binary()) -> txn().
 deserialize(Bin) ->
     unwrap_txn(blockchain_txn_pb:decode_msg(Bin, blockchain_txn_pb)).
+
+-spec json_type(txn()) -> binary() | atom().
+json_type(Txn) ->
+    (type(Txn)):json_type().
 
 -spec to_json(txn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, Opts) ->
@@ -192,7 +228,25 @@ wrap_txn(#blockchain_txn_price_oracle_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_gen_price_oracle_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={gen_price_oracle, Txn}};
 wrap_txn(#blockchain_txn_transfer_hotspot_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={transfer_hotspot, Txn}}.
+    #blockchain_txn_pb{txn={transfer_hotspot, Txn}};
+wrap_txn(#blockchain_txn_rewards_v2_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={rewards_v2, Txn}};
+wrap_txn(#blockchain_txn_assert_location_v2_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={assert_location_v2, Txn}};
+wrap_txn(#blockchain_txn_gen_validator_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={gen_validator, Txn}};
+wrap_txn(#blockchain_txn_stake_validator_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={stake_validator, Txn}};
+wrap_txn(#blockchain_txn_transfer_validator_stake_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={transfer_val_stake, Txn}};
+wrap_txn(#blockchain_txn_unstake_validator_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={unstake_validator, Txn}};
+wrap_txn(#blockchain_txn_validator_heartbeat_v1_pb{} = Txn) ->
+    #blockchain_txn_pb{txn={val_heartbeat, Txn}};
+wrap_txn(#blockchain_txn_consensus_group_failure_v1_pb{} = Txn) ->
+    #blockchain_txn_pb{txn={consensus_group_failure, Txn}};
+wrap_txn(#blockchain_txn_transfer_hotspot_v2_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={transfer_hotspot_v2, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -254,6 +308,10 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                         ok ->
                             maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
+                        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+                            %% we don't have enough context to decide if this transaction is valid yet, keep it
+                            %% but don't include it in the block (so it stays in the buffer)
+                            validate(Tail, Valid, Invalid, PType, PBuf, Chain);
                         {error, {InvalidReason, _Details}} = Error ->
                             lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
                             validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
@@ -319,8 +377,8 @@ separate_res([{T, Err} | Rest], Chain, V, I) ->
             lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
-        {'EXIT', {{_Why,{error, CrashReason}}, _Stack}} when is_atom(CrashReason)->
-            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+        {'EXIT', {{_Why,{error, CrashReason}}, Stack}} when is_atom(CrashReason)->
+            lager:warning("crashed txn ~p : ~p / ~s - ~p", [type(T), CrashReason, print(T), Stack]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
         {'EXIT', CrashReason} when is_atom(CrashReason)->
@@ -371,11 +429,14 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
+    Height = blockchain_block:height(Block),
 
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
+    Start = erlang:monotonic_time(millisecond),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
+            End = erlang:monotonic_time(millisecond),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
@@ -383,7 +444,18 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
-                            absorb_delayed(Block, Chain0);
+                            End2 = erlang:monotonic_time(millisecond),
+                            ok = absorb_delayed(Block, Chain0),
+                            case absorb_aux(Block, Chain0) of
+                                ok -> ok;
+                                Err ->
+                                    lager:info("aux absorb failed with: ~p", [Err]),
+                                    ok
+                            end,
+                            End3 = erlang:monotonic_time(millisecond),
+                            lager:info("validation took ~p absorb took ~p post took ~p ms for block height ~p",
+                                       [End - Start, End2 - End, End3 - End2, Height]),
+                            ok;
                         Any ->
                             Any
                     end;
@@ -403,11 +475,19 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
+    Height = blockchain_block:height(Block),
+
     Transactions0 = blockchain_block:transactions(Block),
     %% chain vars must always be validated so we don't accidentally sync past a change we don't understand
-    Transactions = lists:filter(fun(T) -> ?MODULE:type(T) == blockchain_txn_vars_v1 end, (Transactions0)),
+    Transactions =
+         lists:filter(
+           fun(T) -> Ty = ?MODULE:type(T),
+                     Ty == blockchain_txn_vars_v1
+           end, (Transactions0)),
+    Start = erlang:monotonic_time(millisecond),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
+            End = erlang:monotonic_time(millisecond),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
@@ -415,7 +495,13 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
-                            absorb_delayed(Block, Chain0);
+                            End2 = erlang:monotonic_time(millisecond),
+                            absorb_delayed(Block, Chain0),
+                            absorb_aux(Block, Chain0),
+                            End3 = erlang:monotonic_time(millisecond),
+                            lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
+                                       [End - Start, End2 - End, End3 - End2, Height]),
+                            ok;
                         Any ->
                             Any
                     end;
@@ -448,7 +534,7 @@ absorb_block(Block, Rescue, Chain) ->
     case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
-            ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain),
+            ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
             {ok, Chain};
         Error ->
             Error
@@ -461,13 +547,22 @@ absorb_block(Block, Rescue, Chain) ->
 -spec absorb(txn(),blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
+    Start = erlang:monotonic_time(millisecond),
+
     try Type:absorb(Txn, Chain) of
         {error, _Reason}=Error ->
             lager:info("failed to absorb ~p ~p ~s",
                        [Type, _Reason, ?MODULE:print(Txn)]),
             Error;
         ok ->
-            ok
+            End = erlang:monotonic_time(millisecond),
+            Slow = application:get_env(blockchain, slow_txn_log_threshold, 25), % in ms
+            case (End - Start) >= Slow of
+                true ->
+                    lager:info("took ~p ms to absorb ~p", [End - Start, Type]),
+                    ok;
+                _ -> ok
+            end
     catch
         What:Why:Stack ->
             lager:warning("crash during absorb: ~p ~p", [Why, Stack]),
@@ -544,6 +639,8 @@ type(#blockchain_txn_security_coinbase_v1_pb{}) ->
     blockchain_txn_security_coinbase_v1;
 type(#blockchain_txn_consensus_group_v1_pb{}) ->
     blockchain_txn_consensus_group_v1;
+type(#blockchain_txn_consensus_group_failure_v1_pb{}) ->
+    blockchain_txn_consensus_group_failure_v1;
 type(#blockchain_txn_poc_request_v1_pb{}) ->
     blockchain_txn_poc_request_v1;
 type(#blockchain_txn_poc_receipts_v1_pb{}) ->
@@ -579,8 +676,23 @@ type(#blockchain_txn_price_oracle_v1_pb{}) ->
 type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
     blockchain_txn_gen_price_oracle_v1;
 type(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
-    blockchain_txn_transfer_hotspot_v1.
-
+    blockchain_txn_transfer_hotspot_v1;
+type(#blockchain_txn_rewards_v2_pb{}) ->
+    blockchain_txn_rewards_v2;
+type(#blockchain_txn_assert_location_v2_pb{}) ->
+    blockchain_txn_assert_location_v2;
+type(#blockchain_txn_gen_validator_v1_pb{}) ->
+    blockchain_txn_gen_validator_v1;
+type(#blockchain_txn_stake_validator_v1_pb{}) ->
+     blockchain_txn_stake_validator_v1;
+type(#blockchain_txn_unstake_validator_v1_pb{}) ->
+    blockchain_txn_unstake_validator_v1;
+type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
+    blockchain_txn_transfer_validator_stake_v1;
+type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
+    blockchain_txn_validator_heartbeat_v1;
+type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
+    blockchain_txn_transfer_hotspot_v2.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
@@ -645,7 +757,8 @@ type_order(Txn) ->
     Type = type(Txn),
     case lists:keyfind(Type, 1, ?ORDER) of
         {Type, Index} -> Index;
-        false -> erlang:length(?ORDER) + 1
+        %% don't implicitly order unknown transactions
+        false -> error(unknown_transaction)
     end.
 
 %%--------------------------------------------------------------------
@@ -686,7 +799,7 @@ absorb_delayed(Block0, Chain0) ->
     case blockchain_ledger_v1:current_height(Ledger0) of
         % This is so it absorbs genesis
         {ok, H} when H < 2 ->
-            absorb_delayed_(Block0, Chain1),
+            plain_absorb_(Block0, Chain1),
             ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
         {ok, CurrentHeight} ->
             {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
@@ -699,7 +812,7 @@ absorb_delayed(Block0, Chain0) ->
                     Lag = min(?BLOCK_DELAY, CurrentHeight - DelayedHeight - ?BLOCK_DELAY),
                     Res = lists:foldl(fun(H, ok) ->
                                               {ok, Block1} = blockchain:get_block(H, Chain0),
-                                              absorb_delayed_(Block1, Chain1);
+                                              plain_absorb_(Block1, Chain1);
                                          (_, Acc) ->
                                               Acc
                                       end,
@@ -716,14 +829,54 @@ absorb_delayed(Block0, Chain0) ->
             _Any
     end.
 
-absorb_delayed_(Block, Chain0) ->
+
+-spec absorb_aux(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb_aux(Block0, Chain0) ->
+    Ledger0 = blockchain:ledger(Chain0),
+    case blockchain_ledger_v1:has_aux(Ledger0) of
+        true ->
+            AuxLedger0 = blockchain_ledger_v1:mode(aux, Ledger0),
+            AuxLedger1 = blockchain_ledger_v1:new_context(AuxLedger0),
+            Chain1 = blockchain:ledger(AuxLedger1, Chain0),
+            case blockchain_ledger_v1:current_height(Ledger0) of
+                % This is so it absorbs genesis
+                {ok, H} when H < 2 ->
+                    plain_absorb_(Block0, Chain1),
+                    ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                {ok, CurrentHeight} ->
+                    {ok, AuxHeight} = blockchain_ledger_v1:current_height(AuxLedger1),
+                    %% don't do too many blocks at once do we don't get timeout killed
+                    End = min(AuxHeight + 100, CurrentHeight - 1),
+                    Res = lists:foldl(fun(H, ok) ->
+                                              {ok, Block1} = blockchain:get_block(H, Chain0),
+                                              plain_absorb_(Block1, Chain1);
+                                         (_, Acc) ->
+                                              Acc
+                                      end,
+                                      ok,
+                                      lists:seq(AuxHeight+1, End)),
+                    case Res of
+                        ok ->
+                            ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                        Error ->
+                            lager:info("AUX absorb failed ~p", [Error]),
+                            Error
+                    end;
+                _Any ->
+                    _Any
+            end;
+        false ->
+            ok
+    end.
+
+plain_absorb_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, _} ->
-            Hash = blockchain_block:hash_block(Block),
+            %% Hash = blockchain_block:hash_block(Block),
             Ledger0 = blockchain:ledger(Chain0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
-            ok = blockchain_ledger_v1:maybe_gc_scs(Chain0),
-            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+            ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
+            %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
             ok;
         Error ->
@@ -762,6 +915,8 @@ nonce(Txn) ->
             end;
         blockchain_txn_routing_v1 ->
             blockchain_txn_routing_v1:nonce(Txn);
+        blockchain_txn_assert_location_v2 ->
+            blockchain_txn_assert_location_v2:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -808,6 +963,8 @@ actor(Txn) ->
         blockchain_txn_state_channel_close_v1 ->
             %% group by owner
             blockchain_txn_state_channel_close_v1:state_channel_owner(Txn);
+        blockchain_txn_assert_location_v2 ->
+            blockchain_txn_assert_location_v2:gateway(Txn);
         _ ->
             <<>>
     end.
@@ -874,6 +1031,13 @@ depends_on(ThisTxn, CachedTxns) ->
                                  (type(Txn) == blockchain_txn_routing_v1 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce)
                          end,
                          CachedTxns);
+        blockchain_txn_assert_location_v2 ->
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 (type(Txn) == blockchain_txn_assert_location_v2 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce) orelse
+                                 (type(Txn) == blockchain_txn_add_gateway_v1 andalso blockchain_txn_add_gateway_v1:gateway(Txn) == Actor)
+                         end, CachedTxns);
         %% TODO: token exchange rate txn when it's time
         _ ->
             []
@@ -1331,6 +1495,34 @@ txn_fees_update_gateway_oui_v1_test() ->
     ?assertEqual(40000, Txn02Fee),
     ok.
 
+txn_fees_assert_location_v2_test() ->
+    [{Payer, PayerSigFun}] = gen_payers(1),
+    #{public := GWPubKey, secret := _GWPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    GWPubkeyBin = libp2p_crypto:pubkey_to_bin(GWPubKey),
+    #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    OwnerPubkeyBin = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
 
+    %% create new txn, and confirm expected txn and staking fee
+    Txn00 = blockchain_txn_assert_location_v2:new(GWPubkeyBin, OwnerPubkeyBin, Payer, ?TEST_LOCATION, 1),
+    Txn00Fee = blockchain_txn_assert_location_v2:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+    Txn00StakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn00, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], true),
+    Txn00LegacyStakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn00, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], false),
+    ?assertEqual(55000, Txn00Fee),
+    ?assertEqual(?ASSERT_LOC_STAKING_FEE, Txn00StakingFee),
+    ?assertEqual(1, Txn00LegacyStakingFee),
+
+    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+    Txn01 = blockchain_txn_assert_location_v2:fee(Txn00, Txn00Fee),
+    Txn02 = blockchain_txn_assert_location_v2:staking_fee(Txn01, Txn00StakingFee),
+    Txn03 = blockchain_txn_assert_location_v2:sign(Txn02, OwnerSigFun),
+    Txn04 = blockchain_txn_assert_location_v2:sign_payer(Txn03, PayerSigFun),
+    Txn04Fee = blockchain_txn_assert_location_v2:calculate_fee(Txn04, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+    Txn04StakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn04, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], true),
+    Txn04LegacyStakingFee = blockchain_txn_assert_location_v2:calculate_staking_fee(Txn04, ignore_ledger, ?ASSERT_LOC_STAKING_FEE, [], false),
+    ?assertEqual(55000, Txn04Fee),
+    ?assertEqual(?ASSERT_LOC_STAKING_FEE, Txn04StakingFee),
+    ?assertEqual(1, Txn04LegacyStakingFee),
+    ok.
 
 -endif.

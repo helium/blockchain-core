@@ -31,10 +31,13 @@
     snapshot_hash/1,
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1,
-    to_json/2
+    is_election_block/1,
+    json_type/0,
+    to_json/2,
+    verified_signees/1,
+    remove_var_txns/1
 ]).
 
--include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_block_v1_pb.hrl").
 
 -ifdef(TEST).
@@ -347,6 +350,16 @@ is_rescue_block(Block) ->
         (Block#blockchain_block_v1_pb.rescue_signature /= <<>> orelse
          Block#blockchain_block_v1_pb.rescue_signatures /= []).
 
+-spec is_election_block(block()) -> boolean().
+is_election_block(Block) ->
+    case blockchain_election:has_new_group(transactions(Block)) of
+        {true, _, _, _} -> true;
+        _ -> false
+    end.
+
+json_type() ->
+    undefined.
+
 -spec to_json(block(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Block, _Opts) ->
     #{
@@ -354,8 +367,35 @@ to_json(Block, _Opts) ->
       time => time(Block),
       hash => ?BIN_TO_B64(hash_block(Block)),
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
-      transactions => [?BIN_TO_B64(blockchain_txn:hash(T)) || T <- transactions(Block)]
+      transactions => [
+        #{ 
+            hash => ?BIN_TO_B64(blockchain_txn:hash(T)), 
+            type => blockchain_txn:json_type(T)
+        } || T <- transactions(Block)]
      }.
+
+-spec verified_signees(Block :: block()) -> [libp2p_crypto:pubkey_bin()].
+verified_signees(Block) ->
+    Signatures = signatures(Block),
+    EncodedBlock = blockchain_block:serialize(set_signatures(Block, [], <<>>)),
+    lists:foldl(fun({Signer, Signature}, Acc) ->
+                        case libp2p_crypto:verify(EncodedBlock, Signature, libp2p_crypto:bin_to_pubkey(Signer)) of
+                            false -> Acc;
+                            true -> [Signer | Acc]
+                        end
+                end,
+                [],
+                Signatures).
+
+-spec remove_var_txns(block()) -> block().
+remove_var_txns(#blockchain_block_v1_pb{transactions=Txns0}=Block) ->
+    NotVar =
+        fun (Tx0) ->
+            Tx1 = blockchain_txn:unwrap_txn(Tx0),
+            blockchain_txn:type(Tx1) =/= blockchain_txn_vars_v1
+        end,
+    Txns1 = lists:filter(NotVar, Txns0),
+    Block#blockchain_block_v1_pb{transactions=Txns1}.
 
 %%
 %% Internal
@@ -497,6 +537,33 @@ json_test() ->
                       [height, time, hash, prev_hash, transactions])),
     ?assertEqual(3, length(maps:get(transactions, Json))).
 
+remove_var_txns_test() ->
+    Txn = blockchain_txn_vars_v1:new(#{fake_var_key => 1}, 0),
+    Block =
+        new(
+            #{
+                prev_hash      => <<>>,
+                height         => 1,
+                transactions   => [Txn],
+                signatures     => [],
+                hbbft_round    => 0,
+                time           => 0,
+                election_epoch => 0,
+                epoch_start    => 0,
+                seen_votes     => [],
+                bba_completion => <<>>
+             }
+        ),
+    ?assertMatch(
+        [_],
+        transactions(Block),
+        "Unmodified block should have one transaction."
+    ),
+    ?assertMatch(
+        [],
+        transactions(remove_var_txns(Block)),
+        "No transactions remain after removal."
+    ).
 
 generate_keys(N) ->
     lists:foldl(

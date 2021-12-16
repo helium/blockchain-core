@@ -21,12 +21,14 @@
     address/1,
     preimage/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -72,6 +74,10 @@ fee(Txn) ->
 -spec fee(txn_redeem_htlc(), non_neg_integer()) -> txn_redeem_htlc().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payee(Txn).
 
 -spec signature(txn_redeem_htlc()) -> binary().
 signature(Txn) ->
@@ -195,9 +201,10 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     Redeemer = ?MODULE:payee(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->
@@ -207,7 +214,7 @@ absorb(Txn, Chain) ->
                     Error;
                 {ok, HTLC} ->
                     Payee = blockchain_ledger_htlc_v1:payee(HTLC),
-                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
+                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger, Chain)
             end
     end.
 
@@ -223,10 +230,13 @@ print(#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, address=Address,
     io_lib:format("type=redeem_htlc payee=~p, address=~p, preimage=~p, fee=~p, signature=~p",
                   [?TO_B58(Payee), Address, PreImage, Fee, Sig]).
 
+json_type() ->
+    <<"redeem_htlc_v1">>.
+
 -spec to_json(txn_redeem_htlc(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"redeem_htlc_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),
       address => ?BIN_TO_B58(address(Txn)),

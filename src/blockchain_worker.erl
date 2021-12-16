@@ -8,6 +8,7 @@
 -behavior(gen_server).
 
 -include("blockchain_vars.hrl").
+-include_lib("kernel/include/file.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -18,6 +19,7 @@
     num_consensus_members/0,
     consensus_addrs/0,
     integrate_genesis_block/1,
+    integrate_genesis_block_synchronously/1,
     submit_txn/1, submit_txn/2,
     peer_height/3,
     notify/1,
@@ -29,6 +31,7 @@
     load/2,
 
     maybe_sync/0,
+    target_sync/3,
     sync/0,
     cancel_sync/0,
     pause_sync/0,
@@ -44,10 +47,14 @@
 
     snapshot_sync/2,
     install_snapshot/2,
+    install_aux_snapshot/1,
     reset_ledger_to_snap/2,
     async_reset/1,
 
-    grab_snapshot/2
+    grab_snapshot/2, fetch_and_parse_latest_snapshot/1,
+
+    add_commit_hook/3, add_commit_hook/4,
+    remove_commit_hook/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -65,11 +72,17 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
+-define(READ_SIZE, 16 * 1024). % read 16 kb chunks
+-define(WEEK_OLD_SECONDS, 7*24*60*60). %% a week's worth of seconds
+
 -ifdef(TEST).
 -define(SYNC_TIME, 1000).
 -else.
 -define(SYNC_TIME, 75000).
 -endif.
+
+-type snap_hash() :: binary().
+-type snapshot_info() :: { Hash :: snap_hash(), Height :: pos_integer() }.
 
 -record(state,
         {
@@ -80,7 +93,7 @@
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
-         snapshot_info :: undefined | {binary(), integer()},
+         snapshot_info :: undefined | snapshot_info(),
          gossip_ref = make_ref() :: reference(),
          absorb_info :: undefined | {pid(), reference()},
          absorb_retries = 3 :: pos_integer(),
@@ -135,6 +148,9 @@ pause_sync() ->
 maybe_sync() ->
     gen_server:cast(?SERVER, maybe_sync).
 
+target_sync(Target, Heights, GossipedHash) ->
+    gen_server:cast(?SERVER, {target_sync, Target, Heights, GossipedHash}).
+
 sync_paused() ->
     try
         gen_server:call(?SERVER, sync_paused, 100)  % intentionally very low
@@ -165,6 +181,9 @@ snapshot_sync(Hash, Height) ->
 install_snapshot(Hash, Snapshot) ->
     gen_server:call(?SERVER, {install_snapshot, Hash, Snapshot}, infinity).
 
+install_aux_snapshot(Snapshot) ->
+    gen_server:call(?SERVER, {install_aux_snapshot, Snapshot}, infinity).
+
 absorb_done() ->
     gen_server:call(?SERVER, absorb_done, infinity).
 
@@ -190,8 +209,15 @@ is_resyncing() ->
 integrate_genesis_block(Block) ->
     gen_server:cast(?SERVER, {integrate_genesis_block, Block}).
 
+-spec integrate_genesis_block_synchronously(blockchain_block:block()) ->
+    ok | {error, block_not_genesis}. % TODO Other errors?
+integrate_genesis_block_synchronously(Block) ->
+    Msg = {integrate_genesis_block_synchronously, Block},
+    gen_server:call(?SERVER, Msg, infinity).
+
 %%--------------------------------------------------------------------
 %% @doc
+%% submit_txn/1 is deprecated.  use blockchain_txn_mgr:submit_txn/2 instead
 %% @end
 %%--------------------------------------------------------------------
 -spec submit_txn(blockchain_txn:txn()) -> ok.
@@ -200,6 +226,7 @@ submit_txn(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% submit_txn/2 is deprecated.  use blockchain_txn_mgr:submit_txn/2 instead
 %% @end
 %%--------------------------------------------------------------------
 -spec submit_txn(blockchain_txn:txn(), fun()) -> ok.
@@ -234,6 +261,15 @@ mismatch() ->
 async_reset(Height) ->
     gen_server:cast(?SERVER, {async_reset, Height}).
 
+add_commit_hook(CF, HookIncFun, HookEndFun) ->
+    gen_server:call(?SERVER, {add_commit_hook, CF, HookIncFun, HookEndFun}).
+
+add_commit_hook(CF, HookIncFun, HookEndFun, Pred) ->
+    gen_server:call(?SERVER, {add_commit_hook, CF, HookIncFun, HookEndFun, Pred}).
+
+remove_commit_hook(RefOrAtom) ->
+    gen_server:call(?SERVER, {remove_commit_hook, RefOrAtom}).
+
 signed_metadata_fun() ->
     %% cache the chain handle in the peerbook processes' dictionary
     Chain = case get(peerbook_md_fun_blockchain) of
@@ -259,17 +295,20 @@ signed_metadata_fun() ->
                             #{}
                     end,
                 Ledger = blockchain:ledger(Chain),
-                FPMD = case blockchain:sync_height(Chain) == blockchain_ledger_v1:current_height(Ledger) of
+                IsFollowing = application:get_env(blockchain, follow_mode, false),
+                FPMD = case IsFollowing == false andalso blockchain:sync_height(Chain) == blockchain_ledger_v1:current_height(Ledger) of
                            true ->
                                Ht0 = maps:get(<<"height">>, HeightMD, 1),
                                Ht = max(1, Ht0 - (Ht0 rem 40)),
                                {ok, LedgerAt} = blockchain:ledger_at(Ht, Chain),
-                               case blockchain_ledger_v1:fingerprint(LedgerAt) of
+                               Res = case blockchain_ledger_v1:fingerprint(LedgerAt) of
                                    {ok, Fingerprint} ->
                                        maps:merge(HeightMD, Fingerprint);
                                    _ ->
                                        HeightMD
-                               end;
+                               end,
+                               blockchain_ledger_v1:delete_context(LedgerAt),
+                               Res;
                            false ->
                                %% if the chain height and the ledger height diverge we can't meaningfully
                                %% report fingerprint hashes, so skip it here
@@ -295,13 +334,28 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     SwarmTID = blockchain_swarm:tid(),
-    Ports = case application:get_env(blockchain, ports, undefined) of
-                undefined ->
-                    %% fallback to the single 'port' app env var
-                    [proplists:get_value(port, Args, 0)];
-                PortList when is_list(PortList) ->
-                    PortList
-            end,
+    %% allows the default interface to be to overridden, for example tests work better running with just 127.0.0.1 rather than running on all interfaces
+    ListenInterface = application:get_env(blockchain, listen_interface, "0.0.0.0"),
+    %% Get list of listening addresses. If deprecated 'ports' or 'port' variable used,
+    %% assume listening IP of 0.0.0.0. otherwise use listen_addresses parameter.
+    ListenAddrs = case application:get_env(blockchain, ports, undefined) of
+                      undefined ->
+                          case application:get_env(blockchain, port, undefined) of
+                              undefined ->
+                                  case application:get_env(blockchain, listen_addresses, undefined) of
+                                      undefined -> ["/ip4/" ++ ListenInterface ++ "/tcp/0"];
+                                      AddrList when is_list(erlang:hd(AddrList)) -> AddrList;
+                                      AddrList when is_list(AddrList) -> [ AddrList ]
+                                  end;
+                              Port ->
+                                  lager:warning("Using deprecated port configuration parameter. Switch to {listen_addresses, ~p}", [["/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)]]),
+                                  ["/ip4/" ++ ListenInterface ++ "/tcp/" ++ integer_to_list(Port)]
+                          end;
+                      PortList when is_list(PortList) ->
+                          lager:warning("Using deprecated ports configuration parameter. Swtich to {listen_addresses, ~p}",
+                                        ["/ip4/" ++ ListenInterface ++ "/tcp/" ++ integer_to_list(Port) || Port <- PortList]),
+                          ["/ip4/" ++ ListenInterface ++ "/tcp/" ++ integer_to_list(Port) || Port <- PortList]
+                  end,
     {Blockchain, Ref} =
         case application:get_env(blockchain, autoload, true) of
             false ->
@@ -312,16 +366,22 @@ init(Args) ->
                 GenDir = proplists:get_value(update_dir, Args, undefined),
                 load_chain(SwarmTID, BaseDir, GenDir)
         end,
+
     true = lists:all(fun(E) -> E == ok end,
-                     [ libp2p_swarm:listen(SwarmTID, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
+                     [ libp2p_swarm:listen(SwarmTID, Addr) || Addr <- ListenAddrs ]),
     {Mode, Info} = get_sync_mode(Blockchain),
 
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
                 gossip_ref = Ref, mode = Mode, snapshot_info = Info}}.
 
-handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
+handle_call({integrate_genesis_block_synchronously, GenesisBlock}, _From, #state{}=S0) ->
+    {Result, S1} = integrate_genesis_block_(GenesisBlock, S0),
+    {reply, Result, S1};
+handle_call(Msg, _From, #state{blockchain={no_genesis, _}}=State) ->
+    lager:debug("Called when blockchain={no_genesis_}. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
-handle_call(_, _From, #state{blockchain=undefined}=State) ->
+handle_call(Msg, _From, #state{blockchain=undefined}=State) ->
+    lager:debug("Called when blockchain=undefined. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
 handle_call(num_consensus_members, _From, #state{blockchain = Chain} = State) ->
     {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
@@ -335,11 +395,15 @@ handle_call({blockchain, NewChain}, _From, #state{swarm_tid = SwarmTID} = State)
     remove_handlers(SwarmTID),
     {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
     {reply, ok, State#state{blockchain = NewChain, gossip_ref = GossipRef}};
-handle_call({new_ledger, Dir}, _From, State) ->
+handle_call({new_ledger, Dir}, _From, #state{blockchain=Chain}=State) ->
     %% We do this here so the same process that normally owns the ledger
     %% will own it when we do a reset ledger or whatever. Otherwise the
     %% snapshot cache ETS table can be owned by an ephemeral process.
-    Ledger1 = blockchain_ledger_v1:new(Dir),
+    Ledger1 = blockchain_ledger_v1:new(Dir,
+                                       blockchain:db_handle(Chain),
+                                       blockchain:blocks_cf(Chain),
+                                       blockchain:heights_cf(Chain),
+                                       blockchain:info_cf(Chain)),
     {reply, {ok, Ledger1}, State};
 
 handle_call({install_snapshot, Hash, Snapshot}, _From,
@@ -355,15 +419,19 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             OldLedger = blockchain:ledger(Chain),
             blockchain_ledger_v1:clean(OldLedger),
             %% TODO proper error checking and recovery/retry
-            {ok, NewLedger} = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
+            NewLedger = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
             try
-                %% there is a hole in the snapshot history where this will be true, but later it
-                %% will have come from the snap.
-                true = erlang:is_map(Snapshot), % fail into the catch if it's an older record
-                H3dex = maps:get(h3dex, Snapshot), % fail into the catch if it's missing
-                case maps:size(H3dex) > 0 of
+                %% There is a hole in the snapshot history where this will be
+                %% true, but later it will have come from the snap.
+
+                %% fail into the catch if it's an older record
+                true = blockchain_ledger_snapshot_v1:is_v6(Snapshot),
+                %% fail into the catch if it's missing
+                H3dex = blockchain_ledger_snapshot_v1:get_h3dex(Snapshot),
+
+                case length(H3dex) > 0 of
                     true -> ok;
                     false -> throw(bootstrap) % fail into the catch it's an empty default value
                 end
@@ -373,24 +441,40 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
                     blockchain_ledger_v1:commit_context(NewLedger1)
             end,
             remove_handlers(Swarm),
-            notify({new_chain, Chain1}),
-            {ok, GossipRef} = add_handlers(Swarm, Chain1),
+            NewChain = blockchain:delete_temp_blocks(Chain1),
+            notify({new_chain, NewChain}),
+            {ok, GossipRef} = add_handlers(Swarm, NewChain),
             {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),
-            {ok, ChainHeight} = blockchain:height(Chain1),
-            blockchain:delete_temp_blocks(Chain1),
+            {ok, ChainHeight} = blockchain:height(NewChain),
             case LedgerHeight >= ChainHeight of
                 true -> ok;
                 false ->
                     %% we likely retain some old blocks, and we should absorb them
-                    set_resyncing(ChainHeight, LedgerHeight, Chain1)
+                    set_resyncing(ChainHeight, LedgerHeight, NewChain)
             end,
             blockchain_lock:release(),
             {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
-                                               blockchain = Chain1, gossip_ref = GossipRef})};
+                                               blockchain = NewChain, gossip_ref = GossipRef})};
         true ->
             %% if we don't want to auto-clean the ledger, stop
             {stop, shutdown, State}
         end;
+
+handle_call({install_aux_snapshot, Snapshot}, _From,
+            #state{blockchain = Chain, swarm = Swarm} = State) ->
+    ok = blockchain_lock:acquire(),
+    OldLedger = blockchain:ledger(Chain),
+    blockchain_ledger_v1:clean_aux(OldLedger),
+    NewLedger = blockchain_aux_ledger_v1:new(OldLedger),
+    blockchain_ledger_snapshot_v1:load_into_ledger(Snapshot, NewLedger, aux),
+    blockchain_ledger_snapshot_v1:load_blocks(blockchain_ledger_v1:mode(aux, NewLedger), Chain, Snapshot),
+    NewChain = blockchain:ledger(NewLedger, Chain),
+    remove_handlers(Swarm),
+    {ok, GossipRef} = add_handlers(Swarm, NewChain),
+    notify({new_chain, NewChain}),
+    blockchain_lock:release(),
+    {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
+                                       blockchain = NewChain, gossip_ref = GossipRef})};
 
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
@@ -417,6 +501,22 @@ handle_call(is_resyncing, _From, State) ->
 handle_call({reset_ledger_to_snap, Hash, Height}, _From, State) ->
     {reply, ok, reset_ledger_to_snap(Hash, Height, State)};
 
+handle_call({add_commit_hook, CF, HookIncFun, HookEndFun} , _From, #state{blockchain = Chain} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookIncFun, HookEndFun, Ledger),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+    {reply, Ref, State#state{blockchain = Chain1}};
+handle_call({add_commit_hook, CF, HookIncFun, HookEndFun, Pred} , _From, #state{blockchain = Chain} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookIncFun, HookEndFun, Pred, Ledger),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+    {reply, Ref, State#state{blockchain = Chain1}};
+handle_call({remove_commit_hook, RefOrCF} , _From, #state{blockchain = Chain} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:remove_commit_hook(RefOrCF, Ledger),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+    {reply, ok, State#state{blockchain = Chain1}};
+
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -426,26 +526,9 @@ handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Mode, Info} = get_sync_mode(Blockchain),
     notify({new_chain, Blockchain}),
     {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info}};
-handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
-                                                            swarm_tid=SwarmTid}=State) ->
-    case blockchain_block:is_genesis(GenesisBlock) of
-        false ->
-            lager:warning("~p is not a genesis block", [GenesisBlock]),
-            {noreply, State};
-        true ->
-            ok = blockchain:integrate_genesis(GenesisBlock, Blockchain),
-            [ConsensusAddrs] = [blockchain_txn_consensus_group_v1:members(T)
-                                || T <- blockchain_block:transactions(GenesisBlock),
-                                   blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
-            lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
-            {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
-            ok = notify({integrate_genesis_block, GenesisHash}),
-            {ok, GossipRef} = add_handlers(SwarmTid, Blockchain),
-            ok = blockchain_txn_mgr:set_chain(Blockchain),
-            true = libp2p_swarm:network_id(SwarmTid, GenesisHash),
-            self() ! maybe_sync,
-            {noreply, State#state{blockchain=Blockchain, gossip_ref = GossipRef}}
-    end;
+handle_cast({integrate_genesis_block, GenesisBlock}, #state{}=S0) ->
+    {_, S1} = integrate_genesis_block_(GenesisBlock, S0),
+    {noreply, S1};
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
@@ -471,6 +554,8 @@ handle_cast({set_resyncing, _Block, _Blockchain, _Syncing}, State) ->
 
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
+handle_cast({target_sync, Target, Heights, GossipedHash}, State) ->
+    {noreply, target_sync(Target, Heights, GossipedHash, State)};
 handle_cast({submit_txn, Txn}, State) ->
     ok = send_txn(Txn),
     {noreply, State};
@@ -480,15 +565,11 @@ handle_cast({submit_txn, Txn, Callback}, State) ->
 handle_cast({peer_height, Height, Head, _Sender}, #state{blockchain=Chain}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
     NewState =
-        case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
-            {{error, _Reason}, _} ->
-                lager:error("could not get head hash ~p", [_Reason]),
+        case blockchain:head_block_info(Chain) of
+            {error, _Reason} ->
+                lager:error("could not get head info ~p", [_Reason]),
                 State;
-            {_, {error, _Reason}} ->
-                lager:error("could not get head block ~p", [_Reason]),
-                State;
-            {{ok, LocalHead}, {ok, LocalHeadBlock}} ->
-                LocalHeight = blockchain_block:height(LocalHeadBlock),
+            {ok, #block_info_v2{hash = LocalHead, height = LocalHeight}} ->
                 case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
                     false ->
                         ok;
@@ -510,7 +591,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
-handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
+handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
             #state{sync_ref = SyncRef, blockchain = Chain, mode = Mode} = State0) ->
     State = State0#state{sync_pid = undefined},
     %% TODO: this sometimes we're gonna have a failed snapshot sync
@@ -519,22 +600,28 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
-    {ok, Block} = blockchain:head_block(Chain),
-    Now = erlang:system_time(seconds),
-    Time = blockchain_block:time(Block),
-    case Now - Time of
-        N when N < 0 ->
-            %% if blocktimes are in the future, we're confused about
-            %% the time, proceed as if we're synced.
-            {noreply, schedule_sync(State)};
-        N when N < 60 * 60 ->
-            %% relatively recent
-            {noreply, schedule_sync(State)};
-        _ when Mode == snapshot ->
-            {Hash, Height} = State#state.snapshot_info,
-            {noreply, snapshot_sync(Hash, Height, State)};
-        _ ->
-            %% we're deep in the past here, so just start the next sync
+    case blockchain:head_block_info(Chain) of
+        {ok, #block_info_v2{time = Time}} ->
+            Now = erlang:system_time(seconds),
+            case Now - Time of
+                N when N < 0 ->
+                    %% if blocktimes are in the future, we're confused about
+                    %% the time, proceed as if we're synced.
+                    {noreply, schedule_sync(State)};
+                N when N < 30 * 60 andalso Reason == normal ->
+                    %% relatively recent
+                    {noreply, schedule_sync(State)};
+                _ when Mode == snapshot ->
+                    lager:info("snapshot sync down reason ~p", [Reason]),
+                    {Hash, Height} = State#state.snapshot_info,
+                    {noreply, snapshot_sync(Hash, Height, State)};
+                _ ->
+                    case Reason of dial -> ok; _ -> lager:info("block sync down: ~p", [Reason]) end,
+                    %% we're deep in the past here, or the last one errored out, so just start the next sync
+                    {noreply, start_sync(State)}
+            end;
+        {error, not_found} ->
+            lager:warning("cannot get head block"),
             {noreply, start_sync(State)}
     end;
 handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
@@ -607,6 +694,46 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+integrate_genesis_block_(
+    GenesisBlock,
+    #state{
+        blockchain = {no_genesis, Chain},
+        swarm_tid  = SwarmTid
+    }=S0
+) ->
+    case blockchain_block:is_genesis(GenesisBlock) of
+        false ->
+            lager:warning("~p is not a genesis block", [GenesisBlock]),
+            {{error, block_not_genesis}, S0};
+        true ->
+            ok = blockchain:integrate_genesis(GenesisBlock, Chain),
+            [ConsensusAddrs] =
+                [
+                    blockchain_txn_consensus_group_v1:members(T)
+                ||
+                    T <- blockchain_block:transactions(GenesisBlock),
+                    blockchain_txn:type(T) == blockchain_txn_consensus_group_v1
+                ],
+            lager:info(
+                "blockchain started with ~p, consensus ~p",
+                [lager:pr(Chain, blockchain), ConsensusAddrs]
+            ),
+            {ok, GenesisHash} = blockchain:genesis_hash(Chain),
+            ok = notify({integrate_genesis_block, GenesisHash}),
+            {ok, GossipRef} = add_handlers(SwarmTid, Chain),
+            ok = blockchain_txn_mgr:set_chain(Chain),
+            true = libp2p_swarm:network_id(SwarmTid, GenesisHash),
+            self() ! maybe_sync,
+            S1 =
+                S0#state{
+                    blockchain = Chain,
+                    gossip_ref = GossipRef
+                },
+            {ok, S1}
+    end;
+integrate_genesis_block_(_, #state{}=State0) ->
+    {{error, not_in_no_genesis_state}, State0}.
+
 maybe_sync(#state{mode = normal} = State) ->
     maybe_sync_blocks(State);
 maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) ->
@@ -620,7 +747,7 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
             case State#state.snapshot_info of
                 %% when the current height is *lower* than than the
                 %% snap height, start the sync
-                {Hash, Height} when CurrHeight < Height ->
+                {Hash, Height} when CurrHeight < Height - 1 ->
                     snapshot_sync(Hash, Height, State);
                 _ ->
                     reset_sync_timer(State)
@@ -629,6 +756,17 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
             lager:info("couldn't get current height: ~p", [Error]),
             reset_sync_timer(State)
     end.
+
+target_sync(_Target, _Heights, _GossipedHash, #state{sync_paused = true} = State) ->
+    State;
+target_sync(_Target, _Heights, _GossipedHash, #state{sync_pid = Pid} = State) when Pid /= undefined ->
+    State;
+target_sync(Target0, Heights, GossipedHash, #state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
+    Target = libp2p_crypto:pubkey_bin_to_p2p(Target0),
+    {Pid, Ref} = start_block_sync(SwarmTID, Chain, Target, Heights, GossipedHash),
+    lager:info("targeted block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
+               [Pid, Ref, Target]),
+    State#state{sync_pid = Pid, sync_ref = Ref}.
 
 maybe_sync_blocks(#state{sync_paused = true} = State) ->
     State;
@@ -639,9 +777,8 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
     %% clock mostly increments this will eventually be true on a stuck node
     SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 60),
     SkewedSyncCooldownTime = application:get_env(blockchain, skewed_sync_cooldown_time, 300),
-    {ok, HeadBlock} = blockchain:head_block(Chain),
-    Height = blockchain_block:height(HeadBlock),
-    case erlang:system_time(seconds) - blockchain_block:time(HeadBlock) of
+    {ok, #block_info_v2{time = Time, height = Height}} = blockchain:head_block_info(Chain),
+    case erlang:system_time(seconds) - Time of
         %% negative time means we're skewed, so rely on last add time
         %% until ntp fixes us.
         T when T < 0 ->
@@ -661,15 +798,14 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
 
 snapshot_sync(_Hash, _Height, #state{sync_pid = Pid} = State) when Pid /= undefined ->
     State;
-snapshot_sync(Hash, Height, #state{blockchain = Chain, swarm_tid = SwarmTID, swarm=Swarm} = State) ->
-    case get_peer(SwarmTID) of
-        [] ->
+snapshot_sync(Hash, Height, #state{swarm_tid = SwarmTID} = State) ->
+    case get_random_peer(SwarmTID) of
+        no_peers ->
             lager:info("no snapshot peers yet"),
             %% try again later when there's peers
             reset_sync_timer(State#state{snapshot_info = {Hash, Height}, mode = snapshot});
-        Peers ->
-            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            {Pid, Ref} = start_snapshot_sync(Hash, Height, Swarm, Chain, RandomPeer),
+        RandomPeer ->
+            {Pid, Ref} = start_snapshot_sync(Hash, Height, RandomPeer, State),
             lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot,
                         snapshot_info = {Hash, Height}}
@@ -680,28 +816,36 @@ reset_ledger_to_snap(Hash, Height, State) ->
     State1 = pause_sync(State),
     snapshot_sync(Hash, Height, State1).
 
-start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
-    case get_peer(SwarmTID) of
-        [] ->
+start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
+    case get_random_peer(SwarmTID) of
+        no_peers ->
             %% try again later when there's peers
             schedule_sync(State);
-        Peers ->
-            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            {Pid, Ref} = start_block_sync(Swarm, Chain, RandomPeer),
-            lager:info("new sync starting with Pid: ~p, Ref: ~p", [Pid, Ref]),
+        RandomPeer ->
+            {Pid, Ref} = start_block_sync(SwarmTID, Chain, RandomPeer, [], <<>>),
+            lager:info("new block sync starting with Pid: ~p, Ref: ~p, Peer: ~p",
+                       [Pid, Ref, RandomPeer]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
-get_peer(SwarmTID) ->
-    %% figure out who we're connected to
-    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(SwarmTID)),
-    %% Get the p2p addresses of our peers, so we will connect on existing sessions
-    lists:filter(fun(E) ->
-                         case libp2p_transport_p2p:p2p_addr(E) of
-                             {ok, _} -> true;
-                             _       -> false
-                         end
-                 end, Peers0).
+-spec get_random_peer(SwarmTID :: ets:tab()) -> no_peers | string().
+get_random_peer(SwarmTID) ->
+    Peerbook = libp2p_swarm:peerbook(SwarmTID),
+    %% limit peers to random connections with public addresses
+    F = fun(Peer) ->
+                case application:get_env(blockchain, testing, false) of
+                    false ->
+                        lists:any(fun libp2p_transport_tcp:is_public/1,
+                                  libp2p_peer:listen_addrs(Peer));
+                    true ->
+                        true
+                end
+        end,
+    case libp2p_peerbook:random(Peerbook, [], F, 100) of
+        false -> no_peers;
+        {Addr, _Peer} ->
+            "/p2p/" ++ libp2p_crypto:bin_to_b58(Addr)
+    end.
 
 reset_sync_timer(State)  ->
     lager:info("try again in ~p", [?SYNC_TIME]),
@@ -724,17 +868,13 @@ pause_sync(State) ->
     State1 = cancel_sync(State, false),
     State1#state{sync_paused = true}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec add_handlers(ets:tab(), blockchain:blockchain()) -> {ok, reference()}.
 add_handlers(SwarmTID, Blockchain) ->
     GossipPid = libp2p_swarm:gossip_group(SwarmTID),
     Ref = erlang:monitor(process, GossipPid),
     %% add the gossip handler
     ok = libp2p_group_gossip:add_handler(GossipPid, ?GOSSIP_PROTOCOL_V1,
-                            {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
+                                         {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
 
     %% add the sync handlers, sync handlers support multiple versions so we need to add for each
     SyncAddFun = fun(ProtocolVersion) ->
@@ -775,102 +915,262 @@ remove_handlers(SwarmTID) ->
     libp2p_swarm:remove_stream_handler(SwarmTID, ?SNAPSHOT_PROTOCOL),
     libp2p_swarm:remove_stream_handler(SwarmTID, ?STATE_CHANNEL_PROTOCOL_V1).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec start_block_sync(Swarm::pid(), Chain::blockchain:blockchain(),
-                       Peer::libp2p_crypto:pubkey_bin()) ->
-                              {pid(), reference()} | ok.
-start_block_sync(Swarm, Chain, Peer) ->
+-spec start_block_sync(
+        SwarmTID :: ets:tab(),
+        Chain :: blockchain:blockchain(),
+        Peer :: libp2p_crypto:pubkey_bin(),
+        Heights :: [pos_integer()],
+        GossipedHash :: binary()
+) -> {pid(), reference()} | ok.
+start_block_sync(SwarmTID, Chain, Peer, Heights, GossipedHash) ->
     DialFun =
         fun() ->
-            case blockchain_sync_handler:dial(Swarm, Chain, Peer) of
+                case blockchain_sync_handler:dial(SwarmTID, Chain, Peer, Heights, GossipedHash) of
                     {ok, Stream} ->
                         {ok, HeadHash} = blockchain:sync_hash(Chain),
                         Stream ! {hash, HeadHash},
                         Ref1 = erlang:monitor(process, Stream),
+                        %% we have issues with rate control in some situations, so sleep for a bit
+                        %% before checking
+                        CheckDelay = application:get_env(blockchain, sync_check_delay_ms, 10000),
+                        timer:sleep(CheckDelay),
                         receive
                             cancel ->
                                 libp2p_framed_stream:close(Stream);
-                            {'DOWN', Ref1, process, Stream, _Reason} ->
+                            {'DOWN', Ref1, process, Stream, normal} ->
                                 %% we're done, nothing to do here.
-                                ok
-                        after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 10)) ->
+                                ok;
+                            {'DOWN', Ref1, process, Stream, Reason} ->
+                                lager:info("block sync failed with error ~p", [Reason]),
+                                exit({down, Reason})
+                        after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 5)) ->
                                 libp2p_framed_stream:close(Stream),
-                                ok
+                                lager:info("block sync timed out"),
+                                exit(timeout)
                         end;
                     {error, _Reason} ->
                         lager:debug("dialing sync stream failed: ~p",[_Reason]),
-                        ok
-            end
+                        exit(dial)
+                end
         end,
     spawn_monitor(fun() -> DialFun() end).
 
 grab_snapshot(Height, Hash) ->
     Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
-    SwarmTID = libp2p_swarm:tid(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
 
-    Peers = get_peer(SwarmTID),
-    Peer = hd(Peers),
+    case get_random_peer(SwarmTID) of
+        no_peers -> {error, no_peers};
+        Peer ->
+            case libp2p_swarm:dial_framed_stream(SwarmTID,
+                                                 Peer,
+                                                 ?SNAPSHOT_PROTOCOL,
+                                                 blockchain_snapshot_handler,
+                                                 [Hash, Height, Chain, self()])
+            of
+                {ok, Stream} ->
+                    Ref1 = erlang:monitor(process, Stream),
+                    receive
+                        {ok, Snapshot} ->
+                            {ok, Snapshot};
+                        {error, not_found} ->
+                            {error, not_found};
+                        cancel ->
+                            lager:info("snapshot sync cancelled"),
+                            _ = libp2p_framed_stream:close(Stream),
+                            {error, snap_sync_cancel};
+                        {'DOWN', Ref1, process, Stream, normal} ->
+                            {error, down};
+                        {'DOWN', Ref1, process, Stream, Reason} ->
+                            lager:info("snapshot sync failed with error ~p", [Reason]),
+                            {error, down, Reason}
+                    after timer:minutes(1) ->
+                            {error, timeout}
+                    end;
+                _ ->
+                    ok
+            end
+    end.
 
-    case libp2p_swarm:dial_framed_stream(Swarm,
-                                         Peer,
+start_snapshot_sync(Hash, Height, Peer,
+                    #state{blockchain=Chain, swarm_tid=SwarmTID, sync_paused=SyncPaused}) ->
+    spawn_monitor(fun() ->
+                          try
+                              BaseUrl = application:get_env(blockchain, snap_source_base_url, undefined),
+                              HonorQS = application:get_env(blockchain, honor_quick_sync, true),
+                              FetchLatest = application:get_env(blockchain, fetch_latest_from_snap_source, true),
+
+                              case {HonorQS, SyncPaused, BaseUrl} of
+                                  {true, false, undefined} ->
+                                      %% blow up, no snap_source base url
+                                      throw({error, no_snap_source_base_url});
+                                  {true, false, BaseUrl} ->
+                                      %% we are looking up the configured blessed
+                                      %% height again because the height passed
+                                      %% into this function has sometimes been
+                                      %% adjusted either +1 or -1
+                                      {ConfigHeight, ConfigHash} =
+                                          case FetchLatest of
+                                              false ->
+                                                  {ok, BlessedHeight} =
+                                                      application:get_env(blockchain, blessed_snapshot_block_height),
+                                                  {BlessedHeight, Hash};
+                                              true ->
+                                                  fetch_and_parse_latest_snapshot(BaseUrl)
+                                          end,
+                                      {ok, Filename} = attempt_fetch_snap_source_snapshot(BaseUrl,
+                                                                                 ConfigHeight),
+                                      lager:info("Successfully saved snap to disk in ~p", [Filename]),
+                                      %% if the file doesn't deserialize correctly, it will
+                                      %% get deleted, so we can redownload it on some other
+                                      %% attempt
+                                      attempt_load_snapshot_from_disk(Filename, ConfigHash, Chain);
+                                  _ ->
+                                      %% don't do anything
+                                      ok
+                              end
+                          catch
+                              _Type:Error:St ->
+                                  lager:error("snapshot download or loading failed because ~p: ~p", [Error, St]),
+                                  attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer)
+                          end
+                  end).
+
+-spec attempt_fetch_p2p_snapshot(
+        Hash :: binary(),
+        Height :: non_neg_integer(),
+        SwarmTID :: ets:tid(),
+        Chain :: blockchain:blockchain(),
+        Peer :: string()
+) -> ok.
+attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer) ->
+    lager:info("attempting snapshot sync with ~p", [Peer]),
+    case libp2p_swarm:dial_framed_stream(SwarmTID, Peer,
                                          ?SNAPSHOT_PROTOCOL,
                                          blockchain_snapshot_handler,
-                                         [Hash, Height, Chain, self()])
-    of
+                                         [Hash, Height, Chain]) of
         {ok, Stream} ->
             Ref1 = erlang:monitor(process, Stream),
             receive
-                {ok, Snapshot} ->
-                    {ok, Snapshot};
-                {error, not_found} ->
-                    {error, not_found};
                 cancel ->
                     lager:info("snapshot sync cancelled"),
                     libp2p_framed_stream:close(Stream);
                 {'DOWN', Ref1, process, Stream, normal} ->
-                    {error, down};
+                    ok;
                 {'DOWN', Ref1, process, Stream, Reason} ->
                     lager:info("snapshot sync failed with error ~p", [Reason]),
-                    {error, down, Reason}
-            after timer:minutes(1) ->
-                    {error, timeout}
+                    ok
+            after timer:minutes(15) ->
+                    ok
             end;
         _ ->
             ok
     end.
 
-start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
-    lager:info("attempting snapshot sync with ~p", [Peer]),
-    spawn_monitor(fun() ->
-        case libp2p_swarm:dial_framed_stream(Swarm,
-                                             Peer,
-                                             ?SNAPSHOT_PROTOCOL,
-                                             blockchain_snapshot_handler,
-                                             [Hash, Height, Chain])
-        of
-            {ok, Stream} ->
-                Ref1 = erlang:monitor(process, Stream),
-                receive
-                    cancel ->
-                        lager:info("snapshot sync cancelled"),
-                        libp2p_framed_stream:close(Stream);
-                    {'DOWN', Ref1, process, Stream, normal} ->
-                        ok;
-                    {'DOWN', Ref1, process, Stream, Reason} ->
-                        lager:info("snapshot sync failed with error ~p", [Reason]),
-                        ok
-                after timer:minutes(15) ->
-                        ok
-                end;
-            _ ->
-                ok
-        end
-    end).
+fetch_and_parse_latest_snapshot(URL) ->
+    Headers = [
+               {"user-agent", "blockchain-worker-2"}
+              ],
+    HTTPOptions = [
+                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
+                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
+                  ],
+    Options = [
+               {body_format, binary}, % return body as a binary
+               {full_result, false} % do not return the "full result" response as defined in httpc docs
+              ],
 
+    case httpc:request(get, {URL ++ "/latest-snap.json", Headers}, HTTPOptions, Options) of
+        {ok, {200, Latest}} ->
+            #{<<"height">> := Height,
+              <<"hash">> := B64Hash} = jsx:decode(Latest, [{return_maps, true}]),
+            Hash = base64url:decode(B64Hash),
+            {Height, Hash};
+        {ok, {404, _Response}} -> throw({error, url_not_found});
+        {ok, {Status, Response}} -> throw({error, {Status, Response}});
+        Other -> throw(Other)
+    end.
+
+build_filename(Height) ->
+    HeightStr = integer_to_list(Height),
+    "snap-" ++ HeightStr.
+
+build_url(BaseUrl, Filename) ->
+    BaseUrl ++ "/" ++ Filename.
+
+attempt_fetch_snap_source_snapshot(BaseUrl, Height) ->
+    %% httpc and ssl applications are started in the top level blockchain supervisor
+    BaseDir = application:get_env(blockchain, base_dir, "data"),
+    Filename = build_filename(Height),
+    Filepath = filename:join([BaseDir, "snap", Filename]),
+    ok = filelib:ensure_dir(Filepath),
+
+    %% clean_dir will remove any snapshots older than 1 week (should help prevent
+    %% filling up the SSD card with old snapshots)
+    ok = clean_dir(filename:dirname(Filepath)),
+
+    case filelib:is_regular(Filepath) of
+        true ->
+            lager:info("Already have snapshot file for height ~p", [Height]),
+            {ok, Filepath};
+        false -> do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
+    end.
+
+do_snap_source_download(Url, Filepath) ->
+    ScratchFile = Filepath ++ ".scratch",
+    ok = filelib:ensure_dir(ScratchFile),
+
+    %% make sure our scratch directory is empty if there are any
+    %% old partial failure nuggets hanging out
+    ok = delete_dir(ScratchFile),
+
+    Headers = [
+               {"user-agent", "blockchain-worker-2"}
+              ],
+    HTTPOptions = [
+                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
+                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
+                  ],
+    Options = [
+               {body_format, binary}, % return body as a binary
+               {stream, ScratchFile}, % write data into file
+               {full_result, false} % do not return the "full result" response as defined in httpc docs
+              ],
+
+    lager:info("Attempting snapshot download from ~p, writing to scratch file ~p",
+               [Url, ScratchFile]),
+    case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
+        {ok, saved_to_file} ->
+            lager:info("snap written to scratch file ~p", [ScratchFile]),
+            %% prof assures me rename is atomic :)
+            ok = file:rename(ScratchFile, Filepath),
+            {ok, Filepath};
+        {ok, {404, _Response}} -> throw({error, url_not_found});
+        {ok, {Status, Response}} -> throw({error, {Status, Response}});
+        Other -> throw(Other)
+    end.
+
+attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
+    lager:debug("attempting to load snapshot from ~p", [Filename]),
+    %% TODO at some point we could probably load the snapshot file in chunks?
+    BinSnap = case file:read_file(Filename) of
+                  {error, _} = E -> throw(E);
+                  {ok, Bin} -> Bin
+              end,
+    lager:debug("attempting to deserialize snapshot and validate hash ~p", [Hash]),
+    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, BinSnap) of
+               {error, _} = Err ->
+                   lager:error("While deserializing ~p, got ~p. Deleting ~p",
+                               [Filename, Err, Filename]),
+                   ok = file:delete(Filename),
+                   throw(Err);
+               {ok, S} -> S
+           end,
+    SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
+    lager:debug("attempting to store snapshot in rocks"),
+    ok = blockchain:add_bin_snapshot(BinSnap, SnapHeight, Hash, Chain),
+    lager:info("Stored snap ~p - attempting install", [SnapHeight]),
+    blockchain_worker:install_snapshot(Hash, Snap).
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,
@@ -975,7 +1275,7 @@ get_sync_mode(Blockchain) ->
                             {snapshot, {Hash, Height}};
                         _Chain ->
                             {ok, CurrHeight} = blockchain:height(Blockchain),
-                            case CurrHeight >= Height of
+                            case CurrHeight >= Height - 1 of
                                 %% already loaded the snapshot
                                 true -> {normal, undefined};
                                 false -> {snapshot, {Hash, Height}}
@@ -986,3 +1286,40 @@ get_sync_mode(Blockchain) ->
             %% full sync only ever syncs blocks, so just sync blocks
             {normal, undefined}
     end.
+
+delete_dir(Filename) ->
+    Dir = case filelib:is_dir(Filename) of
+              true -> Filename;
+              false -> filename:dirname(Filename)
+          end,
+
+    do_clean_dir(get_files_to_delete(Dir), fun(_) -> true end).
+
+get_files_to_delete(Dir) ->
+    case file:list_dir(Dir) of
+        {error, enoent} -> [];
+        {error, _} = Err -> throw(Err);
+        {ok, Fs} -> [ filename:join(Dir, F) || F <- Fs ]
+    end.
+
+clean_dir(Dir) ->
+    WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
+    FilterFun = fun(F) ->
+                        case filename:extension(F) of
+                            ".scratch" -> true;
+                            _ ->
+                                case file:read_file_info(F, [raw, {time, posix}]) of
+                                    {error, _} -> false;
+                                    {ok, FI} ->
+                                        FI#file_info.type == regular
+                                        andalso FI#file_info.mtime =< WeekOld
+                                end
+                        end
+                end,
+
+    do_clean_dir(get_files_to_delete(Dir), FilterFun).
+
+do_clean_dir(Files, FilterFun) ->
+    lists:foreach(fun(F) -> file:delete(F) end,
+                  lists:filter(FilterFun, Files)).
+

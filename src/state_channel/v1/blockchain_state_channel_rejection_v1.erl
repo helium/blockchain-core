@@ -6,7 +6,7 @@
 -module(blockchain_state_channel_rejection_v1).
 
 -export([
-    new/0,
+    new/1,
     encode/1, decode/1
 ]).
 
@@ -20,9 +20,9 @@
 -type rejection() :: #blockchain_state_channel_rejection_v1_pb{}.
 -export_type([rejection/0]).
 
--spec new() -> rejection().
-new() ->
-    #blockchain_state_channel_rejection_v1_pb{}.
+-spec new(PacketHash :: binary()) -> rejection().
+new(PacketHash) ->
+    #blockchain_state_channel_rejection_v1_pb{ packet_hash = PacketHash}.
 
 -spec encode(rejection()) -> binary().
 encode(#blockchain_state_channel_rejection_v1_pb{}=Rejection) ->
@@ -38,7 +38,7 @@ decode(BinaryRejection) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    Rejection = new(),
+    Rejection = new(<<"packet_hash">>),
     ?assertEqual(Rejection, decode(encode(Rejection))).
 
 -endif.

@@ -25,6 +25,7 @@
     payer_signature/1,
     staking_fee/1, staking_fee/2,
     fee/1, fee/2,
+    fee_payer/2,
     sign/2,
     sign_request/2,
     sign_payer/2,
@@ -36,6 +37,7 @@
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -68,7 +70,6 @@ new(OwnerAddress, GatewayAddress, Payer) ->
         staking_fee=?LEGACY_STAKING_FEE,
         fee=?LEGACY_TXN_FEE
     }.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -148,6 +149,14 @@ staking_fee(Txn, Fee) ->
 fee(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.fee.
 
+-spec fee_payer(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    Payer = ?MODULE:payer(Txn),
+    case Payer == undefined orelse Payer == <<>> of
+        true -> ?MODULE:owner(Txn);
+        false -> Payer
+    end.
+
 -spec fee(txn_add_gateway(), non_neg_integer()) -> txn_add_gateway().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_add_gateway_v1_pb{fee=Fee}.
@@ -189,7 +198,14 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Fee = blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger),
+    Payer = ?MODULE:payer(Txn),
+    Owner = ?MODULE:owner(Txn),
+    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+        true -> Owner;
+        false -> Payer
+    end,
+    GWMode = gateway_mode(Ledger, ActualPayer),
+    Fee = staking_fee_for_gw_mode(GWMode, Ledger),
     calculate_staking_fee(Txn, Ledger, Fee, [], blockchain_ledger_v1:txn_fees_active(Ledger)).
 
 -spec calculate_staking_fee(txn_add_gateway(), blockchain_ledger_v1:ledger(), non_neg_integer(), [{atom(), non_neg_integer()}], boolean()) -> non_neg_integer().
@@ -197,7 +213,6 @@ calculate_staking_fee(_Txn, _Ledger, _Fee, _ExtraData, false) ->
     ?LEGACY_STAKING_FEE;
 calculate_staking_fee(_Txn, _Ledger, Fee, _ExtraData, true) ->
     Fee.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -286,8 +301,17 @@ is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
 -spec is_valid_staking_key(txn_add_gateway(), blockchain_ledger_v1:ledger())-> boolean().
 is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger) ->
     case blockchain_ledger_v1:staking_keys(Ledger) of
-        not_found -> true; %% chain var not active, so default to true
-        Keys -> lists:member(Payer, Keys)
+        not_found ->
+            true; %% chain var not active, so default to true
+        Keys ->
+            case gateway_mode(Ledger, Payer) of
+                dataonly ->
+                    %% dataonly gatewas are always allowed
+                    true;
+                _ ->
+                    %% All other modes require a staking key present
+                    lists:member(Payer, Keys)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -311,27 +335,33 @@ is_valid(Txn, Chain) ->
         {_, _, _, false} ->
             {error, payer_invalid_staking_key};
         {true, true, true, true} ->
-            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            StakingFee = ?MODULE:staking_fee(Txn),
-            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
-            TxnFee = ?MODULE:fee(Txn),
-            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-            case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
-                {false,_} ->
-                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                {_,false} ->
-                    {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
-                {true, true} ->
+
+            %% check this is not also a validator
+            case blockchain_ledger_v1:get_validator(gateway(Txn), Ledger) of
+                {ok, _} ->
+                    %% already a validator
+                    {error, is_validator};
+                _ ->
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                     Payer = ?MODULE:payer(Txn),
                     Owner = ?MODULE:owner(Txn),
                     ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                        true -> Owner;
-                        false -> Payer
-                    end,
-                    blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
+                                      true -> Owner;
+                                      false -> Payer
+                                  end,
+                    StakingFee = ?MODULE:staking_fee(Txn),
+                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                    TxnFee = ?MODULE:fee(Txn),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                        {false,_} ->
+                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                        {_,false} ->
+                            {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
+                        {true, true} ->
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
+                    end
             end
-
-
     end.
 
 %%--------------------------------------------------------------------
@@ -344,16 +374,28 @@ absorb(Txn, Chain) ->
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Owner = ?MODULE:owner(Txn),
     Gateway = ?MODULE:gateway(Txn),
-    Payer = ?MODULE:payer(Txn),
+    ActualPayer = ?MODULE:fee_payer(Txn, Ledger),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
-    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-        true -> Owner;
-        false -> Payer
-    end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
+    GatewayMode = gateway_mode(Ledger, ActualPayer),
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error -> Error;
-        ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
+        ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, GatewayMode, Ledger)
+    end.
+
+-spec gateway_mode(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin())-> blockchain_ledger_gateway_v2:mode().
+gateway_mode(Ledger, Payer) ->
+    case blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger) of
+        not_found ->
+                full;
+        Mappings when is_list(Mappings) ->
+            %% check if there is an entry for the payer key, if not default to dataonly gw
+            %% if a GW needs to be non dataonly, its payer MUST have an entry in the staking key mappings table
+            case proplists:get_value(Payer, Mappings, not_found) of
+                not_found -> dataonly;
+                GWMode -> binary_to_atom(GWMode, utf8)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -371,11 +413,13 @@ print(#blockchain_txn_add_gateway_v1_pb{
     io_lib:format("type=add_gateway, owner=~p, gateway=~p, payer=~p, staking_fee=~p, fee=~p",
                   [?TO_B58(O), ?TO_ANIMAL_NAME(GW), ?TO_B58(P), SF, F]).
 
+json_type() ->
+    <<"add_gateway_v1">>.
 
 -spec to_json(txn_add_gateway(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"add_gateway_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),
@@ -383,6 +427,15 @@ to_json(Txn, _Opts) ->
       staking_fee => staking_fee(Txn),
       fee => fee(Txn)
      }.
+
+-spec staking_fee_for_gw_mode(blockchain_ledger_gateway_v2:mode(), blockchain_ledger_v1:ledger()) -> non_neg_integer().
+staking_fee_for_gw_mode(dataonly, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_add_dataonly_gateway_v1(Ledger);
+staking_fee_for_gw_mode(light, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_add_light_gateway_v1(Ledger);
+staking_fee_for_gw_mode(full, Ledger)->
+    blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

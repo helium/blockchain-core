@@ -24,6 +24,7 @@
          amount_to_seller/1,
          buyer_nonce/1,
          fee/2, fee/1,
+         fee_payer/2,
          calculate_fee/2, calculate_fee/5,
          hash/1,
          sign/2,
@@ -34,6 +35,7 @@
          is_valid_buyer/1,
          absorb/2,
          print/1,
+         json_type/0,
          to_json/2
 ]).
 
@@ -109,6 +111,10 @@ fee(Txn) ->
 -spec fee(txn_transfer_hotspot(), non_neg_integer()) -> txn_transfer_hotspot().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_transfer_hotspot_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    buyer(Txn).
 
 -spec calculate_fee(txn_transfer_hotspot(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
@@ -197,12 +203,13 @@ absorb(Txn, Chain) ->
     Seller = ?MODULE:seller(Txn),
     Buyer = ?MODULE:buyer(Txn),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     BuyerNonce = ?MODULE:buyer_nonce(Txn),
     HNTToSeller = ?MODULE:amount_to_seller(Txn),
 
-    {ok, GWInfo} = blockchain_gateway_cache:get(Gateway, Ledger),
+    {ok, GWInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     %% fees here are in DC (and perhaps converted to HNT automagically)
-    case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Buyer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason} = Error -> Error;
         ok ->
             ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, BuyerNonce, Ledger),
@@ -220,10 +227,13 @@ print(#blockchain_txn_transfer_hotspot_v1_pb{
     io_lib:format("type=transfer_hotspot, gateway=~p, seller=~p, buyer=~p, seller_signature=~p, buyer_signature=~p, buyer_nonce=~p, fee=~p (dc), amount_to_seller=~p",
                   [?TO_ANIMAL_NAME(GW), ?TO_B58(Seller), ?TO_B58(Buyer), SS, BS, Nonce, Fee, HNT]).
 
+json_type() ->
+    <<"transfer_hotspot_v1">>.
+
 -spec to_json(txn_transfer_hotspot(), blockchain_json:options()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"transfer_hotspot_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       gateway => ?BIN_TO_B58(gateway(Txn)),
       seller => ?BIN_TO_B58(seller(Txn)),
@@ -237,7 +247,7 @@ to_json(Txn, _Opts) ->
 -spec seller_owns_gateway(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
 seller_owns_gateway(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW,
                                                            seller=Seller}, Ledger) ->
-    case blockchain_gateway_cache:get(GW, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
         {error, _} -> false;
         {ok, GwInfo} ->
             GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
@@ -247,7 +257,7 @@ seller_owns_gateway(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW,
 -spec gateway_not_stale(txn_transfer_hotspot(), blockchain_ledger_v1:ledger()) -> boolean().
 gateway_not_stale(#blockchain_txn_transfer_hotspot_v1_pb{gateway=GW}, Ledger) ->
     StaleInterval = get_config_or_default(?transfer_hotspot_stale_poc_blocks, Ledger),
-    case blockchain_gateway_cache:get(GW, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
         {error, _} -> false;
         {ok, GwInfo} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),

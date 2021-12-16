@@ -12,6 +12,7 @@
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -25,10 +26,12 @@
     block_height/1,
     signature/1,
     fee/1,
+    fee_payer/2,
     sign/2,
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -122,6 +125,10 @@ public_key(Txn) ->
 fee(_Txn) ->
     0.
 
+-spec fee_payer(txn_price_oracle(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Sign the transaction using the provided function.
@@ -189,8 +196,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, Blk} = blockchain:get_block(LedgerHeight, Chain),
-    Time = blockchain_block:time(Blk),
+    {ok, #block_info_v2{time = Time}} = blockchain:get_block_info(LedgerHeight, Chain),
 
     Entry = blockchain_ledger_oracle_price_entry:new(
               Time,
@@ -213,9 +219,12 @@ print(#blockchain_txn_price_oracle_v1_pb{public_key=OraclePK,
     io_lib:format("type=price_oracle oracle_signature=~p, price=~p, block_height=~p, signature=~p",
                   [OraclePK, Price, BH, Sig]).
 
+json_type() ->
+    <<"price_oracle_v1">>.
+
 -spec to_json(txn_price_oracle(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
-    #{ type => <<"price_oracle_v1">>,
+    #{ type => ?MODULE:json_type(),
        hash => ?BIN_TO_B64(hash(Txn)),
        fee => fee(Txn),
        public_key => ?BIN_TO_B58(public_key(Txn)),

@@ -8,6 +8,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     new/3, new/5,
@@ -35,7 +36,9 @@
     compare_causality/2,
     quick_compare_causality/3,
     is_causally_newer/2,
-    merge/2
+    merge/3, new_merge/3,
+    can_fit/3,
+    max_actors_allowed/1
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -123,26 +126,23 @@ summaries(Summaries, SC) ->
 -spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                          NewSummary :: blockchain_state_channel_summary_v1:summary(),
                          SC :: state_channel(),
-                         WillFit :: boolean()) -> {state_channel(), boolean()}.
+                         MaxActorsAllowed :: pos_integer()) -> {state_channel(), boolean()}.
 update_summary_for(ClientPubkeyBin,
                    NewSummary,
                    #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
-                   WillFit) ->
-    case get_summary(ClientPubkeyBin, SC) of
-        {error, not_found} ->
+                   MaxActorsAllowed) ->
+    case ?MODULE:can_fit(ClientPubkeyBin, SC, MaxActorsAllowed) of
+        false ->
+            %% Cannot fit this into summaries
+            {SC, false};
+        {true, _SpotsLeft} ->
             {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
-        {ok, _Summary} ->
-            case WillFit orelse can_fit(ClientPubkeyBin, Summaries) of
-                false ->
-                    %% Cannot fit this into summaries
-                    {SC, false};
-                true ->
-                    NewSummaries = lists:keyreplace(ClientPubkeyBin,
-                                                    #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
-                                                    Summaries,
-                                                    NewSummary),
-                    {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
-            end
+        found ->
+            NewSummaries = lists:keyreplace(ClientPubkeyBin,
+                                            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                                            Summaries,
+                                            NewSummary),
+            {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
     end.
 
 -spec get_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -450,10 +450,12 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
                     %% only the nonce changes and current is less than old nonce
                     effect_of;
                 {{ok, _}, {error, not_found}} ->
-                    %% older_sc has summary, current_sc does not, conflict
-                    conflict;
+                    %% older_sc has summary, current_sc does not but the nonce is lower
+                    %% so we didn't lose anything, the age of the SCs is just backwards
+                    effect_of;
                 {{error, not_found}, {ok, _}} ->
                     %% no summary in older_sc, summary in new_sc but new_sc has lower nonce
+                    %% this means we *lost* our payment
                     conflict;
                 {{ok, OlderSummary}, {ok, NewerSummary}} ->
                     OldNumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
@@ -472,20 +474,25 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
     end.
 
 -spec merge(SCA :: state_channel(),
-            SCB :: state_channel()) -> state_channel().
-merge(SCA, SCB) ->
+            SCB :: state_channel(),
+            MaxActorsAllowed :: pos_integer()) -> state_channel().
+merge(SCA, SCB, MaxActorsAllowed) ->
     lager:info("merging state channels"),
     [SC1, SC2] = lists:sort(fun(A, B) -> ?MODULE:nonce(A) =< ?MODULE:nonce(B) end, [SCA, SCB]),
 
     lists:foldl(fun(Summary, SCAcc) ->
                         case get_summary(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), SCAcc) of
                             {error, not_found} ->
-                                {SC, _} = update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc, true),
+                                {SC, _} =
+                                    update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                                       Summary, SCAcc, MaxActorsAllowed),
                                 SC;
                             {ok, OurSummary} ->
                                 case blockchain_state_channel_summary_v1:num_dcs(OurSummary) < blockchain_state_channel_summary_v1:num_dcs(Summary) of
                                     true ->
-                                        {SC, _} = update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc, true),
+                                        {SC, _} =
+                                            update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                                               Summary, SCAcc, MaxActorsAllowed),
                                         SC;
                                     false ->
                                         SCAcc
@@ -493,28 +500,97 @@ merge(SCA, SCB) ->
                         end
                 end, SC2, summaries(SC1)).
 
+-spec new_merge(
+    SCA :: state_channel(),
+    SCB :: state_channel(),
+    MaxActorsAllowed :: pos_integer()
+) -> state_channel().
+new_merge(SCA, SCB, MaxActorsAllowed) ->
+    [SCA1, SCB2] = lists:sort(fun(A, B) -> ?MODULE:nonce(A) =< ?MODULE:nonce(B) end, [SCA, SCB]),
+    SC1 = lists:keysort(#blockchain_state_channel_summary_v1_pb.client_pubkeybin, summaries(SCA1)),
+    SC2 = lists:keysort(#blockchain_state_channel_summary_v1_pb.client_pubkeybin, summaries(SCB2)),
+
+    Merged = new_merge(SC1, SC2, MaxActorsAllowed, []),
+    MergeLength = length(Merged),
+    TrimmedMerge = case MergeLength > MaxActorsAllowed of
+                       true ->
+                           Overage = MergeLength - MaxActorsAllowed,
+                           %% we need to remove the last Overage actors in SC1 that do not appear in SC1
+                           %% selected in order
+                           UniqueActorsInSC1 = [ X || #blockchain_state_channel_summary_v1_pb{client_pubkeybin=X} <- summaries(SCA1),
+                                                      not lists:keymember(X, #blockchain_state_channel_summary_v1_pb.client_pubkeybin, SC2) ],
+                           ActorsToDrop = lists:sublist(lists:reverse(UniqueActorsInSC1), Overage),
+                           [ E || E=#blockchain_state_channel_summary_v1_pb{client_pubkeybin=Y} <- Merged, not lists:member(Y, ActorsToDrop) ];
+                       false ->
+                           Merged
+                   end,
+    summaries(TrimmedMerge, SCB2).
+
+new_merge([], [], _Max, Acc) ->
+    Acc;
+new_merge([], [B | T], Max, Acc) ->
+    new_merge([], T, Max, [B | Acc]);
+new_merge([A | T], [], Max, Acc) ->
+    new_merge(T, [], Max, [A | Acc]);
+new_merge(
+    [A = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = Actor} | T1],
+    [B = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = Actor} | T2],
+    Max,
+    Acc
+) ->
+    %% same actor, just take the max values
+    Keeper =
+        case
+            blockchain_state_channel_summary_v1:num_dcs(A) >
+                blockchain_state_channel_summary_v1:num_dcs(B)
+        of
+            true ->
+                A;
+            false ->
+                B
+        end,
+    new_merge(T1, T2, Max, [Keeper | Acc]);
+new_merge(
+    [A = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = ActorA} | T1],
+    [_B = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = ActorB} | _] = T2,
+    Max,
+    Acc
+) when ActorA < ActorB andalso length(Acc) =< Max ->
+    new_merge(T1, T2, Max, [A | Acc]);
+new_merge(
+    [_A = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = ActorA} | _] = T1,
+    [B = #blockchain_state_channel_summary_v1_pb{client_pubkeybin = ActorB} | T2],
+    Max,
+    Acc
+) when ActorA > ActorB ->
+    new_merge(T1, T2, Max, [B | Acc]).
+
+-spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+              SC :: state_channel(),
+              Max :: pos_integer()) -> false | found | {true, SpotsLeft :: non_neg_integer()}.
+can_fit(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC, Max) ->
+    SpotsLeft = Max - erlang:length(Summaries),
+    HasRoom = SpotsLeft > 0,
+    FoundSummary = ?MODULE:get_summary(ClientPubkeyBin, SC),
+    case {HasRoom, FoundSummary} of
+        {_, {ok, _}} ->
+            found;
+        {true, _} ->
+            {true, SpotsLeft};
+        {false, _} ->
+            false
+    end.
+
+-spec max_actors_allowed(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
+max_actors_allowed(Ledger) ->
+    case blockchain_ledger_v1:config(?sc_max_actors, Ledger) of
+        {ok, I} -> I;
+        _ -> ?SC_MAX_ACTORS
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-              Summaries :: summaries()) -> boolean().
-can_fit(ClientPubkeyBin, Summaries) ->
-    Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
-    CanFit = length(Clients) =< ?MAX_UNIQ_CLIENTS,
-    IsKnownClient = lists:member(ClientPubkeyBin, Clients),
-
-    case {CanFit, IsKnownClient} of
-        {false, false} ->
-            %% Cannot fit, do not have this client either
-            false;
-        {false, true} ->
-            %% Cannot fit any new ones, but know about this client
-            true;
-        {true, _} ->
-            %% Can fit, doesn't matter if we don't know this client
-            true
-    end.
 
 -spec check_causality(SCSummaries :: summaries(),
                       OtherSC :: state_channel(),
@@ -630,7 +706,7 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, false),
+    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, 2000),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 

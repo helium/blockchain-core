@@ -10,6 +10,7 @@
 
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -export([
          target/4
@@ -45,16 +46,16 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
     case filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
             %% Assign probabilities to each of these gateways
-            ProbTargetMap = lists:foldl(fun(A, Acc) ->
-                                                Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
-                                                maps:put(A, Prob, Acc)
-                                        end,
-                                        #{},
-                                        FilteredList),
+            Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
+            ProbTargets = lists:map(
+                            fun(A) ->
+                                    {A, Prob}
+                            end,
+                            FilteredList),
             %% Sort the scaled probabilities in default order by gateway pubkey_bin
             %% make sure that we carry the rand_state through for determinism
             {RandVal, TargetRandState} = rand:uniform_s(HexRandState),
-            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
+            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, ProbTargets), RandVal),
             {ok, {TargetPubkeybin, TargetRandState}};
         _ ->
             %% no eligible target in this zone
@@ -67,6 +68,7 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
 %% - Dont target the challenger gateway itself.
+%% - Dont target GWs which do not have the releveant capability
 -spec filter(AddrList :: [libp2p_crypto:pubkey_bin()],
              ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
              Ledger :: blockchain_ledger_v1:ledger(),
@@ -74,22 +76,23 @@ target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail
              Vars :: map()) -> [libp2p_crypto:pubkey_bin()].
 filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
     lists:filter(fun(A) ->
+                         {ok, Mode} = blockchain_ledger_v1:find_gateway_mode(A, Ledger),
                          A /= ChallengerPubkeyBin andalso
-                         is_active(A, Ledger, Height, Vars)
+                         is_active(A, Height, Vars, Ledger) andalso
+                         blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
                  end,
                  AddrList).
 
--spec is_active(GwPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                Ledger :: blockchain_ledger_v1:ledger(),
+-spec is_active(Gateway :: libp2p_crypto:pubkey_bin(),
                 Height :: non_neg_integer(),
-                Vars :: map()) -> boolean().
-is_active(GwPubkeyBin, Ledger, Height, Vars) ->
-    {ok, Gateway} = blockchain_gateway_cache:get(GwPubkeyBin, Ledger),
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-        undefined ->
+                Vars :: map(),
+                Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_active(Gateway, Height, Vars, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_last_challenge(Gateway, Ledger) of
+        {ok, undefined} ->
             %% No POC challenge, don't include
             false;
-        C ->
+        {ok, C} ->
             case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
                 true ->
                     %% Likely disabled for testing
@@ -115,8 +118,15 @@ prob_randomness_wt(Vars) ->
 -spec sorted_hex_list(Ledger :: blockchain_ledger_v1:ledger()) -> [h3:h3_index()].
 sorted_hex_list(Ledger) ->
     %% Grab the list of parent hexes
-    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-    lists:keysort(1, maps:to_list(Hexes)).
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    case get({'$cache_hex_list', Height}) of
+        undefined ->
+            {ok, Hexes} = blockchain_ledger_v1:get_hexes_list(Ledger),
+            put({'$cache_hex_list', Height}, Hexes),
+            Hexes;
+        Hexes ->
+            Hexes
+    end.
 
 -spec choose_zone(RandState :: rand:state(),
                   HexList :: [h3:h3_index()]) -> {ok, {h3:h3_index(), rand:state()}}.

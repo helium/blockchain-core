@@ -22,6 +22,7 @@
     amount/1,
     nonce/1,
     fee/1, fee/2,
+    fee_payer/2,
     memo/1, memo/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
@@ -29,6 +30,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -91,6 +93,10 @@ fee(Txn) ->
 fee(Txn, Fee) ->
     Txn#blockchain_txn_token_burn_v1_pb{fee=Fee}.
 
+-spec fee_payer(txn_token_burn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
+
 -spec memo(txn_token_burn()) -> non_neg_integer().
 memo(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.memo.
@@ -152,19 +158,31 @@ is_valid(Txn, Chain) ->
                             %% no oracle price exists
                             {error, no_oracle_prices};
                         _ ->
-                            HNTAmount = ?MODULE:amount(Txn),
-                            case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
-                                {error, _}=Error ->
-                                    Error;
-                                ok ->
-                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                    TxnFee = ?MODULE:fee(Txn),
-                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                                {error, _}=Error0 ->
+                                    Error0;
+                                {ok, Entry} ->
+                                    TxnNonce = ?MODULE:nonce(Txn),
+                                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                                    case TxnNonce =:= LedgerNonce + 1 of
                                         false ->
-                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                            {error, {bad_nonce, {token_burn, TxnNonce, LedgerNonce}}};
                                         true ->
-                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                        HNTAmount = ?MODULE:amount(Txn),
+                                        case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
+                                            {error, _}=Error ->
+                                                Error;
+                                            ok ->
+                                                AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                TxnFee = ?MODULE:fee(Txn),
+                                                ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                    false ->
+                                                        {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                                    true ->
+                                                        blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                                end
+                                        end
                                     end
                             end
                     end
@@ -181,8 +199,9 @@ absorb(Txn, Chain) ->
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     TxnFee = ?MODULE:fee(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
         {error, _Reason}=Error -> Error;
         ok ->
             case blockchain_ledger_v1:debit_account(Payer, HNTAmount, Nonce, Ledger) of
@@ -190,6 +209,7 @@ absorb(Txn, Chain) ->
                     Error;
                 ok ->
                     Payee = ?MODULE:payee(Txn),
+                    ok = blockchain_ledger_v1:add_hnt_burned(HNTAmount, Ledger),
                     blockchain_ledger_v1:credit_dc(Payee, DCAmount, Ledger)
             end
     end.
@@ -200,11 +220,13 @@ print(#blockchain_txn_token_burn_v1_pb{payer=Payer, payee=Payee, amount=Amount, 
     io_lib:format("type=token_burn, payer=~p, payee=~p, amount=~p, nonce=~p",
                   [?TO_B58(Payer), ?TO_B58(Payee), Amount, Nonce]).
 
+json_type() ->
+    <<"token_burn_v1">>.
 
 -spec to_json(txn_token_burn(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"token_burn_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),

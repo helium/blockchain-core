@@ -16,7 +16,7 @@
     original/1, original/2,
     expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1,
-    close_proposal/5,
+    close_proposal/6,
     closer/1,
     state_channel/1,
     close_state/1,
@@ -126,12 +126,13 @@ serialize(SC) ->
 deserialize(<<2, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
 
--spec close_proposal( Closer :: libp2p_crypto:pubkey_bin(),
-                      StateChannel :: blockchain_state_channel_v1:state_channel(),
-                      ExplicitConflict :: boolean(),
-                      SCEntry :: state_channel_v2(),
-                      ConsiderEffectOf :: boolean()) -> state_channel_v2().
-close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf) ->
+-spec close_proposal(Closer :: libp2p_crypto:pubkey_bin(),
+                     StateChannel :: blockchain_state_channel_v1:state_channel(),
+                     ExplicitConflict :: boolean(),
+                     SCEntry :: state_channel_v2(),
+                     ConsiderEffectOf :: boolean(),
+                     MaxActorsAllowed :: non_neg_integer()) -> state_channel_v2().
+close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf, MaxActorsAllowed) ->
     Overpaid = original(SCEntry) < blockchain_state_channel_v1:total_dcs(SC),
     case close_state(SCEntry) of
         undefined ->
@@ -141,8 +142,9 @@ close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf) ->
                     SCEntry;
                 true when ExplicitConflict == true; Overpaid == true ->
                     %% we've never gotten a close request for this before, so...
-                    lager:info("dispute filed for open sc id: ~p, closer: ~p",
+                    lager:info("dispute filed for open sc id: ~p, owner: ~p, closer: ~p",
                                [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)),
+                                libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC)),
                                 libp2p_crypto:bin_to_b58(Closer)]),
                     SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=dispute};
                 true ->
@@ -157,18 +159,20 @@ close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf) ->
                 true ->
                     %% ok so we've already marked this entry as closed... maybe we should
                     %% dispute it
-                    case maybe_dispute(state_channel(SCEntry), SC, ConsiderEffectOf) of
+                    case maybe_dispute(state_channel(SCEntry), SC, ConsiderEffectOf, MaxActorsAllowed) of
                         {closed, NewSC} when ExplicitConflict == true; Overpaid == true ->
-                            lager:info("dispute filed for closed sc id: ~p, closer: ~p",
+                            lager:info("dispute filed for closed sc id: ~p, owner: ~p, closer: ~p",
                                        [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(NewSC)),
+                                        libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(NewSC)),
                                         libp2p_crypto:bin_to_b58(Closer)]),
                             SCEntry#ledger_state_channel_v2{closer=Closer, sc=NewSC, close_state=dispute};
                         {closed, NewSC} ->
                             SCEntry#ledger_state_channel_v2{closer=Closer, sc=NewSC, close_state=closed};
                         {dispute, NewSC} ->
                             %% store the "latest" (as judged by nonce)
-                            lager:info("newer dispute filed for disputed sc id: ~p, closer: ~p",
+                            lager:info("newer dispute filed for disputed sc id: ~p, owner: ~p, closer: ~p",
                                        [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(NewSC)),
+                                        libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(NewSC)),
                                         libp2p_crypto:bin_to_b58(Closer)]),
                             SCEntry#ledger_state_channel_v2{sc=NewSC, close_state=dispute}
                     end
@@ -209,14 +213,15 @@ is_v2(_) -> false.
 %% ------------------------------------------------------------------
 -spec maybe_dispute(PreviousSC :: blockchain_state_channel_v1:state_channel(),
                     CurrentSC :: blockchain_state_channel_v1:state_channel(),
-                    ConsiderEffectOf :: boolean()) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
-maybe_dispute(SC, SC, _) -> {closed, SC};
-maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf) ->
+                    ConsiderEffectOf :: boolean(),
+                    MaxActorsAllowed :: non_neg_integer()) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
+maybe_dispute(SC, SC, _, _) -> {closed, SC};
+maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf, MaxActorsAllowed) ->
     %% return the new close state and the newest state channel
     case blockchain_state_channel_v1:compare_causality(PreviousSC, CurrentSC) of
         conflict ->
             %% Current has a higher nonce than Previous, or conflicting summaries
-            {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC)};
+            {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed)};
         equal ->
             %% flip a coin
             {closed, CurrentSC};
@@ -233,7 +238,7 @@ maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf) ->
             case ConsiderEffectOf of
                 false ->
                     %% Maintain backwards compatibility
-                    {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC)};
+                    {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed)};
                 true ->
                     {closed, PreviousSC}
             end
@@ -305,9 +310,9 @@ maybe_dispute_test() ->
     SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
-    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, false)),
-    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, false)),
-    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false)).
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, false, 2000)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, false, 2000)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false, 2000)).
 
 maybe_dispute_with_effect_of_test() ->
     SC0 = blockchain_state_channel_v1:new(<<"id1">>, <<"key1">>, 100),
@@ -318,14 +323,16 @@ maybe_dispute_with_effect_of_test() ->
     Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(<<"key1">>))),
     Nonce4WithSummary = blockchain_state_channel_v1:summaries([Summary1], Nonce4),
 
-    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true)),
-    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true)),
-    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true)),
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true, 2000)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true, 2000)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true, 2000)),
 
     %% Same nonce but no summary, conflict, return merged
-    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4, Nonce4WithSummary)}, maybe_dispute(Nonce4, Nonce4WithSummary, true)),
+    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4, Nonce4WithSummary, 2000)},
+                 maybe_dispute(Nonce4, Nonce4WithSummary, true, 2000)),
     %% Older nonce with summary, but higher nonce with no summary, conflict, return merged
-    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4WithSummary, Nonce8)}, maybe_dispute(Nonce4WithSummary, Nonce8, true)).
+    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4WithSummary, Nonce8, 2000)},
+                 maybe_dispute(Nonce4WithSummary, Nonce8, true, 2000)).
 
 is_sc_participant_test() ->
     Ids = [<<"key1">>, <<"key2">>, <<"key3">>],

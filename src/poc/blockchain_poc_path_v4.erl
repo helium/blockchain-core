@@ -14,6 +14,7 @@
 %%% * Don't include any witness whose parent is too close to any of the indices we've already seen
 %%% * Don't include any witness who have bad rssi range
 %%% * Don't include any witness who are too far from the current gateway
+%%% * Dont include any witness who do not have the required capability
 %%%
 %%% We then assign cumulative probabilities to each filtered witness. Each of those
 %%% probabilities have an associated weight to them governed by chain variables.
@@ -39,6 +40,7 @@
 
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -50,8 +52,7 @@
             HeadBlockTime :: pos_integer(),
             Vars :: map()) -> path().
 build(TargetPubkeyBin, TargetRandState, Ledger, HeadBlockTime, Vars) ->
-    TargetGw = find(TargetPubkeyBin, Ledger),
-    TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
+    {ok, TargetGwLoc} = blockchain_ledger_v1:find_gateway_location(TargetPubkeyBin, Ledger),
     build_(TargetPubkeyBin,
            Ledger,
            HeadBlockTime,
@@ -83,8 +84,7 @@ build_(TargetPubkeyBin,
             lists:reverse(Path);
         {ok, {WitnessPubkeyBin, NewRandState}} ->
             %% Try the next hop in the new path, continue building forward
-            NextHopGw = find(WitnessPubkeyBin, Ledger),
-            Index = blockchain_ledger_gateway_v2:location(NextHopGw),
+            {ok, Index} = blockchain_ledger_v1:find_gateway_location(WitnessPubkeyBin, Ledger),
             NewPath = [WitnessPubkeyBin | Path],
             build_(WitnessPubkeyBin,
                    Ledger,
@@ -97,7 +97,7 @@ build_(TargetPubkeyBin,
 build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, Path) ->
     lists:reverse(Path).
 
--spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
+-spec next_hop(GatewayBin :: libp2p_crypto:pubkey_bin(),
                Ledger :: blockchain:ledger(),
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
@@ -108,8 +108,8 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
                                               {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
 next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
     %% Get gateway
-    Gateway = find(GatewayBin, Ledger),
-    case blockchain_ledger_gateway_v2:witnesses(Gateway) of
+    {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(GatewayBin, Ledger),
+    case blockchain_ledger_gateway_v2:witnesses(GatewayBin, Gateway, Ledger) of
         W when map_size(W) == 0 ->
             {error, no_witness};
         Witnesses0 ->
@@ -290,25 +290,31 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
     GatewayParent = h3:parent(GatewayLoc, ParentRes),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
     maps:filter(fun(WitnessPubkeyBin, Witness) ->
-                        WitnessGw = find(WitnessPubkeyBin, Ledger),
-                        case is_witness_stale(WitnessGw, Height, Vars) of
+                        case is_witness_stale(WitnessPubkeyBin, Height, Vars, Ledger) of
                             true ->
                                 false;
                             false ->
-                                WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                {ok, WitnessLoc} = blockchain_ledger_v1:find_gateway_location(WitnessPubkeyBin, Ledger),
                                 WitnessParent = h3:parent(WitnessLoc, ParentRes),
-                                %% Dont include any witnesses in any parent cell we've already visited
-                                not(lists:member(WitnessLoc, Indices)) andalso
-                                %% Don't include any witness whose parent is the same as the gateway we're looking at
-                                (GatewayParent /= WitnessParent) andalso
-                                %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                %% Don't include any witness who have a bad rssi
-                                check_witness_bad_rssi(Witness, Vars) andalso
-                                %% Don't include any witness who have bad rssi range
-                                check_witness_bad_rssi_centrality(Witness, Vars) andalso
-                                %% Don't include any witness who are too far from the current gateway
-                                check_witness_too_far(WitnessLoc, GatewayLoc, Vars)
+                                %% check the GW is allowed to witness, if not they dont do all the other checks
+                                {ok, WitnessMode} = blockchain_ledger_v1:find_gateway_mode(WitnessPubkeyBin, Ledger),
+                                case blockchain_ledger_gateway_v2:is_valid_capability(WitnessMode,
+                                                                                      ?GW_CAPABILITY_POC_WITNESS, Ledger) of
+                                    false -> false;
+                                    true ->
+                                        %% Dont include any witnesses in any parent cell we've already visited
+                                        not(lists:member(WitnessLoc, Indices)) andalso
+                                        %% Don't include any witness whose parent is the same as the gateway we're looking at
+                                        (GatewayParent /= WitnessParent) andalso
+                                        %% Don't include any witness whose parent is too close to any of the indices we've already seen
+                                        check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                        %% Don't include any witness who have a bad rssi
+                                        check_witness_bad_rssi(Witness, Vars) andalso
+                                        %% Don't include any witness who have bad rssi range
+                                        check_witness_bad_rssi_centrality(Witness, Vars) andalso
+                                        %% Don't include any witness who are too far from the current gateway
+                                        check_witness_too_far(WitnessLoc, GatewayLoc, Vars)
+                                end
                         end
                 end,
                 Witnesses).
@@ -399,15 +405,16 @@ check_witness_bad_rssi_centrality(Witness, Vars) ->
             false
     end.
 
--spec is_witness_stale(Gateway :: blockchain_ledger_gateway_v2:gateway(),
-                       Height :: pos_integer(),
-                       Vars :: map()) -> boolean().
-is_witness_stale(Gateway, Height, Vars) ->
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-        undefined ->
+-spec is_witness_stale(Gateway :: libp2p_crypto:pubkey_bin(),
+                       Height :: non_neg_integer(),
+                       Vars :: map(),
+                       Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_witness_stale(GatewayAddr, Height, Vars, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_last_challenge(GatewayAddr, Ledger) of
+        {ok, undefined} ->
             %% No POC challenge, don't include
             true;
-        C ->
+        {ok, C} ->
             %% Check challenge age is recent depending on the set chain var
             (Height - C) >= challenge_age(Vars)
     end.
@@ -479,16 +486,6 @@ poc_max_hop_cells(Vars) ->
 %% ==================================================================
 %% Helper Functions
 %% ==================================================================
-
-%% we assume that everything that has made it into build has already
-%% been asserted, and thus the lookup will never fail. This function
-%% in no way exists simply because
-%% blockchain_gateway_cache:get is too much to type a bunch
-%% of times.
--spec find(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger()) -> blockchain_ledger_gateway_v2:gateway().
-find(Addr, Ledger) ->
-    {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
-    Gw.
 
 -spec split_hist(Hist :: blockchain_ledger_gateway_v2:histogram(),
                  Vars :: map()) -> {blockchain_ledger_gateway_v2:histogram(),

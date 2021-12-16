@@ -23,7 +23,10 @@
     replay_txn/1,
     txn_fees_pay_with_dc/1,
     txn_fees_pay_with_hnt/1,
-    staking_key_add_gateway/1
+    staking_key_add_gateway/1,
+    staking_key_mode_mappings_add_dataonly_gateway/1,
+    staking_key_mode_mappings_add_light_gateway/1,
+    staking_key_mode_mappings_add_full_gateway/1
 ]).
 
 all() -> [
@@ -36,7 +39,10 @@ all() -> [
     replay_txn,
     txn_fees_pay_with_dc,
     txn_fees_pay_with_hnt,
-    staking_key_add_gateway
+    staking_key_add_gateway,
+    staking_key_mode_mappings_add_dataonly_gateway,
+    staking_key_mode_mappings_add_light_gateway,
+    staking_key_mode_mappings_add_full_gateway
 ].
 
 %%--------------------------------------------------------------------
@@ -44,7 +50,10 @@ all() -> [
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config0)  when TestCase == txn_fees_pay_with_hnt;
                                            TestCase == txn_fees_pay_with_dc;
-                                           TestCase == staking_key_add_gateway ->
+                                           TestCase == staking_key_add_gateway;
+                                           TestCase == staking_key_mode_mappings_add_dataonly_gateway;
+                                           TestCase == staking_key_mode_mappings_add_light_gateway;
+                                           TestCase == staking_key_mode_mappings_add_full_gateway ->
     Config = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config0),
     BaseDir = ?config(base_dir, Config),
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -60,9 +69,13 @@ init_per_testcase(TestCase, Config0)  when TestCase == txn_fees_pay_with_hnt;
       price_oracle_price_scan_max => 50,
       txn_fees => true,
       staking_fee_txn_oui_v1 => 100 * ?USD_TO_DC, %% $100?
-      staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC, %% $100
-      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC, %% $40?
-      staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC, %% $10?
+      staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC,
+      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC,
+      staking_fee_txn_add_dataonly_gateway_v1 => 10 * ?USD_TO_DC,
+      staking_fee_txn_add_light_gateway_v1 => 10 * ?USD_TO_DC,
+      staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC,
+      staking_fee_txn_assert_location_dataonly_gateway_v1 => 5 * ?USD_TO_DC,
+      staking_fee_txn_assert_location_light_gateway_v1 => 5 * ?USD_TO_DC,
       txn_fee_multiplier => 5000,
       max_payments => 10
     },
@@ -70,9 +83,32 @@ init_per_testcase(TestCase, Config0)  when TestCase == txn_fees_pay_with_hnt;
     {ExtraVars, ExtraConfig} = case TestCase of
                                    staking_key_add_gateway ->
                                        StakingKey = libp2p_crypto:generate_keys(ecc_compact),
-
                                        {ok, EncodedStakingKeys} = make_encoded_oracle_keys([StakingKey]),
                                        {maps:put(staking_keys, EncodedStakingKeys, ExtraVars0), [{staking_key, StakingKey}]};
+                                   staking_key_mode_mappings_add_full_gateway ->
+                                       #{public := StakingPub, secret := _StakingPrivKey} = StakingKey = libp2p_crypto:generate_keys(ecc_compact),
+                                       StakingKeyPubBin = libp2p_crypto:pubkey_to_bin(StakingPub),
+                                       Mappings = [{StakingKeyPubBin, <<"full">>}],
+                                       {ok, MappingsBin} = make_staking_keys_mode_mappings(Mappings),
+                                       MappingsExtraVars1 = maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0),
+                                       {MappingsExtraVars1, [{staking_key, StakingKey}, {staking_key_pub_bin, StakingKeyPubBin}]};
+                                   staking_key_mode_mappings_add_light_gateway ->
+                                       #{public := StakingPub, secret := _StakingPrivKey} = StakingKey = libp2p_crypto:generate_keys(ecc_compact),
+                                       StakingKeyPubBin = libp2p_crypto:pubkey_to_bin(StakingPub),
+                                       Mappings = [{StakingKeyPubBin, <<"light">>}],
+                                       {ok, MappingsBin} = make_staking_keys_mode_mappings(Mappings),
+                                       MappingsExtraVars1 = maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0),
+                                       {MappingsExtraVars1, [{staking_key, StakingKey}, {staking_key_pub_bin, StakingKeyPubBin}]};
+                                   X when X == staking_key_mode_mappings_add_dataonly_gateway;
+                                          X == staking_key_mode_mappings_dataonly_gateway_capabilities;
+                                          X == poc_request_test ->
+                                       ct:pal("setup for staking_key_mode_mappings_dataonly_gateway_capabilities", []),
+                                       #{public := StakingPub, secret := _StakingPrivKey} = StakingKey = libp2p_crypto:generate_keys(ecc_compact),
+                                       StakingKeyPubBin = libp2p_crypto:pubkey_to_bin(StakingPub),
+                                       Mappings = [{StakingKeyPubBin, <<"dataonly">>}],
+                                       {ok, MappingsBin} = make_staking_keys_mode_mappings(Mappings),
+                                       MappingsExtraVars1 = maps:put(staking_keys_to_mode_mappings, MappingsBin, ExtraVars0),
+                                       {MappingsExtraVars1, [{staking_key, StakingKey}, {staking_key_pub_bin, StakingKeyPubBin}]};
                                    _ ->
                                        {ExtraVars0, []}
                                end,
@@ -491,8 +527,12 @@ txn_fees_pay_with_dc(Config) ->
     %% we will burn half our hnt
     %% and this will be used to pay fees all other txns below
 
+    %% We'll use init DC state to decide whether to expect HNT or DC to have burned.
+    PayerHadDC = has_dc(Payer, Ledger),
+
+    BurnAmount = Balance div 2,
     %% base txn
-    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, Balance div 2, 1),
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, BurnAmount, 1),
     %% get the fees for this txn
     BurnTxFee = blockchain_txn_token_burn_v1:calculate_fee(BurnTx0, Chain),
     ct:pal("Token burn txn fee ~p, staking fee ~p, total: ~p", [BurnTxFee, 'NA', BurnTxFee ]),
@@ -530,7 +570,13 @@ txn_fees_pay_with_dc(Config) ->
     %% convert the fee to HNT and confirm HNT balance is as expected
     {ok, BurnTxHNTFee} = blockchain_ledger_v1:dc_to_hnt(BurnTxFee, Ledger),
     ct:pal("token burn DC: ~p converts to ~p HNT", [BurnTxFee, BurnTxHNTFee]),
-    ?assertEqual(PayerPreBurnHNTBal - (Balance div 2 + BurnTxHNTFee), PayerPostBurnHNTBal),
+
+    ExpectedReductionInHNT =
+        case PayerHadDC of
+            true  -> BurnAmount;
+            false -> BurnAmount + BurnTxHNTFee
+        end,
+    ?assertEqual(PayerPreBurnHNTBal - ExpectedReductionInHNT, PayerPostBurnHNTBal),
 
     %% get the payers DC balance post burn, all subsequent DC balances will be derived from this base
     {ok, PayerDCBalEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
@@ -1097,6 +1143,9 @@ txn_fees_pay_with_hnt(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
 
 
+    %% We'll later use it to decide whether HNT or DC fee was charged:
+    PayerHadDC = has_dc(Payer, Ledger),
+
 
     %% NOTE:
     %% we can prob get away with only running a single txn to test the payments with HNT
@@ -1144,16 +1193,20 @@ txn_fees_pay_with_hnt(Config) ->
     %% all the fees are set, so this should work
     {ok, OUIBlock} = test_utils:create_block(ConsensusMembers, [SignedOUITx2]),
     %% add the block
-    blockchain:add_block(OUIBlock, Chain),
+    ok = blockchain:add_block(OUIBlock, Chain),
 
     %% confirm DC balances are debited with correct fee
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
     PayerNewHNTBal =  blockchain_ledger_entry_v1:balance(NewEntry1),
     %% get the fee in HNT
     {ok, HNTFee} = blockchain_ledger_v1:dc_to_hnt((OUITxFee + OUIStFee), Ledger),
-    ?assertEqual(PayerOpenHNTBal - HNTFee, PayerNewHNTBal),
 
-
+    ExpectedReductionInHNT =
+        case PayerHadDC of
+            true  -> 0;
+            false -> HNTFee
+        end,
+    ?assertEqual(PayerOpenHNTBal - ExpectedReductionInHNT, PayerNewHNTBal),
     ok.
 
 
@@ -1262,6 +1315,253 @@ staking_key_add_gateway(Config) ->
 
     ok.
 
+
+staking_key_mode_mappings_add_full_gateway(Config) ->
+    %% add gateway where the staker has a mapping to a full gateway in the staking key mode mappings tables
+    %% Confirm the fees for each are correct
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
+    ct:pal("base dir: ~p", [BaseDir]),
+    ct:pal("base SIM dir: ~p", [SimDir]),
+    Payer = ?config(payer, Config),
+    PayerSigFun = ?config(payer_sig_fun, Config),
+
+    _Owner = ?config(owner, Config),
+    _OwnerSigFun = ?config(owner_sig_fun, Config),
+    Chain = ?config(chain, Config),
+    Ledger = ?config(ledger, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    {ok, CurHeight} = blockchain:height(Chain),
+
+    %%
+    %% create a payment txn to fund staking account 1 - which will have a staking key mapping set to full
+    %%
+
+    #{public := _StakingPub, secret := StakingPrivKey} = ?config(staking_key, Config),
+    Staker = ?config(staking_key_pub_bin, Config),
+    StakerSigFun = libp2p_crypto:mk_sig_fun(StakingPrivKey),
+    %% base txn
+    PaymentTx0 = blockchain_txn_payment_v1:new(Payer, Staker, 5000 * ?BONES_PER_HNT, 1),
+
+    %% get the fees for this txn
+    PaymentTxFee = blockchain_txn_payment_v1:calculate_fee(PaymentTx0, Chain),
+    ct:pal("payment txn fee ~p, staking fee ~p, total: ~p", [PaymentTxFee, 'NA', PaymentTxFee ]),
+
+    %% set the fees on the base txn and then sign the various txns
+    PaymentTx1 = blockchain_txn_payment_v1:fee(PaymentTx0, PaymentTxFee),
+    SignedPaymentTx1 = blockchain_txn_payment_v1:sign(PaymentTx1, PayerSigFun),
+
+    %% check is_valid behaves as expected
+    ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
+    {ok, PaymentBlock} = test_utils:create_block(ConsensusMembers, [SignedPaymentTx1]),
+    %% add the block
+    blockchain:add_block(PaymentBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 1} =:= blockchain:height(Chain) end),
+
+    %% add the gateway using the staker key, should be added as a dataonly gateway
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Owner = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    %% add gateway base txn
+    AddGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Staker),
+    %% get the fees for this txn
+    AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
+    AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
+    %% full gateways costs 40 usd
+
+    ?assertEqual(40 * ?USD_TO_DC, AddGatewayStFee),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
+
+    %% set the fees on the base txn and then sign the various txns
+    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx0, AddGatewayTxFee),
+    AddGatewayTx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx1, AddGatewayStFee),
+
+    SignedOwnerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx2, OwnerSigFun),
+    SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
+    SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
+
+    {ok, AddGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGatewayTx2]),
+    %% add the block
+    blockchain:add_block(AddGatewayBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 2} =:= blockchain:height(Chain) end),
+
+    %% check the ledger to confirm the gateway is added with the correct mode
+    {ok, GW} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertMatch(full, blockchain_ledger_gateway_v2:mode(GW)),
+    ok.
+
+
+staking_key_mode_mappings_add_light_gateway(Config) ->
+    %% add gateways where the staker has a mapping to a light gateway in the staking key mode mappings tables
+    %% Confirm the fees for each are correct
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
+    ct:pal("base dir: ~p", [BaseDir]),
+    ct:pal("base SIM dir: ~p", [SimDir]),
+    Payer = ?config(payer, Config),
+    PayerSigFun = ?config(payer_sig_fun, Config),
+
+    _Owner = ?config(owner, Config),
+    _OwnerSigFun = ?config(owner_sig_fun, Config),
+    Chain = ?config(chain, Config),
+    Ledger = ?config(ledger, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    {ok, CurHeight} = blockchain:height(Chain),
+
+    %%
+    %% create a payment txn to fund staking account 1 - which will have a staking key mapping set to full
+    %%
+
+    #{public := _StakingPub, secret := StakingPrivKey} = ?config(staking_key, Config),
+    Staker = ?config(staking_key_pub_bin, Config),
+    StakerSigFun = libp2p_crypto:mk_sig_fun(StakingPrivKey),
+    %% base txn
+    PaymentTx0 = blockchain_txn_payment_v1:new(Payer, Staker, 5000 * ?BONES_PER_HNT, 1),
+
+    %% get the fees for this txn
+    PaymentTxFee = blockchain_txn_payment_v1:calculate_fee(PaymentTx0, Chain),
+    ct:pal("payment txn fee ~p, staking fee ~p, total: ~p", [PaymentTxFee, 'NA', PaymentTxFee ]),
+
+    %% set the fees on the base txn and then sign the various txns
+    PaymentTx1 = blockchain_txn_payment_v1:fee(PaymentTx0, PaymentTxFee),
+    SignedPaymentTx1 = blockchain_txn_payment_v1:sign(PaymentTx1, PayerSigFun),
+
+    %% check is_valid behaves as expected
+    ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
+    {ok, PaymentBlock} = test_utils:create_block(ConsensusMembers, [SignedPaymentTx1]),
+    %% add the block
+    blockchain:add_block(PaymentBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 1} =:= blockchain:height(Chain) end),
+
+    %% add the gateway using the staker key, should be added as a dataonly gateway
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Owner = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    %% add gateway base txn
+    AddGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Staker),
+    %% get the fees for this txn
+    AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
+    AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
+    %% light gateway costs same to add as a full gateway
+    ?assertEqual(10 * ?USD_TO_DC, AddGatewayStFee),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
+
+    %% set the fees on the base txn and then sign the various txns
+    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx0, AddGatewayTxFee),
+    AddGatewayTx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx1, AddGatewayStFee),
+
+    SignedOwnerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx2, OwnerSigFun),
+    SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
+    SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
+
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
+    {ok, AddGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGatewayTx2]),
+    %% add the block
+    blockchain:add_block(AddGatewayBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 2} =:= blockchain:height(Chain) end),
+
+    %% check the ledger to confirm the gateway is added with the correct mode
+    {ok, GW} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertMatch(light, blockchain_ledger_gateway_v2:mode(GW)),
+    ok.
+
+staking_key_mode_mappings_add_dataonly_gateway(Config) ->
+    %% add gateways where the staker has a mapping to a dataonly gateway in the staking key mode mappings tables
+    %% Confirm the fees for each are correct
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
+    ct:pal("base dir: ~p", [BaseDir]),
+    ct:pal("base SIM dir: ~p", [SimDir]),
+    Payer = ?config(payer, Config),
+    PayerSigFun = ?config(payer_sig_fun, Config),
+
+    _Owner = ?config(owner, Config),
+    _OwnerSigFun = ?config(owner_sig_fun, Config),
+    Chain = ?config(chain, Config),
+    Ledger = ?config(ledger, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    {ok, CurHeight} = blockchain:height(Chain),
+
+    %%
+    %% create a payment txn to fund staking account 1 - which will have a staking key mapping set to full
+    %%
+
+    #{public := _StakingPub, secret := StakingPrivKey} = ?config(staking_key, Config),
+    Staker = ?config(staking_key_pub_bin, Config),
+    StakerSigFun = libp2p_crypto:mk_sig_fun(StakingPrivKey),
+    %% base txn
+    PaymentTx0 = blockchain_txn_payment_v1:new(Payer, Staker, 5000 * ?BONES_PER_HNT, 1),
+
+    %% get the fees for this txn
+    PaymentTxFee = blockchain_txn_payment_v1:calculate_fee(PaymentTx0, Chain),
+    ct:pal("payment txn fee ~p, staking fee ~p, total: ~p", [PaymentTxFee, 'NA', PaymentTxFee ]),
+
+    %% set the fees on the base txn and then sign the various txns
+    PaymentTx1 = blockchain_txn_payment_v1:fee(PaymentTx0, PaymentTxFee),
+    SignedPaymentTx1 = blockchain_txn_payment_v1:sign(PaymentTx1, PayerSigFun),
+
+    %% check is_valid behaves as expected
+    ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
+    {ok, PaymentBlock} = test_utils:create_block(ConsensusMembers, [SignedPaymentTx1]),
+    %% add the block
+    blockchain:add_block(PaymentBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 1} =:= blockchain:height(Chain) end),
+
+    %% add the gateway using the staker key, should be added as a dataonly gateway
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Owner = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    %% add gateway base txn
+    AddGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Staker),
+    %% get the fees for this txn
+    AddGatewayTxFee = blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain),
+    AddGatewayStFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx0, Chain),
+    %% dataonly gateway costs 20 usd
+    ?assertEqual(10 * ?USD_TO_DC, AddGatewayStFee),
+    ct:pal("Add gateway txn fee ~p, staking fee ~p, total: ~p", [AddGatewayTxFee, AddGatewayStFee, AddGatewayTxFee + AddGatewayStFee]),
+
+    %% set the fees on the base txn and then sign the various txns
+    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx0, AddGatewayTxFee),
+    AddGatewayTx2 = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx1, AddGatewayStFee),
+
+    SignedOwnerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx2, OwnerSigFun),
+    SignedGatewayAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx2, GatewaySigFun),
+    SignedPayerAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx2, StakerSigFun),
+
+    ?assertEqual(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
+    {ok, AddGatewayBlock} = test_utils:create_block(ConsensusMembers, [SignedPayerAddGatewayTx2]),
+    %% add the block
+    blockchain:add_block(AddGatewayBlock, Chain),
+    %% confirm the block is added
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 2} =:= blockchain:height(Chain) end),
+
+    %% check the ledger to confirm the gateway is added with the correct mode
+    {ok, GW} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertMatch(dataonly, blockchain_ledger_gateway_v2:mode(GW)),
+    ok.
+
+
 %%--------------------------------------------------------------------
 %% TEST HELPERS
 %%--------------------------------------------------------------------
@@ -1298,8 +1598,19 @@ prep_public_key(#{public := K}) ->
 make_encoded_oracle_keys(Keys) ->
     {ok, << <<(prep_public_key(K))/binary>> || K <- Keys >> }.
 
+make_staking_keys_mode_mappings(Prop) ->
+    {ok, blockchain_utils:prop_to_bin(Prop)}.
+
 get_prices({ok, Ps}) ->
     {ok, lists:sort([ blockchain_ledger_oracle_price_entry:price(P) || P <- Ps ])}.
 
 median(Ps) ->
     blockchain_ledger_v1:median(Ps).
+
+has_dc(Addr, Ledger) ->
+    case blockchain_ledger_v1:find_dc_entry(Addr, Ledger) of
+        {ok, _} ->
+            true;
+        {error, dc_entry_not_found} ->
+            false
+    end.

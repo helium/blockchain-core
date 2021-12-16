@@ -63,6 +63,10 @@ init(Args) ->
     application:ensure_all_started(lager),
     application:ensure_all_started(clique),
     application:ensure_all_started(throttle),
+    %% start http client and ssl here
+    %% currently used for s3 snapshot download
+    ssl:start(),
+    inets:start(httpc, [{profile, blockchain}]),
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
     GroupMgrArgs =
@@ -74,6 +78,8 @@ init(Args) ->
         end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
 
+    blockchain_utils:init_var_cache(),
+
     %% allow the parent app to change this if it needs to.
     MetadataFun = application:get_env(blockchain, metadata_fun,
                                       fun blockchain_worker:signed_metadata_fun/0),
@@ -81,6 +87,7 @@ init(Args) ->
         [
          {key, proplists:get_value(key, Args)},
          {base_dir, BaseDir},
+         {libp2p_nat, [{enabled, application:get_env(blockchain, enable_nat, true)}]},
          {libp2p_proxy,
           [{limit, application:get_env(blockchain, relay_limit, 25)}]},
          {libp2p_peerbook,
@@ -100,28 +107,31 @@ init(Args) ->
            {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
         ] ++ GroupMgrArgs,
+
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, BaseDir},
         {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
+
     BEventOpts = [],
     %% create the txn manager ets table under this supervisor and set ourselves as the heir
     %% we call `ets:give_away' every time we start_link the txn manager
     BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_table()},
     BTxnMgrSupOpts = [],
     StateChannelSupOpts = [BaseDir],
-    ChildSpecs = [
-        ?WORKER(blockchain_lock, []),
-        ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
-        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
-        ?WORKER(blockchain_gateway_cache, []),
-        ?WORKER(blockchain_score_cache, []),
-        ?WORKER(blockchain_worker, [BWorkerOpts]),
-        ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
-        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
-        ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])
-    ],
+    ChildSpecs =
+        [
+         ?WORKER(blockchain_lock, []),
+         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
+         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts])]
+        ++
+        [?WORKER(blockchain_score_cache, []),
+         ?WORKER(blockchain_worker, [BWorkerOpts]),
+         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
+         ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
+         ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])
+        ],
     {ok, {?FLAGS, ChildSpecs}}.
 
 %% ------------------------------------------------------------------

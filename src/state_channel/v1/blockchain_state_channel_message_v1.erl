@@ -5,7 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channel_message_v1).
 
--export([encode/1, decode/1]).
+-export([encode/1, decode/1, wrap_msg/1]).
 
 -include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").

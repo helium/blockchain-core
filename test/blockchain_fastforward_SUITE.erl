@@ -148,13 +148,13 @@ basic(Version, Sup, {PrivKey, PubKey}, Config) ->
             v1 -> ?FASTFORWARD_PROTOCOL_V1;
             v2 -> ?FASTFORWARD_PROTOCOL_V2
         end,
-    case blockchain_fastforward_handler:dial(blockchain_swarm:swarm(), Chain0, ListenAddr2, ProtocolVersion) of
+    case blockchain_fastforward_handler:dial(blockchain_swarm:tid(), Chain0, ListenAddr2, ProtocolVersion) of
         {ok, _Stream} ->
             ct:pal("got stream ~p~n", [_Stream]),
             ok
     end,
 
-    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end, 100, 1000),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
     gen:stop(Sup),
     ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),

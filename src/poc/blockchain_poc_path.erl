@@ -6,6 +6,7 @@
 -module(blockchain_poc_path).
 
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -export([
          build/5,
@@ -273,9 +274,12 @@ neighbors(Gw, Gateways, Ledger) ->
                   _ ->
                       G0
               end,
-              case blockchain_ledger_gateway_v2:location(G) of
-                  undefined -> Acc;
-                  Index ->
+              Mode = blockchain_ledger_gateway_v2:mode(G),
+              case {blockchain_ledger_gateway_v2:location(G),
+                    blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)} of
+                  {undefined, _} -> Acc;
+                  {_, false} -> Acc;
+                  {Index, _} ->
                       ScaledIndex = scale(Index, H3NeighborRes),
                       case lists:member(ScaledIndex, ExclusionIndices) of
                           false ->
@@ -391,15 +395,18 @@ active_gateways(Ledger, Challenger) ->
     maps:fold(
       fun(PubkeyBin, {Gateway, Score}, Acc0) ->
               CheckSync = check_sync(Gateway, Ledger),
+              Mode = blockchain_ledger_gateway_v2:mode(Gateway),
               case
                   %% if we're some other gateway who has a location
                   %% and hasn't been added to the graph and our score
-                  %% is good enough
+                  %% is good enough and we also have the required capability
                   CheckSync andalso
                   (PubkeyBin == Challenger orelse
                    blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
                    maps:is_key(PubkeyBin, Acc0) orelse
-                   Score =< MinScore)
+                   Score =< MinScore) orelse
+                   not blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger)
+
               of
                   true ->
                       Acc0;

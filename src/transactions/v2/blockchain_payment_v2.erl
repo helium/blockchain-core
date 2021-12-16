@@ -11,10 +11,13 @@
 -include_lib("helium_proto/include/blockchain_txn_payment_v2_pb.hrl").
 
 -export([
-         new/2,
+         new/2, new/3,
          payee/1,
          amount/1,
+         memo/1, memo/2,
+         is_valid_memo/1,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -32,7 +35,18 @@
 new(Payee, Amount) ->
     #payment_pb{
        payee=Payee,
-       amount=Amount
+       amount=Amount,
+       memo=0
+      }.
+
+-spec new(Payee :: libp2p_crypto:pubkey_bin(),
+          Amount :: non_neg_integer(),
+          Memo :: non_neg_integer()) -> payment().
+new(Payee, Amount, Memo) ->
+    #payment_pb{
+       payee=Payee,
+       amount=Amount,
+       memo=Memo
       }.
 
 -spec payee(Payment :: payment()) -> libp2p_crypto:pubkey_bin().
@@ -43,16 +57,38 @@ payee(Payment) ->
 amount(Payment) ->
     Payment#payment_pb.amount.
 
+-spec memo(Payment :: payment()) -> undefined | non_neg_integer().
+memo(Payment) ->
+    Payment#payment_pb.memo.
+
+-spec memo(Payment :: payment(), Memo :: non_neg_integer()) -> payment().
+memo(Payment, Memo) ->
+    Payment#payment_pb{memo=Memo}.
+
+-spec is_valid_memo(Payment :: payment()) -> boolean().
+is_valid_memo(#payment_pb{memo = Memo}) ->
+    try
+        Bin = binary:encode_unsigned(Memo, big),
+        bit_size(Bin) =< 64
+    catch _:_ ->
+            %% we can't do this, invalid
+            false
+    end.
+
 print(undefined) ->
     <<"type=payment undefined">>;
-print(#payment_pb{payee=Payee, amount=Amount}) ->
-    io_lib:format("type=payment payee: ~p amount: ~p", [?TO_B58(Payee), Amount]).
+print(#payment_pb{payee=Payee, amount=Amount, memo=Memo}) ->
+    io_lib:format("type=payment payee: ~p amount: ~p, memo: ~p", [?TO_B58(Payee), Amount, Memo]).
+
+json_type() ->
+    undefined.
 
 -spec to_json(payment(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Payment, _Opts) ->
     #{
       payee => ?BIN_TO_B58(payee(Payment)),
-      amount => amount(Payment)
+      amount => amount(Payment),
+      memo => ?MAYBE_FN(fun (V) -> base64:encode(<<(V):64/unsigned-little-integer>>) end, memo(Payment))
      }.
 
 %% ------------------------------------------------------------------

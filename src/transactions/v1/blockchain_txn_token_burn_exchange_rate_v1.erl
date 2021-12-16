@@ -22,10 +22,12 @@
     hash/1,
     rate/1,
     fee/1,
+    fee_payer/2,
     is_valid/2,
     absorb/2,
     sign/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -77,6 +79,10 @@ rate(Txn) ->
 fee(_Txn) ->
     0.
 
+-spec fee_payer(txn_token_burn_exchange_rate(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% This transaction is only allowed in the genesis block
@@ -112,10 +118,13 @@ print(undefined) -> <<"type=burn_exchange_rate undefined">>;
 print(#blockchain_txn_token_burn_exchange_rate_v1_pb{rate=Amount}) ->
     io_lib:format("type=burn_exchange_rate rate=~p", [Amount]).
 
+json_type() ->
+    <<"token_burn_exchange_rate_v1">>.
+
 -spec to_json(txn_token_burn_exchange_rate(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"token_burn_exchange_rate_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       rate => rate(Txn)
      }.

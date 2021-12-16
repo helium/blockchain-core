@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("include/blockchain_vars.hrl").
+-include("include/blockchain.hrl").
 -include("blockchain_ct_utils.hrl").
 
 -export([pmap/2,
@@ -26,8 +27,17 @@
          init_base_dir_config/3,
          join_packet/3,
          ledger/2,
-         destroy_ledger/0
+         destroy_ledger/0,
+         download_serialized_region/1
         ]).
+
+-ifdef(EQC).
+log(Format, Args) ->
+    lager:debug(Format, Args).
+-else.
+log(Format, Args) ->
+    ct:pal(Format, Args).
+-endif.
 
 pmap(F, L) ->
     Parent = self(),
@@ -158,10 +168,7 @@ get_config(Arg, Default) ->
     end.
 
 random_n(N, List) ->
-    lists:sublist(shuffle(List), N).
-
-shuffle(List) ->
-    [x || {_,x} <- lists:sort([{rand:uniform(), N} || N <- List])].
+    lists:sublist(blockchain_utils:shuffle(List), N).
 
 init_per_suite(Config) ->
     application:ensure_all_started(ranch),
@@ -174,6 +181,9 @@ init_per_suite(Config) ->
 init_per_testcase(TestCase, Config) ->
     BaseDir = ?config(base_dir, Config),
     LogDir = ?config(log_dir, Config),
+    SCClientTransportHandler = ?config(sc_client_transport_handler, Config),
+    application:set_env(blockchain, testing, true),
+
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
     case net_kernel:start([list_to_atom("runner-blockchain-" ++
@@ -188,7 +198,7 @@ init_per_testcase(TestCase, Config) ->
     TotalNodes = get_config("T", 8),
     NumConsensusMembers = get_config("N", 7),
     SeedNodes = [],
-    PeerCacheTimeout = 100,
+    PeerCacheTimeout = 10000,
     Port = get_config("PORT", 0),
 
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
@@ -203,6 +213,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, load, [blockchain]),
                                 ct_rpc:call(Node, application, load, [libp2p]),
                                 ct_rpc:call(Node, application, load, [erlang_stats]),
+                                ct_rpc:call(Node, application, load, [grpcbox]),
                                 %% give each node its own log directory
                                 LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [lager, log_root, LogRoot]),
@@ -212,6 +223,8 @@ init_per_testcase(TestCase, Config) ->
                                 #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
                                 BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                                ct_rpc:call(Node, application, set_env, [blockchain, testing, true]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, enable_nat, false]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BlockchainBaseDir]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
@@ -220,58 +233,105 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, peer_cache_timeout, PeerCacheTimeout]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, sc_client_handler, sc_client_test_handler]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, sc_packet_handler, sc_packet_test_handler]),
-
+                                ct_rpc:call(Node, application, set_env, [blockchain, peerbook_update_interval, 200]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, peerbook_allow_rfc1918, true]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, max_inbound_connections, TotalNodes*2]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, outbound_gossip_connections, TotalNodes]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, listen_interface, "127.0.0.1"]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_client_transport_handler, SCClientTransportHandler]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_sup_type, testing]),
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
-                                ct:pal("Node: ~p, StartedApps: ~p", [Node, StartedApps])
+                                log("Node: ~p, StartedApps: ~p", [Node, StartedApps])
                         end, Nodes),
 
     %% check that the config loaded correctly on each node
     true = lists:all(fun(Res) -> Res == ok end, ConfigResult),
 
-    %% tell the rest of the miners to connect to the first miner
-    [First | Rest] = Nodes,
-    FirstSwarm = ct_rpc:call(First, blockchain_swarm, swarm, []),
-    FirstListenAddr = hd(ct_rpc:call(First, libp2p_swarm, listen_addrs, [FirstSwarm])),
-    ok = lists:foreach(fun(Node) ->
-                               Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
-                               ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, FirstListenAddr])
-                       end, Rest),
+    %% accumulate the listen addr of all the nodes
+    Addrs = pmap(
+              fun(Node) ->
+                      Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 2000),
+                      [H|_] = ct_rpc:call(Node, libp2p_swarm, listen_addrs, [Swarm], 2000),
+                      H
+              end, Nodes),
 
-    %% also do the reverse just to ensure swarms are _properly_ connected
-    [Head | Tail] = lists:reverse(Nodes),
-    HeadSwarm = ct_rpc:call(Head, blockchain_swarm, swarm, []),
-    HeadListenAddr = hd(ct_rpc:call(Head, libp2p_swarm, listen_addrs, [HeadSwarm])),
-    ok = lists:foreach(fun(Node) ->
-                               Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
-                               ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, HeadListenAddr])
-                       end, Tail),
 
-    %% test that each node setup libp2p properly
-    lists:foreach(fun(Node) ->
-                          Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
-                          SwarmID = ct_rpc:call(Node, libp2p_swarm, network_id, [Swarm]),
-                          Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                          Sessions = ct_rpc:call(Node, libp2p_swarm, sessions, [Swarm]),
-                          GossipGroup = ct_rpc:call(Node, libp2p_swarm, gossip_group, [Swarm]),
-                          wait_until(fun() ->
-                                             ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
-                                                                          connected_addrs, [GossipGroup, all]),
-                                             TotalNodes == length(ConnectedAddrs)
-                                     end, 50, 20),
-                          ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
-                                                       connected_addrs, [GossipGroup, all]),
-                          ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup:"
-                                 " ~p~nConnectedAddrs: ~p~nSwarm:~p~nSwarmID: ~p",
-                                 [Node,
-                                  Addr,
-                                  libp2p_crypto:pubkey_bin_to_p2p(Addr),
-                                  Sessions,
-                                  GossipGroup,
-                                  ConnectedAddrs,
-                                  Swarm,
-                                  SwarmID
-                                 ])
-                  end, Nodes),
+    %% connect the nodes
+    pmap(
+      fun(Node) ->
+              Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 2000),
+              lists:foreach(
+                fun(A) ->
+                        ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, A], 2000)
+                end, Addrs)
+      end, Nodes),
+
+    %% make sure each node is gossiping with a majority of its peers
+    ok = wait_until(
+             fun() ->
+                     lists:all(
+                       fun(Node) ->
+                               try
+                                   GossipPeers = ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500),
+                                   case length(GossipPeers) >= (length(Nodes) / 2) + 1 of
+                                       true -> true;
+                                       false ->
+                                           ct:pal("~p is not connected to enough peers ~p", [Node, GossipPeers]),
+                                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
+                                           lists:foreach(
+                                             fun(A) ->
+                                                     CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, A], 500),
+                                                     ct:pal("Connecting ~p to ~p: ~p", [Node, A, CRes])
+                                             end, Addrs),
+                                           false
+                                   end
+                               catch _C:_E ->
+                                       false
+                               end
+                       end, Nodes)
+             end, 200, 150),
+
+    %% to enable the tests to run over grpc we need to deterministically set the grpc listen addr
+    %% with libp2p all the port data is in the peer entries
+    %% in the real world we would run grpc over a known port
+    %% but for the sake of the tests which run multiple nodes on a single instance
+    %% we need to choose a random port for each node
+    %% and the client needs to know which port was choosen
+    %% so for the sake of the tests what we do here is get the libp2p port
+    %% and run grpc on that value + 1000
+    %% the client then just has to pull the libp2p peer data
+    %% retrieve the libp2p port and derive the grpc port from that
+
+    GRPCServerConfigFun = fun(PeerPort)->
+         [#{grpc_opts => #{service_protos => [state_channel_pb],
+                           services => #{'helium.state_channel' => blockchain_grpc_sc_server_handler}
+                            },
+
+            transport_opts => #{ssl => false},
+
+            listen_opts => #{port => PeerPort,
+                             ip => {0,0,0,0}},
+
+            pool_opts => #{size => 2},
+
+            server_opts => #{header_table_size => 4096,
+                             enable_push => 1,
+                             max_concurrent_streams => unlimited,
+                             initial_window_size => 65535,
+                             max_frame_size => 16384,
+                             max_header_list_size => unlimited}}]
+             end,
+
+    ok = lists:foreach(fun(Node) ->
+            Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
+            TID = ct_rpc:call(Node, blockchain_swarm, tid, []),
+            ListenAddrs = ct_rpc:call(Node, libp2p_swarm, listen_addrs, [Swarm]),
+            [H | _ ] = _SortedAddrs = ct_rpc:call(Node, libp2p_transport, sort_addrs, [TID, ListenAddrs]),
+            [_, _, _IP,_, Libp2pPort] = _Full = re:split(H, "/"),
+             ThisPort = list_to_integer(binary_to_list(Libp2pPort)),
+            ct_rpc:call(Node, application, set_env, [grpcbox, servers, GRPCServerConfigFun(ThisPort + 1000)]),
+            ct_rpc:call(Node, application, ensure_all_started, [grpcbox])
+    end, Nodes),
 
     [{nodes, Nodes}, {num_consensus_members, NumConsensusMembers} | Config].
 
@@ -288,6 +348,7 @@ end_per_testcase(TestCase, Config) ->
     end,
     {comment, done}.
 
+
 cleanup_per_testcase(_TestCase, Config) ->
     Nodes = ?config(nodes, Config),
     BaseDir = ?config(base_dir, Config),
@@ -295,10 +356,10 @@ cleanup_per_testcase(_TestCase, Config) ->
     lists:foreach(fun(Node) ->
                           LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
                           Res = os:cmd("rm -rf " ++ LogRoot),
-                          ct:pal("rm -rf ~p -> ~p", [LogRoot, Res]),
+                          log("rm -rf ~p -> ~p", [LogRoot, Res]),
                           DataDir = BaseDir ++ "_" ++ atom_to_list(Node),
                           Res2 = os:cmd("rm -rf " ++ DataDir),
-                          ct:pal("rm -rf ~p -> ~p", [DataDir, Res2]),
+                          log("rm -rf ~p -> ~p", [DataDir, Res2]),
                           ok
                   end, Nodes).
 
@@ -310,7 +371,7 @@ create_vars(Vars) ->
         libp2p_crypto:generate_keys(ecc_compact),
 
     Vars1 = raw_vars(Vars),
-    ct:pal("vars ~p", [Vars1]),
+    log("vars ~p", [Vars1]),
 
     BinPub = libp2p_crypto:pubkey_to_bin(Pub),
 
@@ -334,7 +395,7 @@ raw_vars(Vars) ->
                 ?block_version => v1,
                 ?predicate_threshold => 0.85,
                 ?num_consensus_members => 7,
-                ?monthly_reward => 50000 * 1000000,
+                ?monthly_reward => ?bones(5000000),
                 ?securities_percent => 0.35,
                 ?poc_challengees_percent => 0.19 + 0.16,
                 ?poc_challengers_percent => 0.09 + 0.06,
@@ -395,6 +456,7 @@ init_base_dir_config(Mod, TestCase, Config)->
     BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     LogDir = PrivDir ++ "logs/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     SimDir = BaseDir ++ "_sim",
+    application:set_env(blockchain, base_dir, BaseDir),
     [
         {base_dir, BaseDir},
         {sim_dir, SimDir},
@@ -405,7 +467,9 @@ init_base_dir_config(Mod, TestCase, Config)->
 wait_until_height(Node, Height) ->
     wait_until(fun() ->
                        C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                       {ok, Height} == ct_rpc:call(Node, blockchain, height, [C])
+                       {ok, NodeHeight} = ct_rpc:call(Node, blockchain, height, [C]),
+                        ct:pal("node height ~p, waiting for height ~p", [NodeHeight, Height]),
+                        NodeHeight == Height
                end, 30, timer:seconds(1)).
 
 join_packet(AppKey, DevNonce, RSSI) ->
@@ -503,3 +567,18 @@ destroy_ledger() ->
             %% ledger.db dir not found, don't do anything
             ok
     end.
+
+download_serialized_region(URL) ->
+    %% Example URL: "https://github.com/JayKickliter/lorawan-h3-regions/blob/main/serialized/US915.res7.h3idx?raw=true"
+    {ok, Dir} = file:get_cwd(),
+    %% Ensure priv dir exists
+    PrivDir = filename:join([Dir, "priv"]),
+    ok = filelib:ensure_dir(PrivDir ++ "/"),
+    ok = ssl:start(),
+    {ok, {{_, 200, "OK"}, _, Body}} = httpc:request(URL),
+    FName = hd(string:tokens(hd(lists:reverse(string:tokens(URL, "/"))), "?")),
+    FPath = filename:join([PrivDir, FName]),
+    ok = file:write_file(FPath, Body),
+    {ok, Data} = file:read_file(FPath),
+    Data.
+

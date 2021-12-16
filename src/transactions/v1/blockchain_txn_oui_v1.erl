@@ -24,6 +24,7 @@
     payer/1,
     staking_fee/1, staking_fee/2,
     fee/1, fee/2,
+    fee_payer/2,
     oui/1,
     owner_signature/1,
     payer_signature/1,
@@ -35,6 +36,7 @@
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -132,6 +134,10 @@ fee(Txn) ->
 fee(Txn, Fee) ->
     Txn#blockchain_txn_oui_v1_pb{fee=Fee}.
 
+-spec fee_payer(txn_oui(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
+
 -spec oui(txn_oui()) -> pos_integer().
 oui(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.oui.
@@ -195,6 +201,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     TxnFee = ?MODULE:fee(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Owner = ?MODULE:owner(Txn),
     Payer = ?MODULE:payer(Txn),
@@ -210,7 +217,7 @@ absorb(Txn, Chain) ->
                 {false, LedgerOUI} ->
                     {error, {invalid_oui, {OUI, LedgerOUI}}};
                 true ->
-                    case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
+                    case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
                         {error, _}=Error ->
                             Error;
                         ok ->
@@ -284,10 +291,13 @@ print(#blockchain_txn_oui_v1_pb{owner=Owner, addresses=Addresses,
     io_lib:format("type=oui, owner=~p, addresses=~p, payer=~p, staking_fee=~p, fee=~p",
                   [?TO_B58(Owner), [?TO_B58(A) || A <- Addresses], ?TO_B58(Payer), StakingFee, Fee]).
 
+json_type() ->
+    <<"oui_v1">>.
+
 -spec to_json(txn_oui(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"oui_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       owner => ?BIN_TO_B58(owner(Txn)),
       addresses => [?BIN_TO_B58(Addr) || Addr <- addresses(Txn)],

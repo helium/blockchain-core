@@ -6,7 +6,8 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_caps.hrl").
+-include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
@@ -22,9 +23,12 @@
     frequency/1,
     channel/1,
     datarate/1,
+    addr_hash/1, addr_hash/2,
+    tx_power/1, tx_power/2,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -131,6 +135,22 @@ frequency(Receipt) ->
 datarate(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.datarate.
 
+-spec addr_hash(Receipt :: poc_receipt()) -> 'undefined' | binary().
+addr_hash(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.addr_hash.
+
+-spec addr_hash(Receipt :: poc_receipt(), Hash :: binary()) -> poc_receipt().
+addr_hash(Receipt, Hash) when is_binary(Hash), byte_size(Hash) =< 32 ->
+    Receipt#blockchain_poc_receipt_v1_pb{addr_hash = Hash}.
+
+-spec tx_power(Receipt :: poc_receipt()) -> 'undefined' | integer().
+tx_power(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.tx_power.
+
+-spec tx_power(Receipt :: poc_receipt(), TxPower :: integer()) -> poc_receipt().
+tx_power(Receipt, TxPower) ->
+    Receipt#blockchain_poc_receipt_v1_pb{tx_power = TxPower}.
+
 -spec channel(Receipt :: poc_receipt()) -> non_neg_integer().
 channel(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.channel.
@@ -141,12 +161,34 @@ sign(Receipt, SigFun) ->
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     Receipt#blockchain_poc_receipt_v1_pb{signature=SigFun(EncodedReceipt)}.
 
--spec is_valid(Receipt :: poc_receipt()) -> boolean().
-is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature}) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
-    BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
-    EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
-    libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
+-spec is_valid(Receipt :: poc_receipt(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH}, Ledger) ->
+    ValidHash = case blockchain_ledger_v1:config(?poc_addr_hash_byte_count, Ledger) of
+                    {ok, Bytes} when is_integer(Bytes), Bytes > 0 ->
+                        AH == undefined orelse AH == <<>> orelse
+                        (is_binary(AH) andalso byte_size(AH) == Bytes);
+                    _ ->
+                        AH == undefined orelse AH == <<>>
+                end,
+    case ValidHash of
+        false ->
+            false;
+        true ->
+            PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
+            BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>, addr_hash=undefined},
+            EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
+            case libp2p_crypto:verify(EncodedReceipt, Signature, PubKey) of
+                false -> false;
+                true ->
+                    case blockchain_ledger_v1:find_gateway_mode(Gateway, Ledger) of
+                        {error, _Reason} ->
+                            false;
+                        {ok, GWMode} ->
+                            %% check this GW is allowed to issue receipts
+                            blockchain_ledger_gateway_v2:is_valid_capability(GWMode, ?GW_CAPABILITY_POC_RECEIPT, Ledger)
+                    end
+            end
+    end.
 
 print(undefined) ->
     <<"type=receipt undefined">>;
@@ -154,15 +196,23 @@ print(#blockchain_poc_receipt_v1_pb{
          gateway=Gateway,
          timestamp=TS,
          signal=Signal,
+         frequency=Freq,
+         snr=SNR,
          origin=Origin
-        }) ->
-    io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b origin: ~p",
+        }=Receipt) ->
+    io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b snr: ~p freq: ~p origin: ~p, tx_power: ~p",
                   [
                    ?TO_ANIMAL_NAME(Gateway),
                    TS,
                    Signal,
-                   Origin
+                   SNR,
+                   Freq,
+                   Origin,
+                   tx_power(Receipt)
                   ]).
+
+json_type() ->
+    undefined.
 
 -spec to_json(poc_receipt() | undefined, blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(undefined, _Opts) ->
@@ -177,7 +227,8 @@ to_json(Receipt, _Opts) ->
       snr => ?MAYBE_UNDEFINED(snr(Receipt)),
       frequency => ?MAYBE_UNDEFINED(frequency(Receipt)),
       channel => ?MAYBE_UNDEFINED(channel(Receipt)),
-      datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt)))
+      datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt))),
+      tx_power => ?MAYBE_UNDEFINED(tx_power(Receipt))
      }.
 
 %% ------------------------------------------------------------------

@@ -26,6 +26,7 @@
          amounts/1,
          total_amount/1,
          fee/1, fee/2,
+         fee_payer/2,
          calculate_fee/2, calculate_fee/5,
          nonce/1,
          signature/1,
@@ -33,6 +34,7 @@
          is_valid/2,
          absorb/2,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -90,6 +92,10 @@ fee(Txn) ->
 fee(Txn, Fee) ->
     Txn#blockchain_txn_payment_v2_pb{fee=Fee}.
 
+-spec fee_payer(txn_payment_v2(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
+
 -spec nonce(txn_payment_v2()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_payment_v2_pb.nonce.
@@ -140,10 +146,11 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     TotAmount = ?MODULE:total_amount(Txn),
     Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->
@@ -176,10 +183,13 @@ print_payments(Payments) ->
                           end,
                           Payments), "\n\t").
 
+json_type() ->
+    <<"payment_v2">>.
+
 -spec to_json(txn_payment_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"payment_v2">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payments => [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)],
@@ -212,44 +222,44 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                     %% Check that there are payments
                     {error, zero_payees};
                 false ->
-                    case LengthPayments > MaxPayments of
-                        %% Check that we don't exceed max payments
-                        true ->
-                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
-                        false ->
-                            case lists:member(Payer, ?MODULE:payees(Txn)) of
+                    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                        {error, _}=Error0 ->
+                            Error0;
+                        {ok, Entry} ->
+                            TxnNonce = ?MODULE:nonce(Txn),
+                            LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                            case TxnNonce =:= LedgerNonce + 1 of
                                 false ->
-                                    %% check that every payee is unique
-                                    case has_unique_payees(Payments) of
-                                        false ->
-                                            {error, duplicate_payees};
-                                        true ->
-                                            TotAmount = ?MODULE:total_amount(Txn),
-                                            TxnFee = ?MODULE:fee(Txn),
-                                            AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
-                                                              {ok, false} ->
-                                                                  %% check that none of the payments have a zero amount
-                                                                  has_non_zero_amounts(Payments);
-                                                              _ ->
-                                                                  %% if undefined or true, use the old check
-                                                                  (TotAmount >= 0)
-                                                          end,
-                                            case AmountCheck of
-                                                false ->
-                                                    {error, invalid_transaction};
-                                                true ->
-                                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                        false ->
-                                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                        true ->
-                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                                    end
-                                            end
-                                    end;
+                                    {error, {bad_nonce, {payment_v2, TxnNonce, LedgerNonce}}};
                                 true ->
-                                    {error, self_payment}
+                                    case LengthPayments > MaxPayments of
+                                        %% Check that we don't exceed max payments
+                                        true ->
+                                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
+                                        false ->
+                                            case lists:member(Payer, ?MODULE:payees(Txn)) of
+                                                false ->
+                                                    %% check that every payee is unique
+                                                    case has_unique_payees(Payments) of
+                                                        false ->
+                                                            {error, duplicate_payees};
+                                                        true ->
+                                                            AmountCheck = amount_check(Txn, Ledger),
+                                                            MemoCheck = memo_check(Txn, Ledger),
+
+                                                            case {AmountCheck, MemoCheck} of
+                                                                {false, _} ->
+                                                                    {error, invalid_transaction};
+                                                                {_, {error, _}=E} ->
+                                                                    E;
+                                                                {true, ok} ->
+                                                                    fee_check(Txn, Chain, Ledger)
+                                                            end
+                                                    end;
+                                                true ->
+                                                    {error, self_payment}
+                                            end
+                                    end
                             end
                     end
             end
@@ -258,6 +268,50 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
 %% ------------------------------------------------------------------
 %% Internal functions
 %% ------------------------------------------------------------------
+
+-spec fee_check(Txn :: txn_payment_v2(), Chain :: blockchain:blockchain(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+fee_check(Txn, Chain, Ledger) ->
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+    Payer = ?MODULE:payer(Txn),
+    TxnFee = ?MODULE:fee(Txn),
+    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+        false ->
+            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+        true ->
+            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+    end.
+
+-spec memo_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+memo_check(Txn, Ledger) ->
+    Payments = ?MODULE:payments(Txn),
+    case blockchain:config(?allow_payment_v2_memos, Ledger) of
+        {ok, true} ->
+            %% check that the memos are valid
+            case has_valid_memos(Payments) of
+                true -> ok;
+                false -> {error, invalid_memo}
+            end;
+        _ ->
+            %% old behavior before var, allow only if memo=0 (default)
+            case has_default_memos(Payments) of
+                true -> ok;
+                false -> {error, invalid_memo_before_var}
+            end
+    end.
+
+-spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+amount_check(Txn, Ledger) ->
+    TotAmount = ?MODULE:total_amount(Txn),
+    Payments = ?MODULE:payments(Txn),
+    case blockchain:config(?allow_zero_amount, Ledger) of
+        {ok, false} ->
+            %% check that none of the payments have a zero amount
+            has_non_zero_amounts(Payments);
+        _ ->
+            %% if undefined or true, use the old check
+            (TotAmount >= 0)
+    end.
 
 -spec has_unique_payees(Payments :: blockchain_payment_v2:payments()) -> boolean().
 has_unique_payees(Payments) ->
@@ -268,6 +322,33 @@ has_unique_payees(Payments) ->
 has_non_zero_amounts(Payments) ->
     Amounts = [blockchain_payment_v2:amount(P) || P <- Payments],
     lists:all(fun(A) -> A > 0 end, Amounts).
+
+-spec has_valid_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_valid_memos(Payments) ->
+    lists:all(
+        fun(Payment) ->
+                %% check that the memo field is valid
+                FieldCheck = blockchain_txn:validate_fields([ {{memo, blockchain_payment_v2:memo(Payment)}, {is_integer, 0}} ]),
+                case FieldCheck of
+                    ok ->
+                        %% check that the memo field is within limits
+                        blockchain_payment_v2:is_valid_memo(Payment);
+                    _ ->
+                        false
+                end
+        end,
+        Payments
+    ).
+
+-spec has_default_memos(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_default_memos(Payments) ->
+    lists:all(
+        fun(Payment) ->
+            0 == blockchain_payment_v2:memo(Payment) orelse
+                undefined == blockchain_payment_v2:memo(Payment)
+        end,
+        Payments
+    ).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

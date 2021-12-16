@@ -25,12 +25,14 @@
     state_channel_expire_at/1,
     closer/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -97,6 +99,10 @@ fee(Txn) ->
 fee(Txn, Fee) ->
     Txn#blockchain_txn_state_channel_close_v1_pb{fee=Fee}.
 
+-spec fee_payer(txn_state_channel_close(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    closer(Txn).
+
 -spec signature(txn_state_channel_close()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_state_channel_close_v1_pb.signature.
@@ -152,7 +158,8 @@ is_valid(Txn, Chain) ->
         false ->
             {error, {cannot_expire, LedgerHeight, SCGrace, ExpiresAt}};
         true ->
-            case length(blockchain_state_channel_v1:summaries(SC)) > ?MAX_UNIQ_CLIENTS of
+            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+            case length(blockchain_state_channel_v1:summaries(SC)) > MaxActorsAllowed of
                 true ->
                     {error, max_clients_exceeded};
                 false ->
@@ -227,6 +234,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
         false ->
             {error, not_owner};
         true ->
+            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
             LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
             CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
             lager:info("close state was ~p", [CloseState]),
@@ -252,7 +260,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                                                          false ->
                                                                              {false, {error, sc_mismatch}, SC};
                                                                          true ->
-                                                                             Merged = blockchain_state_channel_v1:merge(SC, ConflictingSC),
+                                                                             Merged = blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed),
                                                                              {true, blockchain_state_channel_v1:validate(ConflictingSC), Merged}
                                                                      end
                                                              end,
@@ -277,7 +285,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                             %% we need to check if this conflict adds any new information
                                             %%
                                             %% We can merge the incoming state channel(s) with the existing one and check for conflicts or causually newer information
-                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:merge(LSC, MergedSC)) of
+                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:merge(LSC, MergedSC, MaxActorsAllowed)) of
                                                 equal ->
                                                     {error, redundant};
                                                 caused ->
@@ -325,13 +333,16 @@ absorb(Txn, Chain) ->
     Owner = blockchain_state_channel_v1:owner(SC),
     Closer = ?MODULE:closer(Txn),
     TxnFee = ?MODULE:fee(Txn),
-    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of
-        {error, _Reason}=Error -> Error;
+    TxnHash = ?MODULE:hash(Txn),
+    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
+        {error, _Reason}=Error ->
+            Error;
         ok ->
+            MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of
                                           undefined -> {SC, false};
                                           ConflictingSC ->
-                                              {blockchain_state_channel_v1:merge(SC, ConflictingSC), true}
+                                              {blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed), true}
                                       end,
             lager:info("Closing with conflict ~p", [HadConflict]),
             blockchain_ledger_v1:close_state_channel(Owner, Closer, MergedSC, ID, HadConflict, Ledger)
@@ -343,10 +354,13 @@ print(undefined) -> <<"type=state_channel_close, undefined">>;
 print(#blockchain_txn_state_channel_close_v1_pb{state_channel=SC, closer=Closer}) ->
     io_lib:format("type=state_channel_close, state_channel=~p, closer=~p", [SC, ?TO_B58(Closer)]).
 
+json_type() ->
+    <<"state_channel_close_v1">>.
+
 -spec to_json(txn_state_channel_close(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"state_channel_close_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       closer => ?BIN_TO_B58(closer(Txn)),
       state_channel => blockchain_state_channel_v1:to_json(state_channel(Txn), []),

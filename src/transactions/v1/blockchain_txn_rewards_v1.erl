@@ -21,10 +21,12 @@
     rewards/1,
     sign/2,
     fee/1,
+    fee_payer/2,
     is_valid/2,
     absorb/2,
     calculate_rewards/3,
     print/1,
+    json_type/0,
     to_json/2,
     legit_witnesses/6
 ]).
@@ -102,6 +104,10 @@ sign(Txn, _SigFun) ->
 fee(_Txn) ->
     0.
 
+-spec fee_payer(txn_rewards(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -124,13 +130,50 @@ is_valid(Txn, Chain) ->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_rewards(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+
+    case blockchain_ledger_v1:mode(Ledger) == aux of
+        false ->
+            %% only absorb in the main ledger
+            absorb_(Txn, Ledger);
+        true ->
+            %% absorb in the aux ledger
+            aux_absorb(Txn, Ledger, Chain)
+    end.
+
+-spec aux_absorb(Txn :: txn_rewards(),
+                 AuxLedger :: blockchain_ledger_v1:ledger(),
+                 Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+aux_absorb(Txn, AuxLedger, Chain) ->
+    Start = ?MODULE:start_epoch(Txn),
+    End = ?MODULE:end_epoch(Txn),
+    %% NOTE: This is an aux ledger, we don't use rewards(txn) here, instead we calculate them manually
+    %% and do 0 verification for absorption
+    case calculate_rewards_(Start, End, AuxLedger, Chain) of
+        {error, _}=E -> E;
+        {ok, AuxRewards} ->
+            TxnRewards = rewards(Txn),
+            %% absorb the rewards attached to the txn (real)
+            absorb_rewards(TxnRewards, AuxLedger),
+            %% set auxiliary rewards in the aux ledger also
+            lager:info("are aux rewards equal?: ~p", [lists:sort(TxnRewards) == lists:sort(AuxRewards)]),
+            %% rewards appear in (End + 1) block
+            blockchain_aux_ledger_v1:set_rewards(End + 1, TxnRewards, AuxRewards, AuxLedger)
+    end.
+
+-spec absorb_(Txn :: txn_rewards(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+absorb_(Txn, Ledger) ->
     Rewards = ?MODULE:rewards(Txn),
+    absorb_rewards(Rewards, Ledger).
+
+-spec absorb_rewards(Rewards :: blockchain_txn_reward_v1:rewards(),
+                     Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+absorb_rewards(Rewards, Ledger) ->
     AccRewards = lists:foldl(
         fun(Reward, Acc) ->
             Account = blockchain_txn_reward_v1:account(Reward),
@@ -143,7 +186,7 @@ absorb(Txn, Chain) ->
     ),
     maps:fold(
         fun(Account, Amount, _) ->
-            blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
+                blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
         end,
         ok,
         AccRewards
@@ -157,6 +200,14 @@ absorb(Txn, Chain) ->
     {ok, blockchain_txn_reward_v1:rewards()} | {error, any()}.
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
+    calculate_rewards_(Start, End, Ledger, Chain).
+
+-spec calculate_rewards_(
+        Start :: non_neg_integer(),
+        End :: non_neg_integer(),
+        Ledger :: blockchain_ledger_v1:ledger(),
+        Chain :: blockchain:blockchain()) -> {error, any()} | {ok, blockchain_txn_reward_v1:rewards()}.
+calculate_rewards_(Start, End, Ledger, Chain) ->
     Vars = get_reward_vars(Start, End, Ledger),
     %% Previously, if a state_channel closed in the grace blocks before an
     %% epoch ended, then it wouldn't ever get rewarded.
@@ -184,6 +235,15 @@ calculate_rewards(Start, End, Chain) ->
                                              {ok, Owner} ->
                                                  Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
                                                  [Reward|Acc1]
+                                         end;
+                                    ({validator, Type, Validator}, Amount, Acc1) ->
+                                         case blockchain_ledger_v1:get_validator(Validator, Ledger) of
+                                             {error, _} ->
+                                                 Acc1;
+                                             {ok, Val} ->
+                                                 Owner = blockchain_ledger_validator_v1:owner_address(Val),
+                                                 Reward = blockchain_txn_reward_v1:new(Owner, Validator, Amount, Type),
+                                                 [Reward|Acc1]
                                          end
                                  end,
                                  Acc0,
@@ -198,6 +258,7 @@ calculate_rewards(Start, End, Chain) ->
             %% rewards transaction calculation, then we discard that work and avoid
             %% cache invalidation issues.
             true = blockchain_hex:destroy_memoization(),
+            blockchain_ledger_v1:delete_context(Ledger),
             {ok, Result}
     end.
 
@@ -214,10 +275,13 @@ print(#blockchain_txn_rewards_v1_pb{start_epoch=Start,
     io_lib:format("type=rewards start_epoch=~p end_epoch=~p rewards=~p",
                   [Start, End, PrintableRewards]).
 
+json_type() ->
+    <<"rewards_v1">>.
+
 -spec to_json(txn_rewards(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"rewards_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       start_epoch => start_epoch(Txn),
       end_epoch => end_epoch(Txn),
@@ -411,6 +475,13 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
                                 map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
                                     consensus_percent := ConsensusPercent}) ->
+    GwOrVal =
+        case blockchain:config(?election_version, Ledger) of
+            {ok, N} when N >= 5 ->
+                validator;
+            _ ->
+                gateway
+        end,
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
             lager:error("failed to get consensus_members ~p", [_Reason]),
@@ -423,7 +494,7 @@ consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
                 fun(Member, Acc) ->
                     PercentofReward = 100/Total/100,
                     Amount = erlang:round(PercentofReward*ConsensusReward),
-                    maps:put({gateway, consensus, Member}, Amount, Acc)
+                    maps:put({GwOrVal, consensus, Member}, Amount, Acc)
                 end,
                 #{},
                 ConsensusMembers
@@ -1091,54 +1162,64 @@ rewards_test() ->
     Tx = new(1, 30, []),
     ?assertEqual([], rewards(Tx)).
 
-consensus_members_rewards_test() ->
-    BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-    Ledger = blockchain:ledger(Chain),
-    Vars = #{
-        epoch_reward => 1000,
-        consensus_percent => 0.10
-    },
-    Rewards = #{
-        {gateway, consensus, <<"1">>} => 50,
-        {gateway, consensus, <<"2">>} => 50
-    },
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, [O || {gateway, consensus, O} <- maps:keys(Rewards)]}
-    end),
-    ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
-    test_utils:cleanup_tmp_dir(BaseDir).
+consensus_members_rewards_test() -> {
+    timeout,
+    30,
+    fun() ->
+        BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
+        Block = blockchain_block:new_genesis_block([]),
+        {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+        Ledger = blockchain:ledger(Chain),
+        Vars = #{
+            epoch_reward => 1000,
+            consensus_percent => 0.10
+        },
+        Rewards = #{
+            {gateway, consensus, <<"1">>} => 50,
+            {gateway, consensus, <<"2">>} => 50
+        },
+        meck:new(blockchain_ledger_v1, [passthrough]),
+        meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+            {ok, [O || {gateway, consensus, O} <- maps:keys(Rewards)]}
+        end),
+        ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
+        ?assert(meck:validate(blockchain_ledger_v1)),
+        meck:unload(blockchain_ledger_v1),
+        test_utils:cleanup_tmp_dir(BaseDir)
+    end
+    }.
 
 
 
-securities_rewards_test() ->
-    BaseDir = test_utils:tmp_dir("securities_rewards_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-    Ledger = blockchain:ledger(Chain),
-    Vars = #{
-        epoch_reward => 1000,
-        securities_percent => 0.35
-    },
-    Rewards = #{
-        {owner, securities, <<"1">>} => 175,
-        {owner, securities, <<"2">>} => 175
-    },
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, securities, fun(_) ->
-        #{
-            <<"1">> => blockchain_ledger_security_entry_v1:new(0, 2500),
-            <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
-        }
-    end),
-    ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
-    test_utils:cleanup_tmp_dir(BaseDir).
+securities_rewards_test() -> {
+    timeout,
+    30,
+    fun() ->
+        BaseDir = test_utils:tmp_dir("securities_rewards_test"),
+        Block = blockchain_block:new_genesis_block([]),
+        {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+        Ledger = blockchain:ledger(Chain),
+        Vars = #{
+            epoch_reward => 1000,
+            securities_percent => 0.35
+        },
+        Rewards = #{
+            {owner, securities, <<"1">>} => 175,
+            {owner, securities, <<"2">>} => 175
+        },
+        meck:new(blockchain_ledger_v1, [passthrough]),
+        meck:expect(blockchain_ledger_v1, securities, fun(_) ->
+            #{
+                <<"1">> => blockchain_ledger_security_entry_v1:new(0, 2500),
+                <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
+            }
+        end),
+        ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
+        ?assert(meck:validate(blockchain_ledger_v1)),
+        meck:unload(blockchain_ledger_v1),
+        test_utils:cleanup_tmp_dir(BaseDir)
+    end
+    }.
 
 poc_challengers_rewards_1_test() ->
     Txns = [

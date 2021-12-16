@@ -21,7 +21,6 @@ prop_path_check() ->
                 LedgerVars = ledger_vars(Ledger),
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
-                {ok, GWCache} = blockchain_gateway_cache:start_link(),
 
                 Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
                             {error, not_found} ->
@@ -68,7 +67,6 @@ prop_path_check() ->
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
-                gen_server:stop(GWCache),
 
                 ?WHENFAIL(begin
                               blockchain_ledger_v1:close(Ledger)

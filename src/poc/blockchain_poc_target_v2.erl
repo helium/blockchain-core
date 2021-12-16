@@ -13,11 +13,12 @@
 
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 
 -export([
          target/3,
          target_v2/3,
-         filter/5
+         filter/6
         ]).
 
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -62,16 +63,22 @@ target_v2(Hash, Ledger, Vars) ->
     GatewayMap =
         lists:foldl(
           fun(Addr, Acc) ->
-                  {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
-                  Score =
-                      case prob_score_wt(Vars) of
-                          0.0 ->
-                              1.0;
-                          _ ->
-                              {_, _, Scr} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
-                              Scr
-                      end,
-                  Acc#{Addr => {Gw, Score}}
+              %% exclude GWs which do not have the required capability
+              {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
+              case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
+                  false -> Acc;
+                  true ->
+                      Score =
+                          case prob_score_wt(Vars) of
+                              0.0 ->
+                                  1.0;
+                              _ ->
+                                  {_, _, Scr} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+                                  Scr
+                          end,
+                      Acc#{Addr => {Gw, Score}}
+              end
           end,
           #{},
           AddrList),
@@ -93,33 +100,42 @@ target_v2(Hash, Ledger, Vars) ->
              ChallengerAddr :: libp2p_crypto:pubkey_bin(),
              ChallengerLoc :: h3:index(),
              Height :: pos_integer(),
-             Vars :: map()) -> blockchain_utils:gateway_score_map().
-filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
+             Vars :: map(),
+             Ledger :: blockchain:ledger()) -> blockchain_utils:gateway_score_map().
+filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars, Ledger) ->
     maps:filter(fun(_Addr, {Gateway, _Score}) ->
-                        valid(Gateway, ChallengerLoc, Height, Vars)
+                        valid(Gateway, ChallengerLoc, Height, Vars, Ledger)
                 end,
                 maps:without([ChallengerAddr], GatewayScoreMap)).
 
 -spec valid(Gateway :: blockchain_ledger_gateway_v2:gateway(),
             ChallengerLoc :: h3:h3_index(),
             Height :: pos_integer(),
-            Vars :: map()) -> boolean().
-valid(Gateway, ChallengerLoc, Height, Vars) ->
+            Vars :: map(),
+            Ledger :: blockchain:ledger()) -> boolean().
+valid(Gateway, ChallengerLoc, Height, Vars, Ledger) ->
     case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
         undefined ->
             %% No POC challenge, don't include
             false;
         C ->
+            Mode = blockchain_ledger_gateway_v2:mode(Gateway),
             %% Check challenge age is recent depending on the set chain var
             (Height - C) < challenge_age(Vars) andalso
+            %% Check the potential target has the required capability
             %% Check that the potential target is far enough from the challenger
             %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
             %% so this should be safe.
-                case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
-                    false ->
-                        check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars);
+                case blockchain_ledger_gateway_v2:is_valid_capability(Mode, ?GW_CAPABILITY_POC_CHALLENGEE, Ledger) of
                     true ->
-                        true
+                        case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
+                            false ->
+                                check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars);
+                            true ->
+                                true
+                        end;
+                    false ->
+                        false
                 end
     end.
 

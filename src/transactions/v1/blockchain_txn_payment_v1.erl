@@ -21,6 +21,7 @@
     payee/1,
     amount/1,
     fee/1, fee/2,
+    fee_payer/2,
     calculate_fee/2, calculate_fee/5,
     nonce/1,
     signature/1,
@@ -28,6 +29,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -75,6 +77,10 @@ fee(Txn) ->
 -spec fee(txn_payment(), non_neg_integer()) -> txn_payment().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_payment_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_payment(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    payer(Txn).
 
 -spec nonce(txn_payment()) -> non_neg_integer().
 nonce(Txn) ->
@@ -137,33 +143,45 @@ is_valid(Txn, Chain) ->
                         false ->
                             {error, bad_signature};
                         true ->
-                            case Payer == Payee of
-                                false ->
-                                    Amount = ?MODULE:amount(Txn),
-                                    TxnFee = ?MODULE:fee(Txn),
-                                        AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
-                                                          {ok, false} ->
-                                                              %% check that amount is greater than 0
-                                                              Amount > 0;
-                                                          _ ->
-                                                              %% if undefined or true, use the old check
-                                                              Amount >= 0
-                                                      end,
-                                        case AmountCheck of
-                                            false ->
-                                                {error, invalid_transaction};
-                                            true ->
-                                                AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                    false ->
-                                                        {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                                    true ->
-                                                        blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                                end
-                                        end;
-                                true ->
-                                    {error, invalid_transaction_self_payment}
+                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                                {error, _}=Error0 ->
+                                    Error0;
+                                {ok, Entry} ->
+                                    TxnNonce = ?MODULE:nonce(Txn),
+                                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                                    case TxnNonce =:= LedgerNonce + 1 of
+                                        false ->
+                                            {error, {bad_nonce, {payment, TxnNonce, LedgerNonce}}};
+                                        true ->
+                                            case Payer == Payee of
+                                                false ->
+                                                    Amount = ?MODULE:amount(Txn),
+                                                    TxnFee = ?MODULE:fee(Txn),
+                                                        AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                                          {ok, false} ->
+                                                                              %% check that amount is greater than 0
+                                                                              Amount > 0;
+                                                                          _ ->
+                                                                              %% if undefined or true, use the old check
+                                                                              Amount >= 0
+                                                                      end,
+                                                        case AmountCheck of
+                                                            false ->
+                                                                {error, invalid_transaction};
+                                                            true ->
+                                                                AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                                ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                                case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                                    false ->
+                                                                        {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                                                    true ->
+                                                                        blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                                                end
+                                                        end;
+                                                true ->
+                                                    {error, invalid_transaction_self_payment}
+                                            end
+                                    end
                             end
                     end;
                 Error ->
@@ -176,10 +194,11 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Amount = ?MODULE:amount(Txn),
     TxnFee = ?MODULE:fee(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled) of
+    case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
         {error, _Reason}=Error -> Error;
         ok ->
             case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
@@ -195,14 +214,16 @@ absorb(Txn, Chain) ->
 print(undefined) -> <<"type=payment, undefined">>;
 print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,
                                     fee=Fee, nonce=Nonce, signature = S }) ->
-    io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~p",
-                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, S]).
+    io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~s",
+                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, ?TO_B58(S)]).
 
+json_type() ->
+    <<"payment_v1">>.
 
 -spec to_json(txn_payment(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"payment_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payee => ?BIN_TO_B58(payee(Txn)),
@@ -268,43 +289,46 @@ to_json_test() ->
                       [type, hash, payer, payee, amount, fee, nonce])).
 
 is_valid_with_extended_validation_test() ->
-    BaseDir = test_utils:tmp_dir("is_valid_with_extended_validation_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-    meck:new(blockchain_ledger_v1, [passthrough]),
+    {timeout, 30000,
+     fun() ->
+             BaseDir = test_utils:tmp_dir("is_valid_with_extended_validation_test"),
+             Block = blockchain_block:new_genesis_block([]),
+             {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+             meck:new(blockchain_ledger_v1, [passthrough]),
 
-    %% These are all required
-    meck:expect(blockchain_ledger_v1, config,
-                fun(?deprecate_payment_v1, _) ->
-                        {ok, false};
-                   (?txn_field_validation_version, _) ->
-                        %% This is new
-                        {ok, 1};
-                   (?allow_zero_amount, _) ->
-                        {ok, false};
-                   (?dc_payload_size, _) ->
-                        {error, not_found};
-                   (?txn_fee_multiplier, _) ->
-                        {error, not_found}
-                end),
-    meck:expect(blockchain_ledger_v1, txn_fees_active, fun(_) -> true end),
+             %% These are all required
+             meck:expect(blockchain_ledger_v1, config,
+                         fun(?deprecate_payment_v1, _) ->
+                                 {ok, false};
+                            (?txn_field_validation_version, _) ->
+                                 %% This is new
+                                 {ok, 1};
+                            (?allow_zero_amount, _) ->
+                                 {ok, false};
+                            (?dc_payload_size, _) ->
+                                 {error, not_found};
+                            (?txn_fee_multiplier, _) ->
+                                 {error, not_found}
+                         end),
+             meck:expect(blockchain_ledger_v1, txn_fees_active, fun(_) -> true end),
 
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
-    Tx = sign(new(Payer, <<"payee">>, 666, 1), SigFun),
-    ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx, Chain)),
+             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+             Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+             Tx = sign(new(Payer, <<"payee">>, 666, 1), SigFun),
+             ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx, Chain)),
 
-    Tx1 = sign(new(Payer, libp2p_crypto:b58_to_bin("1BR9RgYoP5psbcw9aKh1cDskLaGMBmkb8"), 666, 1), SigFun),
-    ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx1, Chain)),
+             Tx1 = sign(new(Payer, libp2p_crypto:b58_to_bin("1BR9RgYoP5psbcw9aKh1cDskLaGMBmkb8"), 666, 1), SigFun),
+             ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx1, Chain)),
 
-    #{public := PayeePubkey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    ValidPayee = libp2p_crypto:pubkey_to_bin(PayeePubkey),
-    Tx2 = sign(new(Payer, ValidPayee, 666, 1), SigFun),
-    %% This check can be improved but whatever (it fails on fee)
-    ?assertNotEqual({error, {invalid_address, payee}}, is_valid(Tx2, Chain)),
+             #{public := PayeePubkey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+             ValidPayee = libp2p_crypto:pubkey_to_bin(PayeePubkey),
+             Tx2 = sign(new(Payer, ValidPayee, 666, 1), SigFun),
+             %% This check can be improved but whatever (it fails on fee)
+             ?assertNotEqual({error, {invalid_address, payee}}, is_valid(Tx2, Chain)),
 
-    meck:unload(blockchain_ledger_v1),
-    test_utils:cleanup_tmp_dir(BaseDir).
+             meck:unload(blockchain_ledger_v1),
+             test_utils:cleanup_tmp_dir(BaseDir)
+     end}.
 
 -endif.

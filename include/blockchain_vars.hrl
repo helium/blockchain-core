@@ -2,6 +2,10 @@
 %%%% without using the macros defined here.  running:
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
+
+%% key: {is_aux, vars_nonce, var_name}
+-define(VAR_CACHE, var_cache).
+
 %%%
 %%% election vars
 %%%
@@ -36,6 +40,7 @@
 
 %% number of blocks before a running dkg is canceled and a new one is initiated
 -define(election_restart_interval, election_restart_interval).
+-define(election_restart_interval_range, election_restart_interval_range).
 
 %% per-block penalty for consensus nodes that don't finish a
 %% particular bba for a round.
@@ -149,6 +154,16 @@
 %% during targeting
 -define(poc_witness_consideration_limit, poc_witness_consideration_limit).
 
+
+-define(poc_addr_hash_byte_count, poc_addr_hash_byte_count).
+
+%% define loss factor for SNR curve, floating point number
+-define(fspl_loss, fspl_loss).
+%% define poc_distance_limit, set to some max distance in Kms, pos_integer
+-define(poc_distance_limit, poc_distance_limit).
+%% define whether to check snr or not, boolean
+-define(check_snr, check_snr).
+
 %%%
 %%% score vars
 %%%
@@ -181,6 +196,10 @@
 -define(dc_percent, dc_percent).
 -define(witness_redundancy, witness_redundancy).
 -define(poc_reward_decay_rate, poc_reward_decay_rate).
+-define(rewards_txn_version, rewards_txn_version).
+-define(hip15_tx_reward_unit_cap, hip15_tx_reward_unit_cap).
+-define(witness_reward_decay_rate, witness_reward_decay_rate).
+-define(witness_reward_decay_exclusion, witness_reward_decay_exclusion).
 
 %%%
 %%% bundle txn vars
@@ -268,6 +287,8 @@
 -define(max_payments, max_payments).
 %% Var to switch off legacy payment txn
 -define(deprecate_payment_v1, deprecate_payment_v1).
+%% Enable payment-v2 memos
+-define(allow_payment_v2_memos, allow_payment_v2_memos).
 
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
@@ -309,6 +330,15 @@
 -define(sc_causality_fix, sc_causality_fix).
 %% Block interval to try to GC state channels
 -define(sc_gc_interval, sc_gc_interval).
+%% Max number of actors (hotspots) allowed per state channel
+-define(sc_max_actors, sc_max_actors).
+%% Whether to include _all_ state channels in "active" count.
+%% The "old" behavior (i.e., `false') was to count all state
+%% channels regardless of their open or closed state.
+%%
+%% The "new" behavior (i.e., `true') is to count state channels
+%% that are only in the open state and ignore closed channels.
+-define(sc_only_count_open_active, sc_only_count_open_active).
 
 
 %% ------------------------------------------------------------------
@@ -346,14 +376,25 @@
 -define(txn_fees, txn_fees).
 %% valid staking server keys, encoded via <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
 -define(staking_keys, staking_keys).
+%% staking server keys with a mapping to gateway type ( dataonly, light and full )
+-define(staking_keys_to_mode_mappings, staking_keys_to_mode_mappings).
 %% the staking fee in DC for each OUI
 -define(staking_fee_txn_oui_v1, staking_fee_txn_oui_v1).
 %% the staking fee in DC for each OUI/routing address
 -define(staking_fee_txn_oui_v1_per_address, staking_fee_txn_oui_v1_per_address).
-%% the staking fee in DC for adding a gateway
+%% the staking fee in DC for adding a full gateway
 -define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
+%% the staking fee in DC for adding a dataonly gateway
+-define(staking_fee_txn_add_dataonly_gateway_v1, staking_fee_txn_add_dataonly_gateway_v1).
+%% the staking fee in DC for adding a light gateway
+-define(staking_fee_txn_add_light_gateway_v1, staking_fee_txn_add_light_gateway_v1).
 %% the staking fee in DC for asserting a location
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
+%% the staking fee in DC for asserting a location for a dataonly gateway
+-define(staking_fee_txn_assert_location_dataonly_gateway_v1, staking_fee_txn_assert_location_dataonly_gateway_v1).
+%% the staking fee in DC for asserting a location for a light gateway
+-define(staking_fee_txn_assert_location_light_gateway_v1, staking_fee_txn_assert_location_light_gateway_v1).
+
 %% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful
 -define(txn_fee_multiplier, txn_fee_multiplier).
 
@@ -399,3 +440,99 @@
 -define(hip17_res_12, hip17_res_12).
 -define(density_tgt_res, density_tgt_res).
 -define(hip17_interactivity_blocks, hip17_interactivity_blocks).
+
+%% ------------------------------------------------------------------
+%% assert_location_v2 transaction related vars
+
+%% Allowed values: 1, 2
+-define(assert_loc_txn_version, assert_loc_txn_version).
+
+%% Known antenna gains:
+%% Helium Hotspot (US 915) - 1.2 dBi
+%% Helium Hotspot (EU 868) - 2.3 dBi
+%% RAK Hotspot Miner (US 915) - 2.3 dBi
+%% RAK Hotspot Miner (EU 868) - 2.8 dBi
+%% Nebra Outdoor Hotspot - 3 dBi
+%% Bobcat Miner 300 (All) - 4 dBi
+%% Syncrob.it (US 915) - 1.2 dBi
+%% Syncrob.it (EU 868) - 2.3 dBi
+
+%% NOTE: Allow min_antenna_gain - max_antenna_gain (both inclusive)
+%% Both will be set as dBi x 10, so, 1 dBi = 10, 15 dBi = 150,
+%% Any gain value between min-max is acceptable
+-define(min_antenna_gain, min_antenna_gain).        %% Set to 10 (1 dBi)
+-define(max_antenna_gain, max_antenna_gain).        %% Set to 150 (15 dBi)
+
+%% ------------------------------------------------------------------
+%% the mask value to represent the capabilities of dataonly gateways, defined as an integer and used as a bitmask
+-define(dataonly_gateway_capabilities_mask, dataonly_gateway_capabilities_mask).
+%% the mask value to represent the capabilities of light gateways, defined as an integer and used as a bitmask
+-define(light_gateway_capabilities_mask, light_gateway_capabilities_mask).
+%% the mask value to represent the capabilities of full gateways, defined as an integer and used as a bitmask
+-define(full_gateway_capabilities_mask, full_gateway_capabilities_mask).
+
+%%%
+%%% validators variables
+%%%
+
+-define(validator_version, validator_version).
+-define(validator_minimum_stake, validator_minimum_stake).  % bones
+-define(validator_liveness_interval, validator_liveness_interval).  % blocks
+-define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
+-define(validator_penalty_filter, validator_penalty_filter). % float
+-define(validator_key_check, validator_key_check). % boolean
+-define(stake_withdrawal_cooldown, stake_withdrawal_cooldown). % blocks
+-define(stake_withdrawal_max, stake_withdrawal_max). % blocks
+%% -define(maximum_overstake, maximum_overstake). % float multiple of min stake
+
+-define(penalty_history_limit, penalty_history_limit). % blocks
+-define(dkg_penalty, dkg_penalty). % float
+-define(tenure_penalty, tenure_penalty). % float
+
+%%%
+%%% net emissions vars
+%%%
+
+%% use net emissions code paths
+-define(net_emissions_enabled, net_emissions_enabled). % boolean
+%% maximum amount of burnt hnt per epoch to return to the rewards pool
+%% initial proposed max 34.24 HNT
+-define(net_emissions_max_rate, net_emissions_max_rate). % bones
+
+%% ------------------------------------------------------------------
+%% regulatory_region related variables
+
+%% This is a comma separated string like so:
+%% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+-define(regulatory_regions, regulatory_regions).
+
+%% Each of the former regions is associated with a dynamic var of the same name which is is a serialized form of an h3_region set determined at h3_res: 7
+%% For more information, check: https://github.com/JayKickliter/lorawan-h3-regions and https://github.com/helium/erlang-h3/pull/29
+
+%% Additionally, each of the former regions is associated with a dynamic var of the form <regionname>_params, eg region_us915_params which
+%% contains the RF parameters for that region.
+
+%% The values these take is binary obtained by serializing
+%% a valid channel param specification.
+%%
+%% The validation of these is highly specific and will only
+%% validate a binary value we know beforehand, usually evaluated
+%% by hand. We don't expect these to change often but whence
+%% they do, we will re-evaluate accordingly.
+%%
+%% Refer to blockchain_region_SUITE for an example
+
+%% ------------------------------------------------------------------
+%% This is a general purpose variable. We can use it for any transaction
+%% to specify which version of it we will support on chain.
+%%
+%% As an example, blockchain_txn_transfer_hotspot_v2, will get enabled
+%% when this value is set to >= 2.
+-define(transaction_validity_version, transaction_validity_version).    % pos_integer
+
+
+%% Boolean chain variable to discard witnesses with 0.0 frequency
+-define(discard_zero_freq_witness, discard_zero_freq_witness).
+
+%% Block size limit variable (in bytes). Set to 25 * 1024 * 1024.
+-define(block_size_limit, block_size_limit).

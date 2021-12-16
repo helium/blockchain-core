@@ -24,6 +24,7 @@
     owner/1,
     action/1,
     fee/1, fee/2,
+    fee_payer/2,
     staking_fee/1, staking_fee/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     nonce/1,
@@ -32,6 +33,7 @@
     is_valid/2,
     absorb/2,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -127,6 +129,10 @@ fee(Txn) ->
 -spec fee(txn_routing(), non_neg_integer()) -> txn_routing().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_routing_v1_pb{fee=Fee}.
+
+-spec fee_payer(txn_routing(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(Txn, _Ledger) ->
+    owner(Txn).
 
 -spec staking_fee(txn_routing()) -> non_neg_integer().
 staking_fee(Txn) ->
@@ -258,6 +264,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     TxnFee = ?MODULE:fee(Txn),
+    TxnHash = ?MODULE:hash(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Owner = ?MODULE:owner(Txn),
     OUI = ?MODULE:oui(Txn),
@@ -290,7 +297,7 @@ absorb(Txn, Chain) ->
             Error;
         _ ->
             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            case blockchain_ledger_v1:debit_fee(Owner, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
+            case blockchain_ledger_v1:debit_fee(Owner, TxnFee + StakingFee, Ledger, AreFeesEnabled, TxnHash, Chain) of
                 {error, _}=Error ->
                     Error;
                 ok ->
@@ -328,10 +335,13 @@ action_to_json({request_subnet, SubnetSize}, _Opts) ->
     #{action => <<"request_subnet">>,
       subnet_size => SubnetSize}.
 
+json_type() ->
+    <<"routing_v1">>.
+
 -spec to_json(txn_routing(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"routing_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       oui => oui(Txn),
       owner => ?BIN_TO_B58(owner(Txn)),

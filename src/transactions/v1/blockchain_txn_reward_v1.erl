@@ -19,6 +19,7 @@
     type/1,
     is_valid/1,
     print/1,
+    json_type/0,
     to_json/2
 ]).
 
@@ -119,6 +120,8 @@ print(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
     io_lib:format("type=reward account=~p, gateway=~p, amount=~p, type=~p",
                   [?TO_B58(Account), ?TO_ANIMAL_NAME(Gateway), Amount, Type]).
 
+json_type() ->
+    undefined.
 
 -spec to_json(reward(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Reward, _Opts) ->

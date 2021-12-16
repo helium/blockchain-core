@@ -8,16 +8,18 @@
 -behavior(blockchain_txn).
 
 -behavior(blockchain_json).
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_vars.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
--include("blockchain_vars.hrl").
 
 -export([
          new/2, new/3,
          hash/1,
          fee/1,
+         fee_payer/2,
          is_valid/2,
          master_key/1,
          multi_keys/1,
@@ -26,6 +28,8 @@
          proof/1, proof/2,
          multi_proofs/1, multi_proofs/2,
          vars/1,
+         to_var/2,
+         from_var/1,
          decoded_vars/1,
          version_predicate/1,
          unsets/1,
@@ -35,6 +39,7 @@
          rescue_absorb/2,
          sign/2,
          print/1,
+         json_type/0,
          to_json/2
         ]).
 
@@ -126,7 +131,9 @@ encode_vars(Vars) ->
 encode_unsets(Unsets) ->
     lists:map(fun(U) -> atom_to_binary(U, utf8) end, Unsets).
 
-to_var(Name, V) when is_list(V) orelse is_binary(V) ->
+to_var(Name, V) when is_binary(V) ->
+    #blockchain_var_v1_pb{name = Name, type = "binary", value = V};
+to_var(Name, V) when is_list(V) ->
     #blockchain_var_v1_pb{name = Name, type = "string", value = iolist_to_binary(V)};
 to_var(Name, V) when is_integer(V) ->
     #blockchain_var_v1_pb{name = Name, type = "int", value = integer_to_binary(V)};
@@ -135,6 +142,7 @@ to_var(Name, V) when is_float(V) ->
 to_var(Name, V) when is_atom(V) ->
     #blockchain_var_v1_pb{name = Name, type = "atom", value = atom_to_binary(V, utf8)};
 to_var(_Name, _V) ->
+    lager:warning("bad var: ~p, value ~p", [_Name, _V]),
     error(bad_var_type).
 
 decode_vars(PBList) ->
@@ -147,6 +155,8 @@ decode_vars(PBList) ->
       #{},
       PBList).
 
+from_var(#blockchain_var_v1_pb{name = Name, type = "binary", value = V}) ->
+    {Name, V};
 from_var(#blockchain_var_v1_pb{name = Name, type = "string", value = V}) ->
     {Name, V};
 from_var(#blockchain_var_v1_pb{name = Name, type = "int", value = V}) ->
@@ -172,6 +182,10 @@ sign(Txn, _SigFun) ->
 -spec fee(txn_vars()) -> non_neg_integer().
 fee(_Txn) ->
     0.
+
+-spec fee_payer(txn_vars(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
 
 master_key(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.master_key.
@@ -249,6 +263,7 @@ is_valid(Txn, Chain) ->
             _ ->
                 1
         end,
+
     case Version of
         2 ->
             Artifact = create_artifact(Txn),
@@ -266,8 +281,13 @@ is_valid(Txn, Chain) ->
                         throw({error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}})
                 end,
 
-                %% do these before the proof, so we can check validation on unsigned txns
-                maps:map(fun validate_var/2, Vars),
+                case Gen of
+                    true -> ok; %% genesis block doesn't validate vars
+                    _ ->
+                        %% do these before the proof, so we can check validation on unsigned txns
+                        %% NB: validation errors MUST throw
+                        maps:map(fun validate_var/2, Vars)
+                end,
                 lists:foreach(
                   fun(VarName) ->
                           case blockchain:config(VarName, Ledger) of % ignore this one using "?"
@@ -318,8 +338,6 @@ is_valid(Txn, Chain) ->
                                 end
                         end
                 end,
-                %% NB: validation errors MUST throw
-
                 %% TODO: validate that a cancelled transaction is actually on
                 %% the chain
 
@@ -532,7 +550,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                     case check_members(Members, V, Ledger) of
                         true ->
                             {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
-                            Versions = blockchain_ledger_v1:gateway_versions(Ledger),
+                            Versions = blockchain_ledger_v1:cg_versions(Ledger),
                             case sum_higher(V, Versions) of
                                 Pct when Pct >= Threshold andalso Delay =:= 0 ->
                                     delayed_absorb(Txn, Ledger),
@@ -540,7 +558,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                                 Pct when Pct >= Threshold ->
                                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                                     true;
-                                _ ->
+                                _Pct ->
                                     false
                             end;
                         _ ->
@@ -550,7 +568,21 @@ maybe_absorb(Txn, Ledger, _Chain) ->
     end.
 
 check_members(Members, Target, Ledger) ->
-    lists:all(fun(M) ->
+    case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 5 ->
+            lists:all(
+              fun(M) ->
+                      case blockchain_ledger_v1:get_validator(M, Ledger) of
+                          {ok, Val} ->
+                              V = blockchain_ledger_validator_v1:version(Val),
+                              V >= Target;
+                          _Err -> false
+                      end
+              end,
+              Members);
+        _ ->
+            lists:all(
+              fun(M) ->
                       case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
                           {ok, Gw} ->
                               V = blockchain_ledger_gateway_v2:version(Gw),
@@ -558,7 +590,8 @@ check_members(Members, Target, Ledger) ->
                           _ -> false
                       end
               end,
-              Members).
+              Members)
+    end.
 
 delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
@@ -610,10 +643,13 @@ print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
                    MasterKey, KeyProof,
                    MultiKeys, MultiKeyProofs, Cancels]).
 
+json_type() ->
+    <<"vars_v1">>.
+
 -spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     #{
-      type => <<"vars_v1">>,
+      type => ?MODULE:json_type(),
       hash => ?BIN_TO_B64(hash(Txn)),
       vars => maps:map(fun(_, V) when is_binary(V) ->
                                case lists:all(fun(C) -> C >= 32 andalso  C =< 127 end, binary_to_list(V)) of
@@ -667,7 +703,7 @@ validate_int(Value, Name, Min, Max, InfOK) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
                 _ -> ok
             end
     end.
@@ -681,7 +717,7 @@ validate_float(Value, Name, Min, Max) ->
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}});
                 _ -> ok
             end
     end.
@@ -714,6 +750,31 @@ validate_staking_keys([H|T]) ->
             throw({error, {invalid_staking_pubkey, H}})
     end.
 
+validate_staking_keys_to_mode_mappings_format(Bin) when is_binary(Bin) ->
+    Mappings = blockchain_utils:bin_to_prop(Bin, 8),
+    validate_staking_keys_to_mode_mappings(Mappings);
+validate_staking_keys_to_mode_mappings_format(_Bin)  ->
+    throw({error, invalid_staking_to_mode_mappings_format}).
+
+validate_staking_keys_to_mode_mappings([]) -> ok;
+validate_staking_keys_to_mode_mappings([{PubKey, GWMode} | T]) ->
+    try
+        _ = libp2p_crypto:bin_to_pubkey(PubKey),
+        _ = validate_staking_key_mode_mapping_value(GWMode),
+        validate_staking_keys_to_mode_mappings(T)
+    catch
+        _C:_E:_St ->
+            throw({error, {invalid_staking_to_mode_mapping, {PubKey, GWMode}}})
+    end.
+
+validate_staking_key_mode_mapping_value(GWMode) when GWMode == <<"dataonly">>;
+                                                     GWMode == <<"light">>;
+                                                     GWMode == <<"full">> ->
+    ok;
+validate_staking_key_mode_mapping_value(GWMode) ->
+    throw({error, {invalid_staking_to_mode_mapping_value, GWMode}}).
+
+
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
 %% election vars
@@ -723,6 +784,8 @@ validate_var(?election_version, Value) ->
         2 -> ok;
         3 -> ok;
         4 -> ok;
+        5 -> ok;  % validator move trigger
+        6 -> ok;  % move to maps
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
@@ -737,9 +800,11 @@ validate_var(?election_replacement_factor, Value) ->
 validate_var(?election_replacement_slope, Value) ->
     validate_int(Value, "election_replacement_slope", 1, 100, false);
 validate_var(?election_interval, Value) ->
-    validate_int(Value, "election_interval", 5, 100, true);
+    validate_int(Value, "election_interval", 3, 100, true);
 validate_var(?election_restart_interval, Value) ->
     validate_int(Value, "election_restart_interval", 5, 100, false);
+validate_var(?election_restart_interval_range, Value) ->
+    validate_int(Value, "election_restart_interval_range", 1, 5, false);
 validate_var(?election_bba_penalty, Value) ->
     validate_float(Value, "election_bba_penalty", 0.001, 0.5);
 validate_var(?election_seen_penalty, Value) ->
@@ -832,7 +897,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 10 ->
+        N when is_integer(N), N >= 1,  N =< 11 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -893,6 +958,18 @@ validate_var(?poc_max_hop_cells, Value) ->
     validate_int(Value, "poc_max_hop_cells", 100, 4000, false);
 validate_var(?poc_per_hop_max_witnesses, Value) ->
     validate_int(Value, "poc_per_hop_max_witnesses", 5, 50, false);
+validate_var(?poc_addr_hash_byte_count, Value) ->
+    validate_int(Value, "poc_addr_hash_byte_count", 4, 32, false);
+validate_var(?fspl_loss, Value) ->
+    validate_float(Value, "fspl_loss", 0.0, 5.0);
+validate_var(?poc_distance_limit, Value) ->
+    validate_int(Value, "poc_distance_limit", 0, 1000, false);
+validate_var(?check_snr, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_check_snr, Value}})
+    end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
@@ -904,7 +981,7 @@ validate_var(?max_staleness, Value) ->
 
 %% reward vars
 validate_var(?monthly_reward, Value) ->
-    validate_int(Value, "monthly_reward", 1000 * 1000000, 10000000 * 1000000, false);
+    validate_int(Value, "monthly_reward", ?bones(1000), ?bones(10000000), false);
 validate_var(?securities_percent, Value) ->
     validate_float(Value, "securities_percent", 0.0, 1.0);
 validate_var(?consensus_percent, Value) ->
@@ -923,11 +1000,24 @@ validate_var(?poc_reward_decay_rate, Value) ->
     validate_float(Value, "poc_reward_decay_rate", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 5 ->
+        N when is_integer(N), N >= 1,  N =< 6 ->
             ok;
         _ ->
             throw({error, {invalid_reward_version, Value}})
     end;
+validate_var(?rewards_txn_version, Value) ->
+    case Value of
+        N when is_integer(N), N >= 1, N =< 2 -> ok;
+        _ -> throw({error, {invalid_rewards_txn_version, Value}})
+    end;
+validate_var(?hip15_tx_reward_unit_cap, Value) ->
+    %% According to HIP-15, the cap should be set to 2.0
+    %% 5.0 is just for future proofing if need be
+    validate_float(Value, "hip15_tx_reward_unit_cap", 0.0, 5.0);
+validate_var(?witness_reward_decay_rate, Value) ->
+    validate_float(Value, "witness_reward_decay_rate", 0.0, 5.0);
+validate_var(?witness_reward_decay_exclusion, Value) ->
+    validate_int(Value, "witness_reward_decay_exclusion", 0, 10, false);
 
 %% bundle vars
 validate_var(?max_bundle_size, Value) ->
@@ -942,6 +1032,13 @@ validate_var(?deprecate_payment_v1, Value) ->
         true -> ok;
         false -> ok;
         _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
+    end;
+
+validate_var(?allow_payment_v2_memos, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_allow_payment_v2_memos, Value}})
     end;
 
 validate_var(?allow_zero_amount, Value) ->
@@ -961,7 +1058,7 @@ validate_var(?txn_field_validation_version, Value) ->
 validate_var(?min_expire_within, Value) ->
     validate_int(Value, "min_expire_within", ?expire_lower_bound, 20, false);
 validate_var(?max_open_sc, Value) ->
-    validate_int(Value, "max_open_sc", 1, 10, false);
+    validate_int(Value, "max_open_sc", 1, 100, false);
 validate_var(?max_xor_filter_size, Value) ->
     validate_int(Value, "max_xor_filter_size", 1024, 1024*100, false);
 validate_var(?max_xor_filter_num, Value) ->
@@ -988,7 +1085,14 @@ validate_var(?sc_causality_fix, Value) ->
     validate_int(Value, "sc_causality_fix", 1, 1, false);
 validate_var(?sc_gc_interval, Value) ->
     validate_int(Value, "sc_gc_interval", 10, 100, false);
-
+validate_var(?sc_max_actors, Value) ->
+    validate_int(Value, "sc_max_actors", 500, 10000, false);
+validate_var(?sc_only_count_open_active, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
+    end;
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
@@ -1038,6 +1142,10 @@ validate_var(?txn_fees, Value) ->
 validate_var(?staking_keys, Value) ->
     validate_staking_keys_format(Value);
 
+validate_var(?staking_keys_to_mode_mappings, Value) ->
+    %% the staking key mode mappings, a key value list of staking keys and their associated gateway types ( dataonly, light, and full )
+    validate_staking_keys_to_mode_mappings_format(Value);
+
 %% txn fee vars below are in DC
 validate_var(?staking_fee_txn_oui_v1, Value) ->
     %% the staking fee price for an OUI, in DC
@@ -1051,9 +1159,25 @@ validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
     %% the staking fee price for an add gateway txn, in DC
     validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
+validate_var(?staking_fee_txn_add_dataonly_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn where the gateway is of mode dataonly, in DC
+    validate_int(Value, "staking_fee_txn_add_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_add_light_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn where the gateway is of mode light, in DC
+    validate_int(Value, "staking_fee_txn_add_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
 validate_var(?staking_fee_txn_assert_location_v1, Value) ->
     %% the staking fee price for an assert location txn, in DC
     validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_assert_location_dataonly_gateway_v1, Value) ->
+    %% the staking fee price for an assert location txn for a dataonly gw, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_dataonly_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_assert_location_light_gateway_v1, Value) ->
+    %% the staking fee price for an assert location txn for a light gw, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_light_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?txn_fee_multiplier, Value) ->
     %% a multiplier applied to txn fee, in DC
@@ -1105,9 +1229,143 @@ validate_var(?density_tgt_res, Value) ->
 validate_var(?hip17_interactivity_blocks, Value) ->
     validate_int(Value, "hip17_interactivity_blocks", 1, 5000, false);
 
+validate_var(?transaction_validity_version, Value) ->
+    case Value of
+        3 -> ok;
+        2 -> ok;
+        _ -> throw({error, {invalid_transaction_validity_version, Value}})
+    end;
+validate_var(?assert_loc_txn_version, Value) ->
+    case Value of
+        N when is_integer(N), N >= 1, N =< 2 -> ok;
+        _ -> throw({error, {invalid_assert_loc_txn_version, Value}})
+    end;
+validate_var(?min_antenna_gain, Value) ->
+    %% Initially set to 10 to imply 1 dBi
+    validate_int(Value, "min_antenna_gain", 0, 10, false);
+validate_var(?max_antenna_gain, Value) ->
+    %% Initially set to 150 to imply 15 dBi
+    validate_int(Value, "max_antenna_gain", 10, 200, false);
+
+validate_var(?dataonly_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a dataonly gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "dataonly_gateway_capabilities_mask", 0, 65536, false);
+
+validate_var(?light_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a light gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "light_gateway_capabilities_mask", 0, 65536, false);
+
+validate_var(?full_gateway_capabilities_mask, Value) ->
+    %% a bitmask determining capabilities of a full gateway - using a 16bit mask.
+    %% see blockchain_caps.hrl for capability list
+    %% TODO - allow for > 16 bit mask here?
+    validate_int(Value, "full_gateway_capabilities_mask", 0, 65536, false);
+
+%% validators vars
+validate_var(?validator_version, Value) ->
+    case Value of
+        1 -> ok;
+        2 -> ok;
+        3 -> ok;
+        _ ->
+            throw({error, {invalid_validator_version, Value}})
+    end;
+validate_var(?validator_minimum_stake, Value) ->
+    validate_int(Value, "validator_minimum_stake", ?bones(5000), ?bones(100000), false);
+validate_var(?validator_liveness_interval, Value) ->
+    validate_int(Value, "validator_liveness_interval", 5, 2000, false);
+validate_var(?validator_liveness_grace_period, Value) ->
+    validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
+validate_var(?validator_key_check, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_validator_key_check, Value}})
+    end;
+%% TODO fix this var
+validate_var(?stake_withdrawal_cooldown, Value) ->
+    %% maybe set this in the test
+    validate_int(Value, "stake_withdrawal_cooldown", 5, 1000000, false);
+validate_var(?stake_withdrawal_max, Value) ->
+    validate_int(Value, "stake_withdrawal_max", 50, 1000, false);
+
+validate_var(?dkg_penalty, Value) ->
+    validate_float(Value, "dkg_penalty", 0.0, 5.0);
+validate_var(?tenure_penalty, Value) ->
+    validate_float(Value, "tenure_penalty", 0.0, 5.0);
+validate_var(?validator_penalty_filter, Value) ->
+    validate_float(Value, "validator_penalty_filter", 0.0, 15.0);
+validate_var(?penalty_history_limit, Value) ->
+    %% low end is low for testing and an out if these become corrupted
+    %% also low end cannot be 0
+    validate_int(Value, "penalty_history_limit", 10, 100000, false);
+
+validate_var(?net_emissions_enabled, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_net_emissions_boolean, Value}})
+    end;
+validate_var(?net_emissions_max_rate, Value) ->
+    validate_int(Value, "net_emissions_max_rate", 0, ?bones(200), false);
+
+validate_var(?regulatory_regions, Value) when is_binary(Value) ->
+    %% The regulatory_regions value we support must look like this:
+    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% The order does not matter in validation
+
+    %% We only check that the binary string is comma separated
+    CommaPlusLengthCheck = length(string:tokens(binary:bin_to_list(Value), ",")) >= 3,
+
+    case CommaPlusLengthCheck of
+        true -> ok;
+        false -> throw({error, {invalid_regulatory_regions, Value}})
+    end;
+validate_var(?regulatory_regions, Value) ->
+    throw({error, {invalid_regulatory_regions_not_binary, Value}});
+validate_var(?discard_zero_freq_witness, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
+    end;
+validate_var(?block_size_limit, Value) ->
+    validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
+
 validate_var(Var, Value) ->
-    %% something we don't understand, crash
-    invalid_var(Var, Value).
+    %% check if these are dynamic region vars
+    case atom_to_list(Var) of
+        StrVar="region_"++_ ->
+            case lists:sublist(StrVar, length(StrVar) -5, 6) of
+                "params" ->
+                    validate_region_params(Var, Value);
+                _ ->
+                    validate_region_var(Var, Value)
+            end;
+        _ ->
+            %% something we don't understand, crash
+            invalid_var(Var, Value)
+    end.
+
+validate_region_var(Var, Value) when is_binary(Value) ->
+    %% The value is a list of u64 h3 hex ids, so it will always be a multiple of 8 bytes long
+    case size(Value) rem 8 of
+        %% This is always supposed to be true
+        0 ->
+            case byte_size(Value) of
+                %% All serialized regions we know so far are below 1MB
+                B when B =< 1 * 1024 * 1024 ->
+                    ok;
+                _ -> throw({error, {invalid_region_var_byte_size, Var, Value}})
+            end;
+        _ -> throw({error, {invalid_region_var_size, Var, Value}})
+    end;
+validate_region_var(Var, Value) ->
+    throw({error, {invalid_region_var, Var, Value}}).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
     case get_density_var(Value) of
@@ -1151,7 +1409,7 @@ validate_hip17_vars(Value, Var) ->
 
 validate_int_min_max(Value, Name, Min, Max) ->
     case Value >= Min andalso Value =< Max of
-        false -> {error, {list_to_atom(Name ++ "_out_of_range"), Value}};
+        false -> {error, {list_to_atom(Name ++ "_out_of_range"), min, Min, val, Value, max, Max}};
         _ -> ok
     end.
 
@@ -1181,6 +1439,19 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+validate_region_params(Var, Value) when is_binary(Value) ->
+    Deser = blockchain_region_params_v1:deserialize(Value),
+    Ser = blockchain_region_params_v1:serialize(Deser),
+    case Ser == Value of
+        true ->
+            %% TODO: Maybe add some checks around deserialized key-values
+            ok;
+        _ -> throw({error, {invalid_region_param_roundtrip, Var, Value}})
+    end;
+validate_region_params(Var, Value) ->
+    throw({error, {invalid_region_param_not_binary, Var, Value}}).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

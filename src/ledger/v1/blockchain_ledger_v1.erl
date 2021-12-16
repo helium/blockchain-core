@@ -1,4 +1,3 @@
-
 %% @doc
 %% == Blockchain Ledger ==
 %% @end
@@ -6,16 +5,30 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/1,
-    mode/1, mode/2,
+    new/1, new/5, new/6, new/7,
     dir/1,
+    mode/1, mode/2,
 
-    check_key/2, mark_key/2,
+    has_aux/1, is_aux/1,
+    maybe_load_aux/1,
 
-    new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
+    open_db/5,
+
+    aux_heights_cf/1,
+    aux_heights_md_cf/1,
+    aux_heights_diff_cf/1,
+    aux_heights_diffsum_cf/1,
+
+    aux_db/1,
+
+    check_key/2, mark_key/2, unmark_key/2,
+
+    new_context/1, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
-    new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
+    get_block/2, get_block_info/2,
+
+    new_snapshot/1, context_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
 
     drop_snapshots/1,
 
@@ -23,7 +36,7 @@
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
     election_epoch/1, election_epoch/2,
-    process_delayed_txns/3,
+    process_delayed_actions/3,
 
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
     entries/1,
@@ -44,40 +57,49 @@
     find_gateway_location/2,
     find_gateway_owner/2,
     find_gateway_last_challenge/2,
+    find_gateway_mode/2,
+    find_gateways_by_owner/2,
     %% todo add more here
 
-    gateway_cache_get/2,
-    add_gateway/3, add_gateway/5,
+    add_gateway/3, add_gateway/4, add_gateway/6,
     update_gateway/3,
     fixup_neighbors/4,
     add_gateway_location/4,
+    add_gateway_gain/4,
+    add_gateway_elevation/4,
     insert_witnesses/3,
     add_gateway_witnesses/3,
     refresh_gateway_witnesses/2,
 
-    gateway_versions/1,
+    cg_versions/1,
 
     update_gateway_score/3, gateway_score/2,
     update_gateway_oui/4,
     gateway_count/1,
 
     find_poc/2,
-    request_poc/5,
+    request_poc/6,
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/2,
-    maybe_gc_scs/1,
+    maybe_gc_scs/2,
 
     find_entry/2,
-    credit_account/3, debit_account/4, debit_fee_from_account/3,
+    credit_account/3, debit_account/4, debit_fee_from_account/5,
     check_balance/3,
 
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
     debit_dc/4,
-    debit_fee/3, debit_fee/4,
+    debit_fee/3, debit_fee/4, debit_fee/6,
     check_dc_balance/3,
     check_dc_or_hnt_balance/4,
+
+    hnt_burned/1,
+    add_hnt_burned/2,
+    clear_hnt_burned/1,
+
+    net_overage/1,  net_overage/2,
 
     token_burn_exchange_rate/1,
     token_burn_exchange_rate/2,
@@ -89,21 +111,27 @@
 
     find_htlc/2,
     add_htlc/8,
-    redeem_htlc/3,
+    redeem_htlc/4,
 
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
 
     find_routing/2, find_routing_for_packet/2,
     find_router_ouis/2,
+    find_routing_via_eui/3,
+    find_routing_via_devaddr/2,
     update_routing/4,
+    get_routes/1,
+    routing_cf/1,
 
-    find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
+    find_state_channel/3, find_state_channel_with_mod/3,
+    count_open_scs_for_owner/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
     close_state_channel/6,
     is_state_channel_overpaid/2,
     get_sc_mod/2,
-
+    get_sc_max_actors/1,
+    state_channel_key/2,
     allocate_subnet/2,
 
     delay_vars/3,
@@ -120,7 +148,7 @@
 
     apply_raw_changes/2,
 
-    set_hexes/2, get_hexes/1,
+    set_hexes/2, get_hexes/1, get_hexes_list/1,
     set_hex/3, get_hex/2, delete_hex/2,
 
     add_to_hex/3,
@@ -133,9 +161,23 @@
     lookup_gateways_from_hex/2,
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
+    add_commit_hook/4, add_commit_hook/5,
+    remove_commit_hook/2,
+
+    add_validator/4,
+    get_validator/2,
+    deactivate_validator/3,
+    update_validator/3,
+    fold_validators/3,
+
+    cooldown_stake/5,
+    get_cooldown_stake/2,
+
+    query_circulating_hnt/1,
+    query_staked_hnt/1,
+    query_cooldown_hnt/1,
 
     %% snapshot save/restore stuff
-
     snapshot_vars/1,
     load_vars/2,
     snapshot_pocs/1,
@@ -177,15 +219,25 @@
     load_oracle_price/2,
     load_oracle_price_list/2,
 
-    clean/1, close/1,
+    snapshot_validators/1,
+    load_validators/2,
+    snapshot_delayed_hnt/1,
+    load_delayed_hnt/2,
+
+    clean/1, clean_aux/1, close/1,
     compact/1,
 
     txn_fees_active/1,
     staking_fee_txn_oui_v1/1,
     staking_fee_txn_oui_v1_per_address/1,
     staking_fee_txn_add_gateway_v1/1,
+    staking_fee_txn_add_dataonly_gateway_v1/1,
+    staking_fee_txn_add_light_gateway_v1/1,
     staking_fee_txn_assert_location_v1/1,
+    staking_fee_txn_assert_location_dataonly_gateway_v1/1,
+    staking_fee_txn_assert_location_light_gateway_v1/1,
     staking_keys/1,
+    staking_keys_to_mode_mappings/1,
     txn_fee_multiplier/1,
 
     dc_to_hnt/2,
@@ -194,64 +246,18 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_ledger_v1.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_caps.hrl").
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
+
 
 -ifdef(TEST).
--export([median/1]).
+-export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
 -endif.
 
--record(ledger_v1, {
-    dir :: file:filename_all(),
-    db :: rocksdb:db_handle(),
-    snapshots :: ets:tid(),
-    mode = active :: active | delayed,
-    active :: sub_ledger(),
-    delayed :: sub_ledger(),
-    snapshot :: undefined | rocksdb:snapshot_handle()
-}).
-
--record(sub_ledger_v1, {
-    default :: rocksdb:cf_handle(),
-    active_gateways :: rocksdb:cf_handle(),
-    gw_denorm :: rocksdb:cf_handle(),
-    entries :: rocksdb:cf_handle(),
-    dc_entries :: rocksdb:cf_handle(),
-    htlcs :: rocksdb:cf_handle(),
-    pocs :: rocksdb:cf_handle(),
-    securities :: rocksdb:cf_handle(),
-    routing :: rocksdb:cf_handle(),
-    subnets :: rocksdb:cf_handle(),
-    state_channels :: rocksdb:cf_handle(),
-    h3dex :: rocksdb:cf_handle(),
-    cache :: undefined | ets:tid(),
-    gateway_cache :: undefined | ets:tid()
-}).
-
--define(DB_FILE, "ledger.db").
--define(CURRENT_HEIGHT, <<"current_height">>).
--define(CONSENSUS_MEMBERS, <<"consensus_members">>).
--define(ELECTION_HEIGHT, <<"election_height">>).
--define(ELECTION_EPOCH, <<"election_epoch">>).
--define(OUI_COUNTER, <<"oui_counter">>).
--define(MASTER_KEY, <<"master_key">>).
--define(MULTI_KEYS, <<"multi_keys">>).
--define(VARS_NONCE, <<"vars_nonce">>).
--define(BURN_RATE, <<"token_burn_exchange_rate">>).
--define(CURRENT_ORACLE_PRICE, <<"current_oracle_price">>). %% stores the current calculated price
--define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
--define(hex_list, <<"$hex_list">>).
--define(hex_prefix, "$hex_").
-
--define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
-
--define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
--define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
--define(DEFAULT_ORACLE_PRICE, 0).
-
--type ledger() :: #ledger_v1{}.
--type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
@@ -267,16 +273,53 @@
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
-    {ok, DB, CFs} = open_db(Dir),
+    new(Dir, false, undefined, undefined, undefined, undefined).
+
+-spec new(file:filename_all(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
+new(Dir, BlocksDB, BlocksCF, HeightsCF, InfoCF) ->
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    new(Dir, false, BlocksDB, BlocksCF, HeightsCF, InfoCF, GlobalOpts).
+
+-spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_handle()) -> ledger().
+new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF) ->
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF, GlobalOpts).
+
+-spec new(file:filename_all(), boolean(), rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_handle(), rocksdb:cf_options()) -> ledger().
+new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF, Options) ->
+    L = new(Dir, ReadOnly, Options),
+
+    %% allow config-set commit hooks in case we're worried about something being racy
+    Hooks =
+        [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
+         || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
+
+    Ledger = maybe_load_aux(L#ledger_v1{
+        blocks_db = BlocksDB,
+        blocks_cf = BlocksCF,
+        heights_cf = HeightsCF,
+        info_cf = InfoCF,
+        commit_hooks = Hooks
+    }),
+    sweep_old_checkpoints(Ledger),
+    Ledger.
+
+new(Dir, ReadOnly, Options) ->
+    blockchain_utils:teardown_var_cache(),
+    {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly, Options),
+
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
-     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF, DelayedGwDenormCF] = CFs,
+     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF,
+     DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
+    Ledger =
     #ledger_v1{
         dir=Dir,
         db=DB,
-        mode=active,
         snapshots = ets:new(snapshot_cache, [set, public, {keypos, 1}]),
+        mode=active,
         active= #sub_ledger_v1{
             default=DefaultCF,
             active_gateways=AGwsCF,
@@ -289,7 +332,8 @@ new(Dir) ->
             routing=RoutingCF,
             subnets=SubnetsCF,
             state_channels=SCsCF,
-            h3dex=H3DexCF
+            h3dex=H3DexCF,
+            validators=ValidatorsCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -303,15 +347,81 @@ new(Dir) ->
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
-            h3dex=DelayedH3DexCF
+            h3dex=DelayedH3DexCF,
+            validators=DelayedValidatorsCF
         }
-    }.
+    },
+    Ledger.
 
--spec mode(ledger()) -> active | delayed.
+sweep_old_checkpoints(Ledger) ->
+    try
+        DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+        {ok, DelayedHeight} = current_height(DelayedLedger),
+        BaseDir = application:get_env(blockchain, base_dir, "data"),
+        CPs = filename:join([BaseDir, "checkpoints"]),
+        {ok, Subdirs} = file:list_dir(CPs),
+        ToDelete =
+            lists:filter(
+              fun(HeightStr) ->
+                      try
+                          Height = list_to_integer(HeightStr),
+                          Height < DelayedHeight
+                      catch _:_ -> false
+                      end
+              end, Subdirs),
+        lists:map(fun(Dir) ->
+                          remove_checkpoint(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]))
+                  end,
+                  ToDelete)
+    catch _:_ ->
+            %% this crashes on clean startup, just ignore it
+            ok
+    end,
+    ok.
+
+clean_checkpoints(#ledger_v1{dir = RecordDir}) ->
+    clean_checkpoints(RecordDir);
+clean_checkpoints(RecordDir) ->
+    try
+        BaseDir = checkpoint_base(RecordDir),
+        CPs = filename:join([BaseDir, "checkpoints"]),
+        {ok, Subdirs} = file:list_dir(CPs),
+        lists:map(fun(Dir) ->
+                          remove_checkpoint(filename:join([BaseDir, "checkpoints", Dir, ?DB_FILE]))
+                  end,
+                  Subdirs)
+    catch _:_ ->
+            %% this crashes on clean startup, just ignore it
+            ok
+    end,
+    ok.
+
+-spec maybe_load_aux(Ledger :: ledger()) -> ledger().
+maybe_load_aux(Ledger) ->
+    case application:get_env(blockchain, aux_ledger_dir, undefined) of
+        undefined ->
+            Ledger;
+        Path ->
+            blockchain_aux_ledger_v1:bootstrap(Path, Ledger)
+    end.
+
+-spec mode(ledger()) -> mode().
 mode(Ledger) ->
     Ledger#ledger_v1.mode.
 
--spec mode(active | delayed, ledger()) -> ledger().
+-spec has_aux(ledger()) -> boolean().
+has_aux(Ledger) ->
+    Ledger#ledger_v1.aux /= undefined.
+
+-spec is_aux(ledger()) -> boolean().
+is_aux(#ledger_v1{mode=aux}) ->
+    true;
+is_aux(_) ->
+    false.
+
+-spec mode(mode(), ledger()) -> ledger().
+mode(aux, #ledger_v1{aux=undefined}) ->
+    error(no_aux_ledger);
 mode(Mode, Ledger) ->
     Ledger#ledger_v1{mode=Mode}.
 
@@ -334,12 +444,23 @@ mark_key(Key, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, Key, <<"true">>).
 
+unmark_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_delete(Ledger, DefaultCF, Key).
+
+
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(Cache, GwCache, Ledger).
+
+-spec new_direct_context(ledger()) -> ledger().
+new_direct_context(Ledger) ->
+    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
+    context_cache(direct, GwCache, Ledger).
+
 
 get_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
@@ -352,21 +473,17 @@ get_context(Ledger) ->
 flatten_cache({Cache, GwCache}) ->
     {ets:tab2list(Cache), ets:tab2list(GwCache)}.
 
-install_context({FlatCache, FlatGwCache}, Ledger) ->
-    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
-    ets:insert(Cache, FlatCache),
-    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
-    ets:insert(GwCache, FlatGwCache),
-    context_cache(Cache, GwCache, Ledger).
-
 -spec delete_context(ledger()) -> ledger().
 delete_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
         {undefined, undefined} ->
             Ledger;
+        {direct, GwCache} ->
+            catch ets:delete(GwCache),
+            context_cache(undefined, undefined, Ledger);
         {Cache, GwCache} ->
-            ets:delete(Cache),
-            ets:delete(GwCache),
+            catch ets:delete(Cache),
+            catch ets:delete(GwCache),
             context_cache(undefined, undefined, Ledger)
     end.
 
@@ -386,6 +503,9 @@ reset_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
         {undefined, undefined} ->
             ok;
+        {direct, GwCache} ->
+            true = ets:delete_all_objects(GwCache),
+            ok;
         {Cache, GwCache} ->
             true = ets:delete_all_objects(Cache),
             true = ets:delete_all_objects(GwCache),
@@ -393,79 +513,282 @@ reset_context(Ledger) ->
     end.
 
 -spec commit_context(ledger()) -> ok.
-commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
-    {Cache, GwCache} = ?MODULE:context_cache(Ledger),
-    Context = batch_from_cache(Cache),
-    {ok, Height} = current_height(Ledger),
-    prewarm_gateways(Mode, Height, Ledger, GwCache),
-    ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
-    rocksdb:release_batch(Context),
-    delete_context(Ledger),
+commit_context(Ledger) ->
+    DB = db(Ledger),
+    case ?MODULE:context_cache(Ledger) of
+        {direct, _GwCache} ->
+            ok;
+        {Cache, _GwCache} ->
+            {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
+            delete_context(Ledger),
+            ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
+            rocksdb:release_batch(Batch),
+            case mode(Ledger) of
+                active ->
+                    Callbacks();
+                _ -> ok
+            end
+    end,
     ok.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(ledger()) -> {undefined | ets:tid(), undefined | ets:tid()}.
-context_cache(#ledger_v1{mode=active,
-                         active=#sub_ledger_v1{cache=Cache,
-                                               gateway_cache=GwCache}}) ->
-    {Cache, GwCache};
-context_cache(#ledger_v1{mode=delayed,
-                         delayed=#sub_ledger_v1{cache=Cache,
-                                                gateway_cache=GwCache}}) ->
+-spec context_cache(ledger()) -> {undefined | direct | ets:tid(), undefined | ets:tid()}.
+context_cache(Ledger) ->
+    SL = subledger(Ledger),
+    #sub_ledger_v1{cache=Cache, gateway_cache=GwCache} = SL,
     {Cache, GwCache}.
 
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
 new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
                         snapshots=Cache,
-                        mode=active,
+                        mode=Mode,
                         active=#sub_ledger_v1{cache=undefined},
-                        delayed=#sub_ledger_v1{cache=undefined}}=Ledger) ->
-    case rocksdb:snapshot(DB) of
-        {ok, SnapshotHandle} ->
-            {ok, Height} = current_height(Ledger),
-            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-            {ok, DelayedHeight} = current_height(DelayedLedger),
-            ets:delete(Cache, DelayedHeight - 1),
-            ets:insert(Cache, {Height, {snapshot, SnapshotHandle}}),
-            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
-        {error, Reason}=Error ->
-            lager:error("Error creating new snapshot, reason: ~p", [Reason]),
-            Error
+                        delayed=#sub_ledger_v1{cache=undefined}}=Ledger)
+  when Mode == active; Mode == aux_load ->
+    {ok, Height} = current_height(Ledger),
+    Me = self(),
+    Old = {Height, {pending, Me}},
+    case ets:insert_new(Cache, Old) of
+        false -> {ok, Ledger};
+        _ ->
+            %% take a real rocksdb snapshot here and put that in the cache
+            %% instead of using a checkpoint ledger as it's likely faster and cheaper
+            case rocksdb:snapshot(DB) of
+                {ok, SnapshotHandle} ->
+                    {ok, Height} = current_height(Ledger),
+                    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+                    {ok, DelayedHeight} = current_height(DelayedLedger),
+                    DeleteHeight = DelayedHeight - 1,
+                    case ets:lookup(Cache, DeleteHeight) of
+                        [{_DeleteHeight, {snapshot, DeleteSnap}}] ->
+                            rocksdb:release_snapshot(DeleteSnap);
+                        _ ->
+                            ok
+                    end,
+                    ets:delete(Cache, DeleteHeight),
+                    1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {snapshot, SnapshotHandle}}}]}]),
+                    %% take a checkpoint as well for use after a restart
+                    %% This is treated as atomic and there are no further updates required, unlike
+                    %% context_snapshot
+
+                    %% checkpoints are not needed in follow mode, and are quite expensive to create
+                    %% each block.
+                    case application:get_env(blockchain, follow_mode, false) of
+                        true ->
+                            {ok, Ledger};
+                        false ->
+                            CheckpointDir = checkpoint_dir(Ledger, Height),
+                            ok = filelib:ensure_dir(CheckpointDir),
+                            case rocksdb:checkpoint(DB, CheckpointDir) of
+                                ok ->
+                                    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+                                    {ok, DelayedHeight} = current_height(DelayedLedger),
+                                    OldDir = checkpoint_dir(Ledger, DeleteHeight),
+                                    remove_checkpoint(OldDir),
+                                    {ok, Ledger};
+                                {error, Reason1}=Error1 ->
+                                    lager:error("Error creating new checkpoint for snapshot reason: ~p", [Reason1]),
+                                    Error1
+                            end
+                    end;
+                {error, Reason}=Error ->
+                    lager:error("Error creating new snapshot reason: ~p", [Reason]),
+                    Error
+            end
     end;
 new_snapshot(#ledger_v1{}) ->
     erlang:error(cannot_snapshot_delayed_ledger).
 
-context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
-    {ok, Height} = current_height(Ledger),
-    case ets:lookup(Cache, Height) of
-        [{_Height, _Snapshot}] ->
-            ok;
+checkpoint_base(Dir) ->
+    try {list_to_integer(filename:basename(Dir)), filename:basename(filename:dirname(Dir))} of
+        {X, "checkpoints"} when is_integer(X) ->
+            filename:dirname(filename:dirname(Dir));
         _ ->
-            case rocksdb:snapshot(DB) of
-                {ok, SnapshotHandle} ->
-                    ets:insert_new(Cache, {Height, {context, SnapshotHandle, Context}});
-                {error, Reason} = Error ->
-                    lager:error("Error creating new snapshot, reason: ~p", [Reason]),
-                    Error
+            Dir
+    catch _:_ ->
+            Dir
+    end.
+
+checkpoint_dir(#ledger_v1{dir=Dir}, Height) ->
+    BaseDir = checkpoint_base(Dir),
+    filename:join([BaseDir, "checkpoints", integer_to_list(Height), ?DB_FILE]).
+
+remove_checkpoint(CheckpointDir) ->
+    file:delete(filename:join(CheckpointDir, "delayed")),
+    rocksdb:destroy(CheckpointDir, []),
+    %% remove any temp dirs that got orphaned
+    [begin rocksdb:destroy(TmpDir, []), file:del_dir(filename:dirname(TmpDir)) end || TmpDir <- filelib:wildcard(CheckpointDir ++ "-[0-9]*/" ++ ?DB_FILE)],
+    file:del_dir(filename:dirname(CheckpointDir)).
+
+context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
+    case application:get_env(blockchain, follow_mode, false) of
+        true ->
+            {ok, Ledger};
+        false ->
+            {ok, Height} = current_height(Ledger),
+            CheckpointDir = checkpoint_dir(Ledger, Height),
+            case ets:lookup(Cache, Height) of
+                [{Height, {pending, _Pid}}] ->
+                    has_snapshot(Height, Ledger);
+                [{_Height, _SnapLedger}] ->
+                    %% ledger already exists
+                    has_snapshot(Height, Ledger);
+                [] ->
+                    Me = self(),
+                    Old = {Height, {pending, Me}},
+                    case ets:insert_new(Cache, Old) of
+                        false -> has_snapshot(Height, Ledger);
+                        _ ->
+                            case filelib:is_dir(CheckpointDir) of
+                                true ->
+                                    %% this should be quite unlikely
+                                    has_snapshot(Height, Ledger);
+                                false ->
+                                    ok = filelib:ensure_dir(CheckpointDir),
+                                    %% use a temp dir and then an atomic rename so we don't accidentally
+                                    %% take a checkpoint and omit writing the delayed file or the updates
+                                    %% because of a crash or a restart
+                                    %% note that this MUST be a subdirectory, not a sibling directory
+                                    %% of the final db dir. This is because we assume the database is always called ledger.db and so there can only be one per directory
+                                    TmpDir = lists:flatten(io_lib:format("~s-~p/~s", [CheckpointDir, erlang:system_time(), ?DB_FILE])),
+                                    ok = filelib:ensure_dir(TmpDir),
+                                    ok = rocksdb:checkpoint(DB, TmpDir),
+                                    case Mode of
+                                        delayed ->
+                                            file:write_file(filename:join(TmpDir, "delayed"), <<>>);
+                                        active ->
+                                            ok
+                                    end,
+                                    %% open the checkpoint read-write and commit the changes in the ETS table into it
+                                    Ledger2 = new(filename:dirname(TmpDir), false, []),
+                                    Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
+                                    #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
+                                    lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
+                                    commit_context(context_cache(ECache, GwCache, Ledger3)),
+                                    close(Ledger3),
+                                    %% ok, we've done everything we need to do to the checkpoint, so move it into place
+                                    %% now.
+                                    case file:rename(TmpDir, CheckpointDir) of
+                                        ok ->
+                                            lager:info("renamed checkpoint from ~p to ~p", [TmpDir, CheckpointDir]),
+                                            file:del_dir(filename:dirname(TmpDir)),
+                                            ok;
+                                        {error, Reason} ->
+                                            lager:info("rename ~p to ~p failed ~p", [TmpDir, CheckpointDir, Reason]),
+                                            %% someone likely beat us to it
+                                            file:delete(filename:join([TmpDir, "delayed"])),
+                                            rocksdb:destroy(TmpDir, []),
+                                            file:del_dir(filename:dirname(TmpDir)),
+                                            ets:delete(Cache, Height)
+                                    end,
+                                    has_snapshot(Height, Ledger)
+                            end
+                    end
             end
     end.
 
-has_snapshot(Height, #ledger_v1{snapshots=Cache}=Ledger) ->
+has_snapshot(Height, Ledger) ->
+    has_snapshot(Height, Ledger, 120).
+has_snapshot(_Height, _Ledger, 0) ->
+    {error, too_many_retries};
+has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
+    Me = self(),
     case ets:lookup(Cache, Height) of
+        [{Height, {pending, Pid}} = OtherPend] when Pid /= Me ->
+            lager:debug("other pid ~p has the snapshot lock for ~p", [Pid, Height]),
+            case is_process_alive(Pid) of
+                true ->
+                    timer:sleep(500),
+                    has_snapshot(Height, Ledger, Retries - 1);
+                false ->
+                    case ets:select_replace(Cache,
+                                            [{OtherPend, [],
+                                              [{const, {Height, {pending, Me}}}]}]) of
+                        %% we grabbed the lock, proceed by restarting
+                        1 -> has_snapshot(Height, Ledger, Retries);
+                        0 ->
+                            timer:sleep(500),
+                            has_snapshot(Height, Ledger, Retries - 1)
+                    end
+            end;
+        Res when Res == [] orelse Res == [{Height, {pending, Me}}] ->
+            %% try to mark pending since this can take a bit
+            Old = {Height, {pending, Me}},
+            GotLock = case Res of
+                [] ->
+                    %% nobody has the lock, try to take it
+                    ets:insert_new(Cache, Old);
+                _ ->
+                    %% we have the lock
+                    true
+            end,
+            case GotLock of
+                false ->
+                    %% wait on whoever has the lock
+                    has_snapshot(Height, Ledger);
+                true ->
+                    lager:debug("uncached checkpoint @ ~p", [Height]),
+                    CheckpointDir = checkpoint_dir(Ledger, Height),
+                    case filelib:is_dir(CheckpointDir) of
+                        true ->
+                            Mode = case filelib:is_regular(filename:join(CheckpointDir, "delayed")) of
+                                       true ->
+                                           delayed;
+                                       false ->
+                                           active
+                                   end,
+                            try
+                                lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
+                                %% new/2 wants to add on the ledger.db part itself
+                                NewLedger = new(filename:dirname(CheckpointDir), true, []),
+                                %% share the snapshot cache with the new ledger
+                                NewLedger2 = blockchain_ledger_v1:mode(Mode,
+                                                                       NewLedger#ledger_v1{
+                                                                         blocks_db = Ledger#ledger_v1.blocks_db,
+                                                                         blocks_cf = Ledger#ledger_v1.blocks_cf,
+                                                                         heights_cf = Ledger#ledger_v1.heights_cf,
+                                                                         info_cf = Ledger#ledger_v1.info_cf,
+                                                                         snapshots=Cache}),
+                                %% sanity check
+                                case current_height(NewLedger2) of
+                                    {ok, Height} ->
+                                        1 = ets:select_replace(Cache, [{Old, [], [{const, {Height, {ledger, NewLedger2}}}]}]),
+                                        {ok, new_context(NewLedger2)};
+                                    {ok, OtherHeight} ->
+                                        lager:warning("expected checkpoint ledger at height ~p but got height ~p",
+                                                      [Height, OtherHeight]),
+                                        %% just blow it away and let it get re-calculated
+                                        remove_checkpoint(CheckpointDir),
+                                        ets:delete(Cache, Height),
+                                        {error, snapshot_not_found}
+                                end
+                            catch What:Why ->
+                                      lager:warning("error opening checkpoint: ~p ~p", [What, Why]),
+                                      remove_checkpoint(CheckpointDir),
+                                      ets:delete(Cache, Height),
+                                      {error, snapshot_not_found}
+                            end;
+                        _ ->
+                            lager:warning("couldn't find checkpoint dir? for ~p", [Height]),
+                            ets:delete(Cache, Height),
+                            {error, snapshot_not_found}
+                    end
+            end;
         [{Height, {snapshot, SnapshotHandle}}] ->
+            lager:debug("snapshot @ ~p", [Height]),
             %% because the snapshot was taken as we ingested a block to the leading ledger we need to query it
             %% as an active ledger to get the right information at this desired height
-            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(active, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
-        [{Height, {context, SnapshotHandle, Context}}] ->
-            %% context ledgers are always a lagging ledger snapshot with a set of overlay data in an ETS table
-            %% and therefore must be in delayed ledger mode
-            {ok, install_context(Context, blockchain_ledger_v1:mode(delayed, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
-        _ ->
-            {error, snapshot_not_found}
+            {ok, blockchain_ledger_v1:new_context(
+                   blockchain_ledger_v1:mode(active,
+                                             Ledger#ledger_v1{snapshot=SnapshotHandle}))
+            };
+        [{Height, {ledger, SnapLedger}}] ->
+            lager:debug("cached checkpoint @ ~p", [Height]),
+            {ok, new_context(SnapLedger)}
     end.
 
 -spec release_snapshot(ledger()) -> ok | {error, any()}.
@@ -483,26 +806,52 @@ snapshot(Ledger) ->
             {ok, S}
     end.
 
--spec drop_snapshots(ledger()) -> ok.
-drop_snapshots(#ledger_v1{snapshots=Cache}) ->
-    ets:delete_all_objects(Cache),
-    ok.
+-spec drop_snapshots(ledger()) -> true.
+drop_snapshots(#ledger_v1{snapshots=Cache}=L) ->
+    clean_checkpoints(L),
+    ets:delete_all_objects(Cache).
 
-atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
-        SL = case Mode of
-                 active -> Ledger#ledger_v1.active;
-                 delayed -> Ledger#ledger_v1.delayed
-             end,
+-spec subledger(ledger()) -> sub_ledger().
+subledger(Ledger = #ledger_v1{mode=Mode}) ->
+    case Mode of
+        active -> Ledger#ledger_v1.active;
+        delayed -> Ledger#ledger_v1.delayed;
+        T when T == aux; T == aux_load -> Ledger#ledger_v1.aux#aux_ledger_v1.aux
+    end.
+
+-spec subledger(ledger(), sub_ledger()) -> ledger().
+subledger(Ledger = #ledger_v1{mode=Mode}, NewSubLedger) ->
+    case Mode of
+        active -> Ledger#ledger_v1{active=NewSubLedger};
+        delayed -> Ledger#ledger_v1{delayed=NewSubLedger};
+        T when T == aux; T == aux_load -> Ledger#ledger_v1{aux=Ledger#ledger_v1.aux#aux_ledger_v1{aux=NewSubLedger}}
+    end.
+
+-spec db(ledger()) -> rocksdb:db_handle().
+db(Ledger = #ledger_v1{mode=Mode}) ->
+    case Mode of
+        active -> Ledger#ledger_v1.db;
+        delayed -> Ledger#ledger_v1.db;
+        T when T == aux; T == aux_load -> Ledger#ledger_v1.aux#aux_ledger_v1.db
+    end.
+
+
+atom_to_cf(Atom, Ledger) ->
+    SL = subledger(Ledger),
         case Atom of
             default -> SL#sub_ledger_v1.default;
             active_gateways -> SL#sub_ledger_v1.active_gateways;
+            gw_denorm -> SL#sub_ledger_v1.gw_denorm;
             entries -> SL#sub_ledger_v1.entries;
             dc_entries -> SL#sub_ledger_v1.dc_entries;
             htlcs -> SL#sub_ledger_v1.htlcs;
             pocs -> SL#sub_ledger_v1.pocs;
             securities -> SL#sub_ledger_v1.securities;
             routing -> SL#sub_ledger_v1.routing;
-            state_channels -> SL#sub_ledger_v1.state_channels
+            subnets -> SL#sub_ledger_v1.subnets;
+            state_channels -> SL#sub_ledger_v1.state_channels;
+            h3dex -> SL#sub_ledger_v1.h3dex;
+            validators -> SL#sub_ledger_v1.validators
         end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
@@ -527,7 +876,7 @@ apply_raw_changes([{Atom, Changes}|Tail], Ledger, Batch) ->
 cf_fold(CF, F, Acc, Ledger) ->
     try
         CFRef = atom_to_cf(CF, Ledger),
-        cache_fold(Ledger, CFRef, F, Acc)
+        cache_fold(Ledger, {CF, db(Ledger), CFRef}, F, Acc)
     catch C:E:S ->
             {error, {could_not_fold, C, E, S}}
     end.
@@ -542,32 +891,13 @@ fingerprint(Ledger, Extended) ->
                        raw_fingerprint(Ledger, Extended)
                end).
 
-raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
+raw_fingerprint(Ledger, Extended) ->
     try
-        SubLedger =
-        case Mode of
-            active ->
-                Ledger#ledger_v1.active;
-            delayed ->
-                Ledger#ledger_v1.delayed
-        end,
-        #sub_ledger_v1{
-           default = DefaultCF,
-           active_gateways = AGwsCF,
-           entries = EntriesCF,
-           dc_entries = DCEntriesCF,
-           htlcs = HTLCsCF,
-           pocs = PoCsCF,
-           securities = SecuritiesCF,
-           routing = RoutingCF,
-           state_channels = SCsCF,
-           subnets = SubnetsCF
-          } = SubLedger,
         %% NB: remove multi_keys when they go live
         Filter = ?BC_UPGRADE_NAMES ++ [<<"transaction_fee">>, <<"multi_keys">>],
         DefaultHash0 =
             cache_fold(
-              Ledger, DefaultCF,
+              Ledger, default_cf(Ledger),
               %% if any of these are in the CF, it's a result of an
               %% old, fixed bug, they're safe to ignore.
               fun({<<"$block_", _/binary>>, _}, Acc) ->
@@ -593,15 +923,15 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                         end,
                         crypto:hash_init(md5))
              || {CF, Mod} <-
-                    [{AGwsCF, blockchain_ledger_gateway_v2},
-                     {EntriesCF, blockchain_ledger_entry_v1},
-                     {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
-                     {HTLCsCF, blockchain_ledger_htlc_v1},
-                     {PoCsCF, t2b},
-                     {SecuritiesCF, blockchain_ledger_security_entry_v1},
-                     {RoutingCF, blockchain_ledger_routing_v1},
-                     {SCsCF, state_channel},
-                     {SubnetsCF, undefined}
+                    [{active_gateways_cf(Ledger), blockchain_ledger_gateway_v2},
+                     {entries_cf(Ledger), blockchain_ledger_entry_v1},
+                     {dc_entries_cf(Ledger), blockchain_ledger_data_credits_entry_v1},
+                     {htlcs_cf(Ledger), blockchain_ledger_htlc_v1},
+                     {pocs_cf(Ledger), t2b},
+                     {securities_cf(Ledger), blockchain_ledger_security_entry_v1},
+                     {routing_cf(Ledger), blockchain_ledger_routing_v1},
+                     {state_channels_cf(Ledger), state_channel},
+                     {subnets_cf(Ledger), undefined}
                     ]],
         L = [DefaultHash | lists:map(fun crypto:hash_final/1, L0)],
         LedgerHash = crypto:hash_final(
@@ -716,7 +1046,7 @@ election_epoch(Epoch, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?ELECTION_EPOCH, Bin).
 
-process_delayed_txns(Block, Ledger, Chain) ->
+process_delayed_actions(Block, Ledger, Chain) ->
     DefaultCF = default_cf(Ledger),
     ok = process_threshold_txns(DefaultCF, Ledger, Chain),
     PendingTxns =
@@ -743,6 +1073,25 @@ process_delayed_txns(Block, Ledger, Chain) ->
       end,
       PendingTxns),
     cache_delete(Ledger, DefaultCF, block_name(Block)),
+
+    %% do the stake cooldown work
+    HeightEntries =
+        case cache_get(Ledger, DefaultCF, cd_block_name(Block), []) of
+            {ok, HE} ->
+                binary_to_term(HE);
+            not_found ->
+                [];
+            {error, Reason} -> error(Reason)
+        end,
+    lists:foreach(
+      fun(#validator_stake_v1{owner = O,
+                              validator = V,
+                              stake = S}) ->
+              ok = finalize_validator(V, Ledger),
+              ok = credit_account(O, S, Ledger)
+      end,
+      HeightEntries),
+    cache_delete(Ledger, DefaultCF, cd_block_name(Block)),
     ok.
 
 delay_vars(Effective, Vars, Ledger) ->
@@ -767,6 +1116,9 @@ delay_vars(Effective, Vars, Ledger) ->
 
 block_name(Block) ->
     <<"$block_", (integer_to_binary(Block))/binary>>.
+
+cd_block_name(Block) ->
+    <<"$cd_block_", (integer_to_binary(Block))/binary>>.
 
 -spec save_threshold_txn(blockchain_txn_vars_v1:txn_vars(), ledger()) ->  ok | {error, any()}.
 save_threshold_txn(Txn, Ledger) ->
@@ -842,6 +1194,7 @@ snapshot_gateways(Ledger) ->
                     []
                    )).
 
+-spec snapshot_raw_gateways(ledger()) -> [{binary(), binary()}].
 snapshot_raw_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     snapshot_raw(AGwsCF, Ledger).
@@ -849,6 +1202,14 @@ snapshot_raw_gateways(Ledger) ->
 load_raw_gateways(Gateways, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     load_raw(Gateways, AGwsCF, Ledger).
+
+snapshot_validators(Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    snapshot_raw(ValsCF, Ledger).
+
+load_validators(Gateways, Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    load_raw(Gateways, ValsCF, Ledger).
 
 -spec load_gateways([{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}],
                     ledger()) -> ok | {error, _}.
@@ -859,12 +1220,14 @@ load_gateways(Gws, Ledger) ->
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
               Location = blockchain_ledger_gateway_v2:location(Gw),
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
               cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
+              cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
@@ -945,6 +1308,7 @@ multi_keys(NewKeys, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MULTI_KEYS, blockchain_utils:keys_list_to_bin(NewKeys)).
 
+-spec vars(#{Key => term()}, [Key], ledger()) -> ok.
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
     maps:map(
@@ -959,6 +1323,7 @@ vars(Vars, Unset, Ledger) ->
       Unset),
     ok.
 
+-spec config(term(), ledger()) -> {ok, term()} | {error, term()}.
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
@@ -971,15 +1336,35 @@ config(ConfigName, Ledger) ->
     end.
 
 vars_nonce(Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-        {ok, Nonce} ->
-            {ok, binary_to_term(Nonce)};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+    case ?MODULE:get_context(Ledger) of
+        undefined ->
+            {ok, Height} = current_height(Ledger),
+            e2qc:cache(
+              ?VAR_CACHE,
+              {vars_nonce, Height},
+              fun() ->
+                      DefaultCF = default_cf(Ledger),
+                      case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
+                          {ok, Nonce} ->
+                              {ok, binary_to_term(Nonce)};
+                          not_found ->
+                              {error, not_found};
+                          Error ->
+                              Error
+                      end
+              end);
+        _ ->
+            DefaultCF = default_cf(Ledger),
+            case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
+                {ok, Nonce} ->
+                    {ok, binary_to_term(Nonce)};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
     end.
+
 
 vars_nonce(NewNonce, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -989,10 +1374,6 @@ vars_nonce(NewNonce, Ledger) ->
                                                                  | {error, any()}.
 find_gateway_info(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    case application:get_env(blockchain, find_gateway_sim_delay, 0) of
-        0 -> ok;
-        N -> timer:sleep(N)
-    end,
     case cache_get(Ledger, AGwsCF, Address, []) of
         {ok, BinGw} ->
             {ok, blockchain_ledger_gateway_v2:deserialize(BinGw)};
@@ -1059,32 +1440,61 @@ find_gateway_last_challenge(Address, Ledger) ->
             end
     end.
 
--spec gateway_cache_get(libp2p_crypto:pubkey_bin(), ledger()) ->
-                               {ok, blockchain_ledger_gateway_v2:gateway()} |
-                               spillover |
-                               {error, any()}.
-gateway_cache_get(Address, Ledger) ->
-    case context_cache(Ledger) of
-        {undefined, undefined} ->
-            {error, not_found};
-        {_Cache, GwCache} ->
-            case ets:lookup(GwCache, Address) of
-                [] ->
+find_gateway_mode(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-mode">>, []) of
+        {ok, BinMode} ->
+            {ok, binary_to_term(BinMode)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+                    {ok, Mode};
+                not_found ->
                     {error, not_found};
-                [{_, spillover}] ->
-                    spillover;
-                [{_, Gw}] ->
-                    {ok, Gw}
+                Error ->
+                    Error
             end
     end.
 
+%%===================================================================
+%% NOTE: These two functions are primarily for debugging interactively.
+%% DO NOT depend on these for code as they will be SLOW.
+fold_gateways(Fun, InitAcc, Ledger) ->
+    cache_fold(
+      Ledger,
+      active_gateways_cf(Ledger),
+      fun({Addr, BinGW}, Acc) ->
+              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
+              Fun({Addr, GW}, Acc)
+      end,
+      InitAcc
+     ).
+
+-spec find_gateways_by_owner(OwnerPubkeyBin :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) -> [{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}].
+find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
+    fold_gateways(
+      fun({Addr, GW}, Acc) ->
+              case blockchain_ledger_gateway_v2:owner_address(GW) == OwnerPubkeyBin of
+                  true -> [{Addr, GW} | Acc];
+                  false -> Acc
+              end
+      end, [], Ledger).
+%%===================================================================
+
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
+    add_gateway(OwnerAddr, GatewayAddress, full, Ledger).
+
+-spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:mode(), ledger()) -> ok | {error, gateway_already_active}.
+add_gateway(OwnerAddr, GatewayAddress, Mode, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
-            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined),
+            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined, Mode),
             update_gateway(Gateway, GatewayAddress, Ledger)
     end.
 
@@ -1095,19 +1505,20 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
                   GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
                   Nonce :: non_neg_integer(),
+                  Mode :: blockchain_ledger_gateway_v2:mode(),
                   Ledger :: ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
             Nonce,
+            Mode,
             Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
             {ok, Height} = ?MODULE:current_height(Ledger),
-            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, Location, Nonce),
-
+            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, Location, Mode, Nonce),
             NewGw0 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
 
             NewGw =
@@ -1166,18 +1577,30 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
 -spec update_gateway(Gw :: blockchain_ledger_gateway_v2:gateway(),
                      GwAddr :: libp2p_crypto:pubkey_bin(),
                      Ledger :: ledger()) -> ok | {error, _}.
-update_gateway(Gw, GwAddr, Ledger) ->
+update_gateway(Gw0, GwAddr, Ledger) ->
+    %% we have to do this each time to make sure that we have ledger convergence for snapshots, but
+    %% it feels relatively cheap in comparison to continuing to update scores.
+    Gw =
+        case blockchain:config(?election_version, Ledger) of
+            %% election v4 removed score from consideration
+            {ok, EV} when EV >= 4 ->
+                blockchain_ledger_gateway_v2:set_alpha_beta_delta(0.0, 0.0, 0, Gw0);
+            _ ->
+                Gw0
+        end,
+
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
     GwDenormCF = gw_denorm_cf(Ledger),
-    gateway_cache_put(GwAddr, Gw, Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
     Location = blockchain_ledger_gateway_v2:location(Gw),
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
     Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
               term_to_binary(LastChallenge)),
+    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
     cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -1189,31 +1612,72 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {ok, Height} = ?MODULE:current_height(Ledger),
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
-            %% we need to clear all our old witnesses out
-            NewGw1 = blockchain_ledger_gateway_v2:clear_witnesses(NewGw),
-            update_gateway(NewGw1, GatewayAddress, Ledger),
-            %% this is only needed if the gateway previously had a location
-            case Nonce > 1 of
-                true ->
-                    cf_fold(
-                      active_gateways,
-                      fun({Addr, BinGW}, _) ->
-                              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
-                              case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                  true ->
-                                      GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                      update_gateway(GW1, Addr, Ledger);
-                                  false ->
-                                      ok
-                              end,
-                              ok
-                      end,
-                      ignored,
-                      Ledger);
-                false ->
-                    ok
-            end
+            %% Disable setting the last location nonce until we build a chain var to restore witnesses
+            Gw3 = Gw2, %blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
+            Gw4 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
+            NewGw = blockchain_ledger_gateway_v2:clear_witnesses(Gw4),
+            update_gateway(NewGw, GatewayAddress, Ledger)
+    end.
+
+-spec add_gateway_gain(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
+add_gateway_gain(GatewayAddress, Gain, Nonce, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw} ->
+            Gw1 = blockchain_ledger_gateway_v2:gain(Gain, Gw),
+            Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
+            update_gateway(Gw2, GatewayAddress, Ledger)
+    end.
+
+-spec add_gateway_elevation(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
+add_gateway_elevation(GatewayAddress, Elevation, Nonce, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw} ->
+            Gw1 = blockchain_ledger_gateway_v2:elevation(Elevation, Gw),
+            Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
+            update_gateway(Gw2, GatewayAddress, Ledger)
+    end.
+
+cg_versions(Ledger) ->
+    case config(?election_version, Ledger) of
+        {ok, N} when N >= 5 ->
+            validator_versions(Ledger);
+        _ ->
+            gateway_versions(Ledger)
+    end.
+
+validator_versions(Ledger) ->
+    %% reuse this var despite the name
+    case config(?var_gw_inactivity_threshold, Ledger) of
+        {error, _} = Err ->
+            Err;
+        {ok, Threshold} ->
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            ValCF = validators_cf(Ledger),
+            Inc = fun(X) -> X + 1 end,
+            Versions =
+                cache_fold(
+                  Ledger, ValCF,
+                  fun({_Addr, BinVal}, Acc) ->
+                          Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+                          Last = blockchain_ledger_validator_v1:last_heartbeat(Val),
+                          Version = blockchain_ledger_validator_v1:version(Val),
+                          case (Height - Last) >= Threshold of
+                              true ->
+                                  Acc;
+                              false ->
+                                  maps:update_with(Version, Inc, 1, Acc)
+                          end
+                  end,
+                  #{}),
+            L = maps:to_list(Versions),
+            Tot = lists:sum([Ct || {_V, Ct} <- L]),
+
+            %% reformat counts as percentages
+            [{V, Ct / Tot} || {V, Ct} <- L]
     end.
 
 gateway_versions(Ledger) ->
@@ -1329,61 +1793,67 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
 -spec insert_witnesses(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                        Witnesses :: [blockchain_poc_witness_v1:poc_witness() | blockchain_poc_receipt_v1:poc_receipt()],
                        Ledger :: ledger()) -> ok | {error, any()}.
-insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
-        %% only works with poc-v9 and above
-        {ok, V} when V >= 9 ->
-            case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                {ok, GW0} ->
-                    GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
-                                              WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
-                                              case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
-                                                  {ok, WitnessGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness", [Reason]),
-                                                      erlang:error({insert_witnesses_error, Reason})
-                                              end;
-                                         (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
-                                              ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
-                                              case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
-                                                  {ok, ReceiptGw} ->
-                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness", [Reason]),
-                                                      erlang:error({insert_witnesses_error, Reason})
-                                              end;
-                                         (_, _) ->
-                                              erlang:error({invalid, unknown_witness_type})
-                                      end, GW0, Witnesses),
-                    update_gateway(GW1, PubkeyBin, Ledger)
-            end;
-        _ ->
-            {error, incorrect_poc_version}
-    end.
+insert_witnesses(_PubkeyBin, _Witnesses, _Ledger) ->
+    ok.
+    %% case blockchain:config(?poc_version, Ledger) of
+    %%     %% only works with poc-v9 and above
+    %%     {ok, V} when V >= 9 ->
+    %%         case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
+    %%             {error, _}=Error ->
+    %%                 Error;
+    %%             {ok, GW0} ->
+    %%                 GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
+    %%                                           WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
+    %%                                           case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
+    %%                                               {ok, WitnessGw} ->
+    %%                                                   blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW, PubkeyBin, Ledger});
+    %%                                               {error, Reason} ->
+    %%                                                   lager:warning("exiting trying to add witness", [Reason]),
+    %%                                                   erlang:error({insert_witnesses_error, Reason})
+    %%                                           end;
+    %%                                      (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
+    %%                                           ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
+    %%                                           case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
+    %%                                               {ok, ReceiptGw} ->
+    %%                                                   blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW, PubkeyBin, Ledger});
+    %%                                               {error, Reason} ->
+    %%                                                   lager:warning("exiting trying to add witness", [Reason]),
+    %%                                                   erlang:error({insert_witnesses_error, Reason})
+    %%                                           end;
+    %%                                      (_, _) ->
+    %%                                           erlang:error({invalid, unknown_witness_type})
+    %%                                   end, GW0, Witnesses),
+    %%                 update_gateway(GW1, PubkeyBin, Ledger)
+    %%         end;
+    %%     _ ->
+    %%         {error, incorrect_poc_version}
+    %% end.
 
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                             WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
-add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
-    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, GW0} ->
-            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
-                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-                                          {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
-                                          {error, Reason} ->
-                                              lager:warning("exiting trying to add witness",
-                                                            [Reason]),
-                                              erlang:error({add_gateway_error, Reason})
-                                      end
-                              end, GW0, WitnessInfo),
-            update_gateway(GW1, GatewayAddress, Ledger)
-    end.
+add_gateway_witnesses(_GatewayAddress, _WitnessInfo, _Ledger) ->
+    ok.
+    %% TODO: if we want to bring this stuff back, we need to make sure that we have a var in place
+    %% to limit it more strictly.  in order to make it deterministic after this code goes in, we'll
+    %% need to start the var at 0 and then raise it.
+
+    %% case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+    %%     {error, _}=Error ->
+    %%         Error;
+    %%     {ok, GW0} ->
+    %%         GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+    %%                                   case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+    %%                                       {ok, Witness} ->
+    %%                                           blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, GatewayAddress, Ledger);
+    %%                                       {error, Reason} ->
+    %%                                           lager:warning("exiting trying to add witness",
+    %%                                                         [Reason]),
+    %%                                           erlang:error({add_gateway_error, Reason})
+    %%                                   end
+    %%                           end, GW0, WitnessInfo),
+    %%         update_gateway(GW1, GatewayAddress, Ledger)
+    %% end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
                              Ledger :: ledger()) -> ok | {error, any()}.
@@ -1460,23 +1930,24 @@ find_poc(OnionKeyHash, Ledger) ->
                   SecretHash :: binary(),
                   Challenger :: libp2p_crypto:pubkey_bin(),
                   BlockHash :: binary(),
+                  Version :: non_neg_integer(),
                   Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger) ->
+request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger) ->
     case ?MODULE:find_gateway_info(Challenger, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
             case ?MODULE:find_poc(OnionKeyHash, Ledger) of
                 {error, not_found} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, []);
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, []);
                 {error, _} ->
                     {error, fail_getting_poc};
                 {ok, PoCs} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs)
             end
     end.
 
-request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs) ->
+request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs) ->
     case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
             ok;
@@ -1490,7 +1961,8 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-    ok = update_gateway(Gw2, Challenger, Ledger),
+    Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
+    ok = update_gateway(Gw3, Challenger, Ledger),
 
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
@@ -1533,11 +2005,26 @@ maybe_gc_pocs(Chain, Ledger) ->
                   {ok, V} -> V;
                   _ -> 1
               end,
-    case Version > 3 andalso Height rem 100 == 0 of
+    %% this used to be 100, but that seems like a lot to process at once, so I lowered it to make
+    %% each iteration cheaper and set it off by one so it wouldn't align with so many other gc
+    %% processes
+    case Version > 3 andalso Height rem 51 == 0 of
         true ->
             lager:debug("gcing old pocs"),
             PoCInterval = blockchain_utils:challenge_interval(Ledger),
             PoCsCF = pocs_cf(Ledger),
+            %% construct a list of recent hashes instead of fetching all the blocks by their hashes,
+            %% which ends up being much much cheaper
+            Hashes =
+                lists:foldl(
+                  fun(H, Acc) ->
+                          case blockchain:get_block_hash(H, Chain) of
+                              {ok, Hash} ->
+                                  Acc#{Hash => H};
+                              _ ->
+                                  Acc
+                          end
+                  end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
             Alters =
                 cache_fold(
                   Ledger,
@@ -1560,15 +2047,14 @@ maybe_gc_pocs(Chain, Ledger) ->
                                                 %% pre-upgrade pocs are ancient
                                                 false;
                                             _ ->
-                                                case blockchain:get_block(H, Chain) of
-                                                    {ok, B} ->
-                                                        BH = blockchain_block:height(B),
+                                                case maps:find(H, Hashes) of
+                                                    {ok, BH} ->
+                                                        %% not sure this is even needed, it might
+                                                        %% always be true? but just in case
                                                         (Height - BH) < PoCInterval * 2;
-                                                    {error, not_found} ->
-                                                        %% we assume that if we can't find the
-                                                        %% origin block in a snapshotted build, we
-                                                        %% can just get rid of it, it's guaranteed
-                                                        %% to be too old.
+                                                    error ->
+                                                        %% if it's not in the hashes map, it's too
+                                                        %% old by construction
                                                         false
                                                 end
                                         end
@@ -1635,14 +2121,12 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
--spec maybe_gc_scs(blockchain:blockchain()) -> ok.
-maybe_gc_scs(Chain) ->
-    Ledger = blockchain:ledger(Chain),
+-spec maybe_gc_scs(blockchain:blockchain(), ledger()) -> ok.
+maybe_gc_scs(Chain, Ledger) ->
     {ok, Height} = current_height(Ledger),
 
-    case blockchain:get_block(Height, Chain) of
-        {ok, Block} ->
-            {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
+    case blockchain:get_block_info(Height, Chain) of
+        {ok, #block_info_v2{election_info={_Epoch, EpochStart}}} ->
             RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
                                 {ok, N} -> N;
                                 _ -> 1
@@ -1800,6 +2284,29 @@ staking_fee_txn_add_gateway_v1(Ledger)->
     end.
 
 %%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for add dataonly gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_add_dataonly_gateway_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_add_dataonly_gateway_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_add_dataonly_gateway_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for add light gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_add_light_gateway_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_add_light_gateway_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_add_light_gateway_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
 %% @doc  get txn fee multiplier
 %% or return default
 %% @end
@@ -1810,8 +2317,9 @@ txn_fee_multiplier(Ledger)->
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
+
 %%--------------------------------------------------------------------
-%% @doc  get staking fee chain var value for add gateway
+%% @doc  get staking fee chain var value for assert_location_v1
 %% or return default
 %% @end
 %%--------------------------------------------------------------------
@@ -1820,6 +2328,39 @@ staking_fee_txn_assert_location_v1(Ledger)->
     case blockchain:config(?staking_fee_txn_assert_location_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
+    end.
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for assert_location_v1 for a dataonly gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_assert_location_dataonly_gateway_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for assert_location_v1 for a light gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_assert_location_light_gateway_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_assert_location_light_gateway_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_assert_location_light_gateway_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+%%--------------------------------------------------------------------
+%% @doc  get map of staking server keys to gateway mode/type
+%% @end
+%%--------------------------------------------------------------------
+%% TODO: come up with a better name for this
+-spec staking_keys_to_mode_mappings(Ledger :: ledger()) -> not_found | [libp2p_crypto:pubkey_bin()].
+staking_keys_to_mode_mappings(Ledger)->
+    case blockchain:config(?staking_keys_to_mode_mappings, Ledger) of
+        {error, not_found} -> not_found;
+        {ok, V} -> blockchain_utils:bin_to_prop(V)
     end.
 
 %%--------------------------------------------------------------------
@@ -1897,8 +2438,7 @@ do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     case CurrentHeight rem Interval == 0 of
         false -> ok;
         true ->
-            {ok, Block} = blockchain:get_block(CurrentHeight, Blockchain),
-            BlockT = blockchain_block:time(Block),
+            {ok, #block_info_v2{time = BlockT}} = blockchain:get_block_info(CurrentHeight, Blockchain),
             {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
             cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(NewPriceList)),
             cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(NewPrice))
@@ -1947,6 +2487,7 @@ select_prices_by_time(Start, End, Entry, Acc) ->
         true -> Acc
     end.
 
+median([P]) -> P; %% if there's only 1 entry, use it
 median(L) ->
     Sorted = lists:sort(L),
     Len = length(L),
@@ -1978,7 +2519,7 @@ find_entry(Address, Ledger) ->
         {ok, BinEntry} ->
             {ok, blockchain_ledger_entry_v1:deserialize(BinEntry)};
         not_found ->
-            {error, not_found};
+            {error, address_entry_not_found};
         Error ->
             Error
     end.
@@ -1987,7 +2528,7 @@ find_entry(Address, Ledger) ->
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
-        {error, not_found} ->
+        {error, address_entry_not_found} ->
             Entry = blockchain_ledger_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_entry_v1:serialize(Entry),
             cache_put(Ledger, EntriesCF, Address, Bin);
@@ -2028,8 +2569,8 @@ debit_account(Address, Amount, Nonce, Ledger) ->
             end
     end.
 
--spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
-debit_fee_from_account(Address, Fee, Ledger) ->
+-spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), blockchain_txn:hash(), blockchain:blockchain()) -> ok | {error, any()}.
+debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -2037,13 +2578,23 @@ debit_fee_from_account(Address, Fee, Ledger) ->
             Balance = blockchain_ledger_entry_v1:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
+                    case application:get_env(blockchain, store_implicit_burns, false) of
+                        true when TxnHash =/= undefined, Chain =/= undefined ->
+                            ImplicitBurn = blockchain_implicit_burn:new(
+                                Fee,
+                                Address
+                            ),
+                            blockchain:add_implicit_burn(TxnHash, ImplicitBurn, Chain);
+                        false ->
+                            ok
+                    end,
                     Entry1 = blockchain_ledger_entry_v1:new(
                         blockchain_ledger_entry_v1:nonce(Entry),
                         (Balance - Fee)
                     ),
-                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
                     EntriesCF = entries_cf(Ledger),
-                    cache_put(Ledger, EntriesCF, Address, Bin);
+                    cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
             end
@@ -2133,17 +2684,39 @@ debit_dc(Address, Nonce, Amount, Ledger) ->
             Error
     end.
 
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-debit_fee(_Address, Fee,_Ledger) ->
-    debit_fee(_Address, Fee,_Ledger, false).
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean()) -> ok | {error, any()}.
-debit_fee(_Address, 0,_Ledger, _MaybeTryImplicitBurn) ->
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger()
+) -> ok | {error, any()}.
+debit_fee(_Address, Fee, _Ledger) ->
+    debit_fee(_Address, Fee, _Ledger, false, undefined, undefined).
+
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger(),
+    MaybeTryImplicitBurn :: boolean()
+) -> ok | {error, any()}.
+debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn) ->
+    debit_fee(_Address, Fee, _Ledger, _MaybeTryImplicitBurn, undefined, undefined).
+
+-spec debit_fee(
+    Address :: libp2p_crypto:pubkey_bin(),
+    Fee :: non_neg_integer(),
+    Ledger :: ledger(),
+    MaybeTryImplicitBurn :: boolean(),
+    TxnHash :: blockchain_txn:hash() | undefined,
+    Chain :: blockchain:blockchain() | undefined
+) -> ok | {error, any()}.
+debit_fee(_Address, 0, _Ledger, _MaybeTryImplicitBurn, _TxnHash, _Chain) ->
     ok;
-debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
+debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn, TxnHash, Chain) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} when MaybeTryImplicitBurn == true ->
             {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
-            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+            ok = add_hnt_burned(FeeInHNT, Ledger),
+            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash, Chain);
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
@@ -2160,7 +2733,8 @@ debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
                 {false, true} ->
                     %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
                     {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
-                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+                    ok = add_hnt_burned(FeeInHNT, Ledger),
+                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger, TxnHash, Chain);
                 {false, false} ->
                     {error, {insufficient_dc_balance, {Fee, Balance}}}
             end
@@ -2190,9 +2764,14 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} ->
             {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
-            ?MODULE:check_balance(Address, AmountInHNT, Ledger);
-        {error, _}=Error ->
-            Error;
+            case ?MODULE:check_balance(Address, AmountInHNT, Ledger) of
+                {error, address_entry_not_found} ->
+                    %% if the entry is not found, return insufficient balance error
+                    {error, insufficient_dc_and_hnt_balance};
+                Res ->
+                    %% pass thru all other responses unaltered
+                    Res
+            end;
         {ok, Entry} ->
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             case {(Balance - Amount) >= 0, IsFeesEnabled}  of
@@ -2202,8 +2781,76 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
                     {error, {insufficient_dc_balance, {Amount, Balance}}};
                 {false, true} ->
                     {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
-                    ?MODULE:check_balance(Address, AmountInHNT, Ledger)
+                    case ?MODULE:check_balance(Address, AmountInHNT, Ledger) of
+                        {error, address_entry_not_found} ->
+                            %% if the entry is not found, return insufficient balance error
+                            {error, insufficient_dc_and_hnt_balance};
+                        Res ->
+                            %% pass thru all other responses unaltered
+                            Res
+                    end
             end
+    end.
+
+-spec hnt_burned(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+hnt_burned(Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            case cache_get(Ledger, DefaultCF, ?HNT_BURNED, []) of
+                {ok, <<Burned:64/integer-unsigned-native>>} ->
+                    {ok, Burned};
+                not_found ->
+                    {ok, 0};
+                Error ->
+                    Error
+            end;
+        _ -> {ok, 0}
+    end.
+
+-spec add_hnt_burned(non_neg_integer(), ledger()) -> ok.
+add_hnt_burned(Burned, Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            Prev =
+                case cache_get(Ledger, DefaultCF, ?HNT_BURNED, []) of
+                    {ok, <<P:64/integer-unsigned-native>>} -> P;
+                    not_found -> 0
+                end,
+            New = Prev + Burned,
+            cache_put(Ledger, DefaultCF, ?HNT_BURNED, <<New:64/integer-unsigned-native>>);
+        _ -> ok
+    end.
+
+-spec clear_hnt_burned(ledger()) -> ok.
+clear_hnt_burned(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?HNT_BURNED, <<0:64/integer-unsigned-native>>).
+
+-spec net_overage(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+net_overage(Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            case cache_get(Ledger, DefaultCF, ?NET_OVERAGE, []) of
+                {ok, <<Overage:64/integer-unsigned-native>>} ->
+                    {ok, Overage};
+                not_found ->
+                    {ok, 0};
+                Error ->
+                    Error
+            end;
+        _ -> {ok, 0}
+    end.
+
+-spec net_overage(non_neg_integer(), ledger()) -> ok.
+net_overage(Overage, Ledger) ->
+    case blockchain:config(?net_emissions_enabled, Ledger) of
+        {ok, true} ->
+            DefaultCF = default_cf(Ledger),
+            cache_put(Ledger, DefaultCF, ?NET_OVERAGE, <<Overage:64/integer-unsigned-native>>);
+        _ -> ok
     end.
 
 -spec token_burn_exchange_rate(ledger()) -> {ok, integer()} | {error, any()}.
@@ -2335,8 +2982,8 @@ add_htlc(Address, Payer, Payee, Amount, Nonce, Hashlock, Timelock, Ledger) ->
             cache_put(Ledger, HTLCsCF, Address, Bin)
     end.
 
--spec redeem_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
-redeem_htlc(Address, Payee, Ledger) ->
+-spec redeem_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger(), blockchain:blockchain()) -> ok | {error, any()}.
+redeem_htlc(Address, Payee, Ledger, Chain) ->
     case ?MODULE:find_htlc(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -2345,6 +2992,28 @@ redeem_htlc(Address, Payee, Ledger) ->
             case ?MODULE:credit_account(Payee, Amount, Ledger) of
                 {error, _}=Error -> Error;
                 ok ->
+                    %% Store receipt if env requries it
+                    case application:get_env(blockchain, store_htlc_receipts, false) of
+                        true when Address =/= undefined, Chain =/= undefined ->
+                            {ok, RedeemedAt} = current_height(Ledger),
+                            Payer = blockchain_ledger_htlc_v1:payer(HTLC),
+                            Hashlock = blockchain_ledger_htlc_v1:hashlock(HTLC),
+                            Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
+                            HTLCReceipt = blockchain_htlc_receipt:new(
+                                Payer,
+                                Payee,
+                                Address,
+                                Amount,
+                                Hashlock,
+                                Timelock,
+                                RedeemedAt
+                            ),
+                            blockchain:add_htlc_receipt(Address, HTLCReceipt, Chain);
+                        false ->
+                            ok
+                    end,
+
+                    %% Delete redeemed HTLC from DB
                     HTLCsCF = htlcs_cf(Ledger),
                     cache_delete(Ledger, HTLCsCF, Address)
             end
@@ -2392,6 +3061,17 @@ add_oui(Owner, Addresses, Filter, Subnet, Ledger) ->
             ok = cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, Bin),
             ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>)
     end.
+
+-spec get_routes(ledger()) -> {ok, [blockchain_ledger_routing_v1:routing()]}.
+get_routes(Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    {ok, cache_fold(Ledger, RoutingCF,
+                     fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
+                             Route = blockchain_ledger_routing_v1:deserialize(V),
+                             [Route | Acc];
+                        ({_K, _V}, Acc) ->
+                             Acc
+                     end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}])}.
 
 -spec find_routing(non_neg_integer(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
                                                    | {error, any()}.
@@ -2446,12 +3126,12 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
 
 -spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
                                Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
-find_routing_via_devaddr(DevAddr0, Ledger=#ledger_v1{db=DB}) ->
+find_routing_via_devaddr(DevAddr0, Ledger) ->
     DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
     case <<DevAddr0:32/integer-unsigned-little>> of
         <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
             %% use the subnets
-            SubnetCF = subnets_cf(Ledger),
+            {_Name, DB, SubnetCF} = subnets_cf(Ledger),
             {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
             Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
             catch rocksdb:iterator_close(Itr),
@@ -2501,6 +3181,25 @@ update_routing(OUI, Action, Nonce, Ledger) ->
             Error
     end.
 
+-spec find_state_channel_with_mod(ID :: binary(),
+                         Owner :: libp2p_crypto:pubkey_bin(),
+                         Ledger :: ledger()) ->
+    {ok, blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel()}
+    | {ok, blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel()}
+    | {error, any()}.
+find_state_channel_with_mod(ID, Owner, Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    Key = state_channel_key(ID, Owner),
+    case cache_get(Ledger, SCsCF, Key, []) of
+        {ok, BinEntry} ->
+            {Mod, SC} = deserialize_state_channel(BinEntry),
+            {ok, Mod, SC};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 -spec find_state_channel(ID :: binary(),
                          Owner :: libp2p_crypto:pubkey_bin(),
                          Ledger :: ledger()) ->
@@ -2508,17 +3207,33 @@ update_routing(OUI, Action, Nonce, Ledger) ->
     | {ok, blockchain_ledger_state_channel_v2:state_channel()}
     | {error, any()}.
 find_state_channel(ID, Owner, Ledger) ->
-    SCsCF = state_channels_cf(Ledger),
-    Key = state_channel_key(ID, Owner),
-    case cache_get(Ledger, SCsCF, Key, []) of
-        {ok, BinEntry} ->
-            {_Mod, SC} = deserialize_state_channel(BinEntry),
-            {ok, SC};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+    case find_state_channel_with_mod(ID, Owner, Ledger) of
+        {ok, _Mod, SC} -> {ok, SC};
+        Error -> Error
     end.
+
+-spec count_open_scs_for_owner(BinIds :: [binary()],
+                               Owner :: libp2p_crypto:pubkey_bin(),
+                               Ledger :: ledger()) -> non_neg_integer().
+count_open_scs_for_owner(BinIds, Owner, Ledger) ->
+    lists:foldl(
+      fun(Id, Acc) ->
+              case find_state_channel(Id, Owner, Ledger) of
+                  {ok, SC} ->
+                      case blockchain_ledger_state_channel_v2:is_v2(SC) of
+                          true ->
+                              case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                  undefined -> Acc + 1;
+                                  _ -> Acc
+                              end;
+                          false ->
+                              %% this is a v1 state channel, ignore
+                              %% shouldn't get here ever
+                              Acc
+                      end;
+                  _ -> Acc
+              end
+      end, 0, BinIds).
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
                            Ledger :: ledger()) -> {ok, [binary()]}.
@@ -2612,7 +3327,8 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
                                            _ ->
                                                false
                                        end,
-                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf),
+                    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf, MaxActorsAllowed),
                     Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
                     cache_put(Ledger, SCsCF, Key, Bin);
                 false ->
@@ -2624,8 +3340,8 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
     end.
 
 -spec allocate_subnet(pos_integer(), ledger()) -> {ok, <<_:48>>} | {error, any()}.
-allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
-    SubnetCF = subnets_cf(Ledger),
+allocate_subnet(Size, Ledger) ->
+    {_, DB, SubnetCF} = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
     Result = allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, first), none),
     catch rocksdb:iterator_close(Itr),
@@ -2733,9 +3449,8 @@ next_oracle_prices(Blockchain, Ledger) ->
 
     LastUpdate = CurrentHeight - (CurrentHeight rem Interval),
 
-    {ok, Block} = blockchain:get_block(LastUpdate, Blockchain),
+    {ok, #block_info_v2{time = BlockT}} = blockchain:get_block_info(LastUpdate, Blockchain),
     {ok, LastPrice} = current_oracle_price(Ledger),
-    BlockT = blockchain_block:time(Block),
 
     StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
     EndScan = (BlockT - MaxSecs) + DelaySecs, % typically 1 day (in seconds)
@@ -2786,16 +3501,42 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
+    rocksdb:destroy(DBDir, []),
+    clean_checkpoints(L),
+    clean_aux(L);
+clean(Dir) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
     rocksdb:destroy(DBDir, []).
 
-close(#ledger_v1{db=DB}) ->
-    rocksdb:close(DB).
+clean_aux(L) ->
+    case has_aux(L) of
+        true ->
+            catch ok = rocksdb:close(L#ledger_v1.aux#aux_ledger_v1.db),
+            DBDir = filename:join(L#ledger_v1.aux#aux_ledger_v1.dir, ?DB_FILE),
+            rocksdb:destroy(DBDir, []);
+        false ->
+            ok
+    end.
+
+close(#ledger_v1{db=DB}=L) ->
+    rocksdb:close(DB),
+    case has_aux(L) of
+        true ->
+            rocksdb:close(L#ledger_v1.aux#aux_ledger_v1.db);
+        false ->
+            ok
+    end.
+
 
 compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
     rocksdb:compact_range(DB, undefined, undefined, []),
     compact_ledger(DB, Active),
     compact_ledger(DB, Delayed),
     ok.
+
+-spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
+state_channel_key(ID, Owner) ->
+    <<Owner/binary, ID/binary>>.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -2819,10 +3560,6 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, Routing, undefined, undefined, []),
     ok.
 
--spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
-state_channel_key(ID, Owner) ->
-    <<Owner/binary, ID/binary>>.
-
 %%--------------------------------------------------------------------
 %% @doc
 %% need to prefix to keep people from messing with existing names on accident
@@ -2838,111 +3575,185 @@ var_name(Name) when is_binary(Name) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(undefined | ets:tid(), undefined | ets:tid(), ledger()) -> ledger().
-context_cache(Cache, GwCache, #ledger_v1{mode=active, active=Active}=Ledger) ->
-    Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}};
-context_cache(Cache, GwCache, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
-    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}}.
+-spec context_cache(undefined | direct | ets:tid(), undefined | ets:tid(), ledger()) -> ledger().
+context_cache(Cache, GwCache, Ledger) ->
+    SL = subledger(Ledger),
+    subledger(Ledger, SL#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}).
 
--spec default_cf(ledger()) -> rocksdb:cf_handle().
-default_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{default=DefaultCF}}) ->
-    DefaultCF;
-default_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{default=DefaultCF}}) ->
-    DefaultCF.
-
--spec active_gateways_cf(ledger()) -> rocksdb:cf_handle().
-active_gateways_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{active_gateways=AGCF}}) ->
-    AGCF;
-active_gateways_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{active_gateways=AGCF}}) ->
-    AGCF.
-
--spec gw_denorm_cf(ledger()) -> rocksdb:cf_handle().
-gw_denorm_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
-    GwDenormCF;
-gw_denorm_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{gw_denorm=GwDenormCF}}) ->
-    GwDenormCF.
-
--spec entries_cf(ledger()) -> rocksdb:cf_handle().
-entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=EntriesCF}}) ->
-    EntriesCF;
-entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=EntriesCF}}) ->
-    EntriesCF.
-
--spec dc_entries_cf(ledger()) -> rocksdb:cf_handle().
-dc_entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
-    EntriesCF;
-dc_entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
-    EntriesCF.
-
--spec htlcs_cf(ledger()) -> rocksdb:cf_handle().
-htlcs_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
-    HTLCsCF;
-htlcs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
-    HTLCsCF.
-
--spec pocs_cf(ledger()) -> rocksdb:cf_handle().
-pocs_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{pocs=PoCsCF}}) ->
-    PoCsCF;
-pocs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{pocs=PoCsCF}}) ->
-    PoCsCF.
-
--spec securities_cf(ledger()) -> rocksdb:cf_handle().
-securities_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{securities=SecuritiesCF}}) ->
-    SecuritiesCF;
-securities_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{securities=SecuritiesCF}}) ->
-    SecuritiesCF.
-
--spec routing_cf(ledger()) -> rocksdb:cf_handle().
-routing_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{routing=RoutingCF}}) ->
-    RoutingCF;
-routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) ->
-    RoutingCF.
-
--spec subnets_cf(ledger()) -> rocksdb:cf_handle().
-subnets_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{subnets=SubnetsCF}}) ->
-    SubnetsCF;
-subnets_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{subnets=SubnetsCF}}) ->
-    SubnetsCF.
-
--spec state_channels_cf(ledger()) -> rocksdb:cf_handle().
-state_channels_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{state_channels=SCsCF}}) ->
-    SCsCF;
-state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels=SCsCF}}) ->
-    SCsCF.
-
--spec h3dex_cf(ledger()) -> rocksdb:cf_handle().
-h3dex_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF;
-h3dex_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{h3dex=H3DexCF}}) -> H3DexCF.
-
--spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
-cache_put(Ledger, CF, Key, Value) ->
-    {Cache, _GwCache} = context_cache(Ledger),
-    true = ets:insert(Cache, {{CF, Key}, Value}),
-    ok.
-
--spec gateway_cache_put(libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway(), ledger()) -> ok.
-gateway_cache_put(Addr, Gw, Ledger) ->
-    {_Cache, GwCache} = context_cache(Ledger),
-    MaxSize = application:get_env(blockchain, gw_context_cache_max_size, 75),
-    case ets:info(GwCache, size) of
-        N when N > MaxSize ->
-            true = ets:insert(GwCache, {Addr, spillover});
+%% these ledger types don't allow fetching by hash
+-spec get_block(integer(), ledger()) ->
+          {ok, blockchain_block:block()} | {error, any()}.
+get_block(Height, #ledger_v1{blocks_db = DB,
+                             blocks_cf = BlocksCF,
+                             heights_cf = HeightsCF} = Ledger) ->
+    case Height > current_height(Ledger) of
+        true -> {error, too_new};
         _ ->
-            true = ets:insert(GwCache, {Addr, Gw}),
-            ok
+            case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+                {ok, Hash} ->
+                    case rocksdb:get(DB, BlocksCF, Hash, []) of
+                        {ok, BinBlock} ->
+                            {ok, blockchain_block:deserialize(BinBlock)};
+                        not_found ->
+                            {error, not_found};
+                        Error ->
+                            Error
+                    end;
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
     end.
 
--spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
-cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
+get_block_info(Height, #ledger_v1{blocks_db = DB,
+                                  info_cf = InfoCF} = Ledger) ->
+    case Height > current_height(Ledger) of
+        true -> {error, too_new};
+        _ ->
+            case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
+                {ok, BinInfo} ->
+                    case binary_to_term(BinInfo) of
+                        BI = #block_info_v2{} ->
+                            {ok, BI};
+                        _ ->
+                            %% probably a stale one
+                            case get_block(Height, Ledger) of
+                                {ok, Block} ->
+                                    NewInfo = blockchain:mk_block_info(blockchain_block:hash_block(Block), Block),
+                                    rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(NewInfo), []),
+                                    {ok, NewInfo};
+                                Error ->
+                                    Error
+                            end
+                    end;
+                Error ->
+                    Error
+            end
+    end.
+
+-spec default_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+default_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {default, db(Ledger), SL#sub_ledger_v1.default}.
+
+-spec active_gateways_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+active_gateways_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {active_gateways, db(Ledger), SL#sub_ledger_v1.active_gateways}.
+
+-spec gw_denorm_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+gw_denorm_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {gw_denorm, db(Ledger), SL#sub_ledger_v1.gw_denorm}.
+
+-spec entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+entries_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {entries, db(Ledger), SL#sub_ledger_v1.entries}.
+
+-spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+dc_entries_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {dc_entries, db(Ledger), SL#sub_ledger_v1.dc_entries}.
+
+-spec htlcs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+htlcs_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {htlcs, db(Ledger), SL#sub_ledger_v1.htlcs}.
+
+-spec pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+pocs_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
+
+-spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+securities_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {securities, db(Ledger), SL#sub_ledger_v1.securities}.
+
+
+-spec routing_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+routing_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {routing, db(Ledger), SL#sub_ledger_v1.routing}.
+
+-spec subnets_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+subnets_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
+
+-spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+state_channels_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {state_channels, db(Ledger), SL#sub_ledger_v1.state_channels}.
+
+-spec h3dex_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+h3dex_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {h3dex, db(Ledger), SL#sub_ledger_v1.h3dex}.
+
+-spec aux_heights_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights
+    end.
+
+-spec aux_heights_md_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_md_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_md
+    end.
+
+-spec aux_heights_diff_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_diff_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_diff
+    end.
+
+-spec aux_heights_diffsum_cf(ledger()) -> undefined | rocksdb:cf_handle().
+aux_heights_diffsum_cf(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.aux_heights_diffsum
+    end.
+
+-spec aux_db(ledger()) -> undefined | rocksdb:db_handle().
+aux_db(Ledger) ->
+    case has_aux(Ledger) of
+        false -> undefined;
+        true -> Ledger#ledger_v1.aux#aux_ledger_v1.db
+    end.
+
+-spec validators_cf(ledger()) -> rocksdb:cf_handle().
+validators_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {validators, db(Ledger), SL#sub_ledger_v1.validators}.
+
+-spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
+cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
     case context_cache(Ledger) of
-        {undefined, undefined} ->
+        {direct, _GwCache} ->
+            rocksdb:put(db(Ledger), _CF, Key, Value, [{disable_wal, true}, {sync, false}]);
+        {Cache, _GwCache} ->
+            true = ets:insert(Cache, {{Name, Key}, Value})
+    end,
+    ok.
+
+-spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
+cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
+    case context_cache(Ledger) of
+        {C, _GwCache} when C == undefined; C == direct ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
         {Cache, _GwCache} ->
             %% don't do anything smart here with the cache yet,
             %% otherwise the semantics get all confused.
-            case ets:lookup(Cache, {CF, Key}) of
+            case ets:lookup(Cache, {Name, Key}) of
                 [] ->
-                    cache_get(context_cache(undefined, undefined, Ledger), CF, Key, Options);
+                    cache_get(context_cache(undefined, undefined, Ledger), {Name, DB, CF}, Key, Options);
                 [{_, ?CACHE_TOMBSTONE}] ->
                     %% deleted in the cache
                     not_found;
@@ -2952,11 +3763,15 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
     end.
 
 -spec cache_delete(ledger(), rocksdb:cf_handle(), binary()) -> ok.
-cache_delete(Ledger, CF, Key) ->
+cache_delete(Ledger, {Name, _DB, _CF}, Key) ->
     %% TODO: check if we're a gateway and delete that cache too, but
     %% we never delete gateways now
-    {Cache, _GwCache} = context_cache(Ledger),
-    true = ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE}),
+    case context_cache(Ledger) of
+        {direct, _GWCache} ->
+            rocksdb:delete(db(Ledger), _CF, Key, []);
+        {Cache, _GwCache} ->
+            true = ets:insert(Cache, {{Name, Key}, ?CACHE_TOMBSTONE})
+    end,
     ok.
 
 -spec cache_fold(Ledger :: ledger(),
@@ -2966,7 +3781,7 @@ cache_delete(Ledger, CF, Key) ->
 cache_fold(Ledger, CF, Fun0, OriginalAcc) ->
     cache_fold(Ledger, CF, Fun0, OriginalAcc, []).
 
-cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
+cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
     Start0 = proplists:get_value(start, Opts, first),
     Start =
         case Start0 of
@@ -2977,18 +3792,18 @@ cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        {undefined, undefined} ->
+        {C, undefined} when C == undefined; C == direct ->
             %% fold rocks directly
-            rocks_fold(Ledger, CF, Opts, Fun0, OriginalAcc);
+            rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
         {Cache, _GwCache} ->
             %% fold using the cache wrapper
-            Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
-            Keys = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CF}],['$2']}])),
-            {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Opts, Fun, {Keys, OriginalAcc}),
-            process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
+            Fun = mk_cache_fold_fun(Cache, CFName, Start, End, Fun0),
+            Keys = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CFName}],['$2']}])),
+            {TrailingKeys, Res0} = rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}),
+            process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
     end.
 
-rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Opts0, Fun, Acc) ->
+rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     Start = proplists:get_value(start, Opts0, first),
     Opts = proplists:delete(start, Opts0),
     {ok, Itr} = rocksdb:iterator(DB, CF, maybe_use_snapshot(Ledger, Opts)),
@@ -3058,24 +3873,27 @@ process_fun(ToProcess, Cache, CF,
               end
       end, Acc, ToProcess).
 
--spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
-open_db(Dir) ->
+-spec open_db(Mode :: mode(),
+              Dir :: file:filename_all(),
+              HasDelayed :: boolean(), ReadOnly :: boolean(), Options :: rocksdb:cf_options()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(active, Dir, true, ReadOnly, Options) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
+    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}])),
+    DefaultCFs = default_cfs() ++ delayed_cfs(),
+    open_db_(DBDir, DBOptions, DefaultCFs, Options, ReadOnly, false);
+open_db(aux, Dir, false, ReadOnly, Options) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = filelib:ensure_dir(DBDir),
+    DBOptions = lists:keymerge(1, lists:ukeysort(1, Options), lists:ukeysort(1, [{create_if_missing, true}, {atomic_flush, true}])),
+    DefaultCFs = default_cfs() ++ aux_cfs(),
+    open_db_(DBDir, DBOptions, DefaultCFs, Options, ReadOnly, false);
+open_db(active, _Dir, false, _, _) ->
+    {error, not_opening_active_without_delayed};
+open_db(aux, _Dir, true, _, _) ->
+    {error, not_opening_aux_with_delayed}.
 
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-
-    DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-
-    CFOpts = GlobalOpts,
-
-    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs",
-                  "pocs", "securities", "routing", "subnets", "state_channels",
-                  "h3dex", "gw_denorm",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries",
-                  "delayed_dc_entries", "delayed_htlcs", "delayed_pocs",
-                  "delayed_securities", "delayed_routing", "delayed_subnets",
-                  "delayed_state_channels", "delayed_h3dex", "delayed_gw_denorm"],
+open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3084,18 +3902,52 @@ open_db(Dir) ->
                 ["default"]
         end,
 
-    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]),
+     OpenResult = case ReadOnly of
+                              true ->
+                                  rocksdb:open_with_cf_readonly(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]);
+                              false ->
+                                  rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs])
+                          end,
+     case OpenResult of
+         {error, {db_open,"Corruption:" ++ Reason}} when Retry == false ->
+             lager:warning("deleting corrupted ledger: ~p", [Reason]),
+             BaseDir = filename:dirname(DBDir),
+             rocksdb:destroy(DBDir, []),
+             clean_checkpoints(BaseDir),
+             open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, true);
+         {error, Reason} ->
+             error(Reason);
+         {ok, DB, OpenedCFs} ->
+             L1 = lists:zip(ExistingCFs, OpenedCFs),
+             L2 = lists:map(
+                    fun(CF) ->
+                            case ReadOnly of
+                                true ->
+                                    {CF, undefined};
+                                false ->
+                                    {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
+                                    {CF, CF1}
+                            end
+                    end,
+                    DefaultCFs -- ExistingCFs
+                   ),
+             L3 = L1 ++ L2,
+             {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}
+     end.
 
-    L1 = lists:zip(ExistingCFs, OpenedCFs),
-    L2 = lists:map(
-        fun(CF) ->
-            {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
-            {CF, CF1}
-        end,
-        DefaultCFs -- ExistingCFs
-    ),
-    L3 = L1 ++ L2,
-    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
+-spec default_cfs() -> list().
+default_cfs() ->
+    ["default", "active_gateways", "entries", "dc_entries", "htlcs",
+     "pocs", "securities", "routing", "subnets", "state_channels",
+     "h3dex", "gw_denorm", "validators"].
+
+-spec delayed_cfs() -> list().
+delayed_cfs() ->
+    ["delayed_" ++ I || I <- default_cfs()].
+
+-spec aux_cfs() -> list().
+aux_cfs() ->
+    ["aux_heights", "aux_heights_md", "aux_heights_diff", "aux_heights_diffsum"].
 
 -spec maybe_use_snapshot(ledger(), list()) -> list().
 maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
@@ -3119,6 +3971,18 @@ get_hexes(Ledger) ->
     case cache_get(Ledger, CF, ?hex_list, []) of
         {ok, BinList} ->
             {ok, maps:from_list(binary_to_term(BinList))};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec get_hexes_list(Ledger :: ledger()) -> {ok, []} | {error, any()}.
+get_hexes_list(Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, ?hex_list, []) of
+        {ok, BinList} ->
+            {ok, binary_to_term(BinList)};
         not_found ->
             {error, not_found};
         Error ->
@@ -3152,6 +4016,7 @@ delete_hex(Hex, Ledger) ->
 
 hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
+
 
 add_to_hex(Hex, Gateway, Ledger) ->
     Hexes = case get_hexes(Ledger) of
@@ -3212,7 +4077,6 @@ clean_all_hexes(Ledger) ->
             commit_context(L2);
         _ -> ok
     end.
-
 
 -spec bootstrap_h3dex(ledger()) -> ok.
 bootstrap_h3dex(Ledger) ->
@@ -3354,39 +4218,325 @@ bootstrap_gw_denorm(Ledger) ->
       fun({GwAddr, Binary}, _) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
               Location = blockchain_ledger_gateway_v2:location(Gw),
+              Mode = blockchain_ledger_gateway_v2:mode(Gw),
               LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
               Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
                         term_to_binary(LastChallenge)),
+              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
               cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
       end,
       ignore).
 
-batch_from_cache(ETS) ->
-    {ok, Batch} = rocksdb:batch(),
-    ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, Acc) ->
-                      rocksdb:batch_delete(Acc, CF, Key),
-                      Acc;
-                 ({{CF, Key}, Value}, Acc) ->
-                      rocksdb:batch_put(Acc, CF, Key, Value),
-                      Acc
-              end, Batch, ETS).
+%% do not call this except via the blockchain_worker wrapper
+add_commit_hook(CF, HookIncFun, HookEndFun, Ledger) ->
+    add_commit_hook(CF, HookIncFun, HookEndFun, undefined, Ledger).
 
-prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
+add_commit_hook(CF, HookIncFun, HookEndFun, Pred, #ledger_v1{commit_hooks = Hooks} = Ledger) ->
+    Ref = make_ref(),
+    NewHook = #hook{cf = CF,
+                    predicate = Pred,
+                    hook_inc_fun = HookIncFun,
+                    hook_end_fun = HookEndFun,
+                    ref = Ref},
+    Hooks1 = [NewHook | Hooks],
+    {Ref, Ledger#ledger_v1{commit_hooks = Hooks1}}.
+
+%% do not call this either except via the blockchain_worker wrapper
+remove_commit_hook(Ref, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_reference(Ref) ->
+    Hooks1 = lists:keydelete(Ref, #hook.ref, Hooks),
+    Ledger#ledger_v1{commit_hooks = Hooks1};
+remove_commit_hook(Atom, #ledger_v1{commit_hooks = Hooks} = Ledger) when is_atom(Atom) ->
+    Hooks1 = lists:keydelete(Atom, #hook.cf, Hooks),
+    Ledger#ledger_v1{commit_hooks = Hooks1}.
+
+-spec add_validator(ValidatorAddress :: libp2p_crypto:pubkey_bin(),
+                    OwnerAddress :: libp2p_crypto:pubkey_bin(),
+                    Stake :: pos_integer(),
+                    Ledger :: ledger()) -> ok | {error, validator_already_added}.
+add_validator(Address,
+              OwnerAddr,
+              Stake,
+              Ledger) ->
+    case ?MODULE:get_validator(Address, Ledger) of
+        {ok, _} ->
+            {error, validator_already_added};
+        _ ->
+            Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Stake),
+            update_validator(Address, Val, Ledger)
+    end.
+
+-spec update_validator(Addr :: libp2p_crypto:pubkey_bin(),
+                       Gw :: blockchain_ledger_validator_v1:validator(),
+                       Ledger :: ledger()) -> ok | {error, _}.
+update_validator(Addr, Val, Ledger) ->
+    Bin = blockchain_ledger_validator_v1:serialize(Val),
+    ValsCF = validators_cf(Ledger),
+    cache_put(Ledger, ValsCF, Addr, Bin).
+
+-spec get_validator(libp2p_crypto:pubkey_bin(), ledger()) ->
+          {ok, blockchain_ledger_validator_v1:validator()}
+              | {error, any()}.
+get_validator(Address, Ledger) ->
+    ValsCF = validators_cf(Ledger),
+    case cache_get(Ledger, ValsCF, Address, []) of
+        {ok, BinVal} ->
+            {ok, blockchain_ledger_validator_v1:deserialize(BinVal)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec deactivate_validator(libp2p_crypto:pubkey_bin(), pos_integer(), ledger()) ->
+          ok | {error, any()}.
+deactivate_validator(Address, StakeReleaseHeight, Ledger) ->
+    case get_validator(Address, Ledger) of
+        {ok, Val} ->
+            Stake = blockchain_ledger_validator_v1:stake(Val),
+            Owner = blockchain_ledger_validator_v1:owner_address(Val),
+
+            %% set status to cooldown
+            Val1 = blockchain_ledger_validator_v1:status(cooldown, Val),
+            Val2 = blockchain_ledger_validator_v1:release_height(StakeReleaseHeight, Val1),
+            %% put the stake HNT into cooldown
+            ok = cooldown_stake(Owner, Address, Stake, StakeReleaseHeight, Ledger),
+            update_validator(Address, Val2, Ledger);
+        Error -> Error
+    end.
+
+finalize_validator(Address, Ledger) ->
+    case get_validator(Address, Ledger) of
+        {ok, Val} ->
+            %% set status to unstaked
+            Val1 = blockchain_ledger_validator_v1:status(unstaked, Val),
+            %% zero out the stake
+            Val2 = blockchain_ledger_validator_v1:stake(0, Val1),
+            update_validator(Address, Val2, Ledger);
+        Error -> Error
+    end.
+
+
+-spec cooldown_stake(Owner :: libp2p_crypto:pubkey_bin(),
+                     Validator :: libp2p_crypto:pubkey_bin(),
+                     Stake :: non_neg_integer(),
+                     StakeReleaseHeight :: pos_integer(),
+                     Ledger :: ledger()) ->
+          ok | {error, any()}.
+cooldown_stake(Owner, Validator, Stake, StakeReleaseHeight, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+
+    NewStakeRec = new_stake_record(Owner, Validator, Stake, StakeReleaseHeight),
+
+    %% add a callback at stake release height block
+    HeightEntry =
+        case cache_get(Ledger, DefaultCF, cd_block_name(StakeReleaseHeight), []) of
+            {ok, HE} ->
+                binary_to_term(HE);
+            not_found ->
+                []
+            %% just gonna function clause for now
+        end,
+    HeightEntry1 = [ NewStakeRec | HeightEntry ],
+    cache_put(Ledger, DefaultCF, cd_block_name(StakeReleaseHeight),
+              term_to_binary(HeightEntry1)).
+
+new_stake_record(Owner, Validator, Stake, SRH) ->
+    #validator_stake_v1{owner = Owner,
+                        validator = Validator,
+                        stake = Stake,
+                        stake_release_height = SRH}.
+
+get_cooldown_stake(Val, Ledger) ->
+    Address = blockchain_ledger_validator_v1:address(Val),
+    ReleaseHeight = blockchain_ledger_validator_v1:release_height(Val),
+
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, cd_block_name(ReleaseHeight), []) of
+        {ok, StakeList} ->
+            Stakes = binary_to_term(StakeList),
+            case lists:keyfind(Address, #validator_stake_v1.validator, Stakes) of
+                false -> {error, not_found};
+                #validator_stake_v1{stake = S} -> {ok, S}
+            end;
+        not_found ->
+            {error, not_found};
+        Err -> Err
+    end.
+
+-spec query_circulating_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_circulating_hnt(Ledger) ->
+    cache_fold(
+      Ledger,
+      entries_cf(Ledger),
+      fun({_Addr, BinEnt}, Acc) ->
+              Ent = blockchain_ledger_entry_v1:deserialize(BinEnt),
+              Acc + blockchain_ledger_entry_v1:balance(Ent)
+      end,
+      0
+     ).
+
+-spec query_staked_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_staked_hnt(Ledger) ->
+    query_hnt_by_status(staked, Ledger).
+
+-spec query_cooldown_hnt(Ledger :: ledger()) -> non_neg_integer().
+query_cooldown_hnt(Ledger) ->
+    query_hnt_by_status(cooldown, Ledger).
+
+fold_validators(Fun, InitAcc, Ledger) ->
+    cache_fold(
+      Ledger,
+      validators_cf(Ledger),
+      fun({_Addr, BinVal}, Acc) ->
+              Val = blockchain_ledger_validator_v1:deserialize(BinVal),
+              Fun(Val, Acc)
+      end,
+      InitAcc
+     ).
+
+query_hnt_by_status(Status, Ledger) ->
+    fold_validators(fun(Val, Acc) ->
+        case blockchain_ledger_validator_v1:status(Val) of
+            Status ->
+                Acc + blockchain_ledger_validator_v1:stake(Val);
+            _ ->
+                Acc
+        end
+    end, 0, Ledger).
+
+batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
+    {ok, Batch} = rocksdb:batch(),
+    Filters =
+        case Mode of
+            active ->
+                lists:foldl(
+                  fun(#hook{cf = C} = H, A) ->
+                          K = atom_to_cf(C, Ledger),
+                          maps:update_with(K, fun(L) -> [H | L] end, [H], A)
+                  end,
+                  #{},
+                  Hooks);
+            %% don't do any of this work on the delayed or aux ledgers
+            _ -> #{}
+        end,
+    {Batch, FilteredChanges} =
+        ets:foldl(fun({{CFName, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
+                          CF = atom_to_cf(CFName, Ledger),
+                          rocksdb:batch_delete(B, CF, Key),
+                          Changes1 = case maps:is_key(CF, Filters) of
+                                         true ->
+                                             case apply_filters(CF, Filters, Key, deleted) of
+                                                 true ->
+                                                     [{CF, delete, Key} | Changes];
+                                                 false ->
+                                                     Changes
+                                             end;
+                                         false ->
+                                             Changes
+                                     end,
+                          {B, Changes1};
+                     ({{CFName, Key}, Value}, {B, Changes}) ->
+                          CF = atom_to_cf(CFName, Ledger),
+                          rocksdb:batch_put(B, CF, Key, Value),
+                          Changes1 = case maps:is_key(CF, Filters) of
+                                         true ->
+                                             case apply_filters(CF, Filters, Key, Value) of
+                                                 true ->
+                                                     [{CF, put, Key, Value} | Changes];
+                                                 false ->
+                                                     Changes
+                                             end;
+                                         false ->
+                                             Changes
+                                     end,
+                          {B, Changes1}
+                  end, {Batch, []}, ETS),
+    %% we don't actually want to invoke this here, but passing back the arguments is kind of clunky
+    {fun() -> invoke_commit_hooks(FilteredChanges, Filters) end, Batch}.
+
+apply_filters(CF, Filters, Key, Value) ->
+    %% pre-tested for existence
+    Preds0 = [Pred || #hook{predicate = Pred} <- maps:get(CF, Filters)],
+    Preds = lists:filter(fun(V) -> V /= undefined end, Preds0),
+    case Preds of
+        %% if we don't define any predicates, just send all the updates
+        [] ->
+            true;
+        _ ->
+            %% note that predicates can take an atom 'delete' instead of a value
+            lists:any(fun(P) -> P(Key, Value) end, Preds)
+    end.
+
+invoke_commit_hooks([] = _Changes, _Filters) ->
+    %% if no changes then do nothing
     ok;
-prewarm_gateways(active, Height, Ledger, GwCache) ->
-   GWList = ets:foldl(fun({_, ?CACHE_TOMBSTONE}, Acc) ->
-                              Acc;
-                         ({Key, spillover}, Acc) ->
-                              AGwsCF = active_gateways_cf(Ledger),
-                              {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
-                              [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc];
-                         ({Key, Value}, Acc) ->
-                              [{Key, Value} | Acc]
-                      end, [], GwCache),
-    %% best effort here
-    try blockchain_gateway_cache:bulk_put(Height, GWList) catch _:_ -> ok end.
+invoke_commit_hooks(Changes, Filters) ->
+    %% best effort async delivery
+    FiltersMap = maps:fold(fun(CF, HookList, Acc) ->
+                                   #hook{cf = CFAtom} = hd(HookList),
+                                   Acc#{CF => CFAtom}
+                          end,
+                          #{},
+                          Filters),
+    spawn(
+      fun() ->
+              %% process the changes into CF groups
+              Groups = lists:foldl(
+                         fun(Change, Grps) ->
+                                 CF = element(1, Change),
+                                 Atom = maps:get(CF, FiltersMap),
+                                 maps:update_with(Atom, fun(L) -> [Change | L] end,
+                                                  [Change], Grps)
+                         end,
+                         #{},
+                         Changes),
+              %% call each incremental hook on each group
+              maps:map(
+                fun(CF, HookList) ->
+                        HookAtom = maps:get(CF, FiltersMap),
+                        case maps:get(HookAtom, Groups, undefined) of
+                            undefined ->
+                                %% if there are no changes for this CF, do nothing
+                                noop;
+                            HookChanges ->
+                                lists:foreach(
+                                  fun(#hook{hook_inc_fun = HookFun, predicate = undefined}) ->
+                                          HookFun(HookChanges);
+                                     (#hook{hook_inc_fun = HookFun, predicate = Pred}) ->
+                                          FilteredHookChanges =
+                                              lists:filter(fun({_, _, K, V}) ->
+                                                                   Pred(K, V)
+                                                           end, HookChanges),
+                                          HookFun(FilteredHookChanges)
+                                  end, HookList)
+                        end
+                end,
+                Filters),
+
+              %% accumulate a list of all CFs which have updates
+              %% and for each updated CF accumulate a list of keys which have been modified
+              %% call the end funs for each CF with the CF atom and the list of modified keys
+              maps:map(
+                fun(CF, HookList) ->
+                        CFAtom = maps:get(CF, FiltersMap),
+                        %% check if any changes for each CF, if true fire the end fun, it false do nothing
+                        case maps:get(CFAtom, Groups, undefined) of
+                            undefined ->
+                                noop;
+                            CFChanges ->
+                                %% iterate over the changes for this group and collect the keys which have been modified
+                                CFChangedKeys = [{Action, Key} || {_CF, Action, Key, _Value} <- CFChanges],
+                                lists:foreach(
+                                  fun(#hook{hook_end_fun = HookFun}) ->
+                                          %% call the end fun, pass it the updated CF and the list of modified keys
+                                          HookFun(CFAtom, CFChangedKeys)
+                                  end, HookList)
+                        end
+                end,
+                Filters)
+      end).
 
 %% @doc Increment a binary for the purposes of lexical sorting
 -spec increment_bin(binary()) -> binary().
@@ -3415,6 +4565,7 @@ subnet_lookup(_, _, _) ->
 %% extract and load section for snapshots.  note that for determinism
 %% reasons, we need to not use maps, but sorted lists
 
+-spec snapshot_vars(ledger()) -> [{binary(), binary()}].
 snapshot_vars(Ledger) ->
     CF = default_cf(Ledger),
     lists:sort(
@@ -3432,6 +4583,8 @@ load_vars(Vars, Ledger) ->
     vars(maps:from_list(Vars), [], Ledger),
     ok.
 
+-spec snapshot_delayed_vars(ledger()) ->
+    [{integer(), [{TODO :: term(), TODO :: term()}]}].
 snapshot_delayed_vars(Ledger) ->
     CF = default_cf(Ledger),
     {ok, Height} = current_height(Ledger),
@@ -3479,6 +4632,36 @@ load_delayed_vars(DVars, Ledger) ->
       end, maps:from_list(DVars)),
     ok.
 
+-spec snapshot_delayed_hnt(ledger()) -> [{binary(), binary()}].
+snapshot_delayed_hnt(Ledger) ->
+    CF = default_cf(Ledger),
+    %% grab everything related to looking up HNT during cooldown
+    lists:reverse(
+      lists:append(
+        %% height entries
+        cache_fold(
+          Ledger, CF,
+          fun(KV, Acc) ->
+                  [KV | Acc]
+          end,
+          [],
+          [{start, {seek, <<"$cd_block_">>}},
+           {iterate_upper_bound, <<"$cd_block`">>}]),
+        %% owner entries
+        cache_fold(
+          Ledger, CF,
+          fun(KV, Acc) ->
+                  [KV | Acc]
+          end,
+          [],
+          [{start, {seek, <<"$owner_">>}},
+           {iterate_upper_bound, <<"$owner`">>}]))).
+
+load_delayed_hnt(DHNT, Ledger) ->
+    CF = default_cf(Ledger),
+    load_raw(DHNT, CF, Ledger).
+
+-spec snapshot_threshold_txns(ledger()) -> [{binary(), binary()}].
 snapshot_threshold_txns(Ledger) ->
     CF = default_cf(Ledger),
     lists:sort(scan_threshold_txns(Ledger, CF)).
@@ -3487,6 +4670,7 @@ load_threshold_txns(Txns, Ledger) ->
     lists:map(fun(T) -> save_threshold_txn(T, Ledger) end, Txns),
     ok.
 
+-spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     lists:sort(
@@ -3510,26 +4694,47 @@ load_pocs(PoCs, Ledger) ->
       maps:from_list(PoCs)),
     ok.
 
-snapshot_raw(CF, Ledger) ->
-    %% we can just reverse this since rocks folds are lexicographic
-    lists:reverse(
-      cache_fold(
-        Ledger,
-        CF,
-        fun(KV, Acc) ->
-                [KV | Acc]
-        end,
-        []
-       )).
+-spec snapshot_raw(CFSpec, ledger()) ->
+    [{binary(), binary()}] when
+    CFSpec ::
+        {
+            CFName :: atom(),
+            DB :: rocksdb:db_handle(),
+            CF :: rocksdb:cf_handle()
+        }.
+snapshot_raw(CF, L) ->
+    %% XXX Preserve order to ensure that snapshots hash deterministically.
+    %% Since rocks folds are lexicographic - we can just reverse:
+    lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
 
-load_raw(List, CF, Ledger) ->
-    lists:foreach(
-      fun({Key, Val}) ->
-              cache_put(Ledger, CF, Key, Val)
-      end,
-      List),
+-spec load_raw([{binary(), binary()}] | function(), rocksdb:cf_handle(), ledger()) -> ok.
+load_raw(Iter, {Name, DB, CF}, Ledger) when is_function(Iter, 0) ->
+    case Iter() of
+        {K, V, NewIter} ->
+            rocksdb:put(DB, CF, K, V, []),
+            load_raw(NewIter, {Name, DB, CF}, Ledger);
+        ok ->
+            ok
+    end;
+load_raw(KVL, {_Name, DB, CF}, _Ledger) ->
+    %% you can probably make this much larger on larger machines
+    BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
+    {ok, Batch0} = rocksdb:batch(),
+    FinalBatch = lists:foldl(fun({K, V}, Batch) ->
+                        rocksdb:batch_put(Batch, CF, K, V),
+                        case rocksdb:batch_count(Batch) > BatchSize of
+                            true ->
+                                rocksdb:write_batch(DB, Batch, []),
+                                {ok, NewBatch} = rocksdb:batch(),
+                                NewBatch;
+                            false ->
+                                Batch
+                        end
+                end, Batch0, KVL),
+    rocksdb:write_batch(DB, FinalBatch, []),
     ok.
 
+-spec snapshot_raw_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_raw_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     snapshot_raw(PoCsCF, Ledger).
@@ -3538,6 +4743,7 @@ load_raw_pocs(PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     load_raw(PoCs, PoCsCF, Ledger).
 
+-spec snapshot_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_accounts(Ledger) ->
     lists:sort(maps:to_list(entries(Ledger))).
 
@@ -3551,6 +4757,7 @@ load_accounts(Accounts, Ledger) ->
       maps:from_list(Accounts)),
     ok.
 
+-spec snapshot_raw_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_raw_accounts(Ledger) ->
     EntriesCF = entries_cf(Ledger),
     snapshot_raw(EntriesCF, Ledger).
@@ -3559,6 +4766,7 @@ load_raw_accounts(Accounts, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
 
+-spec snapshot_dc_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_dc_accounts(Ledger) ->
     lists:sort(maps:to_list(dc_entries(Ledger))).
 
@@ -3572,6 +4780,7 @@ load_dc_accounts(DCAccounts, Ledger) ->
       maps:from_list(DCAccounts)),
     ok.
 
+-spec snapshot_raw_dc_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_raw_dc_accounts(Ledger) ->
     EntriesCF = dc_entries_cf(Ledger),
     snapshot_raw(EntriesCF, Ledger).
@@ -3580,6 +4789,7 @@ load_raw_dc_accounts(Accounts, Ledger) ->
     EntriesCF = dc_entries_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
 
+-spec snapshot_security_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_security_accounts(Ledger) ->
     lists:sort(maps:to_list(securities(Ledger))).
 
@@ -3593,6 +4803,7 @@ load_security_accounts(SecAccounts, Ledger) ->
       maps:from_list(SecAccounts)),
     ok.
 
+-spec snapshot_raw_security_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_raw_security_accounts(Ledger) ->
     EntriesCF = securities_cf(Ledger),
     snapshot_raw(EntriesCF, Ledger).
@@ -3601,6 +4812,7 @@ load_raw_security_accounts(Accounts, Ledger) ->
     EntriesCF = securities_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
 
+-spec snapshot_htlcs(ledger()) -> [{binary(), binary()}].
 snapshot_htlcs(Ledger) ->
     lists:sort(maps:to_list(htlcs(Ledger))).
 
@@ -3614,6 +4826,7 @@ load_htlcs(HTLCs, Ledger) ->
       maps:from_list(HTLCs)),
     ok.
 
+-spec snapshot_ouis(ledger()) -> [{binary(), binary()}].
 snapshot_ouis(Ledger) ->
     RoutingCF = routing_cf(Ledger),
     lists:sort(
@@ -3637,6 +4850,7 @@ load_ouis(OUIs, Ledger) ->
       maps:from_list(OUIs)),
     ok.
 
+-spec snapshot_subnets(ledger()) -> [{binary(), binary()}].
 snapshot_subnets(Ledger) ->
     SubnetsCF = subnets_cf(Ledger),
     lists:sort(
@@ -3658,6 +4872,14 @@ load_subnets(Subnets, Ledger) ->
       maps:from_list(Subnets)),
     ok.
 
+-spec snapshot_state_channels(ledger()) ->
+    [{ID, SC}] when
+    ID :: binary(),
+    SC ::
+        {blockchain_ledger_state_channel_v1, V1}
+        | {blockchain_ledger_state_channel_v2, V2},
+    V1 :: blockchain_ledger_state_channel_v1:state_channel(),
+    V2 :: blockchain_ledger_state_channel_v2:state_channel_v2().
 snapshot_state_channels(Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     lists:sort(
@@ -3684,6 +4906,7 @@ load_state_channels(SCs, Ledger) ->
       maps:from_list(SCs)),
     ok.
 
+-spec snapshot_hexes(ledger()) -> [{non_neg_integer(), [binary()]} | {list, #{non_neg_integer() => pos_integer()}}].
 snapshot_hexes(Ledger) ->
     case blockchain_ledger_v1:get_hexes(Ledger) of
         {ok, HexMap} ->
@@ -3701,26 +4924,39 @@ snapshot_hexes(Ledger) ->
     end.
 
 load_hexes(Hexes0, Ledger) ->
-    case maps:take(list, maps:from_list(Hexes0)) of
-        {HexMap, Hexes} ->
-            ok = set_hexes(HexMap, Ledger),
-            maps:map(
-              fun(HexAddr, Hex) ->
+    lists:foreach(fun({list, Hexes}) ->
+                          ok = set_hexes(Hexes, Ledger);
+                     ({HexAddr, Hex}) ->
                       set_hex(HexAddr, Hex, Ledger)
-              end,
-              Hexes),
-            ok;
-        error ->
-            ok
-    end.
+                  end, Hexes0).
 
+-spec snapshot_h3dex(ledger()) -> [{binary(), binary()}].
 snapshot_h3dex(Ledger) ->
     lists:sort(
       maps:to_list(
         get_h3dex(Ledger))).
 
+-spec load_h3dex([{binary(), binary()}], ledger()) -> ok.
 load_h3dex(H3DexList, Ledger) ->
-    set_h3dex(maps:from_list(H3DexList), Ledger).
+    {_Name, DB, H3CF} = h3dex_cf(Ledger),
+    {ok, Batch0} = rocksdb:batch(),
+    BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
+    FinalBatch = lists:foldl(fun({Loc, Gateways}, Batch) ->
+                         BinLoc = h3_to_key(Loc),
+                         BinGWs = term_to_binary(lists:sort(Gateways), [compressed]),
+                         rocksdb:batch_put(Batch, H3CF, BinLoc, BinGWs),
+                         case rocksdb:batch_count(Batch) > BatchSize of
+                             true ->
+                                 rocksdb:write_batch(DB, Batch, []),
+                                 {ok, NewBatch} = rocksdb:batch(),
+                                 NewBatch;
+                             false ->
+                                 Batch
+                         end
+                 end, Batch0, H3DexList),
+
+    rocksdb:write_batch(DB, FinalBatch, []),
+    ok.
 
 -spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
                            blockchain_ledger_state_channel_v2:state_channel_v2(),
@@ -3734,6 +4970,32 @@ get_sc_mod(Channel, Ledger) ->
                 false -> blockchain_ledger_state_channel_v1
             end;
         _ -> blockchain_ledger_state_channel_v1
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% This function allows us to get a lower sc_max_actors for testing
+%% It should still pass any chain validation as it can only be lower
+%% @end
+%%--------------------------------------------------------------------
+-spec get_sc_max_actors(Ledger :: ledger()) -> pos_integer().
+get_sc_max_actors(Ledger) ->
+    MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+    case application:get_env(blockchain, sc_max_actors, MaxActorsAllowed) of
+        Str when is_list(Str) ->
+            try erlang:list_to_integer(Str) of
+                TooHigh when TooHigh > MaxActorsAllowed ->
+                    MaxActorsAllowed;
+                Max ->
+                    Max
+            catch What:Why ->
+                lager:info("failed to convert sc_max_actors to int ~p", [{What, Why}]),
+                MaxActorsAllowed
+            end;
+        TooHigh when TooHigh > MaxActorsAllowed ->
+            MaxActorsAllowed;
+        Max ->
+            Max
     end.
 
 -spec deserialize_state_channel( <<_:8, _:_*8>> ) ->
@@ -3753,7 +5015,7 @@ deserialize_state_channel(<<2, _/binary>> = SC) ->
 find_entry_test() ->
     BaseDir = test_utils:tmp_dir("find_entry_test"),
     Ledger = new(BaseDir),
-    ?assertEqual({error, not_found}, find_entry(<<"test">>, Ledger)),
+    ?assertEqual({error, address_entry_not_found}, find_entry(<<"test">>, Ledger)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 find_gateway_info_test() ->
@@ -3800,6 +5062,9 @@ add_gateway_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_test"),
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
+    meck:new(blockchain, [passthrough]),
+    meck:expect(blockchain, config, fun(?election_version, _) -> {ok, 4} end),
+
     ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
     ok = commit_context(Ledger1),
     ?assertMatch(
@@ -3807,6 +5072,7 @@ add_gateway_test() ->
         find_gateway_info(<<"gw_address">>, Ledger)
     ),
     ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)),
+    meck:unload(blockchain),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 add_gateway_location_test() ->
@@ -4013,16 +5279,20 @@ poc_test() ->
                    (h3_max_grid_distance, _) ->
                         {ok, 60};
                    (h3_neighbor_res, _) ->
-                        {ok, 12}
+                        {ok, 12};
+                   (election_version, _) ->
+                        {ok, 4};
+                    (full_gateway_capabilities_mask, _) ->
+                        {ok, ?GW_CAPABILITIES_FULL_GATEWAY_V1}
                 end),
 
     ?assertEqual({error, not_found}, find_poc(OnionKeyHash0, Ledger)),
 
     commit(
         fun(L) ->
-            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, L),
-            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, L),
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, L)
+            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, full, L),
+            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, full, L),
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -4034,7 +5304,7 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, BlockHash, L)
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -4059,7 +5329,7 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, L)
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -4067,7 +5337,7 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, BlockHash, L)
+            ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, BlockHash, 0, L)
         end,
         Ledger
     ),
@@ -4167,37 +5437,40 @@ state_channels_test() ->
     ok.
 
 state_channels_v2_test() ->
-    BaseDir = test_utils:tmp_dir("state_channels_v2_test"),
-    Ledger = ?MODULE:new(BaseDir),
-    Ledger1 = ?MODULE:new_context(Ledger),
-    ID = crypto:strong_rand_bytes(32),
-    Owner = <<"owner">>,
-    Nonce = 1,
+    {timeout, 30000,
+     fun() ->
+             BaseDir = test_utils:tmp_dir("state_channels_v2_test"),
+             Ledger = ?MODULE:new(BaseDir),
+             Ledger1 = ?MODULE:new_context(Ledger),
+             ID = crypto:strong_rand_bytes(32),
+             Owner = <<"owner">>,
+             Nonce = 1,
 
-    ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger1)),
-    ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger1)),
+             ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger1)),
+             ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger1)),
 
-    meck:new(blockchain, [passthrough]),
-    meck:expect(blockchain, config, fun(?sc_version, _) -> {ok, 2} end),
+             meck:new(blockchain, [passthrough]),
+             meck:expect(blockchain, config, fun(?sc_version, _) -> {ok, 2} end),
 
-    Ledger2 = ?MODULE:new_context(Ledger),
-    ok = ?MODULE:add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
-    ok = ?MODULE:commit_context(Ledger2),
-    {ok, SC} = ?MODULE:find_state_channel(ID, Owner, Ledger),
-    ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
-    ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
-    ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
-    ?assertEqual({ok, [ID]}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
+             Ledger2 = ?MODULE:new_context(Ledger),
+             ok = ?MODULE:add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
+             ok = ?MODULE:commit_context(Ledger2),
+             {ok, SC} = ?MODULE:find_state_channel(ID, Owner, Ledger),
+             ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
+             ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
+             ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
+             ?assertEqual({ok, [ID]}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
 
-    Ledger3 = ?MODULE:new_context(Ledger),
-    ok = ?MODULE:close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
-    ok = ?MODULE:commit_context(Ledger3),
-    ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger)),
-    ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ?assert(meck:validate(blockchain)),
-    meck:unload(blockchain),
-    ok.
+             Ledger3 = ?MODULE:new_context(Ledger),
+             ok = ?MODULE:close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
+             ok = ?MODULE:commit_context(Ledger3),
+             ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger)),
+             ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
+             test_utils:cleanup_tmp_dir(BaseDir),
+             ?assert(meck:validate(blockchain)),
+             meck:unload(blockchain),
+             ok
+     end}.
 
 increment_bin_test() ->
     ?assertEqual(<<2>>, increment_bin(<<1>>)),
@@ -4235,7 +5508,7 @@ find_scs_by_owner_test() ->
 subnet_allocation_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation_test"),
     Ledger = new(BaseDir),
-    SubnetCF = subnets_cf(Ledger),
+    {subnets, _DB, SubnetCF} = subnets_cf(Ledger),
     Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
     Mask16 = blockchain_ledger_routing_v1:subnet_size_to_mask(16),
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
@@ -4281,7 +5554,7 @@ subnet_allocation_test() ->
 subnet_allocation2_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation2_test"),
     Ledger = new(BaseDir),
-    SubnetCF = subnets_cf(Ledger),
+    {subnets, _DB, SubnetCF} = subnets_cf(Ledger),
     Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
     {ok, Subnet} = allocate_subnet(8, Ledger),
@@ -4328,5 +5601,80 @@ dc_to_hnt_test() ->
     ?assertEqual({ok, (1 * ?BONES_PER_HNT) + 1} , dc_to_hnt(30000, trunc(0.3 * ?ORACLE_PRICE_SCALING_FACTOR))),
     ok.
 
+commit_hooks_test() ->
+    BaseDir = test_utils:tmp_dir("commit_hooks_test"),
+    Me = self(),
+    %% check that config-set hooks work
+    %% {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
+    application:set_env(blockchain, commit_hook_callbacks,
+                        [{active_gateways,
+                            undefined,
+                            fun(Changes) -> Me ! {hook1, Changes} end,
+                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end
+                        }]),
+
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    ok = add_gateway(<<"owner_address 1">>, <<"gw_address">>, Ledger1),
+    ok = commit_context(Ledger1),
+
+    receive
+        {hook1, _} -> ok
+    after 200 ->
+            error(hook1_timeout)
+    end,
+
+    receive
+        {hook1, changes_complete, _ReceivedChangedKeys1} -> ok
+    after 200 ->
+            error(config_set_timeout)
+    end,
+
+    %% check that multiple hooks fire
+    {_Ref, Ledger2} = add_commit_hook(entries,
+                                        fun(Changes) -> Me ! {hook2, Changes} end,
+                                        fun(_CF, ChangedKeys) -> Me ! {hook2, changes_complete, ChangedKeys} end,
+                                        fun(K, _) -> K == <<"my_address">> end, Ledger1),
+    Ledger3 = new_context(Ledger2),
+    ok = add_gateway(<<"owner_address 2">>, <<"gw_address 2">>, Ledger3),
+    ok = credit_account(<<"your_address">>, 4000, Ledger3),
+    ok = credit_account(<<"my_address">>, 4000, Ledger3),
+
+    ok = commit_context(Ledger3),
+
+    %% confirm we get two msgs from the 1st active gateways CF hook
+    receive
+        {hook1, _} -> ok
+    after 200 ->
+            error(hook1_timeout)
+    end,
+
+    receive
+        {hook1, changes_complete, _ReceivedChangedKeys2} -> ok
+    after 200 ->
+            error(hook1_timeout)
+    end,
+
+    %% confirm we get expected msgs from the 2nd hook
+    receive
+        {hook2, Changes} ->
+            ?assertMatch([{_, put, <<"my_address">>, _}],
+                         Changes)
+    after 200 ->
+            error(hook2_timeout)
+    end,
+
+    receive
+        {hook2, changes_complete, _ReceivedChangedKeys3} -> ok
+    after 200 ->
+            error(hook2_timeout)
+    end,
+
+
+    %% check that multiple hooks for multiple CFs work
+
+    %% check that removal works
+
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 -endif.
