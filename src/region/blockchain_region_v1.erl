@@ -44,10 +44,14 @@ get_all_region_bins(Ledger) ->
         undefined ->
             case get_all_regions(Ledger) of
                 {ok, Regions} ->
-                    Map = maps:from_list(lists:map(fun(Reg) ->
-                                                           {ok, Bin} = blockchain:config(Reg, Ledger),
-                                                           {Reg, Bin}
-                                                   end, Regions)),
+                    Map = lists:foldl(
+                            fun(Reg, Acc) ->
+                                    case blockchain:config(Reg, Ledger) of
+                                        {ok, Bin} ->
+                                            Acc#{Reg => Bin};
+                                        _ -> Acc
+                                    end
+                            end, #{}, Regions),
                     put(Key, Map),
                     {ok, Map};
                 Error ->
