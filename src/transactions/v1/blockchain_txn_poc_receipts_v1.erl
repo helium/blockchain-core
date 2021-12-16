@@ -362,8 +362,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             case blockchain:config(?poc_version, OldLedger) of
                                                 {ok, POCVer} when POCVer >= 9 ->
                                                     %% errors get checked lower
-                                                    RegionVars = blockchain_region_v1:get_all_region_bins(OldLedger),
-                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer, RegionVars),
+                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer, no_prefetch),
                                                     %% We are on poc v9
                                                     %% %% run validations
                                                     Ret = case POCVer >= 10 of
@@ -1616,7 +1615,7 @@ get_channels(Txn, Version, RegionVars, Chain) ->
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
                     Version :: integer(),
-                    RegionVars :: #{atom() => binary()} | {error, any()}) ->
+                    RegionVars :: no_prefetch | #{atom() => binary()} | {error, any()}) ->
           [non_neg_integer()].
 get_channels_(Ledger, Path, LayerData, Version, RegionVars0) ->
     ChannelCount = case Version of
@@ -1630,6 +1629,7 @@ get_channels_(Ledger, Path, LayerData, Version, RegionVars0) ->
                 case RegionVars0 of
                     {ok, RV} -> RV;
                     RV when is_map(RV) -> RV;
+                    no_prefetch -> no_prefetch;
                     {error, Reason} -> error({get_channels_region, Reason})
                 end,
             case blockchain_ledger_v1:find_gateway_region(Challengee, Ledger, RegionVars) of

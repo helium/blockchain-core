@@ -1225,23 +1225,23 @@ load_gateways(Gws, Ledger) ->
       maps:from_list(Gws)),
     ok.
 
-write_gw_denorm_values(Address, Gw, new, Ledger, _DoRegion) ->
+write_gw_denorm_values(Address, Gw, new, Ledger, DoRegion) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     Location = blockchain_ledger_gateway_v2:location(Gw),
-    %% case DoRegion of
-    %%     true ->
-    %%         Region =
-    %%             case Location == undefined of
-    %%                 true -> unknown;
-    %%                 false ->
-    %%                     case blockchain_region_v1:h3_to_region(Location, Ledger) of
-    %%                         {ok, Reg} -> Reg;
-    %%                                 _ -> unknown
-    %%                     end
-    %%             end,
-    %%         cache_put(Ledger, GwDenormCF, <<Address/binary, "-region">>, term_to_binary(Region));
-    %%     false -> ok
-    %% end,
+    case DoRegion of
+        true ->
+            Region =
+                case Location == undefined of
+                    true -> unknown;
+                    false ->
+                        case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                            {ok, Reg} -> Reg;
+                                    _ -> unknown
+                        end
+                end,
+            cache_put(Ledger, GwDenormCF, <<Address/binary, "-region">>, term_to_binary(Region));
+        false -> ok
+    end,
 
     Mode = blockchain_ledger_gateway_v2:mode(Gw),
     Gain = blockchain_ledger_gateway_v2:gain(Gw),
@@ -1253,26 +1253,25 @@ write_gw_denorm_values(Address, Gw, new, Ledger, _DoRegion) ->
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain));
-write_gw_denorm_values(Address, Gw, update, Ledger, _DoRegion) ->
+write_gw_denorm_values(Address, Gw, update, Ledger, DoRegion) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     Location = blockchain_ledger_gateway_v2:location(Gw),
     case maybe_update_field(<<Address/binary, "-loc">>, term_to_binary(Location), GwDenormCF, Ledger) of
         true ->
-            %% case DoRegion of
-            %%     true ->
-            %%         Region =
-            %%             case Location == undefined of
-            %%                 true -> unknown;
-            %%                 false ->
-            %%                     case blockchain_region_v1:h3_to_region(Location, Ledger) of
-            %%                         {ok, Reg} -> Reg;
-            %%                         _ -> unknown
-            %%                     end
-            %%             end,
-            %%         maybe_update_field(<<Address/binary, "-region">>, term_to_binary(Region), GwDenormCF, Ledger);
-            %%     false -> ok
-            %% end;
-            ok;
+            case DoRegion of
+                true ->
+                    Region =
+                        case Location == undefined of
+                            true -> unknown;
+                            false ->
+                                case blockchain_region_v1:h3_to_region(Location, Ledger) of
+                                    {ok, Reg} -> Reg;
+                                    _ -> unknown
+                                end
+                        end,
+                    maybe_update_field(<<Address/binary, "-region">>, term_to_binary(Region), GwDenormCF, Ledger);
+                false -> ok
+            end;
         false -> ok
     end,
     Mode = blockchain_ledger_gateway_v2:mode(Gw),
@@ -1436,36 +1435,15 @@ config(ConfigName, Ledger) ->
     end.
 
 vars_nonce(Ledger) ->
-    %% getting the context is really expensive, do this kind of hacky thing instead
-    case ?MODULE:context_cache(Ledger) of
-        {undefined, undefined} ->
-            {ok, Height} = current_height(Ledger),
-            e2qc:cache(
-              ?VAR_CACHE,
-              {vars_nonce, Height},
-              fun() ->
-                      DefaultCF = default_cf(Ledger),
-                      case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-                          {ok, Nonce} ->
-                              {ok, binary_to_term(Nonce)};
-                          not_found ->
-                              {error, not_found};
-                          Error ->
-                              Error
-                      end
-              end);
-        _ ->
-            DefaultCF = default_cf(Ledger),
-            case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-                {ok, Nonce} ->
-                    {ok, binary_to_term(Nonce)};
-                not_found ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
+        {ok, Nonce} ->
+            {ok, binary_to_term(Nonce)};
+        not_found ->
                     {error, not_found};
-                Error ->
-                    Error
-            end
+        Error ->
+            Error
     end.
-
 
 vars_nonce(NewNonce, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -1583,42 +1561,41 @@ find_gateway_region(Address, Ledger) ->
     find_gateway_region(Address, Ledger, no_prefetch).
 
 find_gateway_region(Address, Ledger, RegionBins) ->
-    %% GwDenormCF = gw_denorm_cf(Ledger),
-    %% case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
-    %%     {ok, BinRegion} ->
-    %%         case binary_to_term(BinRegion) of
-    %%             unknown ->
-    %%                 case find_gateway_location(Address, Ledger) of
-    %%                     {ok, Location} ->
-    %%                         {error, {unknown_region, Location}};
-    %%                     Error -> Error
-    %%                 end;
-    %%             Region ->
-    %%                 {ok, Region}
-    %%         end;
-    %%     _ ->
-    case find_gateway_location(Address, Ledger) of
-        {ok, Location} ->
-            Res =
-                case RegionBins of
-                    no_prefetch ->
-                        blockchain_region_v1:h3_to_region(Location, Ledger);
-                    unset ->
-                        {error, {unknown_region, Location}};
-                    _ ->
-                        blockchain_region_v1:h3_to_region(Location, Ledger, RegionBins)
-                end,
-            case Res of
-                {ok, Region} ->
-                    {ok, Region};
-                _ ->
-                    {error, {unknown_region, Location}}
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-region">>, []) of
+        {ok, BinRegion} ->
+            case binary_to_term(BinRegion) of
+                unknown ->
+                    case find_gateway_location(Address, Ledger) of
+                        {ok, Location} ->
+                            {error, {unknown_region, Location}};
+                        Error -> Error
+                    end;
+                Region ->
+                    {ok, Region}
             end;
-        Error ->
-            Error
-    %% end
+        _ ->
+            case find_gateway_location(Address, Ledger) of
+                {ok, Location} ->
+                    Res =
+                        case RegionBins of
+                            no_prefetch ->
+                                blockchain_region_v1:h3_to_region(Location, Ledger);
+                            unset ->
+                        {error, {unknown_region, Location}};
+                            _ ->
+                                blockchain_region_v1:h3_to_region(Location, Ledger, RegionBins)
+                        end,
+                    case Res of
+                        {ok, Region} ->
+                    {ok, Region};
+                        _ ->
+                            {error, {unknown_region, Location}}
+                    end;
+                Error ->
+                    Error
+            end
     end.
-
 
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->

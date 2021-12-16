@@ -63,12 +63,11 @@ get_all_region_bins(Ledger) ->
 -spec h3_to_region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, atom()} | {error, any()}.
 h3_to_region(H3, Ledger) ->
-    {ok, RegionBins} = get_all_region_bins(Ledger),
-    h3_to_region(H3, Ledger, RegionBins).
+    h3_to_region(H3, Ledger, no_prefetch).
 
 -spec h3_to_region(H3 :: h3:h3_index(),
                    Ledger :: blockchain_ledger_v1:ledger(),
-                   RegionBins :: #{atom() => binary()}) ->
+                   RegionBins :: no_prefetch | #{atom() => binary()}) ->
     {ok, atom()} | {error, any()}.
 h3_to_region(H3, Ledger, RegionBins) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
@@ -80,7 +79,13 @@ h3_to_region(H3, Ledger, RegionBins) ->
         ?H3_TO_REGION_CACHE,
         {HasAux, VarsNonce, Parent},
         fun() ->
-            h3_to_region_(Parent, RegionBins)
+            Bins = case RegionBins of
+                       no_prefetch ->
+                           {ok, RB} = get_all_region_bins(Ledger),
+                           RB;
+                       B -> B
+                   end,
+            h3_to_region_(Parent, Bins)
         end
     ).
 
