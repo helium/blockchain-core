@@ -295,7 +295,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
                  {ok, VM} -> VM
              end,
 
-    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
+    RegionVars = blockchain_region_v1:get_all_region_bins(Ledger),
 
     Vars = Vars0#{ var_map => VarMap, region_vars => RegionVars},
 
