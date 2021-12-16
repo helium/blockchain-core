@@ -1603,6 +1603,8 @@ find_gateway_region(Address, Ledger, RegionBins) ->
                 case RegionBins of
                     no_prefetch ->
                         blockchain_region_v1:h3_to_region(Location, Ledger);
+                    unset ->
+                        {error, {unknown_region, Location}};
                     _ ->
                         blockchain_region_v1:h3_to_region(Location, Ledger, RegionBins)
                 end,

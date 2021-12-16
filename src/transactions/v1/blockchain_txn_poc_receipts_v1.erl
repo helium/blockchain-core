@@ -1226,9 +1226,9 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             DstPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
             SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(PreviousElement),
             {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
-            {ok, SourceRegion} = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger),
+            SourceRegion = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger),
             {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
-            {ok, DestinationRegion} = blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger),
+            DestinationRegion = blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             Version = poc_version(Ledger),
@@ -1346,14 +1346,15 @@ is_too_far(Limit, SrcLoc, DstLoc) ->
             false
     end.
 
--spec check_valid_frequency(Location :: h3:h3_index(),
+-spec check_valid_frequency(Region0 :: {error, any()} | {ok, atom()},
                             Frequency :: float(),
                             Ledger :: blockchain_ledger_v1:ledger(),
                             Version :: non_neg_integer()) -> boolean().
-check_valid_frequency(Region, Frequency, Ledger, Version) ->
+check_valid_frequency(Region0, Frequency, Ledger, Version) ->
     %% only check this if poc 11
     case Version of
-        V when V > 10 ->
+        V when V >= 11 ->
+            {ok, Region} = Region0,
             {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
             ChannelFreqs = [blockchain_region_param_v1:channel_frequency(I) || I <- Params],
             lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs);
@@ -1364,12 +1365,14 @@ check_valid_frequency(Region, Frequency, Ledger, Version) ->
 
 -spec is_same_region(
     Version :: non_neg_integer(),
-    SourceLoc :: h3:h3_index(),
-    DstLoc :: h3:h3_index()
+    SourceRegion :: {error, any()} | {ok, atom()},
+    DstRegion :: {error, any()} | {ok, atom()}
 ) -> boolean().
-is_same_region(Version, SourceRegion, DstRegion) ->
+is_same_region(Version, SourceRegion0, DstRegion0) ->
     case Version of
-        V when V > 10 ->
+        V when V >= 11 ->
+            {ok, SourceRegion} = SourceRegion0,
+            {ok, DstRegion} = DstRegion0,
             SourceRegion == DstRegion;
         _ ->
             %% We're not in poc-v11+
@@ -1385,10 +1388,16 @@ tagged_witnesses(Element, Channel, Ledger) ->
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
     tagged_witnesses(Element, Channel, RegionVars, Ledger).
 
-tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
+tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
     {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
-    {ok, SourceRegion} = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger, RegionVars),
+    RegionVars =
+        case RegionVars0 of
+            {ok, RV} -> RV;
+            RV when is_map(RV) -> RV;
+            {error, _Reason} -> unset
+        end,
+    MaybeSourceRegion = blockchain_ledger_v1:find_gateway_region(SrcPubkeyBin, Ledger, RegionVars),
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
     SourceParentIndex = h3:parent(SourceLoc, ParentRes),
 
@@ -1407,12 +1416,12 @@ tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
                          {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
                          DestinationRegion =
                             case blockchain_ledger_v1:find_gateway_region(DstPubkeyBin, Ledger, RegionVars) of
-                                {error, {unknown_region, _Loc}} ->
+                                {error, {unknown_region, _Loc}} when Version >= 11 ->
                                     lager:warning("saw unknown region for ~p loc ~p",
                                                   [DstPubkeyBin, DestinationLoc]),
                                     unknown;
-                                {ok, DR} ->
-                                    DR
+                                {error, _} -> unknown;
+                                {ok, DR} -> {ok, DR}
                             end,
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
                          Freq = blockchain_poc_witness_v1:frequency(Witness),
@@ -1421,7 +1430,7 @@ tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
                              {{ok, true}, 0.0} ->
                                 [{false, <<"witness_zero_freq">>, Witness} | Acc];
                              _ ->
-                                 case is_same_region(Version, SourceRegion, DestinationRegion) of
+                                 case is_same_region(Version, MaybeSourceRegion, DestinationRegion) of
                                      false ->
                                          lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
                                                      [blockchain_utils:addr2name(SrcPubkeyBin),
@@ -1444,7 +1453,7 @@ tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
                                                          MinRcvSig = min_rcv_sig(blockchain_poc_path_element_v1:receipt(Element),
                                                                                  Ledger,
                                                                                  SourceLoc,
-                                                                                 SourceRegion,
+                                                                                 MaybeSourceRegion,
                                                                                  DstPubkeyBin,
                                                                                  DestinationLoc,
                                                                                  Freq,
@@ -1460,7 +1469,7 @@ tagged_witnesses(Element, Channel, RegionVars, Ledger) ->
                                                                               RSSI, MinRcvSig, SNR]),
                                                                  [{false, <<"witness_rssi_too_high">>, Witness} | Acc];
                                                              true ->
-                                                                 case check_valid_frequency(SourceRegion, Freq, Ledger, Version) of
+                                                                 case check_valid_frequency(MaybeSourceRegion, Freq, Ledger, Version) of
                                                                      true ->
                                                                          case DAV of
                                                                              {ok, DataAggVsn} when DataAggVsn > 1 ->
@@ -1635,18 +1644,18 @@ get_channels_(Ledger, Path, LayerData, Version, RegionVars0) ->
 -spec min_rcv_sig(Receipt :: undefined | blockchain_poc_receipt_v1:receipt(),
                   Ledger :: blockchain_ledger_v1:ledger(),
                   SourceLoc :: h3:h3_index(),
-                  SourceRegion :: atom(),
+                  SourceRegion :: {error, any()} | {ok, atom()},
                   DstPubkeyBin :: libp2p_crypto:pubkey_bin(),
                   DestinationLoc :: h3:h3_index(),
                   Freq :: float(),
                   Version :: non_neg_integer()) -> float().
-min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq, Version) ->
+min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion0, DstPubkeyBin, DestinationLoc, Freq, Version) ->
     %% Receipt can be undefined
     case Version of
         POCVersion when POCVersion >= 11 ->
             %% Estimate tx power because there is no receipt with attached tx_power
             lager:debug("SourceLoc: ~p, Freq: ~p", [SourceLoc, Freq]),
-
+            {ok, SourceRegion} = SourceRegion0,
             {ok, TxPower} = estimated_tx_power(SourceRegion, Freq, Ledger),
             FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
             case blockchain:config(?fspl_loss, Ledger) of
@@ -1659,7 +1668,7 @@ min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, Destinatio
                 blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)
             )
     end;
-min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationLoc, Freq, Version) ->
+min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion0, DstPubkeyBin, DestinationLoc, Freq, Version) ->
     %% We do have a receipt
     case Version of
         POCVersion when POCVersion >= 11 ->
@@ -1667,7 +1676,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion, DstPubkeyBin, DestinationL
             case blockchain_poc_receipt_v1:tx_power(Receipt) of
                 %% Missing protobuf fields have default value as 0
                 TxPower when TxPower == undefined; TxPower == 0 ->
-                    min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion,
+                    min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion0,
                                 DstPubkeyBin, DestinationLoc, Freq, Version);
                 TxPower ->
                     FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
