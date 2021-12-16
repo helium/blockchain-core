@@ -1440,7 +1440,7 @@ poc_witness_reward_unit(R, W, N) ->
                        Ledger :: blockchain_ledger_v1:ledger(),
                        Elem :: blockchain_poc_path_element_v1:poc_element(),
                        StaticPath :: blockchain_poc_path_element_v1:poc_path(),
-                       RegionVars :: #{atom() => binary()},
+                       RegionVars :: {ok, #{atom() => binary()}} | {error, any()},
                        Version :: pos_integer()
                      ) -> [blockchain_txn_poc_witnesses_v1:poc_witness()].
 legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->

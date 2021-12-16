@@ -1372,8 +1372,12 @@ is_same_region(Version, SourceRegion0, DstRegion0) ->
     case Version of
         V when V >= 11 ->
             {ok, SourceRegion} = SourceRegion0,
-            {ok, DstRegion} = DstRegion0,
-            SourceRegion == DstRegion;
+            case DstRegion0 of
+                {ok, DstRegion} ->
+                    SourceRegion == DstRegion;
+                unknown ->
+                    false
+            end;
         _ ->
             %% We're not in poc-v11+
             true
