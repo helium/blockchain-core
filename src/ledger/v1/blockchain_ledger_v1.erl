@@ -59,6 +59,7 @@
     find_gateway_last_challenge/2,
     find_gateway_mode/2,
     find_gateways_by_owner/2,
+    find_gateway_gain/2,
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -1215,23 +1216,28 @@ load_validators(Gateways, Ledger) ->
                     ledger()) -> ok | {error, _}.
 load_gateways(Gws, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
     maps:map(
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
-              Location = blockchain_ledger_gateway_v2:location(Gw),
-              Mode = blockchain_ledger_gateway_v2:mode(Gw),
-              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-              Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
-                        term_to_binary(LastChallenge)),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
+              write_gw_denorm_values(Address, Gw, Ledger),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
     ok.
+
+write_gw_denorm_values(Address, Gw, Ledger) ->
+    GwDenormCF = gw_denorm_cf(Ledger),
+    Location = blockchain_ledger_gateway_v2:location(Gw),
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
+              term_to_binary(LastChallenge)),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain)).
 
 -spec entries(ledger()) -> entries().
 entries(Ledger) ->
@@ -1336,35 +1342,15 @@ config(ConfigName, Ledger) ->
     end.
 
 vars_nonce(Ledger) ->
-    case ?MODULE:get_context(Ledger) of
-        undefined ->
-            {ok, Height} = current_height(Ledger),
-            e2qc:cache(
-              ?VAR_CACHE,
-              {vars_nonce, Height},
-              fun() ->
-                      DefaultCF = default_cf(Ledger),
-                      case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-                          {ok, Nonce} ->
-                              {ok, binary_to_term(Nonce)};
-                          not_found ->
-                              {error, not_found};
-                          Error ->
-                              Error
-                      end
-              end);
-        _ ->
-            DefaultCF = default_cf(Ledger),
-            case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-                {ok, Nonce} ->
-                    {ok, binary_to_term(Nonce)};
-                not_found ->
-                    {error, not_found};
-                Error ->
-                    Error
-            end
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
+        {ok, Nonce} ->
+            {ok, binary_to_term(Nonce)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
     end.
-
 
 vars_nonce(NewNonce, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -1484,6 +1470,25 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
       end, [], Ledger).
 %%===================================================================
 
+find_gateway_gain(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
+        {ok, BinGain} ->
+            {ok, binary_to_term(BinGain)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+                    {ok, Gain};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     add_gateway(OwnerAddr, GatewayAddress, full, Ledger).
@@ -1591,17 +1596,8 @@ update_gateway(Gw0, GwAddr, Ledger) ->
 
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
-    Location = blockchain_ledger_gateway_v2:location(Gw),
-    Mode = blockchain_ledger_gateway_v2:mode(Gw),
-    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
-              term_to_binary(LastChallenge)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
+    write_gw_denorm_values(GwAddr, Gw, Ledger).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -3753,10 +3749,35 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
             %% otherwise the semantics get all confused.
             case ets:lookup(Cache, {Name, Key}) of
                 [] ->
-                    cache_get(context_cache(undefined, undefined, Ledger), {Name, DB, CF}, Key, Options);
+                    case rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options)) of
+                        {ok, Value} ->
+                            %% check if we should cache this in the context.
+                            %% Currently 4 things are cached:
+                            %% * Chain Vars
+                            %% * Var Nonce
+                            %% * Ledger Height
+                            %% * the hex list for targeting
+                            case {Name, Key} of
+                                {default, ?hex_list} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                {default, ?CURRENT_HEIGHT} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                {default, ?VARS_NONCE} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                {default, <<"$var_", _/binary>>} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                _ ->
+                                    ok
+                            end,
+                            {ok, Value};
+                        Other ->
+                            Other
+                    end;
                 [{_, ?CACHE_TOMBSTONE}] ->
                     %% deleted in the cache
                     not_found;
+                [{_, {'__cached', Value}}] ->
+                    {ok, Value};
                 [{_, Value}] ->
                     {ok, Value}
             end
@@ -3792,7 +3813,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        {C, undefined} when C == undefined; C == direct ->
+        {C, _} when C == undefined; C == direct ->
             %% fold rocks directly
             rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
         {Cache, _GwCache} ->
@@ -3836,6 +3857,8 @@ mk_cache_fold_fun(Cache, CF, Start, End, Fun) ->
             case ets:lookup(Cache, {CF, Key}) of
                 [{_, ?CACHE_TOMBSTONE}] ->
                     {NewCacheKeys, Acc};
+                [{_, {'__cached', CacheValue}}] ->
+                    {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
                 [{_, CacheValue}] ->
                     {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
                 [] when Value /= cacheonly ->
@@ -3866,6 +3889,8 @@ process_fun(ToProcess, Cache, CF,
               case ets:lookup(Cache, {CF, K}) of
                   [{_, ?CACHE_TOMBSTONE}] ->
                       A;
+                  [{_Key, {'__cached', CacheValue}}] ->
+                      Fun({K, CacheValue}, A);
                   [{_Key, CacheValue}] ->
                       Fun({K, CacheValue}, A);
                   [] ->
@@ -4211,21 +4236,12 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
 -spec bootstrap_gw_denorm(ledger()) -> ok.
 bootstrap_gw_denorm(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
     cache_fold(
       Ledger,
       AGwsCF,
       fun({GwAddr, Binary}, _) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-              Location = blockchain_ledger_gateway_v2:location(Gw),
-              Mode = blockchain_ledger_gateway_v2:mode(Gw),
-              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-              Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
-                        term_to_binary(LastChallenge)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
+              write_gw_denorm_values(GwAddr, Gw, Ledger)
       end,
       ignore).
 
@@ -4437,6 +4453,9 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
                                              Changes
                                      end,
                           {B, Changes1};
+                     ({{_CFName, _Key}, {'__cached', _Value}}, {B, Changes}) ->
+                          %% cached value which by definition has not changed
+                          {B, Changes};
                      ({{CFName, Key}, Value}, {B, Changes}) ->
                           CF = atom_to_cf(CFName, Ledger),
                           rocksdb:batch_put(B, CF, Key, Value),
