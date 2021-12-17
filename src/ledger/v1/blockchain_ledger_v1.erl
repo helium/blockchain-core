@@ -1336,35 +1336,15 @@ config(ConfigName, Ledger) ->
     end.
 
 vars_nonce(Ledger) ->
-    case ?MODULE:get_context(Ledger) of
-        undefined ->
-            {ok, Height} = current_height(Ledger),
-            e2qc:cache(
-              ?VAR_CACHE,
-              {vars_nonce, Height},
-              fun() ->
-                      DefaultCF = default_cf(Ledger),
-                      case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-                          {ok, Nonce} ->
-                              {ok, binary_to_term(Nonce)};
-                          not_found ->
-                              {error, not_found};
-                          Error ->
-                              Error
-                      end
-              end);
-        _ ->
-            DefaultCF = default_cf(Ledger),
-            case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
-                {ok, Nonce} ->
-                    {ok, binary_to_term(Nonce)};
-                not_found ->
-                    {error, not_found};
-                Error ->
-                    Error
-            end
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
+        {ok, Nonce} ->
+            {ok, binary_to_term(Nonce)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
     end.
-
 
 vars_nonce(NewNonce, Ledger) ->
     DefaultCF = default_cf(Ledger),
