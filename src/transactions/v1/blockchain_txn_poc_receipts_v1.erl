@@ -749,6 +749,12 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
             lists:foldl(fun({_ElementPos, Element}, Acc) ->
                                 Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
                                 Fun(Element, {lists:map(fun(Witness) -> {false, list_to_binary(io_lib:format("challengee_region_unknown_~p", [UnknownH3])), Witness} end, Witnesses) , undefined}, Acc)
+                        end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
+        error:{badmatch, {error, {not_set, Region}}} ->
+            Path = ?MODULE:path(Txn),
+            lists:foldl(fun({_ElementPos, Element}, Acc) ->
+                                Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
+                                Fun(Element, {[{false, list_to_binary(io_lib:format("missing_region_parameters_for_~p", [Region])), Witness} || Witness <- Witnesses], undefined}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
     end.
 
