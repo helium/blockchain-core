@@ -295,7 +295,9 @@ calculate_rewards_metadata(Start, End, Chain) ->
                  {ok, VM} -> VM
              end,
 
-    Vars = Vars0#{ var_map => VarMap },
+    RegionVars = blockchain_region_v1:get_all_region_bins(Ledger),
+
+    Vars = Vars0#{ var_map => VarMap, region_vars => RegionVars},
 
     %% Previously, if a state_channel closed in the grace blocks before an
     %% epoch ended, then it wouldn't ever get rewarded.
@@ -939,12 +941,13 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                          IsFirst,
                          VarMap,
                          Acc0) when Version >= 2 ->
+    RegionVars = maps:get(region_vars, Vars), % explode on purpose
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
     HIP15TxRewardUnitCap = maps:get(hip15_tx_reward_unit_cap, Vars, undefined),
     %% check if there were any legitimate witnesses
-    Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
+    Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
     ChallengeeLoc = case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
                         {ok, CLoc} ->
@@ -1119,10 +1122,11 @@ poc_witness_reward(Txn, AccIn,
     WitnessRedundancy = maps:get(witness_redundancy, Vars, undefined),
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
+    RegionVars = maps:get(region_vars, Vars), % explode on purpose
 
     try
         %% Get channels without validation
-        {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
+        {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, POCVersion, RegionVars, Chain),
         Path = blockchain_txn_poc_receipts_v1:path(Txn),
 
         %% Do the new thing for witness filtering
@@ -1132,6 +1136,7 @@ poc_witness_reward(Txn, AccIn,
                         WitnessChannel = lists:nth(ElemPos, Channels),
                         case blockchain_txn_poc_receipts_v1:valid_witnesses(Elem,
                                                                             WitnessChannel,
+                                                                            RegionVars,
                                                                             Ledger) of
                             [] -> Acc1;
                             ValidWitnesses ->
@@ -1435,19 +1440,18 @@ poc_witness_reward_unit(R, W, N) ->
                        Ledger :: blockchain_ledger_v1:ledger(),
                        Elem :: blockchain_poc_path_element_v1:poc_element(),
                        StaticPath :: blockchain_poc_path_element_v1:poc_path(),
+                       RegionVars :: {ok, #{atom() => binary()}} | {error, any()},
                        Version :: pos_integer()
                      ) -> [blockchain_txn_poc_witnesses_v1:poc_witness()].
-legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
+legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
     case Version of
         V when is_integer(V), V >= 9 ->
             try
                 %% Get channels without validation
-                {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
+                {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Version, RegionVars, Chain),
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
-                ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
-                %% lager:info("ValidWitnesses: ~p",
-                           %% [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
+                ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
                 ValidWitnesses
             catch
                 throw:{error, {unknown_region, Region}}:_ST ->

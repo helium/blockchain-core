@@ -59,6 +59,7 @@
     find_gateway_last_challenge/2,
     find_gateway_mode/2,
     find_gateways_by_owner/2,
+    find_gateway_gain/2,
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
@@ -1215,23 +1216,28 @@ load_validators(Gateways, Ledger) ->
                     ledger()) -> ok | {error, _}.
 load_gateways(Gws, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
     maps:map(
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
-              Location = blockchain_ledger_gateway_v2:location(Gw),
-              Mode = blockchain_ledger_gateway_v2:mode(Gw),
-              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-              Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
-                        term_to_binary(LastChallenge)),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
-              cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
+              write_gw_denorm_values(Address, Gw, Ledger),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
     ok.
+
+write_gw_denorm_values(Address, Gw, Ledger) ->
+    GwDenormCF = gw_denorm_cf(Ledger),
+    Location = blockchain_ledger_gateway_v2:location(Gw),
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location)),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
+              term_to_binary(LastChallenge)),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain)).
 
 -spec entries(ledger()) -> entries().
 entries(Ledger) ->
@@ -1464,6 +1470,25 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
       end, [], Ledger).
 %%===================================================================
 
+find_gateway_gain(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
+        {ok, BinGain} ->
+            {ok, binary_to_term(BinGain)};
+        _ ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, BinGw} ->
+                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+                    {ok, Gain};
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
+            end
+    end.
+
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     add_gateway(OwnerAddr, GatewayAddress, full, Ledger).
@@ -1571,17 +1596,8 @@ update_gateway(Gw0, GwAddr, Ledger) ->
 
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
-    Location = blockchain_ledger_gateway_v2:location(Gw),
-    Mode = blockchain_ledger_gateway_v2:mode(Gw),
-    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
-              term_to_binary(LastChallenge)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
-    cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner).
+    write_gw_denorm_values(GwAddr, Gw, Ledger).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -3794,7 +3810,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        {C, undefined} when C == undefined; C == direct ->
+        {C, _} when C == undefined; C == direct ->
             %% fold rocks directly
             rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
         {Cache, _GwCache} ->
@@ -4217,21 +4233,12 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
 -spec bootstrap_gw_denorm(ledger()) -> ok.
 bootstrap_gw_denorm(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
     cache_fold(
       Ledger,
       AGwsCF,
       fun({GwAddr, Binary}, _) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-              Location = blockchain_ledger_gateway_v2:location(Gw),
-              Mode = blockchain_ledger_gateway_v2:mode(Gw),
-              LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
-              Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-loc">>, term_to_binary(Location)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-last-challenge">>,
-                        term_to_binary(LastChallenge)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-mode">>, term_to_binary(Mode)),
-              cache_put(Ledger, GwDenormCF, <<GwAddr/binary, "-owner">>, Owner)
+              write_gw_denorm_values(GwAddr, Gw, Ledger)
       end,
       ignore).
 
