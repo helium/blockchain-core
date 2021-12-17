@@ -3752,10 +3752,11 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
                     case rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options)) of
                         {ok, Value} ->
                             %% check if we should cache this in the context.
-                            %% Currently 3 things are cached:
+                            %% Currently 4 things are cached:
                             %% * Chain Vars
                             %% * Var Nonce
                             %% * Ledger Height
+                            %% * the hex list for targeting
                             case {Name, Key} of
                                 {default, ?hex_list} ->
                                     catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
