@@ -971,7 +971,7 @@ validate_var(?check_snr, Value) ->
         _ -> throw({error, {invalid_check_snr, Value}})
     end;
 validate_var(?polyfill_resolution, Value) ->
-    validate_int(Value, "polyfill_resolution", 1, 15, false);
+    validate_int(Value, "polyfill_resolution", 0, 15, false);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
