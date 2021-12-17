@@ -74,8 +74,8 @@ h3_to_region(H3, Ledger, RegionBins) ->
         fun() ->
                 MaybeBins =
                     case RegionBins of
-                        no_prefetch ->
-                            get_all_region_bins(Ledger);
+                        no_prefetch -> get_all_region_bins(Ledger);
+                        {error, _} = Err -> Err;
                         B -> {ok, B}
                     end,
                 case MaybeBins of
