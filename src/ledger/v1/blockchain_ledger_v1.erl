@@ -3757,6 +3757,8 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
                             %% * Var Nonce
                             %% * Ledger Height
                             case {Name, Key} of
+                                {default, ?hex_list} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
                                 {default, ?CURRENT_HEIGHT} ->
                                     catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
                                 {default, ?VARS_NONCE} ->
