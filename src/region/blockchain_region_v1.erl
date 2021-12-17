@@ -72,15 +72,19 @@ h3_to_region(H3, Ledger, RegionBins) ->
         ?H3_TO_REGION_CACHE,
         {HasAux, VarsNonce, Parent},
         fun() ->
-            Bins = case RegionBins of
-                       no_prefetch ->
-                           {ok, RB} = get_all_region_bins(Ledger),
-                           RB;
-                       B -> B
-                   end,
-            h3_to_region_(Parent, Bins)
+                MaybeBins =
+                    case RegionBins of
+                        no_prefetch ->
+                            get_all_region_bins(Ledger);
+                        B -> {ok, B}
+                    end,
+                case MaybeBins of
+                    {ok, Bins} ->
+                        h3_to_region_(Parent, Bins);
+                    {error, _} = Error -> Error
+                end
         end
-    ).
+     ).
 
 -spec h3_in_region(
     H3 :: h3:h3_index(),
