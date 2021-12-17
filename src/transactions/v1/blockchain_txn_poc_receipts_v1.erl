@@ -1409,7 +1409,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
         case RegionVars0 of
             {ok, RV} -> RV;
             RV when is_map(RV) -> RV;
-            {error, _Reason} -> unset
+            {error, _Reason} -> no_prefetch
         end,
     SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger, RegionVars),
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
