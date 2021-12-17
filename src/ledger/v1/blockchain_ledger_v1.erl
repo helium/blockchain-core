@@ -3753,10 +3753,32 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
             %% otherwise the semantics get all confused.
             case ets:lookup(Cache, {Name, Key}) of
                 [] ->
-                    cache_get(context_cache(undefined, undefined, Ledger), {Name, DB, CF}, Key, Options);
+                    case rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options)) of
+                        {ok, Value} ->
+                            %% check if we should cache this in the context.
+                            %% Currently 3 things are cached:
+                            %% * Chain Vars
+                            %% * Var Nonce
+                            %% * Ledger Height
+                            case {Name, Key} of
+                                {default, ?CURRENT_HEIGHT} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                {default, ?VARS_NONCE} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                {default, <<"$var_", _/binary>>} ->
+                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
+                                _ ->
+                                    ok
+                            end,
+                            {ok, Value};
+                        Other ->
+                            Other
+                    end;
                 [{_, ?CACHE_TOMBSTONE}] ->
                     %% deleted in the cache
                     not_found;
+                [{_, {'__cached', Value}}] ->
+                    {ok, Value};
                 [{_, Value}] ->
                     {ok, Value}
             end
@@ -3836,6 +3858,8 @@ mk_cache_fold_fun(Cache, CF, Start, End, Fun) ->
             case ets:lookup(Cache, {CF, Key}) of
                 [{_, ?CACHE_TOMBSTONE}] ->
                     {NewCacheKeys, Acc};
+                [{_, {'__cached', CacheValue}}] ->
+                    {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
                 [{_, CacheValue}] ->
                     {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
                 [] when Value /= cacheonly ->
@@ -3866,6 +3890,8 @@ process_fun(ToProcess, Cache, CF,
               case ets:lookup(Cache, {CF, K}) of
                   [{_, ?CACHE_TOMBSTONE}] ->
                       A;
+                  [{_Key, {'__cached', CacheValue}}] ->
+                      Fun({K, CacheValue}, A);
                   [{_Key, CacheValue}] ->
                       Fun({K, CacheValue}, A);
                   [] ->
@@ -4437,6 +4463,9 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
                                              Changes
                                      end,
                           {B, Changes1};
+                     ({{_CFName, _Key}, {'__cached', _Value}}, {B, Changes}) ->
+                          %% cached value which by definition has not changed
+                          {B, Changes};
                      ({{CFName, Key}, Value}, {B, Changes}) ->
                           CF = atom_to_cf(CFName, Ledger),
                           rocksdb:batch_put(B, CF, Key, Value),
