@@ -191,19 +191,23 @@ pfind(F, ToDos, Timeout) ->
     erlang:spawn_opt(
         fun() ->
             Parent = self(),
-            lists:foreach(
-                fun(Args) ->
-                    erlang:spawn_opt(
-                        fun() ->
-                            Result = erlang:apply(F, Args),
-                            Parent ! {Ref, Result}
-                        end,
-                        [monitor|Opts]
-                    )
+            Workers = lists:foldl(
+                fun(Args, Acc) ->
+                    {Pid, _Ref} = 
+                        erlang:spawn_opt(
+                            fun() ->
+                                Result = erlang:apply(F, Args),
+                                Parent ! {Ref, Result}
+                            end,
+                            [monitor | Opts]
+                        ),
+                    [Pid | Acc]
                 end,
+                [],
                 ToDos
             ),
             Results = pfind_rcv(Ref, false, erlang:length(ToDos)),
+            [erlang:exit(Pid, done) || Pid <- Workers],
             Master ! {Ref, Results}
         end,
         Opts
@@ -804,33 +808,65 @@ fold_condition_checks_bad_test() ->
     ?assertEqual({error, '10_not_greater_than_100'}, fold_condition_checks(Bad)).
 
 pfind_test() ->
-    {
-        spawn,
-        fun() ->
-            F = fun(I) ->
-                case I rem 2 == 0 of
+    erlang:trace(new_processes, true, [{tracer, self()}, procs]),
+
+    Args = lists:seq(1, 6),
+    F = fun(I) ->
+        case I rem 2 == 0 of
+            true ->
+                case I == 2 of
                     true ->
-                        case I == 2 of
-                            true ->
-                                {true, I};
-                            false ->
-                                timer:sleep(10),
-                                {true, I}
-                        end;
+                        {true, I};
                     false ->
-                        false
-                end
-            end,
-            Args = [[I] || I <- lists:seq(1, 6)],
-            ?assertEqual({true, 2}, pfind(F, Args)),
-            receive
-                _ ->
-                    ?assert(false)
-            after 100 ->
-                ok
-            end,
-            ok
+                        timer:sleep(10),
+                        {true, I}
+                end;
+            false ->
+                false
         end
-    }.
+    end,
+    %% In this case 2 should always win, 4 and 6 should take too long and be killed (aka done)
+    %% The rest should just not match
+    ?assertEqual({true, 2}, pfind(F, [[I] || I <- Args])),
+
+    %% We should have N+1 pids spawned from self()
+    %% where N = length(Args) and +1 = original process
+    X = erlang:length(Args) + 1,
+    Pids = spawned_rcv(self()),
+    ?assertEqual(X, erlang:length(Pids)),
+
+    %% 0 = normal (starting pid), 1 = normal, 2 normal (picked), 3 = normal, 4 = done, 5 = normal, 6 = done
+    Exits = exit_rcv([]),
+    ?assertEqual(X, erlang:length(Exits)),
+    ?assertEqual(lists:sort(Pids), lists:sort([P || {P, _} <- Exits])),
+    ?assertEqual(5, erlang:length([P || {P, Reason} <- Exits, Reason == normal])),
+    ?assertEqual(2, erlang:length([P || {P, Reason} <- Exits, Reason == done])),
+
+    erlang:trace(new_processes, false, [{tracer, self()}, procs]),
+    ok.
+
+spawned_rcv(SpawnedBy) ->
+    receive
+        {trace, Spawned, spawned, SpawnedBy, _} ->
+            spawn_rcv(Spawned, [Spawned])
+    after 10 ->
+        erlang:throw(spawned_lvl_1)
+    end.
+
+spawn_rcv(SpawnedBy, Acc) ->
+    receive
+        {trace, Spawned, spawned, SpawnedBy, _} ->
+            spawn_rcv(SpawnedBy, [Spawned|Acc])
+    after 10 ->
+        Acc
+    end.
+
+exit_rcv(Acc) ->
+    receive
+        {trace, Pid, exit, Reason} ->
+            exit_rcv([{Pid, Reason}|Acc])
+    after 10 ->
+        Acc
+    end.
 
 -endif.
