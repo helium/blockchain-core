@@ -268,7 +268,9 @@ peer_book_cmd() ->
       [{self, [{shortname, "s"},
                {longname, "self"}]},
        {all, [{shortname, "a"},
-               {longname, "all"}]}
+               {longname, "all"}]},
+       {cnt, [{shortname, "c"},
+               {longname, "count"}]}
       ], fun peer_book/3]
     ].
 
@@ -282,6 +284,8 @@ peer_book_usage() ->
       "    Display the peerbook entry for this node.\n"
       "  -a, --all\n",
       "    Display all peerbook entries for this node.\n"
+      "  -c, --count\n",
+      "    Display count of all peerbook entries for this node.\n"
      ]
     ].
 
@@ -303,6 +307,11 @@ peer_book(_CmdBase, [], [{all, _}]) ->
     SwarmTID = blockchain_swarm:tid(),
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     [format_peers(libp2p_peerbook:values(Peerbook))];
+peer_book(_CmdBase, [], [{cnt, _}]) ->
+    SwarmTID = blockchain_swarm:tid(),
+    Peerbook = libp2p_swarm:peerbook(SwarmTID),
+    PBLen = length(libp2p_peerbook:keys(Peerbook)),
+    [clique_status:text(io_lib:format("~p", [PBLen]))];
 peer_book(_CmdBase, [], []) ->
     usage.
 
