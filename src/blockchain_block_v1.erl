@@ -15,6 +15,8 @@
     rescue/1,
     prev_hash/1,
     height/1,
+    election_epoch/1,
+    epoch_start/1,
     transactions/1,
     signatures/1,
     time/1,
@@ -123,6 +125,22 @@ prev_hash(Block) ->
 -spec height(block()) -> non_neg_integer().
 height(Block) ->
     Block#blockchain_block_v1_pb.height.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_epoch(block()) -> non_neg_integer().
+election_epoch(Block) ->
+    Block#blockchain_block_v1_pb.election_epoch.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec epoch_start(block()) -> non_neg_integer().
+epoch_start(Block) ->
+    Block#blockchain_block_v1_pb.epoch_start.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -364,6 +382,8 @@ json_type() ->
 to_json(Block, _Opts) ->
     #{
       height => height(Block),
+      election_epoch => election_epoch(Block),
+      epoch_start => epoch_start(Block),
       time => time(Block),
       hash => ?BIN_TO_B64(hash_block(Block)),
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
