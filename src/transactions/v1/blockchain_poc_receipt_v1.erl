@@ -240,7 +240,7 @@ to_json(Receipt, _Opts) ->
       tx_power => ?MAYBE_UNDEFINED(tx_power(Receipt))
      }.
 
--spec verify_signatures(Receipts :: poc_receipts()) -> boolean().
+-spec verify_signatures(Receipts :: poc_receipts()) -> {boolean(), libp2p_crypto:sig_batch()}.
 verify_signatures(Receipts) ->
     Batch = lists:foldl(
               fun(Receipt=#blockchain_poc_receipt_v1_pb{gateway=GatewayPubkeyBin, signature=Signature}, Acc) ->
@@ -251,7 +251,7 @@ verify_signatures(Receipts) ->
               [],
               Receipts),
 
-    libp2p_crypto:verify(Batch).
+    {libp2p_crypto:verify(Batch), Batch}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

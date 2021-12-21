@@ -1060,8 +1060,8 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
 
                     Result =
                     case blockchain_poc_receipt_v1:verify_signatures(Receipts) of
-                        false -> {error, invalid_receipt_signatures};
-                        true ->
+                        {false, Batch} -> {error, {invalid_receipt_signatures, Batch}};
+                        {true, _} ->
                             lists:foldl(
                               fun(_, {error, _} = Error) ->
                                       Error;
@@ -1196,7 +1196,7 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
     %% and be valid
     case
         case blockchain_poc_witness_v1:verify_signatures(Witnesses) of
-            true ->
+            {true, _} ->
                 lists:all(
                   fun(Witness) ->
                           %% the witnesses should have an asserted location
@@ -1215,7 +1215,9 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
                   end,
                   Witnesses
                  );
-            false -> false
+            {false, Batch} ->
+                lager:error("Failed signature verification for batch: ~p", [Batch]),
+                false
         end
     of
         true -> ok;

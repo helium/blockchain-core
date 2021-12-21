@@ -196,7 +196,7 @@ to_json(Witness, Opts) ->
         {invalid_reason, InvalidReason} -> Base#{ invalid_reason => InvalidReason }
     end.
 
--spec verify_signatures(Witnesses :: poc_witnesses()) -> boolean().
+-spec verify_signatures(Witnesses :: poc_witnesses()) -> {boolean(), libp2p_crypto:sig_batch()}.
 verify_signatures(Witnesses) ->
     Batch = lists:foldl(
               fun(Witness=#blockchain_poc_witness_v1_pb{gateway=GatewayPubkeyBin, signature=Signature}, Acc) ->
@@ -207,7 +207,7 @@ verify_signatures(Witnesses) ->
               [],
               Witnesses),
 
-    libp2p_crypto:verify(Batch).
+    {libp2p_crypto:verify(Batch), Batch}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
