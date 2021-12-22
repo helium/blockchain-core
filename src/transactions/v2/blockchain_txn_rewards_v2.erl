@@ -1588,7 +1588,8 @@ poc_challengees_rewards_3_test() ->
         poc_witnesses_percent => 0.0,
         poc_challengers_percent => 0.0,
         dc_remainder => 0,
-        poc_version => 5
+        poc_version => 5,
+        region_vars => []
     },
 
     LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
@@ -1776,6 +1777,7 @@ dc_rewards_v3_spillover_test() ->
         dc_remainder => 0,
         oracle_price => 100000000, %% 1 dollar
         var_map => undefined,
+        region_vars => [],
         consensus_members => [<<"c">>, <<"d">>]
     },
 
