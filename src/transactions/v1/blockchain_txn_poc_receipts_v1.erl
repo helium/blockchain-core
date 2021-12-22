@@ -296,10 +296,16 @@ check_is_valid_poc(Txn, Chain) ->
                                             StartFT = maybe_log_duration(ledger_at, StartLA),
                                             Vars = blockchain_utils:get_vars(?poc_vars, OldLedger),
                                             Path = case blockchain:config(?poc_version, OldLedger) of
-                                                        {ok, V} when V >= 8 ->
+                                                       {ok, V} when V >= 8 ->
                                                             %% Targeting phase
                                                             %% Find the original target
-                                                            {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
+                                                            {ok, {Target, TargetRandState}} =
+                                                                case blockchain:config(?poc_targeting_version, Ledger) of
+                                                                    {ok, 4} ->
+                                                                        blockchain_poc_target_v4:target(Challenger, Entropy, OldLedger, Vars);
+                                                                    _ ->
+                                                                        blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars)
+                                                                end,
                                                             StartB = maybe_log_duration(target, StartFT),
                                                             %% Path building phase
                                                             RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
@@ -1743,7 +1749,6 @@ poc_version(Ledger) ->
         {error, not_found} -> 0;
         {ok, V} -> V
     end.
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------

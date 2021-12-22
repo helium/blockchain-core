@@ -997,6 +997,25 @@ validate_var(?check_snr, Value) ->
     end;
 validate_var(?polyfill_resolution, Value) ->
     validate_int(Value, "polyfill_resolution", 0, 15, false);
+validate_var(?h3dex_gc_width, Value) ->
+  validate_int(Value, "h3dex_gc_width", 1, 10000, false);
+validate_var(?poc_target_pool_size, Value) ->
+  validate_int(Value, "poc_target_pool_size", 1, 1000000, false);
+validate_var(?poc_targeting_version, Value) ->
+    case Value of
+        3 -> ok;
+        4 -> ok;
+        _ ->
+            throw({error, {invalid_poc_targeting_version, Value}})
+    end;
+validate_var(?poc_hexing_type, Value) ->
+  case Value of
+    hex_h3dex -> ok;
+    h3dex -> ok;
+    hex -> ok;
+    _ ->
+      throw({error, {poc_hexing_type, Value}})
+  end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->

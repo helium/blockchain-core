@@ -166,6 +166,22 @@
 
 %% resolution for h3 polyfills, defaulted to 7 before we set it
 -define(polyfill_resolution, polyfill_resolution).
+
+%% determines which hexing type to use for gateways: hex_h3dex | h3dex or not set
+%% hex_h3dex will result in both hexes and h3dex being updated
+%% h3dex will result in only h3dex being updated
+%% not set will result in hexes being updated
+-define(poc_hexing_type, poc_hexing_type).
+
+%% max number of hexes to GC in the h3dex per block: integer
+-define(h3dex_gc_width, h3dex_gc_width).
+
+%% the version number of poc targeting in use: integer
+%% if not set, code paths with default to 3 ( blockchain_poc_target_v3 )
+-define(poc_targeting_version, poc_targeting_version).
+
+%% the number of random hexes to utilize when targeting: integer
+-define(poc_target_pool_size, poc_target_pool_size).
 %%%
 %%% score vars
 %%%
