@@ -83,6 +83,7 @@
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
+    maybe_gc_h3dex/1,
 
     find_entry/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
@@ -162,6 +163,7 @@
     lookup_gateways_from_hex/2,
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
+    count_gateways_in_hex/2,
     add_commit_hook/4, add_commit_hook/5,
     remove_commit_hook/2,
 
@@ -1967,6 +1969,39 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Versi
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs).
 
+-spec gateway_update_challenge(
+    ledger(),
+    blockchain_ledger_gateway_v2:gateway(),
+    binary(),
+    non_neg_integer(),
+    libp2p_crypto:pubkey_bin()
+) ->
+    ok.
+gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+    case ?MODULE:config(?h3dex_gc_width, Ledger) of
+        {ok, _Width} ->
+            {ok, InactivityThreshold} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
+            case blockchain_ledger_gateway_v2:last_poc_challenge(Gw0) of
+              undefined ->
+                    %% it might have been GC'd because of inactivity, so re-add it
+                    Location = blockchain_ledger_gateway_v2:location(Gw0),
+                    add_gw_to_hex(Location, Challenger, Ledger);
+                LastChallenge when Height - LastChallenge > InactivityThreshold ->
+                    %% it might have been GC'd because of inactivity, so re-add it
+                    Location = blockchain_ledger_gateway_v2:location(Gw0),
+                    add_gw_to_hex(Location, Challenger, Ledger);
+                  _ ->
+                    ok
+            end;
+        _ ->
+            ok
+    end,
+    Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+    Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
+    ok = update_gateway(Gw3, Challenger, Ledger).
+
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
     case ?MODULE:find_poc(OnionKeyHash, Ledger) of
@@ -3583,7 +3618,8 @@ context_cache(Cache, GwCache, Ledger) ->
 get_block(Height, #ledger_v1{blocks_db = DB,
                              blocks_cf = BlocksCF,
                              heights_cf = HeightsCF} = Ledger) ->
-    case Height > current_height(Ledger) of
+    {ok, LedgerHeight} = current_height(Ledger),
+    case Height > LedgerHeight of
         true -> {error, too_new};
         _ ->
             case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
@@ -3605,7 +3641,8 @@ get_block(Height, #ledger_v1{blocks_db = DB,
 
 get_block_info(Height, #ledger_v1{blocks_db = DB,
                                   info_cf = InfoCF} = Ledger) ->
-    case Height > current_height(Ledger) of
+    {ok, LedgerHeight} = current_height(Ledger),
+    case Height > LedgerHeight of
         true -> {error, too_new};
         _ ->
             case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
@@ -4007,7 +4044,7 @@ get_hexes(Ledger) ->
             Error
     end.
 
--spec get_hexes_list(Ledger :: ledger()) -> {ok, []} | {error, any()}.
+-spec get_hexes_list(Ledger :: ledger()) -> {ok, [{h3:h3_index(), pos_integer()}]} | {error, any()}.
 get_hexes_list(Ledger) ->
     CF = default_cf(Ledger),
     case cache_get(Ledger, CF, ?hex_list, []) of
@@ -4173,6 +4210,19 @@ lookup_gateways_from_hex(Hex, Ledger) when is_integer(Hex) ->
                          ]
               ).
 
+-spec count_gateways_in_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> non_neg_integer().
+count_gateways_in_hex(Hex, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({_Key, GWs}, Acc) ->
+                      Acc + length(binary_to_term(GWs))
+               end, 0, [
+                          {start, {seek, find_lower_bound_hex(Hex)}},
+                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
+                         ]
+              ).
+
+
 -spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
 %% @doc Let's find the nearest set of k neighbors for this hex at the
 %% same resolution and return the "lowest" one. Since these numbers
@@ -4213,7 +4263,7 @@ add_gw_to_hex(Hex, GWAddr, Ledger) ->
             cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]));
         {ok, BinGws} ->
             GWs = binary_to_term(BinGws),
-            cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort([GWAddr | GWs]), [compressed]));
+            cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:usort([GWAddr | GWs]), [compressed]));
         Error -> Error
     end.
 
@@ -4237,6 +4287,58 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
             end;
         Error -> Error
     end.
+
+maybe_gc_h3dex(Ledger) ->
+    %% pick a random h3dex index and remove any inactive hotspots from it
+    case ?MODULE:config(?h3dex_gc_width, Ledger) of
+        {ok, Width} ->
+            {ok, InactivityThreshold} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
+            %% we need a fairly deterministic way to choose hexes to be GC'd
+            %% that ideally is not tied to internal representations like rocksdb
+            %% sort order, etc.
+            %%
+            %% A good choice is to pull the first `Width` receipt transactions
+            %% from the current block (which are sorted by *challenger* and GC the
+            %% hexes the *challengee* is in.
+            {ok, Height} = current_height(Ledger),
+            {ok, Block} = get_block(Height, Ledger),
+            RequestFilter = fun(T) ->
+                                    blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
+                            end,
+            case blockchain_utils:find_txn(Block, RequestFilter) of
+                [] ->
+                    %% no receipts, don't do any GC
+                    ok;
+                Txns ->
+                    %% take the first `Width` receipts and GC the parent hexes of the challengees
+                    lists:foreach(fun(T) ->
+                                          Path = blockchain_txn_poc_receipts_v1:path(T),
+                                          Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+                                          case find_gateway_location(Challengee, Ledger) of
+                                              {ok, Location} ->
+                                                  gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
+                                              _ ->
+                                                  ok
+                                          end
+                                  end, lists:sublist(Txns, Width))
+            end;
+        _ ->
+            ok
+    end.
+
+gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger) ->
+    HexMap = lookup_gateways_from_hex(Location, Ledger),
+    %% no maps:foreach in otp 22
+    maps:fold(fun(H3, Gateways, _Acc) ->
+                      lists:foreach(fun(GW) ->
+                                            case find_gateway_last_challenge(GW, Ledger) of
+                                                {ok, LastActive} when Height - LastActive > InactivityThreshold ->
+                                                    remove_gw_from_hex(H3, GW, Ledger);
+                                                _ ->
+                                                    ok
+                                            end
+                                    end, Gateways)
+              end, ok, HexMap).
 
 -spec bootstrap_gw_denorm(ledger()) -> ok.
 bootstrap_gw_denorm(Ledger) ->
