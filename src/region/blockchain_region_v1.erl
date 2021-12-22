@@ -36,7 +36,7 @@ get_all_regions(Ledger) ->
     end.
 
 -spec get_all_region_bins(Ledger :: blockchain_ledger_v1:ledger()) ->
-    {ok, #{atom() => binary()}} | {error, any()}.
+    {ok, [{atom(), binary()}]} | {error, any()}.
 get_all_region_bins(Ledger) ->
     case get_all_regions(Ledger) of
         {ok, Regions} ->
@@ -44,11 +44,12 @@ get_all_region_bins(Ledger) ->
                     fun(Reg, Acc) ->
                             case blockchain:config(Reg, Ledger) of
                                 {ok, Bin} ->
-                                    Acc#{Reg => Bin};
-                                _ -> Acc
+                                    [{Reg, Bin}|Acc];
+                                _ ->
+                                    [{error, {region_var_not_set, Reg}}|Acc]
                             end
-                    end, #{}, Regions),
-            {ok, Map};
+                    end, [], Regions),
+            {ok, lists:reverse(Map)};
         Error ->
             Error
     end.
@@ -134,12 +135,14 @@ region_([{ToCheck, Bin} | Remaining], H3) ->
                     RegionBins :: #{atom() => binary()}) ->
     {ok, atom()} | {error, any()}.
 h3_to_region_(H3, RegionBins) ->
-    region_(maps:to_list(RegionBins), H3).
+    region_(RegionBins, H3).
 
 -spec h3_in_region_(
     H3 :: h3:h3_index(),
     RegionBin :: binary()
 ) -> boolean() | {error, any()}.
+h3_in_region_(_H3, {error, _}=Error) ->
+    Error;
 h3_in_region_(H3, RegionBin) ->
     try h3:contains(H3, RegionBin) of
         false ->
