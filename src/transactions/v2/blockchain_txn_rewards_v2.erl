@@ -1440,7 +1440,7 @@ poc_witness_reward_unit(R, W, N) ->
                        Ledger :: blockchain_ledger_v1:ledger(),
                        Elem :: blockchain_poc_path_element_v1:poc_element(),
                        StaticPath :: blockchain_poc_path_element_v1:poc_path(),
-                       RegionVars :: {ok, #{atom() => binary()}} | {error, any()},
+                       RegionVars :: {ok, [{atom(), binary() | {error, any()}}]} | {error, any()},
                        Version :: pos_integer()
                      ) -> [blockchain_txn_poc_witnesses_v1:poc_witness()].
 legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
@@ -1588,7 +1588,8 @@ poc_challengees_rewards_3_test() ->
         poc_witnesses_percent => 0.0,
         poc_challengers_percent => 0.0,
         dc_remainder => 0,
-        poc_version => 5
+        poc_version => 5,
+        region_vars => []
     },
 
     LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
@@ -1776,6 +1777,7 @@ dc_rewards_v3_spillover_test() ->
         dc_remainder => 0,
         oracle_price => 100000000, %% 1 dollar
         var_map => undefined,
+        region_vars => [],
         consensus_members => [<<"c">>, <<"d">>]
     },
 

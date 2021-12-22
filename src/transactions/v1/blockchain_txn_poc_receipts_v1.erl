@@ -1420,7 +1420,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     RegionVars =
         case RegionVars0 of
             {ok, RV} -> RV;
-            RV when is_map(RV) -> RV;
+            RV when is_list(RV) -> RV;
             {error, _Reason} -> no_prefetch
         end,
     SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger, RegionVars),
@@ -1635,7 +1635,7 @@ get_channels(Txn, Version, RegionVars, Chain) ->
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
                     Version :: integer(),
-                    RegionVars :: no_prefetch | #{atom() => binary()} | {error, any()}) ->
+                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}) ->
           [non_neg_integer()].
 get_channels_(Ledger, Path, LayerData, Version, RegionVars0) ->
     ChannelCount = case Version of
@@ -1648,7 +1648,7 @@ get_channels_(Ledger, Path, LayerData, Version, RegionVars0) ->
             RegionVars =
                 case RegionVars0 of
                     {ok, RV} -> RV;
-                    RV when is_map(RV) -> RV;
+                    RV when is_list(RV) -> RV;
                     no_prefetch -> no_prefetch;
                     {error, Reason} -> error({get_channels_region, Reason})
                 end,
