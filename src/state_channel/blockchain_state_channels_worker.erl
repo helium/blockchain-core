@@ -37,6 +37,7 @@
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
 -define(EXPIRED, expired).
 -define(OVERSPENT, overspent).
+-define(HOOK_CLOSE_SUBMIT, sc_hook_close_submit).
 
 -record(state, {
     parent :: pid(),
@@ -50,7 +51,8 @@
     sc_version :: non_neg_integer(),
     max_actors_allowed = ?SC_MAX_ACTORS :: pos_integer(),
     prevent_overspend = true,
-    bloom :: bloom_nif:bloom()
+    bloom :: bloom_nif:bloom(),
+    hook_close_submit :: atom()
 }).
 
 -type state() :: #state{}.
@@ -121,6 +123,7 @@ init(Args) ->
     Owner = maps:get(owner, Args),
     {_, OwnerSigFun} = Owner,
     ok = blockchain_event:add_handler(self()),
+    SubmitHookModule = application:get_env(blockchain, ?HOOK_CLOSE_SUBMIT, undefined),
     lager:info("started ~p", [blockchain_utils:addr2name(ID)]),
     State = #state{
         parent = Parent,
@@ -134,7 +137,8 @@ init(Args) ->
         dc_payload_size = DCPayloadSize,
         sc_version = SCVer,
         max_actors_allowed = MaxActorsAllowed,
-        prevent_overspend = application:get_env(blockchain, prevent_sc_overspend, true)
+        prevent_overspend = application:get_env(blockchain, prevent_sc_overspend, true),
+        hook_close_submit = SubmitHookModule
     },
     {ok, State}.
 
@@ -157,7 +161,7 @@ handle_info({blockchain_event, {new_chain, Chain}}, State) ->
     {noreply, State#state{chain=Chain}};
 handle_info(
     {blockchain_event, {add_block, _BlockHash, _Syncing, Ledger}},
-    #state{id=ID, state_channel=SC, owner={Owner, OwnerSigFun}}=State
+    #state{id=ID, state_channel=SC, owner={Owner, OwnerSigFun}, hook_close_submit=SubmitHook}=State
 ) ->
     Name = blockchain_utils:addr2name(ID),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -171,7 +175,17 @@ handle_info(
             SignedSC = blockchain_state_channel_v1:sign(ClosedSC, OwnerSigFun),
             Txn = blockchain_txn_state_channel_close_v1:new(SignedSC, Owner),
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
-            ok = blockchain_worker:submit_txn(SignedTxn),
+            F = fun(Result) ->
+                ok = handle_close_submit(Result, SignedTxn),
+                case SubmitHook of
+                    undefined ->
+                        ok;
+                    _ ->
+                        _ = SubmitHook:?HOOK_CLOSE_SUBMIT(Result, SignedTxn),
+                        ok
+                end
+            end,
+            ok = blockchain_worker:submit_txn(SignedTxn, F),
             {stop, {shutdown, ?EXPIRED}, State#state{state_channel=SignedSC}}
     end;
 handle_info(?OVERSPENT, State) ->
@@ -197,6 +211,13 @@ terminate(Reason, #state{id=ID, state_channel=SC, skewed=Skewed, db=DB, owner={_
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec handle_close_submit(any(), blockchain_txn_state_channel_close_v1:txn_state_channel_close()) -> ok.
+handle_close_submit(ok, SignedTxn) ->
+    lager:info("txn accepted, ~p", [blockchain_txn_state_channel_close_v1:print(SignedTxn)]);
+handle_close_submit(Error, SignedTxn) ->
+    lager:error("failed to submit txn ~p", [Error]),
+    lager:error("~p", [SignedTxn]).
+
 -spec offer(
     Offer :: blockchain_state_channel_offer_v1:offer(),
     HandlerPid :: pid(),
