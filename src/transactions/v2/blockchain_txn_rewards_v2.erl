@@ -181,11 +181,15 @@ absorb(Txn, Chain) ->
             ok
     end,
 
-    case blockchain_ledger_v1:mode(Ledger) == aux of
-        false ->
-            %% only absorb in the main ledger
+    case blockchain_ledger_v1:mode(Ledger) of
+        %% only absorb in the main ledgers
+        active ->
+            %% only clear the cache in the active ledger
+            blockchain_witness_cache:clear_all(),
             absorb_(Txn, Ledger);
-        true ->
+        delayed ->
+            absorb_(Txn, Ledger);
+        aux ->
             aux_absorb(Txn, Ledger, Chain)
     end.
 
@@ -531,7 +535,10 @@ calculate_reward_for_txn(blockchain_txn_poc_receipts_v1 = T, Txn, _End,
     Acc2;
 calculate_reward_for_txn(blockchain_txn_poc_receipts_v2, Txn, _End,
                          #{ poc_challenger := Challenger } = Acc, Chain, Ledger, Vars) ->
+    Start = erlang:monotonic_time(microsecond),
     Acc0 = poc_challenger_reward(Txn, Challenger, Vars),
+    Start1 = erlang:monotonic_time(microsecond),
+    perf(challenger, Start1 - Start),
     Acc1 = calculate_poc_challengee_rewards(Txn, Acc#{ poc_challenger => Acc0 }, Chain, Ledger, Vars),
     calculate_poc_witness_rewards(Txn, Acc1, Chain, Ledger, Vars);
 
@@ -1235,6 +1242,7 @@ poc_witness_reward(Txn, AccIn,
                                 %% lager:info("witness witness ~p", [erlang:phash2(ValidWitnesses)]),
                                 WitEnd = erlang:monotonic_time(microsecond),
                                 perf({witnesses, witness}, WitEnd - WitStart),
+
                                 %% We found some valid witnesses, we only apply
                                 %% the witness_redundancy and decay_rate if
                                 %% BOTH are set as chain variables, otherwise
@@ -1268,13 +1276,13 @@ poc_witness_reward(Txn, AccIn,
                                            ValidWitnesses);
                                      D ->
                                          %% new (HIP17)
+                                         Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+                                         %% This must always be {ok, ...}
+                                         %% Challengee must have a location
+                                         {ok, ChallengeeLoc} =
+                                             blockchain_ledger_v1:find_gateway_location(Challengee, Ledger),
                                          lists:foldl(
                                            fun(WitnessRecord, Acc2) ->
-                                                   Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-                                                   %% This must always be {ok, ...}
-                                                   %% Challengee must have a location
-                                                   {ok, ChallengeeLoc} =
-                                                      blockchain_ledger_v1:find_gateway_location(Challengee, Ledger),
                                                    Witness =
                                                       blockchain_poc_witness_v1:gateway(WitnessRecord),
                                                    %% The witnesses get scaled by the value of their transmitters

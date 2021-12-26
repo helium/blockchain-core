@@ -1023,7 +1023,7 @@ raw_fingerprint(Ledger, Extended) ->
 -spec current_height(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 current_height(Ledger) ->
     DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?CURRENT_HEIGHT, []) of
+    case cache_get(Ledger, DefaultCF, ?CURRENT_HEIGHT, true, []) of
         {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
@@ -1421,7 +1421,7 @@ vars(Vars, Unset, Ledger) ->
 -spec config(term(), ledger()) -> {ok, term()} | {error, term()}.
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
+    case cache_get(Ledger, DefaultCF, var_name(ConfigName), true, []) of
         {ok, ConfigVal} ->
             {ok, binary_to_term(ConfigVal)};
         not_found ->
@@ -1432,7 +1432,7 @@ config(ConfigName, Ledger) ->
 
 vars_nonce(Ledger) ->
     DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?VARS_NONCE, []) of
+    case cache_get(Ledger, DefaultCF, ?VARS_NONCE, true, []) of
         {ok, Nonce} ->
             {ok, binary_to_term(Nonce)};
         not_found ->
@@ -1461,7 +1461,7 @@ find_gateway_info(Address, Ledger) ->
 find_gateway_location(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, [{tag, location}]) of
         {ok, BinLoc} ->
             {ok, binary_to_term(BinLoc)};
         _ ->
@@ -1562,7 +1562,7 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
 find_gateway_gain(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, [{tag, gain}]) of
         {ok, BinGain} ->
             {ok, binary_to_term(BinGain)};
         _ ->
@@ -2001,7 +2001,7 @@ refresh_gateway_witnesses(Hash, Ledger) ->
 
 find_poc(OnionKeyHash, Challenger, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    case cache_get(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>, []) of
+    case cache_get(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>, true, [{tag, <<"find_poc">>}]) of
         {ok, BinPoC} ->
             {ok, blockchain_ledger_poc_v2:deserialize(BinPoC)};
         not_found ->
@@ -4226,6 +4226,12 @@ cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
+    cache_get(Ledger, {Name, DB, CF}, Key, false, Options).
+
+-spec cache_get(ledger(), rocksdb:cf_handle(), any(), boolean(), [any()]) ->
+          {ok, any()} | {error, any()} | not_found.
+cache_get(Ledger, {Name, DB, CF}, Key, RTC, Options) ->
+    Tag = proplists:get_value(tag, Options, Key),
     case context_cache(Ledger) of
         {C, _GwCache} when C == undefined; C == direct ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
@@ -4234,22 +4240,19 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
             %% otherwise the semantics get all confused.
             case ets:lookup(Cache, {Name, Key}) of
                 [] ->
+                    Start = erlang:monotonic_time(microsecond),
                     case rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options)) of
                         {ok, Value} ->
+                            End = erlang:monotonic_time(microsecond),
+                            blockchain_worker:update_rocks_ctr(Tag, byte_size(Value), End - Start),
                             %% check if we should cache this in the context.
                             %% Currently 4 things are cached:
                             %% * Chain Vars
                             %% * Var Nonce
                             %% * Ledger Height
                             %% * the hex list for targeting
-                            case {Name, Key} of
-                                {default, ?hex_list} ->
-                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
-                                {default, ?CURRENT_HEIGHT} ->
-                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
-                                {default, ?VARS_NONCE} ->
-                                    catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
-                                {default, <<"$var_", _/binary>>} ->
+                            case RTC of
+                                true ->
                                     catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
                                 {h3dex, <<"population">>} ->
                                     catch ets:insert(Cache, {{Name, Key}, {'__cached', Value}});
@@ -4509,7 +4512,7 @@ set_hexes_list(HexList, Ledger) ->
 -spec get_hexes(Ledger :: ledger()) -> {ok, hexmap()} | {error, any()}.
 get_hexes(Ledger) ->
     CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, ?hex_list, []) of
+    case cache_get(Ledger, CF, ?hex_list, true, []) of
         {ok, BinList} ->
             {ok, maps:from_list(binary_to_term(BinList))};
         not_found ->
@@ -4521,7 +4524,7 @@ get_hexes(Ledger) ->
 -spec get_hexes_list(Ledger :: ledger()) -> {ok, [{h3:h3_index(), pos_integer()}]} | {error, any()}.
 get_hexes_list(Ledger) ->
     CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, ?hex_list, []) of
+    case cache_get(Ledger, CF, ?hex_list, true, []) of
         {ok, BinList} ->
             {ok, binary_to_term(BinList)};
         not_found ->
@@ -4541,7 +4544,7 @@ set_hex(Hex, GwPubkeyBins, Ledger) ->
 -spec get_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> {ok, term()} | {error, any()}.
 get_hex(Hex, Ledger) ->
     CF = default_cf(Ledger),
-    case cache_get(Ledger, CF, hex_name(Hex), []) of
+    case cache_get(Ledger, CF, hex_name(Hex), true, []) of
         {ok, BinList} ->
             {ok, binary_to_term(BinList)};
         not_found ->
