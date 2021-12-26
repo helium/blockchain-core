@@ -441,7 +441,12 @@ absorb(Txn, Chain) ->
             blockchain_ledger_v1:add_gateway_gain(Gateway, Gain, Nonce, Ledger),
             blockchain_ledger_v1:add_gateway_elevation(Gateway, Elevation, Nonce, Ledger),
             maybe_alter_hex(OldGw, Gateway, Location, Ledger),
-            maybe_update_neighbors(Gateway, Ledger)
+            maybe_update_neighbors(Gateway, Ledger),
+            case blockchain_ledger_v1:mode(Ledger) of
+                active -> blockchain_witness_cache:clear_address(Gateway);
+                _ -> ok
+            end,
+            ok
     end.
 
 -spec maybe_update_neighbors(Gateway :: libp2p_crypto:pubkey_bin(),
