@@ -1479,7 +1479,7 @@ deserialize_pairs(<<Bin/binary>>) ->
     ).
 
 -spec deserialize_field(key(), binary()) -> term().
-deserialize_field(hexes, Bin) ->
+deserialize_field(hexes, Bin) when is_binary(Bin) ->
     %% hexes are encoded as a term_to_binary of a big
     %% key/value list of {h3() -> [binary()]},
     %% and a single 'list' key which points to a map of
