@@ -1153,12 +1153,8 @@ do_snap_source_download(Url, Filepath) ->
 attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
     lager:debug("attempting to load snapshot from ~p", [Filename]),
     %% TODO at some point we could probably load the snapshot file in chunks?
-    BinSnap = case file:read_file(Filename) of
-                  {error, _} = E -> throw(E);
-                  {ok, Bin} -> Bin
-              end,
     lager:debug("attempting to deserialize snapshot and validate hash ~p", [Hash]),
-    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, BinSnap) of
+    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, {file, Filename}) of
                {error, _} = Err ->
                    lager:error("While deserializing ~p, got ~p. Deleting ~p",
                                [Filename, Err, Filename]),
@@ -1168,7 +1164,7 @@ attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
            end,
     SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
     lager:debug("attempting to store snapshot in rocks"),
-    ok = blockchain:add_bin_snapshot(BinSnap, SnapHeight, Hash, Chain),
+    ok = blockchain:add_bin_snapshot({file, Filename}, SnapHeight, Hash, Chain),
     lager:info("Stored snap ~p - attempting install", [SnapHeight]),
     blockchain_worker:install_snapshot(Hash, Snap).
 

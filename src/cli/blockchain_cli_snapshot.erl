@@ -115,9 +115,7 @@ snapshot_load(_, _, _) ->
     usage.
 
 snapshot_load(Filename) ->
-    {ok, BinSnap} = file:read_file(Filename),
-
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize({file, Filename}),
     Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
     ok = blockchain_worker:install_snapshot(Hash, Snapshot),

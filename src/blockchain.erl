@@ -1941,7 +1941,12 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
         SnapDir = filename:join(Dir, "saved-snaps"),
         SnapFile = list_to_binary(io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)])),
         ok = filelib:ensure_dir(filename:join(SnapDir, SnapFile)),
-        ok = file:write_file(filename:join(SnapDir, SnapFile), BinSnap),
+        case BinSnap of
+            {file, Filename} ->
+                ok = file:make_link(Filename, filename:join(SnapDir, SnapFile));
+            B when is_binary(B) ->
+                ok = file:write_file(filename:join(SnapDir, SnapFile), BinSnap)
+        end,
         {ok, Batch} = rocksdb:batch(),
         %% store the snap as a filename
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, <<"file:", SnapFile/binary>>),
@@ -1955,15 +1960,20 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
 
 
 -spec get_snapshot(blockchain_block:hash() | integer(), blockchain()) ->
-                          {ok, binary()} | {error, any()}.
+                          {ok, binary()} | {ok, {file, file:filename_all()}} | {error, any()}.
 get_snapshot(<<Hash/binary>>, #blockchain{db=DB, dir=Dir, snapshots=SnapshotsCF}) ->
     case rocksdb:get(DB, SnapshotsCF, Hash, []) of
         {ok, <<"__sentinel__">>} ->
             {error, sentinel};
         {ok, <<"file:", SnapFile/binary>>} ->
             SnapDir = filename:join(Dir, "saved-snaps"),
-            %% this returns the same result as this function spec
-            file:read_file(filename:join(SnapDir, SnapFile));
+            Filename = filename:join(SnapDir, SnapFile),
+            case filelib:is_file(Filename) of
+                true ->
+                    {ok, {file, Filename}};
+                false ->
+                    {error, {file_not_found, Filename}}
+            end;
         {ok, Snap} ->
             {ok, Snap};
         not_found ->
@@ -2478,8 +2488,8 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
         {ok, CurrHeight} ->
             lager:debug("ch ~p h ~p: snap sync", [CurrHeight, Height]),
             case get_snapshot(Hash, Blockchain) of
-               {ok, BinSnap} ->
-                  case blockchain_ledger_snapshot_v1:deserialize(BinSnap) of
+               {ok, BinSnapOrFile} ->
+                  case blockchain_ledger_snapshot_v1:deserialize(BinSnapOrFile) of
                       {ok, Snap} ->
                           lager:info("Got snapshot for height ~p - attempting install", [Height0]),
                           %% do the install in-line here vs making a blocking call to
