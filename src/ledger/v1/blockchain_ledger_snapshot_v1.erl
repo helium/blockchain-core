@@ -623,17 +623,27 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     print_memory(),
     Infos =
         case maps:find(infos, Snapshot) of
-            {ok, Is} ->
+            {ok, Is} when is_binary(Is) ->
+                lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
+            {ok, {FD, Pos, Len}} ->
+                {ok, Pos} = file:position(FD, {bof, Pos}),
+                {ok, Is} = file:read(FD, Len),
                 lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
             error ->
                 []
         end,
     Blocks =
         case maps:find(blocks, Snapshot) of
-            {ok, Bs} ->
+            {ok, Bs} when is_binary(Bs) ->
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
                 %% use a custom decoder here to preserve sub binary references
+                binary_to_list_of_binaries(Bs);
+            {ok, {FD2, Pos2, Len2}} ->
+                {ok, Pos2} = file:position(FD2, {bof, Pos2}),
+                {ok, Bs} = file:read(FD2, Len2),
+                lager:info("blocks binary is ~p", [byte_size(Bs)]),
+                print_memory(),
                 binary_to_list_of_binaries(Bs);
             error ->
                 []
