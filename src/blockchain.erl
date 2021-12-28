@@ -2515,7 +2515,7 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
                               _ ->
                                   blockchain_ledger_v1:clean(OldLedger),
                                   %% TODO proper error checking and recovery/retry
-                                  NewLedger = blockchain_ledger_snapshot_v1:import(Blockchain, Hash, Snap),
+                                  NewLedger = blockchain_ledger_snapshot_v1:import(Blockchain, SnapHeight, Hash, Snap, BinSnapOrFile),
                                   blockchain:ledger(NewLedger, Blockchain)
                           end;
                         Other ->

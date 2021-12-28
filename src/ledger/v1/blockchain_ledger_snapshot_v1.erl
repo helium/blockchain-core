@@ -14,7 +14,7 @@
 
          snapshot/3,
          snapshot/4,
-         import/3,
+         import/5,
          load_into_ledger/3,
          load_blocks/3,
 
@@ -461,9 +461,9 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
     end.
 
 %% sha will be stored externally
--spec import(blockchain:blockchain(), binary(), snapshot()) ->
+-spec import(blockchain:blockchain(), pos_integer(), binary(), snapshot(), binary() | {file, filename:filename_all()}) ->
     blockchain_ledger_v1:ledger().
-import(Chain, SHA, #{version := v6}=Snapshot) ->
+import(Chain, Height, SHA, #{version := v6}=Snapshot, BinSnap) ->
     print_memory(),
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
@@ -521,7 +521,7 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
         {ok, _Snap} ->
             ok;
         {error, _} ->
-            blockchain:add_snapshot(Snapshot, Chain)
+            blockchain:add_bin_snapshot(BinSnap, Height, SHA, Chain)
     end,
     %% re-open the ledger with the normal options
     blockchain_ledger_v1:close(Ledger0),

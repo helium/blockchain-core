@@ -115,11 +115,7 @@ snapshot_load(_, _, _) ->
     usage.
 
 snapshot_load(Filename) ->
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize({file, Filename}),
-    Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
-
-    ok = blockchain_worker:install_snapshot(Hash, Snapshot),
-    ok.
+    blockchain_worker:install_snapshot_from_file(Filename).
 
 snapshot_grab_usage() ->
     [["snapshot", "grab"],
