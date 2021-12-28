@@ -1229,8 +1229,14 @@ get_quick_sync_height_and_hash(Mode) ->
     end.
 
 load_chain(SwarmTID, BaseDir, GenDir) ->
-    QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
-    QuickSyncData = get_quick_sync_height_and_hash(QuickSyncMode),
+    {QuickSyncMode, QuickSyncData} = case application:get_env(blockchain, honor_quick_sync, false) of
+        true ->
+            Mode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
+            {Mode,
+            get_quick_sync_height_and_hash(Mode)};
+        false ->
+            {undefined, undefined}
+    end,
     case blockchain:new(BaseDir, GenDir, QuickSyncMode, QuickSyncData) of
         {no_genesis, _Chain}=R ->
             %% mark all upgrades done
