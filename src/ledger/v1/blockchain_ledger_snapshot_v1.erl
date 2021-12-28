@@ -845,11 +845,19 @@ is_v6(#{version := v6}) -> true;
 is_v6(_) -> false.
 
 -spec get_h3dex(snapshot()) -> [{integer(), [binary()]}].
-get_h3dex(#{h3dex := H3DexBin}) ->
+get_h3dex(#{h3dex := {FD, Pos, Len}}) ->
+    {ok, Pos} = file:position(FD, {bof, Pos}),
+    {ok, H3DexBin} = file:read(FD, Len),
+    binary_to_term(H3DexBin);
+get_h3dex(#{h3dex := H3DexBin}) when is_binary(H3DexBin) ->
     binary_to_term(H3DexBin).
 
 -spec height(snapshot()) -> non_neg_integer().
-height(#{current_height := HeightBin}) ->
+height(#{current_height := {FD, Pos, Len}}) ->
+    {ok, Pos} = file:position(FD, {bof, Pos}),
+    {ok, HeightBin} = file:read(FD, Len),
+    binary_to_term(HeightBin);
+height(#{current_height := HeightBin}) when is_binary(HeightBin) ->
     binary_to_term(HeightBin).
 
 -spec hash(snapshot_of_any_version()) -> binary().
