@@ -2177,7 +2177,7 @@ load(Dir, Mode) ->
                 ValString ->
                     try list_to_integer(ValString, 10) of
                         BytesToGC ->
-                            lager:notice("System requested we free ~b bytes of disk space"),
+                            lager:notice("System requested we free ~b bytes of disk space", [BytesToGC]),
                             Pid = spawn(fun() -> rocksdb_gc(BytesToGC, Blockchain) end),
                             lager:info("Starting rocksdb gc on pid ~p", [Pid]),
                             ok = blockchain_worker:monitor_rocksdb_gc(Pid)
