@@ -118,6 +118,7 @@
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash_and_height).
 -define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
+-define(OP_SIZE, 1024*1024). % output garbage collection in megabytes
 
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
@@ -1956,7 +1957,7 @@ do_rocksdb_gc(_Bytes, _Itr, _Blockchain, {error, _}) ->
 do_rocksdb_gc(Bytes, _Itr, _Blockchain, _Res) when Bytes < 1 ->
     ok;
 do_rocksdb_gc(Bytes, Itr, #blockchain{dir=Dir, db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
-    lager:info("GCing block at height ~p, ~b bytes remain", [IntHeight, Bytes]),
+    lager:info("GCing block at height ~p, ~b MB remain", [IntHeight, Bytes div ?OP_SIZE]),
     BytesRemoved0 = case rocksdb:get(DB, BlocksCF, Hash, []) of
                         {ok, Block} -> byte_size(Block);
                         _ -> 0
@@ -2177,7 +2178,7 @@ load(Dir, Mode) ->
                 ValString ->
                     try list_to_integer(ValString, 10) of
                         BytesToGC ->
-                            lager:notice("System requested we free ~b bytes of disk space", [BytesToGC]),
+                            lager:notice("System requested we free ~b MB of disk space", [BytesToGC div ?OP_SIZE]),
                             Pid = spawn(fun() -> rocksdb_gc(BytesToGC, Blockchain) end),
                             lager:info("Starting rocksdb gc on pid ~p", [Pid]),
                             ok = blockchain_worker:monitor_rocksdb_gc(Pid)
