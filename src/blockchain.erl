@@ -1956,7 +1956,7 @@ do_rocksdb_gc(_Bytes, _Itr, _Blockchain, {error, _}) ->
 do_rocksdb_gc(Bytes, _Itr, _Blockchain, _Res) when Bytes < 1 ->
     ok;
 do_rocksdb_gc(Bytes, Itr, #blockchain{dir=Dir, db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
-    lager:info("GCing block at height ~p", [IntHeight]),
+    lager:info("GCing block at height ~p, ~b bytes remain", [IntHeight, Bytes]),
     BytesRemoved0 = case rocksdb:get(DB, BlocksCF, Hash, []) of
                         {ok, Block} -> byte_size(Block);
                         _ -> 0
