@@ -14,7 +14,7 @@
 
          snapshot/3,
          snapshot/4,
-         import/3,
+         import/5,
          load_into_ledger/3,
          load_blocks/3,
 
@@ -88,7 +88,7 @@
 -type snapshot_v6() ::
     #{
         version              => v6,
-        key_except_version() => binary()
+        key_except_version() => binary() | {file:fd(), non_neg_integer(), pos_integer()}
     }.
 
 -type key() ::
@@ -407,17 +407,30 @@ serialize_v1(Snapshot, noblocks) ->
     Snapshot1 = Snapshot#blockchain_snapshot_v1{blocks = []},
     frame_bin(1, term_to_binary(Snapshot1, [{compressed, 9}])).
 
--spec deserialize(binary()) ->
+-spec deserialize(binary() | {file, filename:filename_all()}) ->
       {ok, snapshot()}
     | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
-deserialize(<<Bin0/binary>>) ->
-    deserialize(none, <<Bin0/binary>>).
+deserialize(BinOrFile) ->
+    deserialize(none, BinOrFile).
 
--spec deserialize(DigestOpt :: none | binary(), binary()) ->
+-spec deserialize(DigestOpt :: none | binary(), binary() | {file, filename:filename_all()}) ->
       {ok, snapshot()}
     | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
+deserialize(DigestOpt, {file, Filename}) ->
+    {ok, FD} = file:open(Filename, [raw, read, binary]),
+    {ok, <<Vsn:8/integer, Siz:32/little-unsigned-integer>>} = file:read(FD, 5),
+    case Vsn of
+        V when V < 6 ->
+            %% these old versions cannot be read off disk, must be loaded
+            file:close(FD),
+            {ok, Bin} = file:read_file(Filename),
+            deserialize(DigestOpt, Bin);
+        _ ->
+            Pairs = find_pairs_in_file(FD, 5, 5+Siz),
+            {ok, upgrade(maps:from_list(Pairs ++ [{version, v6}]))}
+    end;
 deserialize(DigestOpt, <<Bin0/binary>>) ->
     try
         <<Vsn:8/integer, Siz:32/little-unsigned-integer, Bin:Siz/binary>> = Bin0,
@@ -448,9 +461,9 @@ deserialize(DigestOpt, <<Bin0/binary>>) ->
     end.
 
 %% sha will be stored externally
--spec import(blockchain:blockchain(), binary(), snapshot()) ->
+-spec import(blockchain:blockchain(), pos_integer(), binary(), snapshot(), binary() | {file, filename:filename_all()}) ->
     blockchain_ledger_v1:ledger().
-import(Chain, SHA, #{version := v6}=Snapshot) ->
+import(Chain, Height, SHA, #{version := v6}=Snapshot, BinSnap) ->
     print_memory(),
     CLedger = blockchain:ledger(Chain),
     Dir = blockchain:dir(Chain),
@@ -508,7 +521,7 @@ import(Chain, SHA, #{version := v6}=Snapshot) ->
         {ok, _Snap} ->
             ok;
         {error, _} ->
-            blockchain:add_snapshot(Snapshot, Chain)
+            blockchain:add_bin_snapshot(BinSnap, Height, SHA, Chain)
     end,
     %% re-open the ledger with the normal options
     blockchain_ledger_v1:close(Ledger0),
@@ -610,17 +623,27 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     print_memory(),
     Infos =
         case maps:find(infos, Snapshot) of
-            {ok, Is} ->
+            {ok, Is} when is_binary(Is) ->
+                lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
+            {ok, {FD, Pos, Len}} ->
+                {ok, Pos} = file:position(FD, {bof, Pos}),
+                {ok, Is} = file:read(FD, Len),
                 lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
             error ->
                 []
         end,
     Blocks =
         case maps:find(blocks, Snapshot) of
-            {ok, Bs} ->
+            {ok, Bs} when is_binary(Bs) ->
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
                 %% use a custom decoder here to preserve sub binary references
+                binary_to_list_of_binaries(Bs);
+            {ok, {FD2, Pos2, Len2}} ->
+                {ok, Pos2} = file:position(FD2, {bof, Pos2}),
+                {ok, Bs} = file:read(FD2, Len2),
+                lager:info("blocks binary is ~p", [byte_size(Bs)]),
+                print_memory(),
                 binary_to_list_of_binaries(Bs);
             error ->
                 []
@@ -832,16 +855,78 @@ is_v6(#{version := v6}) -> true;
 is_v6(_) -> false.
 
 -spec get_h3dex(snapshot()) -> [{integer(), [binary()]}].
-get_h3dex(#{h3dex := H3DexBin}) ->
+get_h3dex(#{h3dex := {FD, Pos, Len}}) ->
+    {ok, Pos} = file:position(FD, {bof, Pos}),
+    {ok, H3DexBin} = file:read(FD, Len),
+    binary_to_term(H3DexBin);
+get_h3dex(#{h3dex := H3DexBin}) when is_binary(H3DexBin) ->
     binary_to_term(H3DexBin).
 
 -spec height(snapshot()) -> non_neg_integer().
-height(#{current_height := HeightBin}) ->
+height(#{current_height := {FD, Pos, Len}}) ->
+    {ok, Pos} = file:position(FD, {bof, Pos}),
+    {ok, HeightBin} = file:read(FD, Len),
+    binary_to_term(HeightBin);
+height(#{current_height := HeightBin}) when is_binary(HeightBin) ->
     binary_to_term(HeightBin).
 
 -spec hash(snapshot_of_any_version()) -> binary().
 hash(Snap) ->
-    crypto:hash(sha256, serialize(Snap, noblocks)).
+    case maps:get(version, Snap) of
+        v6 ->
+            %% attempt to incrementally hash the snapshot without building up a big binary
+            Ctx0 = crypto:hash_init(sha256),
+            Size = snapshot_size(Snap),
+            Ctx1 = crypto:hash_update(Ctx0, <<6, Size:32/integer-unsigned-little>>),
+            FinalCtx = maps:fold(fun(blocks, _, Acc) ->
+                              Key = term_to_binary(blocks),
+                              KeyLen = byte_size(Key),
+                              crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, 0:32/integer-unsigned-little>>);
+                          (version, Version, Acc) ->
+                              Key = term_to_binary(version),
+                              KeyLen = byte_size(Key),
+                              Value = term_to_binary(Version),
+                              ValueLen = byte_size(Value),
+                              crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, ValueLen:32/integer-unsigned-little, Value/binary>>);
+                          (K, V, Acc) when is_binary(V) ->
+                              Key = term_to_binary(K),
+                              KeyLen = byte_size(Key),
+                              ValueLen = byte_size(V),
+                              TmpCtx = crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, ValueLen:32/integer-unsigned-little>>),
+                              crypto:hash_update(TmpCtx, V);
+                         (K, {FD, Pos, Len}, Acc) ->
+                              Key = term_to_binary(K),
+                              KeyLen = byte_size(Key),
+                              ValueLen = Len,
+                              TmpCtx = crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, ValueLen:32/integer-unsigned-little>>),
+                              {ok, Pos} = file:position(FD, {bof, Pos}),
+                              hash_bytes(TmpCtx, FD, Len)
+                      end, Ctx1, Snap),
+            crypto:hash_final(FinalCtx);
+        _ -> 
+            crypto:hash(sha256, serialize(Snap, noblocks))
+    end.
+
+hash_bytes(Ctx, FD, Len) ->
+    case Len > 1024 of
+        true ->
+            {ok, Bin} = file:read(FD, 1024),
+            NewCtx = crypto:hash_update(Ctx, Bin),
+            hash_bytes(NewCtx, FD, Len - 1024);
+        false ->
+            {ok, Bin} = file:read(FD, Len),
+            crypto:hash_update(Ctx, Bin)
+    end.
+
+
+snapshot_size(Snap) ->
+    maps:fold(fun(version, Version, Acc) ->
+                      byte_size(term_to_binary(version)) + byte_size(term_to_binary(Version)) + 8 + Acc;
+                  (K, V, Acc) when is_binary(V) ->
+                      byte_size(term_to_binary(K)) + byte_size(V) + 8 + Acc;
+                 (K, {_FD, _Pos, Len}, Acc) ->
+                      byte_size(term_to_binary(K)) + Len + 8 + Acc
+              end, 0, Snap).
 
 v1_to_v2(#blockchain_snapshot_v1{
             previous_snapshot_hash = <<>>,
@@ -1377,6 +1462,20 @@ serialize_pairs(Pairs) ->
      end
      || {K, V} <- Pairs].
 
+find_pairs_in_file(FD, Pos, MaxPos) ->
+    find_pairs_in_file(FD, Pos, MaxPos, []).
+
+find_pairs_in_file(_FD, Pos, Pos, Acc) ->
+    %% position is at the end of the file, all done
+    Acc;
+find_pairs_in_file(FD, Pos, MaxPos, Acc) when Pos < MaxPos ->
+    {ok, <<SizK:32/integer-unsigned-little>>} = file:read(FD, 4),
+    {ok, <<Key:SizK/binary, SizV:32/integer-unsigned-little>>} = file:read(FD, SizK + 4),
+    {ok, NewPosition} = file:position(FD, {cur, SizV}),
+    find_pairs_in_file(FD, NewPosition, MaxPos, [{binary_to_term(Key), {FD, Pos + SizK + 8, SizV}} | Acc]).
+
+
+
 deserialize_pairs(<<Bin/binary>>) ->
     lists:map(
         fun({K0, V}) ->
@@ -1390,7 +1489,7 @@ deserialize_pairs(<<Bin/binary>>) ->
     ).
 
 -spec deserialize_field(key(), binary()) -> term().
-deserialize_field(hexes, Bin) ->
+deserialize_field(hexes, Bin) when is_binary(Bin) ->
     %% hexes are encoded as a term_to_binary of a big
     %% key/value list of {h3() -> [binary()]},
     %% and a single 'list' key which points to a map of
@@ -1408,6 +1507,15 @@ deserialize_field(hexes, Bin) ->
         What:Why ->
             lager:warning("deserializing hexes from snapshot failed ~p ~p, falling back to binary_to_term", [What, Why]),
             binary_to_term(Bin)
+    end;
+deserialize_field(K, {FD, Pos, Len}) ->
+    case is_raw_field(K) of
+        true ->
+            mk_file_iterator(FD, Pos, Pos + Len);
+        false ->
+            {ok, Pos} = file:position(FD, {bof, Pos}),
+            {ok, Bin} = file:read(FD, Len),
+            deserialize_field(K, Bin)
     end;
 deserialize_field(K, <<Bin/binary>>) ->
     case is_raw_field(K) of
@@ -1443,6 +1551,19 @@ mk_bin_iterator(<<SizK:32/little-unsigned-integer, K:SizK/binary,
     fun() ->
             {K, V, mk_bin_iterator(Rest)}
     end.
+
+mk_file_iterator(_FD, End, End) ->
+    fun() -> ok end;
+mk_file_iterator(FD, Pos, End) when Pos < End ->
+    fun() ->
+            {ok, Pos} = file:position(FD, {bof, Pos}),
+            {ok, <<SizK:32/integer-unsigned-little>>} = file:read(FD, 4),
+            {ok, <<K:SizK/binary, SizV:32/integer-unsigned-little>>} = file:read(FD, SizK + 4),
+            {ok, V} = file:read(FD, SizV),
+            lager:debug("read key of size ~p and value of size ~p", [SizK, SizV]),
+            {K, V, mk_file_iterator(FD, Pos + 4 + SizK + 4 + SizV, End)}
+    end.
+
 
 
 -spec bin_pairs_from_bin(binary()) -> [{binary(), binary()}].

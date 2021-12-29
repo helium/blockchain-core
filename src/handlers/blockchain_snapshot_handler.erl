@@ -75,7 +75,7 @@ handle_data(client, Data, #state{chain = Chain, hash = Hash, owner = undefined} 
                 true ->
                     lager:info("retrieved and stored snapshot ~p, installing",
                                [Height]),
-                    blockchain_worker:install_snapshot(Hash, Snapshot);
+                    blockchain_worker:install_snapshot(Height, Hash, Snapshot, BinSnap);
                 false ->
                     lager:info("could not install retrieved snapshot ~p", [Height]),
                     ok

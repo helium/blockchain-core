@@ -46,7 +46,8 @@
     is_absorbing/0,
 
     snapshot_sync/2,
-    install_snapshot/2,
+    install_snapshot/4,
+    install_snapshot_from_file/1,
     install_aux_snapshot/1,
     reset_ledger_to_snap/2,
     async_reset/1,
@@ -181,8 +182,11 @@ snapshot_sync(Hash, Height) ->
     %% might want a more extensive reworking?
     gen_server:cast(?SERVER, {snapshot_sync, Hash, Height}).
 
-install_snapshot(Hash, Snapshot) ->
-    gen_server:call(?SERVER, {install_snapshot, Hash, Snapshot}, infinity).
+install_snapshot(Height, Hash, Snapshot, BinSnap) ->
+    gen_server:call(?SERVER, {install_snapshot, Height, Hash, Snapshot, BinSnap}, infinity).
+
+install_snapshot_from_file(Filename) ->
+    gen_server:call(?SERVER, {install_snapshot_from_file, Filename}, infinity).
 
 install_aux_snapshot(Snapshot) ->
     gen_server:call(?SERVER, {install_aux_snapshot, Snapshot}, infinity).
@@ -412,7 +416,14 @@ handle_call({new_ledger, Dir}, _From, #state{blockchain=Chain}=State) ->
                                        blockchain:info_cf(Chain)),
     {reply, {ok, Ledger1}, State};
 
-handle_call({install_snapshot, Hash, Snapshot}, _From,
+handle_call({install_snapshot_from_file, Filename}, From, State) ->
+    lager:info("attempting to load snapshot from file ~p", [Filename]),
+    %% do this so the blockchain worker is the owner of the raw file handle
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize({file, Filename}),
+    Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
+    Height = blockchain_ledger_snapshot_v1:height(Snapshot),
+    handle_call({install_snapshot, Height, Hash, Snapshot, {file, Filename}}, From, State);
+handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
             #state{blockchain = Chain, mode = Mode, swarm = Swarm} = State) ->
     lager:info("installing snapshot ~p", [Hash]),
     %% I don't think that we want to auto-repair right now, do default
@@ -425,7 +436,7 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             OldLedger = blockchain:ledger(Chain),
             blockchain_ledger_v1:clean(OldLedger),
             %% TODO proper error checking and recovery/retry
-            NewLedger = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
+            NewLedger = blockchain_ledger_snapshot_v1:import(Chain, Height, Hash, Snapshot, BinSnap),
             Chain1 = blockchain:ledger(NewLedger, Chain),
             ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
             try
@@ -1173,12 +1184,8 @@ do_snap_source_download(Url, Filepath) ->
 attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
     lager:debug("attempting to load snapshot from ~p", [Filename]),
     %% TODO at some point we could probably load the snapshot file in chunks?
-    BinSnap = case file:read_file(Filename) of
-                  {error, _} = E -> throw(E);
-                  {ok, Bin} -> Bin
-              end,
     lager:debug("attempting to deserialize snapshot and validate hash ~p", [Hash]),
-    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, BinSnap) of
+    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, {file, Filename}) of
                {error, _} = Err ->
                    lager:error("While deserializing ~p, got ~p. Deleting ~p",
                                [Filename, Err, Filename]),
@@ -1188,9 +1195,9 @@ attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
            end,
     SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
     lager:debug("attempting to store snapshot in rocks"),
-    ok = blockchain:add_bin_snapshot(BinSnap, SnapHeight, Hash, Chain),
+    ok = blockchain:add_bin_snapshot({file, Filename}, SnapHeight, Hash, Chain),
     lager:info("Stored snap ~p - attempting install", [SnapHeight]),
-    blockchain_worker:install_snapshot(Hash, Snap).
+    blockchain_worker:install_snapshot(SnapHeight, Hash, Snap, {file, Filename}).
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,
@@ -1242,8 +1249,14 @@ get_quick_sync_height_and_hash(Mode) ->
     end.
 
 load_chain(SwarmTID, BaseDir, GenDir) ->
-    QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
-    QuickSyncData = get_quick_sync_height_and_hash(QuickSyncMode),
+    {QuickSyncMode, QuickSyncData} = case application:get_env(blockchain, honor_quick_sync, false) of
+        true ->
+            Mode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
+            {Mode,
+            get_quick_sync_height_and_hash(Mode)};
+        false ->
+            {undefined, undefined}
+    end,
     case blockchain:new(BaseDir, GenDir, QuickSyncMode, QuickSyncData) of
         {no_genesis, _Chain}=R ->
             %% mark all upgrades done
