@@ -28,11 +28,11 @@
          diff/2
         ]).
 
-%-ifdef(TEST).
+-ifdef(TEST).
 -export([
          deserialize_field/2
         ]).
-%-endif.
+-endif.
 
 -export_type([
     snapshot/0,
@@ -1560,7 +1560,7 @@ mk_file_iterator(FD, Pos, End) when Pos < End ->
             {ok, <<SizK:32/integer-unsigned-little>>} = file:read(FD, 4),
             {ok, <<K:SizK/binary, SizV:32/integer-unsigned-little>>} = file:read(FD, SizK + 4),
             {ok, V} = file:read(FD, SizV),
-            io:format("read key of size ~p and value of size ~p", [SizK, SizV]),
+            lager:debug("read key of size ~p and value of size ~p", [SizK, SizV]),
             {K, V, mk_file_iterator(FD, Pos + 4 + SizK + 4 + SizV, End)}
     end.
 
