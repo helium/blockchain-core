@@ -1197,7 +1197,7 @@ attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
     lager:debug("attempting to store snapshot in rocks"),
     ok = blockchain:add_bin_snapshot({file, Filename}, SnapHeight, Hash, Chain),
     lager:info("Stored snap ~p - attempting install", [SnapHeight]),
-    blockchain_worker:install_snapshot(SnapHeight, Hash, Snap, {file, Filename}).
+    blockchain_worker:install_snapshot_from_file(Filename).
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,
