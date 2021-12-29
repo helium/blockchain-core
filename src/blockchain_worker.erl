@@ -54,7 +54,9 @@
     grab_snapshot/2, fetch_and_parse_latest_snapshot/1,
 
     add_commit_hook/3, add_commit_hook/4,
-    remove_commit_hook/1
+    remove_commit_hook/1,
+
+    monitor_rocksdb_gc/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -99,6 +101,7 @@
          absorb_retries = 3 :: pos_integer(),
          resync_info :: undefined | {pid(), reference()},
          resync_retries = 3 :: pos_integer(),
+         rocksdb_gc_mref :: undefined | reference(),
          mode :: snapshot | normal | reset
         }).
 
@@ -269,6 +272,9 @@ add_commit_hook(CF, HookIncFun, HookEndFun, Pred) ->
 
 remove_commit_hook(RefOrAtom) ->
     gen_server:call(?SERVER, {remove_commit_hook, RefOrAtom}).
+
+monitor_rocksdb_gc(Pid) ->
+    gen_server:cast(?SERVER, {monitor_rocksdb_gc, Pid}).
 
 signed_metadata_fun() ->
     %% cache the chain handle in the peerbook processes' dictionary
@@ -584,6 +590,9 @@ handle_cast({snapshot_sync, Hash, Height}, State) ->
 handle_cast({async_reset, _Height}, State) ->
     lager:info("got async_reset at height ~p, ignoring", [_Height]),
     {noreply, State};
+handle_cast({monitor_rocksdb_gc, Pid}, State) ->
+    MRef = monitor(process, Pid),
+    {noreply, State#state{rocksdb_gc_mref = MRef}};
 
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -667,6 +676,17 @@ handle_info({'DOWN', ResyncRef, process, ResyncPid, Reason},
             %% ran out of retries
             {stop, Reason, State}
     end;
+handle_info({'DOWN', RocksGCRef, process, RocksGCPid, Reason},
+            #state{rocksdb_gc_mref = RocksGCRef} = State) ->
+    case Reason of
+        normal ->
+            lager:info("rocksdb_gc process completed normally");
+        shutdown ->
+            ok;
+        Reason ->
+            lager:error("rocksdb_gc pid ~p crashed because ~p", [RocksGCPid, Reason])
+    end,
+    {noreply, State#state{rocksdb_gc_mref = undefined}};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
