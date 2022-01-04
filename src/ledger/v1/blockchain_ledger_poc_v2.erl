@@ -17,6 +17,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_records_meta.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -122,12 +123,12 @@ block_hash(Challenger, PoC) ->
 %% Version 1
 %% @end
 %%--------------------------------------------------------------------
--spec serialize(poc()) -> binary().
+-spec serialize(poc()) -> iolist().
 serialize(PoC) ->
     %% intentionally don't compress here, we compress these in batches
     %% in the ledger code, which should get better compression anyway
-    BinPoC = erlang:term_to_binary(PoC),
-    <<2, BinPoC/binary>>.
+    AtomBin = record_to_kvl(poc_v2, PoC),
+    [3, kvl:serialize(AtomBin, fun ({A, B}) -> {atom_to_binary(A), B} end)].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -137,9 +138,27 @@ serialize(PoC) ->
 -spec deserialize(binary()) -> poc().
 deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
-    convert(V1);
+    v1_to_v2(V1);
 deserialize(<<2, Bin/binary>>) ->
-    erlang:binary_to_term(Bin).
+    erlang:binary_to_term(Bin);
+deserialize(<<3, Bin/binary>>) ->
+    %% TODO Error handling
+    [
+        {block_hash     , B},
+        {challenger     , C},
+        {onion_key_hash , O},
+        {secret_hash    , S}
+    ] =
+        lists:keysort(
+            1,
+            kvl:deserialize(Bin, fun ({K, V}) -> {binary_to_atom(K), V} end)
+        ),
+    #poc_v2{
+        block_hash     = B,
+        challenger     = C,
+        onion_key_hash = O,
+        secret_hash    = S
+    }.
 
 -record(poc_v1, {
     secret_hash :: binary(),
@@ -147,7 +166,7 @@ deserialize(<<2, Bin/binary>>) ->
     challenger :: libp2p_crypto:pubkey_bin()
 }).
 
-convert(#poc_v1{secret_hash=SecretHash,
+v1_to_v2(#poc_v1{secret_hash=SecretHash,
                 onion_key_hash=OnionKeyHash,
                 challenger=Challenger
                }) ->
@@ -206,6 +225,7 @@ tx() ->
 fail() ->
     ?FAIL.
 
+?DEFINE_RECORD_TO_KVL(poc_v2).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -240,5 +260,19 @@ block_hash_test() ->
     PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>, <<"block_hash">>),
     ?assertEqual(<<"block_hash">>, block_hash(PoC)),
     ?assertEqual(<<"block_hash 2">>, block_hash(block_hash(<<"block_hash 2">>, PoC))).
+
+serialization_test_() ->
+    T0 =
+        #poc_v2{
+            secret_hash    = <<"fake_secret_hash">>,
+            onion_key_hash = <<"fake_onion_key_hash">>,
+            challenger     = <<"fake_challenger">>,
+            block_hash     = <<"fake_block_hash">>
+        },
+    TBin = iolist_to_binary(serialize(T0)),
+    T1 = deserialize(TBin),
+    [
+        ?_assertEqual(T0, T1)
+    ].
 
 -endif.
