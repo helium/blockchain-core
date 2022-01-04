@@ -341,6 +341,8 @@
 %% The "new" behavior (i.e., `true') is to count state channels
 %% that are only in the open state and ignore closed channels.
 -define(sc_only_count_open_active, sc_only_count_open_active).
+%% State Channel merge strategy, set to 1 for new style merge, undefined = old style merge
+-define(sc_merge_version, sc_merge_version).
 
 
 %% ------------------------------------------------------------------

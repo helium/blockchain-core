@@ -247,6 +247,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                     %% we simply have a newer version of the state channel or proof of overpayment or amount tampering
                     ok;
                 false ->
+                    SCMergeVer = blockchain_state_channel_v1:sc_merge_version(Ledger),
                     %% we have to check if this conflict is valid and if it adds new information
                     {InternalConflict, ValidConflict, MergedSC} = case ?MODULE:conflicts_with(Txn) of
                                                                  undefined ->
@@ -260,7 +261,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                                                          false ->
                                                                              {false, {error, sc_mismatch}, SC};
                                                                          true ->
-                                                                             Merged = blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed),
+                                                                             Merged = blockchain_state_channel_v1:versioned_merge(SCMergeVer, SC, ConflictingSC, MaxActorsAllowed),
                                                                              {true, blockchain_state_channel_v1:validate(ConflictingSC), Merged}
                                                                      end
                                                              end,
@@ -285,7 +286,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
                                             %% we need to check if this conflict adds any new information
                                             %%
                                             %% We can merge the incoming state channel(s) with the existing one and check for conflicts or causually newer information
-                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:merge(LSC, MergedSC, MaxActorsAllowed)) of
+                                            case blockchain_state_channel_v1:compare_causality(LSC, blockchain_state_channel_v1:versioned_merge(SCMergeVer, LSC, MergedSC, MaxActorsAllowed)) of
                                                 equal ->
                                                     {error, redundant};
                                                 caused ->
@@ -339,10 +340,11 @@ absorb(Txn, Chain) ->
             Error;
         ok ->
             MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
+            SCMergeVer = blockchain_state_channel_v1:sc_merge_version(Ledger),
             {MergedSC, HadConflict} = case ?MODULE:conflicts_with(Txn) of
                                           undefined -> {SC, false};
                                           ConflictingSC ->
-                                              {blockchain_state_channel_v1:merge(SC, ConflictingSC, MaxActorsAllowed), true}
+                                              {blockchain_state_channel_v1:versioned_merge(SCMergeVer, SC, ConflictingSC, MaxActorsAllowed), true}
                                       end,
             lager:info("Closing with conflict ~p", [HadConflict]),
             blockchain_ledger_v1:close_state_channel(Owner, Closer, MergedSC, ID, HadConflict, Ledger)

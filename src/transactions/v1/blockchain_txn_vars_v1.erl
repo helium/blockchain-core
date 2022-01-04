@@ -1095,6 +1095,11 @@ validate_var(?sc_only_count_open_active, Value) ->
         false -> ok;
         Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
     end;
+validate_var(?sc_merge_version, Value) ->
+    case Value of
+        N when is_integer(N), N == 1 -> ok;
+        Other -> throw({error, {invalid_sc_merge_version, Other}})
+    end;
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->

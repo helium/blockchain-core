@@ -5,8 +5,6 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_ledger_state_channel_v2).
 
--include("blockchain_vars.hrl").
-
 -export([
     new/6,
     id/1, id/2,
@@ -16,7 +14,7 @@
     original/1, original/2,
     expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1,
-    close_proposal/6,
+    close_proposal/7,
     closer/1,
     state_channel/1,
     close_state/1,
@@ -131,8 +129,10 @@ deserialize(<<2, Bin/binary>>) ->
                      ExplicitConflict :: boolean(),
                      SCEntry :: state_channel_v2(),
                      ConsiderEffectOf :: boolean(),
-                     MaxActorsAllowed :: non_neg_integer()) -> state_channel_v2().
-close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf, MaxActorsAllowed) ->
+                     MaxActorsAllowed :: non_neg_integer(),
+                     SCMergeVer :: pos_integer() | undefined
+                    ) -> state_channel_v2().
+close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf, MaxActorsAllowed, SCMergeVer) ->
     Overpaid = original(SCEntry) < blockchain_state_channel_v1:total_dcs(SC),
     case close_state(SCEntry) of
         undefined ->
@@ -159,7 +159,7 @@ close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf, MaxActor
                 true ->
                     %% ok so we've already marked this entry as closed... maybe we should
                     %% dispute it
-                    case maybe_dispute(state_channel(SCEntry), SC, ConsiderEffectOf, MaxActorsAllowed) of
+                    case maybe_dispute(state_channel(SCEntry), SC, ConsiderEffectOf, MaxActorsAllowed, SCMergeVer) of
                         {closed, NewSC} when ExplicitConflict == true; Overpaid == true ->
                             lager:info("dispute filed for closed sc id: ~p, owner: ~p, closer: ~p",
                                        [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(NewSC)),
@@ -214,14 +214,16 @@ is_v2(_) -> false.
 -spec maybe_dispute(PreviousSC :: blockchain_state_channel_v1:state_channel(),
                     CurrentSC :: blockchain_state_channel_v1:state_channel(),
                     ConsiderEffectOf :: boolean(),
-                    MaxActorsAllowed :: non_neg_integer()) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
-maybe_dispute(SC, SC, _, _) -> {closed, SC};
-maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf, MaxActorsAllowed) ->
+                    MaxActorsAllowed :: non_neg_integer(),
+                    SCMergeVer :: pos_integer() | undefined
+                   ) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
+maybe_dispute(SC, SC, _, _, _) -> {closed, SC};
+maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf, MaxActorsAllowed, SCMergeVer) ->
     %% return the new close state and the newest state channel
     case blockchain_state_channel_v1:compare_causality(PreviousSC, CurrentSC) of
         conflict ->
             %% Current has a higher nonce than Previous, or conflicting summaries
-            {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed)};
+            {dispute, blockchain_state_channel_v1:versioned_merge(SCMergeVer, CurrentSC, PreviousSC, MaxActorsAllowed)};
         equal ->
             %% flip a coin
             {closed, CurrentSC};
@@ -238,7 +240,7 @@ maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf, MaxActorsAllowed) ->
             case ConsiderEffectOf of
                 false ->
                     %% Maintain backwards compatibility
-                    {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC, MaxActorsAllowed)};
+                    {dispute, blockchain_state_channel_v1:versioned_merge(SCMergeVer, CurrentSC, PreviousSC, MaxActorsAllowed)};
                 true ->
                     {closed, PreviousSC}
             end

@@ -38,7 +38,9 @@
     is_causally_newer/2,
     merge/3, new_merge/3,
     can_fit/3,
-    max_actors_allowed/1
+    max_actors_allowed/1,
+    sc_merge_version/1,
+    versioned_merge/4
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -587,6 +589,23 @@ max_actors_allowed(Ledger) ->
         {ok, I} -> I;
         _ -> ?SC_MAX_ACTORS
     end.
+
+-spec sc_merge_version(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer() | undefined.
+sc_merge_version(Ledger) ->
+    case blockchain_ledger_v1:config(?sc_merge_version, Ledger) of
+        {ok, I} -> I;
+        _ -> undefined
+    end.
+
+-spec versioned_merge(
+        SCMergeVer :: undefined | pos_integer(),
+        SCA :: blockchain_state_channel_v1:state_channel(),
+        SCB :: blockchain_state_channel_v1:state_channel(),
+        MaxActorsAllowed :: non_neg_integer()) -> blockchain_state_channel_v1:state_channel().
+versioned_merge(undefined, SCA, SCB, MaxActorsAllowed) ->
+    merge(SCA, SCB, MaxActorsAllowed);
+versioned_merge(1, SCA, SCB, MaxActorsAllowed) ->
+    new_merge(SCA, SCB, MaxActorsAllowed).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
