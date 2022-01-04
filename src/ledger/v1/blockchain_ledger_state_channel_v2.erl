@@ -312,9 +312,12 @@ maybe_dispute_test() ->
     SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
-    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, false, 2000)),
-    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, false, 2000)),
-    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false, 2000)).
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, false, 2000, undefined)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, false, 2000, undefined)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false, 2000, undefined)),
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, false, 2000, 1)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, false, 2000, 1)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false, 2000, 1)).
 
 maybe_dispute_with_effect_of_test() ->
     SC0 = blockchain_state_channel_v1:new(<<"id1">>, <<"key1">>, 100),
@@ -325,16 +328,23 @@ maybe_dispute_with_effect_of_test() ->
     Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(<<"key1">>))),
     Nonce4WithSummary = blockchain_state_channel_v1:summaries([Summary1], Nonce4),
 
-    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true, 2000)),
-    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true, 2000)),
-    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true, 2000)),
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true, 2000, undefined)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true, 2000, undefined)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true, 2000, undefined)),
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true, 2000, 1)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true, 2000, 1)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true, 2000, 1)),
 
     %% Same nonce but no summary, conflict, return merged
     ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4, Nonce4WithSummary, 2000)},
-                 maybe_dispute(Nonce4, Nonce4WithSummary, true, 2000)),
+                 maybe_dispute(Nonce4, Nonce4WithSummary, true, 2000, undefined)),
+    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4, Nonce4WithSummary, 2000)},
+                 maybe_dispute(Nonce4, Nonce4WithSummary, true, 2000, 1)),
     %% Older nonce with summary, but higher nonce with no summary, conflict, return merged
     ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4WithSummary, Nonce8, 2000)},
-                 maybe_dispute(Nonce4WithSummary, Nonce8, true, 2000)).
+                 maybe_dispute(Nonce4WithSummary, Nonce8, true, 2000, undefined)),
+    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4WithSummary, Nonce8, 2000)},
+                 maybe_dispute(Nonce4WithSummary, Nonce8, true, 2000, 1)).
 
 is_sc_participant_test() ->
     Ids = [<<"key1">>, <<"key2">>, <<"key3">>],
