@@ -285,7 +285,7 @@ peer_book_usage() ->
       "  -a, --all\n",
       "    Display all peerbook entries for this node.\n"
       "  -c, --count\n",
-      "    Display count of all peerbook entries for this node.\n"
+      "    Display the count of all peerbook entries for this node.\n"
      ]
     ].
 
