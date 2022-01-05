@@ -348,7 +348,9 @@ calculate_rewards_metadata(Start, End, Chain) ->
                 true = blockchain_hex:destroy_memoization();
             _ -> ok
         end,
-        lager:info("perf report ~p", [ets:tab2list(PerfTab)]),
+        lager:info("perf report ~p", [lists:reverse(
+                                        lists:keysort(2,
+                                          ets:tab2list(PerfTab)))]),
         ets:delete(PerfTab),
         {ok, Results}
     catch
@@ -489,9 +491,17 @@ calculate_reward_for_txn(blockchain_txn_rewards_v1, _Txn, _End, _Acc, _Chain,
                          _Ledger, _Vars) -> throw({error, already_existing_rewards_v1});
 calculate_reward_for_txn(blockchain_txn_poc_receipts_v1, Txn, _End,
                          #{ poc_challenger := Challenger } = Acc, Chain, Ledger, Vars) ->
+    Start = erlang:monotonic_time(microsecond),
     Acc0 = poc_challenger_reward(Txn, Challenger, Vars),
+    Start1 = erlang:monotonic_time(microsecond),
+    perf(challenger, Start1 - Start),
     Acc1 = calculate_poc_challengee_rewards(Txn, Acc#{ poc_challenger => Acc0 }, Chain, Ledger, Vars),
-    calculate_poc_witness_rewards(Txn, Acc1, Chain, Ledger, Vars);
+    Start2 = erlang:monotonic_time(microsecond),
+    perf(challengee, Start2 - Start1),
+    Acc2 = calculate_poc_witness_rewards(Txn, Acc1, Chain, Ledger, Vars),
+    WitnessTime = erlang:monotonic_time(microsecond) - Start2,
+    perf(witness, WitnessTime),
+    Acc2;
 calculate_reward_for_txn(blockchain_txn_state_channel_close_v1, Txn, End, Acc, Chain, Ledger, Vars) ->
     calculate_dc_rewards(Txn, End, Acc, Chain, Ledger, Vars);
 calculate_reward_for_txn(Type, Txn, _End, Acc, _Chain, Ledger, _Vars) ->
