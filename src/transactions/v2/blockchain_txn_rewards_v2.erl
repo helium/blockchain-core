@@ -971,7 +971,10 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
     HIP15TxRewardUnitCap = maps:get(hip15_tx_reward_unit_cap, Vars, undefined),
     %% check if there were any legitimate witnesses
+    WitStart = erlang:monotonic_time(microsecond),
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version),
+    WitEnd = erlang:monotonic_time(microsecond),
+    perf(challengee_witness, WitEnd - WitStart),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
     ChallengeeLoc = case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
                         {ok, CLoc} ->
@@ -1158,12 +1161,15 @@ poc_witness_reward(Txn, AccIn,
                 fun(Elem, Acc1) ->
                         ElemPos = blockchain_utils:index_of(Elem, Path),
                         WitnessChannel = lists:nth(ElemPos, Channels),
+                        WitStart = erlang:monotonic_time(microsecond),
                         case blockchain_txn_poc_receipts_v1:valid_witnesses(Elem,
                                                                             WitnessChannel,
                                                                             RegionVars,
                                                                             Ledger) of
                             [] -> Acc1;
                             ValidWitnesses ->
+                                WitEnd = erlang:monotonic_time(microsecond),
+                                perf(witnesses_witness, WitEnd - WitStart),
                                 %% We found some valid witnesses, we only apply
                                 %% the witness_redundancy and decay_rate if
                                 %% BOTH are set as chain variables, otherwise
