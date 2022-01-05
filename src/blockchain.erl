@@ -1210,14 +1210,14 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                             {ok, Snap} ->
                                 case blockchain_ledger_snapshot_v1:hash(Snap) of
                                     ConsensusHash ->
-                                        ok = blockchain:add_snapshot(Snap, Blockchain);
+                                        ok = add_snapshot(Snap, ConsensusHash, Blockchain);
                                     OtherHash ->
                                         lager:info("bad snapshot hash: ~p good ~p",
                                                    [OtherHash, ConsensusHash]),
                                         case application:get_env(blockchain, save_bad_snapshot, false) of
                                             true ->
                                                 lager:info("saving bad snapshot ~p", [OtherHash]),
-                                                ok = blockchain:add_snapshot(Snap, Blockchain);
+                                                ok = add_snapshot(Snap, OtherHash, Blockchain);
                                             false ->
                                                 ok
                                         end,
@@ -1914,11 +1914,24 @@ missing_block(#blockchain{db=DB, default=DefaultCF}) ->
     end.
 
 -spec add_snapshot(blockchain_ledger_snapshot:snapshot(), blockchain()) ->
-                          ok | {error, any()}.
-add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}=Chain) ->
+    ok | {error, any()}.
+add_snapshot(Snapshot, Chain) ->
+    try
+        Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
+        case add_snapshot(Snapshot, Hash, Chain) of
+            {ok, _, _} -> ok;
+            Other -> Other
+        end
+    catch What:Why:Stack ->
+            lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
+            {error, Why}
+    end.
+
+-spec add_snapshot(blockchain_ledger_snapshot:snapshot(), binary(), blockchain()) ->
+    {ok, pos_integer(), binary()} | {error, any()}.
+add_snapshot(Snapshot, Hash, #blockchain{db=DB, snapshots=SnapshotsCF}=Chain) ->
     try
         Height = blockchain_ledger_snapshot_v1:height(Snapshot),
-        Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
         %% write a sentinel value to mark we were trying to build this
         %% so we can skip it next time if we crash out
@@ -1928,8 +1941,10 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}=Chain) ->
         ok = rocksdb:batch_put(Batch0, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
         ok = rocksdb:write_batch(DB, Batch0, []),
         BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
-        add_bin_snapshot(BinSnap, Height, Hash, Chain)
-
+        case add_bin_snapshot(BinSnap, Height, Hash, Chain) of
+            ok -> {ok, Height, Hash};
+            Other -> Other
+        end
     catch What:Why:Stack ->
             lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
@@ -1947,7 +1962,10 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
         case BinSnap of
             {file, Filename} ->
                 ok = file:make_link(Filename, filename:join(SnapDir, SnapFile));
-            B when is_binary(B) ->
+            B when is_binary(B); is_list(B) ->
+                %% can be a binary or an iolist if it was generated locally
+                %% and we can avoid constructing a large binary by just dumping the
+                %% iolist to disk
                 ok = file:write_file(filename:join(SnapDir, SnapFile), BinSnap)
         end,
         {ok, Batch} = rocksdb:batch(),
