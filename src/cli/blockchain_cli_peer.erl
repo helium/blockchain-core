@@ -269,7 +269,7 @@ peer_book_cmd() ->
                {longname, "self"}]},
        {all, [{shortname, "a"},
                {longname, "all"}]},
-       {cnt, [{shortname, "c"},
+       {count, [{shortname, "c"},
                {longname, "count"}]}
       ], fun peer_book/3]
     ].
