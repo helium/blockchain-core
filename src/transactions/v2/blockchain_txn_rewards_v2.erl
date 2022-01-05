@@ -321,6 +321,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% We only want to fold over the blocks and transaction in an epoch once,
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
+        PerfTab = ets:new(rwd_perf, [named_table]),
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
                                            Vars, Ledger, AccInit),
 
@@ -342,13 +343,22 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% we are only keeping hex density calculations memoized for a single
         %% rewards transaction calculation, then we discard that work and avoid
         %% cache invalidation issues.
-        true = blockchain_hex:destroy_memoization(),
+        case application:get_env(blockchain, destroy_memo, true) of
+            true ->
+                true = blockchain_hex:destroy_memoization();
+            _ -> ok
+        end,
+        lager:info("perf report ~p", [ets:tab2list(PerfTab)]),
+        ets:delete(PerfTab),
         {ok, Results}
     catch
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't calculate rewards metadata because: ~p~n~p", [C, Error, Stack]),
             Error
     end.
+
+perf(Tag, Time) ->
+    ets:update_counter(rwd_perf, Tag, Time, {Tag, Time}).
 
 -spec print(txn_rewards_v2()) -> iodata().
 print(undefined) -> <<"type=rewards_v2 undefined">>;
@@ -455,8 +465,12 @@ fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
             NewAcc = lists:foldl(fun(T, A) ->
-                                         calculate_reward_for_txn(blockchain_txn:type(T), T, End,
-                                                                  A, Chain, Ledger, Vars)
+                                         Type = blockchain_txn:type(T),
+                                         Start = erlang:monotonic_time(microsecond),
+                                         A1 = calculate_reward_for_txn(Type, T, End,
+                                                                       A, Chain, Ledger, Vars),
+                                         perf(Type, erlang:monotonic_time(microsecond) - Start),
+                                         A1
                                  end,
                                  Acc, Txns),
             fold_blocks_for_rewards(Current+1, End, Chain, Vars, Ledger, NewAcc)
