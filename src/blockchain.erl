@@ -1210,14 +1210,14 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                             {ok, Snap} ->
                                 case blockchain_ledger_snapshot_v1:hash(Snap) of
                                     ConsensusHash ->
-                                        ok = add_snapshot(Snap, ConsensusHash, Blockchain);
+                                        {ok, _, ConsensusHash} = add_snapshot(Snap, ConsensusHash, Blockchain);
                                     OtherHash ->
                                         lager:info("bad snapshot hash: ~p good ~p",
                                                    [OtherHash, ConsensusHash]),
                                         case application:get_env(blockchain, save_bad_snapshot, false) of
                                             true ->
                                                 lager:info("saving bad snapshot ~p", [OtherHash]),
-                                                ok = add_snapshot(Snap, OtherHash, Blockchain);
+                                                {ok, _, OtherHash} = add_snapshot(Snap, OtherHash, Blockchain);
                                             false ->
                                                 ok
                                         end,
@@ -1914,14 +1914,11 @@ missing_block(#blockchain{db=DB, default=DefaultCF}) ->
     end.
 
 -spec add_snapshot(blockchain_ledger_snapshot:snapshot(), blockchain()) ->
-    ok | {error, any()}.
+    {ok, pos_integer(), binary()} | {error, any()}.
 add_snapshot(Snapshot, Chain) ->
     try
         Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
-        case add_snapshot(Snapshot, Hash, Chain) of
-            {ok, _, _} -> ok;
-            Other -> Other
-        end
+        add_snapshot(Snapshot, Hash, Chain)
     catch What:Why:Stack ->
             lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
