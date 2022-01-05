@@ -307,7 +307,7 @@ peer_book(_CmdBase, [], [{all, _}]) ->
     SwarmTID = blockchain_swarm:tid(),
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     [format_peers(libp2p_peerbook:values(Peerbook))];
-peer_book(_CmdBase, [], [{cnt, _}]) ->
+peer_book(_CmdBase, [], [{count, _}]) ->
     SwarmTID = blockchain_swarm:tid(),
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     PBLen = length(libp2p_peerbook:keys(Peerbook)),
