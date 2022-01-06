@@ -182,7 +182,7 @@ handle_info(
                         ok
                 end
             end,
-            ok = blockchain_worker:submit_txn(SignedTxn, F),
+            ok = blockchain_txn_mgr:submit(SignedTxn, F),
             {stop, {shutdown, ?EXPIRED}, State#state{state_channel=SignedSC}}
     end;
 handle_info(?OVERSPENT, State) ->

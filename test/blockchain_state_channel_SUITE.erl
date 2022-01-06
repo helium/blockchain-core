@@ -379,7 +379,7 @@ full_test(Config) ->
         maps:is_key(ID2, ActiveSCs)
     end, 30, timer:seconds(1)),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
     ok.
 
@@ -508,7 +508,7 @@ overspent_test(Config) ->
         SC =/= undefined andalso blockchain_state_channel_v1:nonce(SC) == 2
     end, 30, timer:seconds(1)),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 dup_packets_test(Config) ->
@@ -605,7 +605,7 @@ dup_packets_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 cached_routing_test(Config) ->
@@ -681,7 +681,7 @@ cached_routing_test(Config) ->
     Stats1 = ct_rpc:call(GatewayNode1, e2qc, stats, [sc_client_routing]),
     ?assertEqual(0, proplists:get_value(q1size, Stats1)),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 max_actor_cache_eviction_test(Config) ->
@@ -1046,7 +1046,7 @@ replay_test(Config) ->
 
     {error, {invalid_txns, [{ReplaySignedSCOpenTxn, _InvalidReason}]}} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [ReplaySignedSCOpenTxn]]),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 multiple_test(Config) ->
@@ -1137,7 +1137,7 @@ multiple_test(Config) ->
 
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 45),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 multi_owner_multi_sc_test(Config) ->
@@ -1471,7 +1471,7 @@ multi_active_sc_test(Config) ->
         ct:fail("txn timeout")
     end,
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 open_without_oui_test(Config) ->
@@ -1800,7 +1800,7 @@ crash_single_sc_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 crash_multi_sc_test(Config) ->
@@ -1981,7 +1981,7 @@ crash_multi_sc_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 27),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 crash_sc_sup_test(Config) ->
@@ -2091,7 +2091,7 @@ crash_sc_sup_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
     ok.
 
 hotspot_in_router_oui_test(Config) ->
@@ -2201,7 +2201,7 @@ hotspot_in_router_oui_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 19),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
     ok.
 
@@ -2293,7 +2293,7 @@ default_routers_test(Config) ->
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
     ok.
 
@@ -2387,10 +2387,10 @@ add_and_gossip_fake_blocks(NumFakeBlocks, ConsensusMembers, Node, Swarm, Chain, 
 
 setup_meck_txn_forwarding(Node, From) ->
     ok = ct_rpc:call(Node, meck_test_util, forward_submit_txn, [From]),
-    ok = ct_rpc:call(Node, blockchain_worker, submit_txn, [test]),
+    ok = ct_rpc:call(Node, blockchain_txn_mgr, submit, [fake_txn, fun(_, _) -> ok end]),
     receive
-        {txn, test} ->
-            ct:pal("Got txn test"),
+        {txn, fake_txn} ->
+            ct:pal("Got fake_txn test"),
             ok
     after 1000 ->
         ct:fail("txn test timeout")
