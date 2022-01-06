@@ -38,7 +38,7 @@ lookup_loc(Addr, Height) ->
     case ets:lookup(?loc, Addr) of
         [] -> not_found;
         [{_Addr, StoreHeight, Location}] ->
-            case StoreHeight > Height of
+            case StoreHeight >= Height of
                 true -> height_mismatch;
                 _ -> {ok, Location}
             end
@@ -52,7 +52,7 @@ lookup_gain(Addr, Height) ->
     case ets:lookup(?gain, Addr) of
         [] -> not_found;
         [{_Addr, StoreHeight, Gain}] ->
-            case StoreHeight > Height of
+            case StoreHeight >= Height of
                 true -> height_mismatch;
                 _ -> {ok, Gain}
             end
