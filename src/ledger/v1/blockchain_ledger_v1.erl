@@ -1379,7 +1379,11 @@ find_gateway_location(Address, Ledger) ->
             case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
                 {ok, BinLoc} ->
                     Loc = binary_to_term(BinLoc),
-                    blockchain_caches:cache_loc(Address, Height, Loc),
+                    case E of
+                        not_found ->
+                            blockchain_caches:cache_loc(Address, Height, Loc);
+                        _ -> ok
+                    end,
                     {ok, Loc};
                 _ ->
                     case cache_get(Ledger, AGwsCF, Address, []) of
@@ -1487,7 +1491,11 @@ find_gateway_gain(Address, Ledger) ->
             case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
                 {ok, BinGain} ->
                     Gain = binary_to_term(BinGain),
-                    blockchain_caches:cache_gain(Address, Height, Gain),
+                    case E of
+                        not_found ->
+                            blockchain_caches:cache_gain(Address, Height, Gain);
+                        _ -> ok
+                    end,
                     {ok, Gain};
                 _ ->
                     case cache_get(Ledger, AGwsCF, Address, []) of
