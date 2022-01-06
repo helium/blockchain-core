@@ -23,7 +23,8 @@
 
 -record(state,
         {
-         location :: ets:tab()
+         location :: ets:tab(),
+         gain :: ets:tab()
         }).
 
 %%%===================================================================
@@ -73,7 +74,10 @@ init([]) ->
     %% todo add proper cache stats
     Loc = ets:new(?loc, [named_table, public,
                          {read_concurrency, true}]),
-    {ok, #state{location = Loc}}.
+    Gain = ets:new(?gain, [named_table, public,
+                          {read_concurrency, true}]),
+    {ok, #state{location = Loc,
+                gain = Gain}}.
 
 handle_call(_Request, _From, State) ->
     lager:warning("unexpected call ~p from ~p", [_Request, _From]),
