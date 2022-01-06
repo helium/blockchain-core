@@ -453,7 +453,7 @@ absorb(Txn, Chain) ->
                     Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
                     ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger),
                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                    blockchain_caches:cache_location(Gateway, Height, Location),
+                    blockchain_caches:cache_loc(Gateway, Height, Location),
                     ok
             end
     end.

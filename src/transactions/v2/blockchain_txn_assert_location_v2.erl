@@ -444,7 +444,7 @@ absorb(Txn, Chain) ->
             maybe_alter_hex(OldGw, Gateway, Location, Ledger),
             maybe_update_neighbors(Gateway, Ledger),
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            blockchain_caches:cache_location(Gateway, Height, Location),
+            blockchain_caches:cache_loc(Gateway, Height, Location),
             blockchain_caches:cache_gain(Gateway, Height, Gain),
             ok
     end.
