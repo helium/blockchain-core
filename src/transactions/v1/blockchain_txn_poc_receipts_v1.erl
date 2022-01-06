@@ -1347,11 +1347,12 @@ valid_witnesses(Element, Channel, Ledger) ->
     [ W || {true, _, W} <- TaggedWitnesses ].
 
 valid_witnesses(Element, Channel, RegionVars, Ledger) ->
-    case get(Element) of
+    Hash = erlang:phash2(Element),
+    case get(Hash) of
         undefined ->
             TaggedWitnesses = tagged_witnesses(Element, Channel, RegionVars, Ledger),
             Res = [ W || {true, _, W} <- TaggedWitnesses ],
-            put(Element, Res),
+            put(Hash, Res),
             Res;
         Res -> Res
     end.

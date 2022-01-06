@@ -1483,7 +1483,7 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
 
 find_gateway_gain(Address, Ledger) ->
     {ok, Height} = current_height(Ledger),
-    case blockchain_caches:lookup_loc(Address, Height) of
+    case blockchain_caches:lookup_gain(Address, Height) of
         {ok, _Gain} = G -> G;
         E when E == not_found; E == height_mismatch ->
             AGwsCF = active_gateways_cf(Ledger),
