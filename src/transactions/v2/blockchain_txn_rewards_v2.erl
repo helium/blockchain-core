@@ -321,6 +321,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% We only want to fold over the blocks and transaction in an epoch once,
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
+        PerfTab = ets:new(rwd_perf, [named_table]),
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
                                            Vars, Ledger, AccInit),
 
@@ -342,13 +343,24 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% we are only keeping hex density calculations memoized for a single
         %% rewards transaction calculation, then we discard that work and avoid
         %% cache invalidation issues.
-        true = blockchain_hex:destroy_memoization(),
+        case application:get_env(blockchain, destroy_memo, true) of
+            true ->
+                true = blockchain_hex:destroy_memoization();
+            _ -> ok
+        end,
+        lager:info("perf report ~p", [lists:reverse(
+                                        lists:keysort(2,
+                                          ets:tab2list(PerfTab)))]),
+        ets:delete(PerfTab),
         {ok, Results}
     catch
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't calculate rewards metadata because: ~p~n~p", [C, Error, Stack]),
             Error
     end.
+
+perf(Tag, Time) ->
+    ets:update_counter(rwd_perf, Tag, Time, {Tag, Time}).
 
 -spec print(txn_rewards_v2()) -> iodata().
 print(undefined) -> <<"type=rewards_v2 undefined">>;
@@ -455,8 +467,12 @@ fold_blocks_for_rewards(Current, End, Chain, Vars, Ledger, Acc) ->
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
             NewAcc = lists:foldl(fun(T, A) ->
-                                         calculate_reward_for_txn(blockchain_txn:type(T), T, End,
-                                                                  A, Chain, Ledger, Vars)
+                                         Type = blockchain_txn:type(T),
+                                         Start = erlang:monotonic_time(microsecond),
+                                         A1 = calculate_reward_for_txn(Type, T, End,
+                                                                       A, Chain, Ledger, Vars),
+                                         perf(Type, erlang:monotonic_time(microsecond) - Start),
+                                         A1
                                  end,
                                  Acc, Txns),
             fold_blocks_for_rewards(Current+1, End, Chain, Vars, Ledger, NewAcc)
@@ -475,9 +491,17 @@ calculate_reward_for_txn(blockchain_txn_rewards_v1, _Txn, _End, _Acc, _Chain,
                          _Ledger, _Vars) -> throw({error, already_existing_rewards_v1});
 calculate_reward_for_txn(blockchain_txn_poc_receipts_v1, Txn, _End,
                          #{ poc_challenger := Challenger } = Acc, Chain, Ledger, Vars) ->
+    Start = erlang:monotonic_time(microsecond),
     Acc0 = poc_challenger_reward(Txn, Challenger, Vars),
+    Start1 = erlang:monotonic_time(microsecond),
+    perf(challenger, Start1 - Start),
     Acc1 = calculate_poc_challengee_rewards(Txn, Acc#{ poc_challenger => Acc0 }, Chain, Ledger, Vars),
-    calculate_poc_witness_rewards(Txn, Acc1, Chain, Ledger, Vars);
+    Start2 = erlang:monotonic_time(microsecond),
+    perf(challengee, Start2 - Start1),
+    Acc2 = calculate_poc_witness_rewards(Txn, Acc1, Chain, Ledger, Vars),
+    WitnessTime = erlang:monotonic_time(microsecond) - Start2,
+    perf(witness, WitnessTime),
+    Acc2;
 calculate_reward_for_txn(blockchain_txn_state_channel_close_v1, Txn, End, Acc, Chain, Ledger, Vars) ->
     calculate_dc_rewards(Txn, End, Acc, Chain, Ledger, Vars);
 calculate_reward_for_txn(Type, Txn, _End, Acc, _Chain, Ledger, _Vars) ->
@@ -947,7 +971,10 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
     HIP15TxRewardUnitCap = maps:get(hip15_tx_reward_unit_cap, Vars, undefined),
     %% check if there were any legitimate witnesses
+    WitStart = erlang:monotonic_time(microsecond),
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version),
+    WitEnd = erlang:monotonic_time(microsecond),
+    perf(challengee_witness, WitEnd - WitStart),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
     ChallengeeLoc = case blockchain_ledger_v1:find_gateway_location(Challengee, Ledger) of
                         {ok, CLoc} ->
@@ -1134,12 +1161,15 @@ poc_witness_reward(Txn, AccIn,
                 fun(Elem, Acc1) ->
                         ElemPos = blockchain_utils:index_of(Elem, Path),
                         WitnessChannel = lists:nth(ElemPos, Channels),
+                        WitStart = erlang:monotonic_time(microsecond),
                         case blockchain_txn_poc_receipts_v1:valid_witnesses(Elem,
                                                                             WitnessChannel,
                                                                             RegionVars,
                                                                             Ledger) of
                             [] -> Acc1;
                             ValidWitnesses ->
+                                WitEnd = erlang:monotonic_time(microsecond),
+                                perf(witnesses_witness, WitEnd - WitStart),
                                 %% We found some valid witnesses, we only apply
                                 %% the witness_redundancy and decay_rate if
                                 %% BOTH are set as chain variables, otherwise
