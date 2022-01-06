@@ -1370,21 +1370,37 @@ find_gateway_info(Address, Ledger) ->
     end.
 
 find_gateway_location(Address, Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
-        {ok, BinLoc} ->
-            {ok, binary_to_term(BinLoc)};
-        _ ->
-            case cache_get(Ledger, AGwsCF, Address, []) of
-                {ok, BinGw} ->
-                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-                    Location = blockchain_ledger_gateway_v2:location(Gw),
-                    {ok, Location};
-                not_found ->
-                    {error, not_found};
-                Error ->
-                    Error
+    {ok, Height} = current_height(Ledger),
+    case blockchain_caches:lookup_loc(Address, Height) of
+        {ok, _Loc} = L -> L;
+        E when E == not_found; E == height_mismatch ->
+            AGwsCF = active_gateways_cf(Ledger),
+            GwDenormCF = gw_denorm_cf(Ledger),
+            case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
+                {ok, BinLoc} ->
+                    Loc = binary_to_term(BinLoc),
+                    case E of
+                        not_found ->
+                            blockchain_caches:cache_loc(Address, Height, Loc);
+                        _ -> ok
+                    end,
+                    {ok, Loc};
+                _ ->
+                    case cache_get(Ledger, AGwsCF, Address, []) of
+                        {ok, BinGw} ->
+                            Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                            Location = blockchain_ledger_gateway_v2:location(Gw),
+                            case E of
+                                not_found ->
+                                    blockchain_caches:cache_loc(Address, Height, Location);
+                                _ -> ok
+                            end,
+                            {ok, Location};
+                        not_found ->
+                            {error, not_found};
+                        Error ->
+                            Error
+                    end
             end
     end.
 
@@ -1471,21 +1487,37 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
 %%===================================================================
 
 find_gateway_gain(Address, Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
-        {ok, BinGain} ->
-            {ok, binary_to_term(BinGain)};
-        _ ->
-            case cache_get(Ledger, AGwsCF, Address, []) of
-                {ok, BinGw} ->
-                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-                    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+    {ok, Height} = current_height(Ledger),
+    case blockchain_caches:lookup_gain(Address, Height) of
+        {ok, _Gain} = G -> G;
+        E when E == not_found; E == height_mismatch ->
+            AGwsCF = active_gateways_cf(Ledger),
+            GwDenormCF = gw_denorm_cf(Ledger),
+            case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
+                {ok, BinGain} ->
+                    Gain = binary_to_term(BinGain),
+                    case E of
+                        not_found ->
+                            blockchain_caches:cache_gain(Address, Height, Gain);
+                        _ -> ok
+                    end,
                     {ok, Gain};
-                not_found ->
-                    {error, not_found};
-                Error ->
-                    Error
+                _ ->
+                    case cache_get(Ledger, AGwsCF, Address, []) of
+                        {ok, BinGw} ->
+                            Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                            Gain = blockchain_ledger_gateway_v2:gain(Gw),
+                            case E of
+                                not_found ->
+                                    blockchain_caches:cache_gain(Address, Height, Gain);
+                                _ -> ok
+                            end,
+                            {ok, Gain};
+                        not_found ->
+                            {error, not_found};
+                        Error ->
+                            Error
+                    end
             end
     end.
 
