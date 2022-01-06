@@ -578,7 +578,7 @@ new_snapshot(#ledger_v1{db=DB,
 
                     %% checkpoints are not needed in follow mode, and are quite expensive to create
                     %% each block.
-                    case application:get_env(blockchain, follow_mode, false) of
+                    case blockchain:is_follow_mode() of
                         true ->
                             {ok, Ledger};
                         false ->
@@ -626,7 +626,7 @@ remove_checkpoint(CheckpointDir) ->
     file:del_dir(filename:dirname(CheckpointDir)).
 
 context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
-    case application:get_env(blockchain, follow_mode, false) of
+    case blockchain:is_follow_mode() of
         true ->
             {ok, Ledger};
         false ->
@@ -1933,13 +1933,18 @@ request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger) ->
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
-            case ?MODULE:find_poc(OnionKeyHash, Ledger) of
-                {error, not_found} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, []);
-                {error, _} ->
-                    {error, fail_getting_poc};
-                {ok, PoCs} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs)
+            case blockchain:is_follow_mode() of
+                true ->
+                    ok;
+                false ->
+                    case ?MODULE:find_poc(OnionKeyHash, Ledger) of
+                        {error, not_found} ->
+                            request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, []);
+                        {error, _} ->
+                            {error, fail_getting_poc};
+                        {ok, PoCs} ->
+                            request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs)
+                    end
             end
     end.
 
@@ -1968,6 +1973,15 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Versi
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
+    case blockchain:is_follow_mode() of
+        true ->
+            ok;
+        false ->
+            delete_poc_(OnionKeyHash, Challenger, Ledger)
+    end.
+
+-spec delete_poc_(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
+delete_poc_(OnionKeyHash, Challenger, Ledger) ->
     case ?MODULE:find_poc(OnionKeyHash, Ledger) of
         {error, not_found} ->
             ok;
