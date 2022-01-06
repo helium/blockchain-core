@@ -51,8 +51,7 @@
     sc_version :: non_neg_integer(),
     max_actors_allowed = ?SC_MAX_ACTORS :: pos_integer(),
     prevent_overspend = true,
-    bloom :: bloom_nif:bloom(),
-    hook_close_submit :: atom()
+    bloom :: bloom_nif:bloom()
 }).
 
 -type state() :: #state{}.
@@ -123,7 +122,6 @@ init(Args) ->
     Owner = maps:get(owner, Args),
     {_, OwnerSigFun} = Owner,
     ok = blockchain_event:add_handler(self()),
-    SubmitHookModule = application:get_env(blockchain, ?HOOK_CLOSE_SUBMIT, undefined),
     lager:info("started ~p", [blockchain_utils:addr2name(ID)]),
     State = #state{
         parent = Parent,
@@ -137,8 +135,7 @@ init(Args) ->
         dc_payload_size = DCPayloadSize,
         sc_version = SCVer,
         max_actors_allowed = MaxActorsAllowed,
-        prevent_overspend = application:get_env(blockchain, prevent_sc_overspend, true),
-        hook_close_submit = SubmitHookModule
+        prevent_overspend = application:get_env(blockchain, prevent_sc_overspend, true)
     },
     {ok, State}.
 
@@ -161,7 +158,7 @@ handle_info({blockchain_event, {new_chain, Chain}}, State) ->
     {noreply, State#state{chain=Chain}};
 handle_info(
     {blockchain_event, {add_block, _BlockHash, _Syncing, Ledger}},
-    #state{id=ID, state_channel=SC, owner={Owner, OwnerSigFun}, hook_close_submit=SubmitHook}=State
+    #state{id=ID, state_channel=SC, owner={Owner, OwnerSigFun}}=State
 ) ->
     Name = blockchain_utils:addr2name(ID),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -177,10 +174,10 @@ handle_info(
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
             F = fun(Result) ->
                 ok = handle_close_submit(Result, SignedTxn),
-                case SubmitHook of
+                case application:get_env(blockchain, ?HOOK_CLOSE_SUBMIT, undefined) of
                     undefined ->
                         ok;
-                    _ ->
+                    SubmitHook ->
                         _ = SubmitHook:?HOOK_CLOSE_SUBMIT(Result, SignedTxn),
                         ok
                 end
