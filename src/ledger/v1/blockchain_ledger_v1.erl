@@ -164,6 +164,7 @@
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
     count_gateways_in_hex/2,
+    count_gateways_in_hexes/2,
     add_commit_hook/4, add_commit_hook/5,
     remove_commit_hook/2,
 
@@ -4223,6 +4224,18 @@ count_gateways_in_hex(Hex, Ledger) ->
               ).
 
 
+-spec count_gateways_in_hexes(Resolution :: h3:resolution(), Ledger :: ledger()) -> #{h3:h3_index() => non_neg_integer()}.
+count_gateways_in_hexes(Resolution, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({Key, GWs}, Acc) ->
+                       Hex = h3:parent(key_to_h3(Key), Resolution),
+                       Count = length(binary_to_term(GWs)),
+                       maps:update_with(Hex, fun(V) -> V + Count end, Count, Acc)
+               end, #{}, []
+              ).
+
+
 -spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
 %% @doc Let's find the nearest set of k neighbors for this hex at the
 %% same resolution and return the "lowest" one. Since these numbers
@@ -4260,6 +4273,13 @@ add_gw_to_hex(Hex, GWAddr, Ledger) ->
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found ->
+            case count_gateways_in_hex(h3:parent(Hex, 5), Ledger) of
+                0 ->
+                    %% TODO add hex to random lookup set
+                    ok;
+                _ ->
+                    ok
+            end,
             cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]));
         {ok, BinGws} ->
             GWs = binary_to_term(BinGws),
@@ -4281,6 +4301,14 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
         {ok, BinGws} ->
             case lists:delete(GWAddr, binary_to_term(BinGws)) of
                 [] ->
+                    case count_gateways_in_hex(h3:parent(Hex, 5), Ledger) of
+                        0 ->
+                            %% TODO remove hex from random lookup set
+                            ok;
+                        _ ->
+                            ok
+                    end,
+
                     cache_delete(Ledger, H3CF, BinHex);
                 NewGWs ->
                     cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort(NewGWs), [compressed]))
