@@ -53,7 +53,17 @@
 
     get_spreading_test/1,
 
-    region_param_test/1
+    region_param_test/1,
+
+    kosovo_test/1,
+    philippines_test/1,
+    curacao_test/1,
+    cayman_island_test/1,
+    aruba_test/1,
+    malta_test/1,
+    armenia_test/1,
+    guyana_test/1
+
 ]).
 
 all() ->
@@ -82,7 +92,15 @@ with_h3_data_test_cases() ->
         us915_test,
         ru864_test,
         eu868_test,
-        region_not_found_test
+        region_not_found_test,
+        kosovo_test,
+        philippines_test,
+        curacao_test,
+        cayman_island_test,
+        aruba_test,
+        malta_test,
+        armenia_test,
+        guyana_test
     ].
 
 without_h3_data_test_cases() ->
@@ -267,6 +285,85 @@ eu868_test(Config) ->
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
+kosovo_test(Config) ->
+    Ledger = ?config(ledger, Config),
+
+    KosovoLocs = [631048460926047743,
+                  631048425455650303,
+                  631048460919919615,
+                  631048460929013759,
+                  631048460926043135,
+                  631048460920073727,
+                  631048425435443711,
+                  631048460607437311,
+                  631048460928893439],
+
+    Regions = lists:map(
+                fun(Loc) ->
+                        {Loc, blockchain_region_v1:h3_to_region(Loc, Ledger)}
+                end, KosovoLocs),
+
+    ct:pal("Regions: ~p", [Regions]),
+
+    true = lists:all(
+             fun({_, {ok, R}}) ->
+                     R == region_eu868
+             end,
+             Regions),
+
+    ok.
+
+philippines_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 632356539464979967,
+    {ok, region_as923_3} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_as923_3, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_eu868, Ledger),
+    ok.
+
+curacao_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 632320753500981759,
+    {ok, region_as923_1} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_as923_1, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_eu868, Ledger),
+    ok.
+
+cayman_island_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 631729024198718463,
+    {ok, region_us915} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
+    ok.
+
+aruba_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 632323872323554303,
+    {error, {unknown_region, _}} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    ok.
+
+malta_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 631615575095659519,
+    {ok, region_eu868} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_eu868, Ledger),
+    ok.
+
+armenia_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 631278052025960447,
+    {ok, region_eu868} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_eu868, Ledger),
+    ok.
+
+guyana_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    %% St. George's Cathedral, Georgetown, Guyana
+    H3 = h3:from_geo({6.81953882042557, -58.163689700627266}, 12),
+    {ok, region_us915} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
+    ok.
+
 in865_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Delhi, India
@@ -305,12 +402,8 @@ us915_test(Config) ->
 
 region_not_found_test(Config) ->
     Ledger = ?config(ledger, Config),
-    InvalidH3 = 11111111111111111111,
-    {error, {h3_contains_failed, _}} = blockchain_region_v1:h3_to_region(InvalidH3, Ledger),
-
-    MongoliaH3 = 631161054839972863,
-    {error, {unknown_region, MongoliaH3}} = blockchain_region_v1:h3_to_region(MongoliaH3, Ledger),
-
+    H3 = h3:from_geo({0.0, 0.0}, 12),
+    {error, {unknown_region, _}} = blockchain_region_v1:h3_to_region(H3, Ledger),
     ok.
 
 us915_region_param_test(Config) ->
