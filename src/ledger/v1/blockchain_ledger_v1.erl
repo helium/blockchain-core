@@ -1390,6 +1390,11 @@ find_gateway_location(Address, Ledger) ->
                         {ok, BinGw} ->
                             Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                             Location = blockchain_ledger_gateway_v2:location(Gw),
+                            case E of
+                                not_found ->
+                                    blockchain_caches:cache_loc(Address, Height, Location);
+                                _ -> ok
+                            end,
                             {ok, Location};
                         not_found ->
                             {error, not_found};
@@ -1502,6 +1507,11 @@ find_gateway_gain(Address, Ledger) ->
                         {ok, BinGw} ->
                             Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
                             Gain = blockchain_ledger_gateway_v2:gain(Gw),
+                            case E of
+                                not_found ->
+                                    blockchain_caches:cache_gain(Address, Height, Gain);
+                                _ -> ok
+                            end,
                             {ok, Gain};
                         not_found ->
                             {error, not_found};
