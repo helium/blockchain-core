@@ -1935,7 +1935,7 @@ request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger) ->
         {ok, Gw0} ->
             case blockchain:is_follow_mode() of
                 true ->
-                    ok;
+                    gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger);
                 false ->
                     case ?MODULE:find_poc(OnionKeyHash, Ledger) of
                         {error, not_found} ->
@@ -1959,17 +1959,27 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Versi
                 ok -> ok
             end
     end,
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
-    Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-    Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
-    ok = update_gateway(Gw3, Challenger, Ledger),
-
+    gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger),
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
     BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)], [compressed]),
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs).
+
+-spec gateway_update_challenge(
+    ledger(),
+    blockchain_ledger_gateway_v2:gateway(),
+    binary(),
+    non_neg_integer(),
+    libp2p_crypto:pubkey_bin()
+) ->
+    ok.
+gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+    Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+    Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
+    ok = update_gateway(Gw3, Challenger, Ledger).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
