@@ -805,21 +805,27 @@ absorb(Txn, Chain) ->
     POCID = ?MODULE:poc_id(Txn),
 
     try
-        %% get these to make sure we're not replaying.
-        PoCs = case blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger) of
-                   {ok, Ps} ->
-                       Ps;
-                   {error, not_found} ->
-                       lager:warning("potential replay: ~p not found", [LastOnionKeyHash]),
-                       throw(replay)
-               end,
-        case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
-            {ok, _PoC} ->
+        case blockchain:is_follow_mode() of
+            true ->
                 ok;
-            {error, not_found} ->
-                lager:warning("potential replay: ~p ~p not in ~p", [Challenger, Secret, PoCs]),
-                throw(replay)
+            false ->
+                %% get these to make sure we're not replaying.
+                PoCs = case blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger) of
+                           {ok, Ps} ->
+                               Ps;
+                           {error, not_found} ->
+                               lager:warning("potential replay: ~p not found", [LastOnionKeyHash]),
+                               throw(replay)
+                       end,
+                case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
+                    {ok, _PoC} ->
+                        ok;
+                    {error, not_found} ->
+                        lager:warning("potential replay: ~p ~p not in ~p", [Challenger, Secret, PoCs]),
+                        throw(replay)
+                end
         end,
+
         {ok, LastChallenge} = blockchain_ledger_v1:find_gateway_last_challenge(Challenger, Ledger),
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of

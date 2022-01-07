@@ -79,7 +79,9 @@
     db_handle/1,
     blocks_cf/1,
     heights_cf/1,
-    info_cf/1
+    info_cf/1,
+
+    is_follow_mode/0
 
 ]).
 
@@ -1116,7 +1118,7 @@ add_block_(Block, Blockchain, Syncing) ->
     Ledger = blockchain:ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, BlockchainHeight} = blockchain:height(Blockchain),
-    FollowMode = follow_mode(),
+    FollowMode = is_follow_mode(),
     case LedgerHeight == BlockchainHeight of
         true ->
             case can_add_block(Block, Blockchain) of
@@ -1188,7 +1190,7 @@ add_block_(Block, Blockchain, Syncing) ->
 
 process_snapshot(ConsensusHash, MyAddress, Signers,
                  Ledger, Height, Blockchain) ->
-    case lists:member(MyAddress, Signers) orelse follow_mode() of
+    case lists:member(MyAddress, Signers) orelse is_follow_mode() of
         true ->
             %% signers add the snapshot as when the block is created?
             %% otherwise we have to make it twice?
@@ -1241,7 +1243,7 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
       fun(H, ok) ->
               {ok, B} = get_block(H, Chain),
               Hash = blockchain_block:hash_block(B),
-              Fun = case follow_mode() of
+              Fun = case is_follow_mode() of
                         true -> unvalidated_absorb_and_commit;
                         _ -> absorb_and_commit
                     end,
@@ -2225,7 +2227,7 @@ load(Dir, Mode) ->
             compact(Blockchain),
             %% if this is not set, the below check will always be true
             SnapHeight = application:get_env(blockchain, blessed_snapshot_block_height, 1),
-            FollowMode = follow_mode(), % no need for pre-calc when we only follow
+            FollowMode = is_follow_mode(), % no need for pre-calc when we only follow
             %% pre-calculate the missing snapshots when we're above blessed snap
             case height(Blockchain) of
                 {ok, ChainHeight} when ChainHeight > 2 andalso
@@ -2375,7 +2377,7 @@ open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
 
-    case filelib:is_file(filename:join(Dir, "blockchain-open-failed")) andalso follow_mode() of
+    case filelib:is_file(filename:join(Dir, "blockchain-open-failed")) andalso is_follow_mode() of
         true ->
             lager:warning("unopenable blockchain.db detected, removing"),
             ok = file:delete(filename:join(Dir, "blockchain-open-failed")),
@@ -3006,7 +3008,7 @@ snapshot_height(Height) ->
             Height
     end.
 
-follow_mode() ->
+is_follow_mode() ->
     application:get_env(blockchain, follow_mode, false).
 
 -spec db_handle(Chain :: blockchain()) -> rocksdb:db_handle().
