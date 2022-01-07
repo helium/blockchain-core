@@ -1370,21 +1370,25 @@ find_gateway_info(Address, Ledger) ->
     end.
 
 find_gateway_location(Address, Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
-        {ok, BinLoc} ->
-            {ok, binary_to_term(BinLoc)};
+    case blockchain_hex:loc(Address) of
+        {ok, _} = L -> L;
         _ ->
-            case cache_get(Ledger, AGwsCF, Address, []) of
-                {ok, BinGw} ->
-                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-                    Location = blockchain_ledger_gateway_v2:location(Gw),
-                    {ok, Location};
-                not_found ->
-                    {error, not_found};
-                Error ->
-                    Error
+            AGwsCF = active_gateways_cf(Ledger),
+            GwDenormCF = gw_denorm_cf(Ledger),
+            case cache_get(Ledger, GwDenormCF, <<Address/binary, "-loc">>, []) of
+                {ok, BinLoc} ->
+                    {ok, binary_to_term(BinLoc)};
+                _ ->
+                    case cache_get(Ledger, AGwsCF, Address, []) of
+                        {ok, BinGw} ->
+                            Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                            Location = blockchain_ledger_gateway_v2:location(Gw),
+                            {ok, Location};
+                        not_found ->
+                            {error, not_found};
+                        Error ->
+                            Error
+                    end
             end
     end.
 
@@ -1471,21 +1475,25 @@ find_gateways_by_owner(OwnerPubkeyBin, Ledger) ->
 %%===================================================================
 
 find_gateway_gain(Address, Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
-    GwDenormCF = gw_denorm_cf(Ledger),
-    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
-        {ok, BinGain} ->
-            {ok, binary_to_term(BinGain)};
+    case blockchain_hex:gain(Address) of
+        {ok, _} = G -> G;
         _ ->
-            case cache_get(Ledger, AGwsCF, Address, []) of
-                {ok, BinGw} ->
-                    Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
-                    Gain = blockchain_ledger_gateway_v2:gain(Gw),
-                    {ok, Gain};
-                not_found ->
-                    {error, not_found};
-                Error ->
-                    Error
+            AGwsCF = active_gateways_cf(Ledger),
+            GwDenormCF = gw_denorm_cf(Ledger),
+            case cache_get(Ledger, GwDenormCF, <<Address/binary, "-gain">>, []) of
+                {ok, BinGain} ->
+                    {ok, binary_to_term(BinGain)};
+                _ ->
+                    case cache_get(Ledger, AGwsCF, Address, []) of
+                        {ok, BinGw} ->
+                            Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                            Gain = blockchain_ledger_gateway_v2:gain(Gw),
+                            {ok, Gain};
+                        not_found ->
+                            {error, not_found};
+                        Error ->
+                            Error
+                    end
             end
     end.
 

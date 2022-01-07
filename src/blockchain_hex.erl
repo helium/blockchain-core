@@ -5,6 +5,8 @@
          scale/2, scale/4,
          destroy_memoization/0,
 
+         loc/1, gain/1,
+
          %% exported for dialyzer reasons
          precalc/2
         ]).
@@ -13,6 +15,7 @@
 
 -define(PRE_UNCLIP_TBL, '__blockchain_hex_unclipped_tbl').
 -define(PRE_CLIP_TBL, '__blockchain_hex_clipped_tbl').
+-define(PRE_LOC_TBL, '__blockchain_loc_gain_tbl').
 
 -define(ETS_OPTS, []).
 
@@ -143,6 +146,28 @@ lookup(Tbl, Key) ->
         [] -> 0
     end.
 
+loc(Addr) ->
+    case get(?PRE_LOC_TBL) of
+        undefined ->
+            undefined;
+        Tbl ->
+            case ets:lookup(Tbl, Addr) of
+                [{_Addr, Loc, _Gain}] -> {ok, Loc};
+                _ -> not_found
+            end
+    end.
+
+gain(Addr) ->
+    case get(?PRE_LOC_TBL) of
+        undefined ->
+            undefined;
+        Tbl ->
+            case ets:lookup(Tbl, Addr) of
+                [{_Addr, _Loc, Gain}] -> {ok, Gain};
+                _ -> not_found
+            end
+    end.
+
 -spec maybe_precalc(Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_precalc(Ledger) ->
     case get(?PRE_UNCLIP_TBL) of
@@ -168,8 +193,10 @@ precalc(Testing, Ledger) ->
     {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
     UnclipETS = ets:new(?PRE_UNCLIP_TBL, ?ETS_OPTS),
     ClipETS = ets:new(?PRE_CLIP_TBL, ?ETS_OPTS),
+    PreETS = ets:new(?PRE_LOC_TBL, ?ETS_OPTS),
     put(?PRE_UNCLIP_TBL, UnclipETS),
     put(?PRE_CLIP_TBL, ClipETS),
+    put(?PRE_LOC_TBL, PreETS),
 
     %% pre-unfold these because we access them a lot.
     Vars0 =
@@ -197,17 +224,19 @@ precalc(Testing, Ledger) ->
     InitHexes0 =
         blockchain_ledger_v1:cf_fold(
           active_gateways,
-          fun({_Addr, BinGw}, Acc) ->
+          fun({Addr, BinGw}, Acc) ->
                   G = blockchain_ledger_gateway_v2:deserialize(BinGw),
-                  L = blockchain_ledger_gateway_v2:location(G),
                   LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(G),
                   case (LastChallenge /= undefined
                         andalso (CurrentHeight - LastChallenge) =< InteractiveBlocks)
                       orelse TestMode of
                       true ->
+                          L = blockchain_ledger_gateway_v2:location(G),
                           case L of
                               undefined -> Acc;
                               _ ->
+                                  Gain = blockchain_ledger_gateway_v2:gain(G),
+                                  ets:insert(PreETS, {Addr, L, Gain}),
                                   Hex = h3:parent(L, MaxRes),
                                   ets:update_counter(UnclipETS, Hex, 1, {Hex, 0}),
                                   ets:update_counter(ClipETS, Hex, 1, {Hex, 0}),
