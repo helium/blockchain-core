@@ -39,6 +39,7 @@
 destroy_memoization() ->
     _ = erase(?PRE_CLIP_TBL),
     _ = erase(?PRE_UNCLIP_TBL),
+    _ = erase(?PRE_LOC_TBL),
     true.
 
 %% @doc This call is for blockchain_etl to use directly
