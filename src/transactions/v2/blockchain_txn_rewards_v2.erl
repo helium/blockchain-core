@@ -1168,6 +1168,7 @@ poc_witness_reward(Txn, AccIn,
                                                                             Ledger) of
                             [] -> Acc1;
                             ValidWitnesses ->
+                                lager:info("witness witness ~p", [erlang:phash2(ValidWitnesses)]),
                                 WitEnd = erlang:monotonic_time(microsecond),
                                 perf(witnesses_witness, WitEnd - WitStart),
                                 %% We found some valid witnesses, we only apply
@@ -1482,6 +1483,7 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
                 ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
+                lager:info("challenge witness ~p", [erlang:phash2(ValidWitnesses)]),
                 ValidWitnesses
             catch
                 throw:{error, {unknown_region, Region}}:_ST ->
