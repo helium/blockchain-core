@@ -154,6 +154,7 @@ bootstrap(Path, Ledger) ->
 set_vars(AuxVars, #ledger_v1{mode = aux} = AuxLedger) ->
     Ctx = blockchain_ledger_v1:new_context(AuxLedger),
     ok = blockchain_ledger_v1:vars(AuxVars, [], Ctx),
+    ok = blockchain_txn_vars_v1:process_hooks(AuxVars, [], Ctx),
     ok = blockchain_ledger_v1:commit_context(Ctx),
     ok;
 set_vars(_ExtraVars, _Ledger) ->
