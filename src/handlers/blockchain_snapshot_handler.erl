@@ -100,6 +100,10 @@ handle_data(server, Data, #state{chain = Chain} = State) ->
     case blockchain_snapshot_handler_pb:decode_msg(Data, blockchain_snapshot_req_pb) of
         #blockchain_snapshot_req_pb{height = _Height, hash = Hash} ->
             case blockchain:get_snapshot(Hash, Chain) of
+                {ok, {file, FileName}} ->
+                    {ok, Bin} = file:read_file(FileName),
+                    Msg = #blockchain_snapshot_resp_pb{snapshot = Bin},
+                    {noreply, State, blockchain_snapshot_handler_pb:encode_msg(Msg)};
                 {ok, Snap} ->
                     lager:info("sending snapshot ~p", [Hash]),
                     Msg = #blockchain_snapshot_resp_pb{snapshot = Snap},
