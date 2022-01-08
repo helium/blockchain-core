@@ -1150,6 +1150,7 @@ poc_witness_reward(Txn, AccIn,
     DecayRate = maps:get(poc_reward_decay_rate, Vars, undefined),
     DensityTgtRes = maps:get(density_tgt_res, Vars, undefined),
     RegionVars = maps:get(region_vars, Vars), % explode on purpose
+    KeyHash = blockchain_txn_poc_receipts_v1:onion_key_hash(Txn),
 
     try
         %% Get channels without validation
@@ -1162,13 +1163,20 @@ poc_witness_reward(Txn, AccIn,
                         ElemPos = blockchain_utils:index_of(Elem, Path),
                         WitnessChannel = lists:nth(ElemPos, Channels),
                         WitStart = erlang:monotonic_time(microsecond),
-                        case blockchain_txn_poc_receipts_v1:valid_witnesses(Elem,
-                                                                            WitnessChannel,
-                                                                            RegionVars,
-                                                                            Ledger) of
+                        ElemHash = erlang:phash2(Elem),
+                        ValidWitnesses =
+                            case get({KeyHash, ElemHash}) of
+                                undefined ->
+                                    VW = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel,
+                                                                                        RegionVars, Ledger),
+                                    put({KeyHash, ElemHash}, VW),
+                                    VW;
+                                VW -> VW
+                            end,
+                        case ValidWitnesses of
                             [] -> Acc1;
-                            ValidWitnesses ->
-                                lager:info("witness witness ~p", [erlang:phash2(ValidWitnesses)]),
+                            [_|_] ->
+                                %% lager:info("witness witness ~p", [erlang:phash2(ValidWitnesses)]),
                                 WitEnd = erlang:monotonic_time(microsecond),
                                 perf(witnesses_witness, WitEnd - WitStart),
                                 %% We found some valid witnesses, we only apply
@@ -1482,7 +1490,16 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
                 {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Version, RegionVars, Chain),
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
-                ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
+                KeyHash = blockchain_txn_poc_receipts_v1:onion_key_hash(Txn),
+                ElemHash = erlang:phash2(Elem),
+                ValidWitnesses =
+                    case get({KeyHash, ElemHash}) of
+                        undefined ->
+                            VW = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
+                            put({KeyHash, ElemHash}, VW),
+                            VW;
+                        VW -> VW
+                    end,
                 lager:info("challenge witness ~p", [erlang:phash2(ValidWitnesses)]),
                 ValidWitnesses
             catch
