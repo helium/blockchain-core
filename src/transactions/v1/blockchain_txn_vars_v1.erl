@@ -41,7 +41,8 @@
          print/1,
          json_type/0,
          to_json/2,
-         process_hooks/3
+         process_hooks/3,
+         var_hook/3, unset_hook/2
         ]).
 
 %% helper API
@@ -675,19 +676,21 @@ to_json(Txn, _Opts) ->
 process_hooks(Vars, Unsets, Ledger) ->
     _ = maps:map(
           fun(Var, Value) ->
-                  var_hook(Var, Value, Ledger)
+                  ?MODULE:var_hook(Var, Value, Ledger)
           end, Vars),
     _ = lists:foreach(
           fun(Var) ->
-                  unset_hook(Var, Ledger)
+                  ?MODULE:unset_hook(Var, Ledger)
           end, Unsets),
     ok.
 
-%% separate out hook functions and call them in separate functions
-%% below the hook section.
+%% Separate out hook functions and call them in separate functions below the hook section.
+
+-spec var_hook(Var :: atom(), Value :: any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
+-spec unset_hook(Var :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 unset_hook(_Var, _Ledger) ->
     ok.
 

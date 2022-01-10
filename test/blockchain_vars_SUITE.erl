@@ -14,7 +14,8 @@
 -export([
     version_change_test/1,
     master_key_test/1,
-    cache_test/1
+    cache_test/1,
+    hook_test/1
 ]).
 
 %% Setup ----------------------------------------------------------------------
@@ -23,7 +24,8 @@ all() ->
     [
         version_change_test,
         master_key_test,
-        cache_test
+        cache_test,
+        hook_test
     ].
 
 init_per_testcase(_TestCase, Cfg) ->
@@ -306,6 +308,65 @@ cache_test(Config) ->
 
     ok.
 
+hook_test(Cfg) ->
+    meck:new(blockchain_txn_vars_v1, [passthrough]),
+    {Priv, _} = ?config(master_key, Cfg),
+    ConsensusMembers = ?config(users_in_consensus, Cfg),
+    Chain = ?config(chain, Cfg),
+    Ledger = blockchain:ledger(Chain),
+    SelfPid = self(),
+
+    Key = garbage_value,
+
+    %% enable vars v1
+    %% (enabling them at init causes init failures, so we do it here, post init)
+    ?assertMatch(
+        ok,
+        var_set(?chain_vars_version, 1, Priv, ConsensusMembers, Chain)
+    ),
+    ?assertEqual({ok, 1}, var_get(?chain_vars_version, Chain)),
+
+    %% at this point, ledger reports nonce=3
+    ?assertEqual({ok, 3}, blockchain_ledger_v1:vars_nonce(Ledger)),
+
+    meck:expect(blockchain_txn_vars_v1,
+                var_hook,
+                fun(garbage_value, reset_vars_nonce, _Ledger) ->
+                        {ok, var_hook_invoked}
+                end),
+
+    %% we will use garbage_value:reset_vars_nonce and invoke var_hook
+    ?assertMatch(
+        ok,
+        var_set_legacy(Key, reset_vars_nonce, Priv, ConsensusMembers, Chain)
+    ),
+    ?assertEqual({ok, reset_vars_nonce}, var_get(Key, Chain)),
+
+    %% Checking whether the above meck expectation got met
+    %% It's unclear why neither meck:called | meck:validate | meck:num_calls return
+    %% the right answer, but this works
+    MeckHist1 = meck:history(blockchain_txn_vars_v1),
+    {SelfPid, _, {ok, var_hook_invoked}} = lists:keyfind({ok, var_hook_invoked}, 3, MeckHist1),
+
+    meck:expect(blockchain_txn_vars_v1,
+                unset_hook,
+                fun(garbage_value, _Ledger) ->
+                        {ok, unset_hook_invoked}
+                end),
+
+    %% next we will unset garbage_value and invoke the unset_hook
+    ?assertMatch(
+        ok,
+        var_unset_legacy([Key], Priv, ConsensusMembers, Chain)
+    ),
+    ?assertEqual({error, not_found}, var_get(Key, Chain)),
+
+    MeckHist2 = meck:history(blockchain_txn_vars_v1),
+    {SelfPid, _, {ok, unset_hook_invoked}} = lists:keyfind({ok, unset_hook_invoked}, 3, MeckHist2),
+
+    meck:unload(blockchain_txn_vars_v1),
+    ok.
+
 
 %% Helpers --------------------------------------------------------------------
 
@@ -337,6 +398,15 @@ var_set_legacy(Key, Val, PrivKey, ConsensusMembers, Chain) ->
     Proof = blockchain_txn_vars_v1:legacy_create_proof(PrivKey, Vars),
     Txn2 = blockchain_txn_vars_v1:proof(Txn1, Proof),
     t_chain:commit(Chain, ConsensusMembers, [Txn2]).
+
+%% TODO refactor as t_txn
+var_unset_legacy(Keys, PrivKey, ConsensusMembers, Chain) ->
+    Vars = #{},
+    Txn1 = blockchain_txn_vars_v1:new(Vars, nonce_next(Chain), #{unsets => Keys}),
+    Proof = blockchain_txn_vars_v1:legacy_create_proof(PrivKey, Vars),
+    Txn2 = blockchain_txn_vars_v1:proof(Txn1, Proof),
+    t_chain:commit(Chain, ConsensusMembers, [Txn2]).
+
 
 %% TODO refactor as t_chain
 var_get(Key, Chain) ->
