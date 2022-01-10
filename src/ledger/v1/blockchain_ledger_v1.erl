@@ -167,6 +167,7 @@
     count_gateways_in_hexes/2,
     random_targeting_hex/2,
     build_random_hex_targeting_lookup/2,
+    clean_random_hex_targeting_lookup/1,
     add_commit_hook/4, add_commit_hook/5,
     remove_commit_hook/2,
 
@@ -4254,25 +4255,29 @@ count_gateways_in_hexes(Resolution, Ledger) ->
               ).
 
 random_targeting_hex(Entropy, Ledger) ->
-    Lookup = crypto:hash(sha256, Entropy),
+    Lookup = xxhash:hash64(Entropy),
     H3CF = h3dex_cf(Ledger),
+    SearchForwards = [{iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿ">>}],
+    SearchBackwards = [{iterate_upper_bound, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},
+                       reverse],
+    %% randomize if we should search forwards or backwards first
+    [Args1, Args2] = case Lookup rem 2 of
+                         0 ->
+                             [SearchForwards, SearchBackwards];
+                         1 ->
+                             [SearchBackwards, SearchForwards]
+                     end,
     try cache_fold(Ledger, H3CF,
                    fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
                            throw({result, H3})
                    end, none, [
-                               {start, {seek, <<"random-", Lookup/binary>>}},
-                               {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
-                              ]) of
+                               {start, {seek, <<"random-", Lookup:64/integer-unsigned-little>>}} | Args1]) of
         none ->
             try cache_fold(Ledger, H3CF,
                        fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
                                throw({result, H3})
                        end, none, [
-                                   {start, {seek, <<"random-", Lookup/binary>>}},
-                                   {iterate_upper_bound, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},
-                                   reverse
-                                  ]
-                      ) of
+                                   {start, {seek, <<"random-", Lookup/integer-unsigned-little>>}} | Args2]) of
                 none ->
                     {error, no_populated_hexes}
             catch
@@ -4297,9 +4302,10 @@ build_random_hex_targeting_lookup(Resolution, Ledger) ->
                                %% same parent hex, noop
                                Hex;
                            false ->
-                               HexHash = crypto:hash(sha256, <<H3:64/integer-unsigned-little>>),
+                               %% h3_to_key strips out redundant information to ideally give better hash distribution
+                               HexHash = xxhash:hash64(h3_to_key(Hex)),
                                %% new hex
-                               cache_put(Ledger, H3CF, <<"random-", HexHash/binary>>, <<H3:64/integer-unsigned-little>>),
+                               cache_put(Ledger, H3CF, <<"random-", HexHash:64/integer-unsigned-little>>, <<Hex:64/integer-unsigned-little>>),
                                Hex
                        end
                end, #{}, [
@@ -4309,6 +4315,21 @@ build_random_hex_targeting_lookup(Resolution, Ledger) ->
                          ]
               ),
     ok.
+
+clean_random_hex_targeting_lookup(Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    Deleted = cache_fold(Ledger, H3CF,
+               fun({<<"random-", _/binary>>=K, _}, Acc) ->
+                       cache_delete(Ledger, H3CF, K),
+                       Acc + 1;
+                 (_, Acc) ->
+                        Acc
+               end, 0, [
+                          {start, {seek, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}},
+                          {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿ">>}
+                         ]
+              ),
+    {ok, Deleted}.
 
 
 -spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
