@@ -4287,7 +4287,9 @@ random_targeting_hex(Entropy, Ledger) ->
 build_random_hex_targeting_lookup(Resolution, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     cache_fold(Ledger, H3CF,
-               fun({Key, _GWs}, Acc) ->
+               fun({<<"random-", _/binary>>, _}, Acc) ->
+                       Acc;
+                 ({Key, _GWs}, Acc) ->
                        H3 = key_to_h3(Key),
                        Hex = h3:parent(H3, Resolution),
                        case Acc == Hex of
