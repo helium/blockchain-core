@@ -839,6 +839,23 @@ snapshot_sync(State) ->
     lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
     State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot, snapshot_info=SnapInfo}.
 
+%% @doc If this os environment variable is set and is a "truthy" value,
+%% return `true'; otherwise, `false'. Unset variables return the default value.
+%%
+%% False values are "0", "no", "false".  True values are any value that aren't
+%% listed as explicitly false.
+get_boolean_os_var_or_default(VarName, Default) ->
+    case os:getenv(VarName, undefined) of
+        "0" -> false;
+        "no" -> false;
+        "NO" -> false;
+        "FALSE" -> false;
+        "false" -> false;
+        undefined -> Default;
+        _ -> true
+    end.
+
+
 reset_ledger_to_snap(Hash, Height, State) ->
     lager:info("clearing the ledger now"),
     State1 = pause_sync(State),
