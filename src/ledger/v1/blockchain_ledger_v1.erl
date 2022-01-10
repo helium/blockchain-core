@@ -3874,7 +3874,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
 rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     Start = proplists:get_value(start, Opts0, first),
     Opts = proplists:delete(reverse, proplists:delete(start, Opts0)),
-    SeekDir = case proplists:get_value(reverse, Opts0, reverse) of
+    SeekDir = case proplists:get_value(reverse, Opts0, false) of
                true ->
                    prev;
                false ->
