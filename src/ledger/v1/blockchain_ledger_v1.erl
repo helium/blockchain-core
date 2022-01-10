@@ -4271,13 +4271,13 @@ random_targeting_hex(Entropy, Ledger) ->
                    fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
                            throw({result, H3})
                    end, none, [
-                               {start, {seek, <<"random-", Lookup:64/integer-unsigned-little>>}} | Args1]) of
+                               {start, {seek, <<"random-", Lookup:64/integer-unsigned-big>>}} | Args1]) of
         none ->
             try cache_fold(Ledger, H3CF,
                        fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
                                throw({result, H3})
                        end, none, [
-                                   {start, {seek, <<"random-", Lookup/integer-unsigned-little>>}} | Args2]) of
+                                   {start, {seek, <<"random-", Lookup/integer-unsigned-big>>}} | Args2]) of
                 none ->
                     {error, no_populated_hexes}
             catch
@@ -4305,7 +4305,7 @@ build_random_hex_targeting_lookup(Resolution, Ledger) ->
                                %% h3_to_key strips out redundant information to ideally give better hash distribution
                                HexHash = xxhash:hash64(h3_to_key(Hex)),
                                %% new hex
-                               cache_put(Ledger, H3CF, <<"random-", HexHash:64/integer-unsigned-little>>, <<Hex:64/integer-unsigned-little>>),
+                               cache_put(Ledger, H3CF, <<"random-", HexHash:64/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
                                Hex
                        end
                end, #{}, [
