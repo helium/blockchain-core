@@ -165,6 +165,8 @@
     remove_gw_from_hex/3,
     count_gateways_in_hex/2,
     count_gateways_in_hexes/2,
+    random_targeting_hex/2,
+    build_random_hex_targeting_lookup/2,
     add_commit_hook/4, add_commit_hook/5,
     remove_commit_hook/2,
 
@@ -3858,14 +3860,26 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
         {Cache, _GwCache} ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CFName, Start, End, Fun0),
-            Keys = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CFName}],['$2']}])),
+            Keys0 = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CFName}],['$2']}])),
+            Keys = case proplists:get_value(reverse, Opts, false) of
+                true ->
+                    lists:reverse(Keys0);
+                false ->
+                    Keys0
+            end,
             {TrailingKeys, Res0} = rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}),
             process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
     end.
 
 rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     Start = proplists:get_value(start, Opts0, first),
-    Opts = proplists:delete(start, Opts0),
+    Opts = proplists:delete(reverse, proplists:delete(start, Opts0)),
+    SeekDir = case proplists:get_value(reverse, Opts0, reverse) of
+               true ->
+                   prev;
+               false ->
+                   next
+           end,
     {ok, Itr} = rocksdb:iterator(DB, CF, maybe_use_snapshot(Ledger, Opts)),
     Init = rocksdb:iterator_move(Itr, Start),
     Loop = fun L({error, invalid_iterator}, A) ->
@@ -3873,10 +3887,10 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
                L({error, _}, _A) ->
                    throw(iterator_error);
                L({ok, K} , A) ->
-                   L(rocksdb:iterator_move(Itr, next),
+                   L(rocksdb:iterator_move(Itr, SeekDir),
                      Fun(K, A));
                L({ok, K, V}, A) ->
-                   L(rocksdb:iterator_move(Itr, next),
+                   L(rocksdb:iterator_move(Itr, SeekDir),
                      Fun({K, V}, A))
            end,
     try
@@ -4232,8 +4246,67 @@ count_gateways_in_hexes(Resolution, Ledger) ->
                        Hex = h3:parent(key_to_h3(Key), Resolution),
                        Count = length(binary_to_term(GWs)),
                        maps:update_with(Hex, fun(V) -> V + Count end, Count, Acc)
-               end, #{}, []
+               end, #{}, [
+                          %% key_to_h3 returns 7 byte binaries
+                          {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
+                          {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
+                         ]
               ).
+
+random_targeting_hex(Entropy, Ledger) ->
+    Lookup = crypto:hash(sha256, Entropy),
+    H3CF = h3dex_cf(Ledger),
+    try cache_fold(Ledger, H3CF,
+                   fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
+                           throw({result, H3})
+                   end, none, [
+                               {start, {seek, <<"random-", Lookup/binary>>}},
+                               {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
+                              ]) of
+        none ->
+            try cache_fold(Ledger, H3CF,
+                       fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
+                               throw({result, H3})
+                       end, none, [
+                                   {start, {seek, <<"random-", Lookup/binary>>}},
+                                   {iterate_upper_bound, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},
+                                   reverse
+                                  ]
+                      ) of
+                none ->
+                    {error, no_populated_hexes}
+            catch
+                throw:{result, H3} ->
+                    {ok, H3}
+            end
+    catch
+        throw:{result, H3} ->
+            {ok, H3}
+    end.
+
+build_random_hex_targeting_lookup(Resolution, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({Key, _GWs}, Acc) ->
+                       H3 = key_to_h3(Key),
+                       Hex = h3:parent(H3, Resolution),
+                       case Acc == Hex of
+                           true ->
+                               %% same parent hex, noop
+                               Hex;
+                           false ->
+                               HexHash = crypto:hash(sha256, <<H3:64/integer-unsigned-little>>),
+                               %% new hex
+                               cache_put(Ledger, H3CF, <<"random-", HexHash/binary>>, <<H3:64/integer-unsigned-little>>),
+                               Hex
+                       end
+               end, #{}, [
+                          %% key_to_h3 returns 7 byte binaries
+                          {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
+                          {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
+                         ]
+              ),
+    ok.
 
 
 -spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
