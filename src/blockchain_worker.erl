@@ -917,11 +917,18 @@ add_handlers(SwarmTID, Blockchain) ->
                         ok = libp2p_swarm:add_stream_handler(SwarmTID, ProtocolVersion,
                                 {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, [ProtocolVersion, Blockchain]]}) end,
     lists:foreach(FFAddFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS),
-    ok = libp2p_swarm:add_stream_handler(
-        SwarmTID,
-        ?SNAPSHOT_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_snapshot_handler, ?SERVER, Blockchain]}
-    ),
+    case application:get_env(blockchain, follow_mode, false) of
+        false ->
+            ok = libp2p_swarm:add_stream_handler(
+                   SwarmTID,
+                   ?SNAPSHOT_PROTOCOL,
+                   {libp2p_framed_stream, server, [blockchain_snapshot_handler, ?SERVER, Blockchain]}
+                  );
+        true ->
+            %% don't serve snapshots from follower nodes for now because libp2p doesn't support
+            %% streaming data off disk, and follower nodes tend to have less RAM
+            ok
+    end,
     ok = libp2p_swarm:add_stream_handler(
         SwarmTID,
         ?STATE_CHANNEL_PROTOCOL_V1,
