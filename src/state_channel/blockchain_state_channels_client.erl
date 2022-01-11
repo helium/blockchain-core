@@ -228,7 +228,7 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
         _ ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
-handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
+handle_info({blockchain_event, {add_block, BlockHash, _, Ledger}},
             #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     Block =
         case blockchain:get_block(BlockHash, Chain) of
