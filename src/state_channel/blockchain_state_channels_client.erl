@@ -325,6 +325,13 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
                                                    end,
                                                    [SCID|Acc];
                                                false ->
+                                                   case LedgerHeight > ExpireAt + SCGrace of
+                                                       true ->
+                                                           %% it's dead, remove it
+                                                           rocksdb:delete(State#state.db, State#state.cf, SCID, []);
+                                                       false ->
+                                                           ok
+                                                   end,
                                                    Acc
                                            end
                                    end, [], SCs),
