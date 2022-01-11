@@ -1955,16 +1955,17 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
     try
         SnapDir = filename:join(Dir, "saved-snaps"),
         SnapFile = list_to_binary(io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)])),
-        ok = filelib:ensure_dir(filename:join(SnapDir, SnapFile)),
+        OhSnap = filename:join(SnapDir, SnapFile),
+        ok = filelib:ensure_dir(OhSnap),
         case BinSnap of
             {file, Filename} ->
-                case filelib:is_regular(filename:join(SnapDir, SnapFile)) of
+                case filelib:is_regular(OhSnap) of
                     true ->
-                        ok = file:delete(filename:join(SnapDir, SnapFile));
+                        ok = file:delete(OhSnap);
                     false ->
                         ok
                 end,
-                ok = file:make_link(Filename, filename:join(SnapDir, SnapFile));
+                ok = file:make_link(Filename, OhSnap);
             B when is_binary(B); is_list(B) ->
                 %% can be a binary or an iolist if it was generated locally
                 %% and we can avoid constructing a large binary by just dumping the
