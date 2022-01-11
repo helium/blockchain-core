@@ -4266,7 +4266,9 @@ random_targeting_hex(Entropy, Ledger) ->
                                false ->
                                    {ok, <<OtherH3:64/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"random-", Offset:64/integer-unsigned-big>>, []),
                                    throw({result, OtherH3})
-                           end
+                           end;
+                      (_, none) ->
+                           none
                    end, none, [
                                {start, {seek, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}}, reverse]) of
         none ->
