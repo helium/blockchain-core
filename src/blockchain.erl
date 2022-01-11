@@ -1958,6 +1958,12 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
         ok = filelib:ensure_dir(filename:join(SnapDir, SnapFile)),
         case BinSnap of
             {file, Filename} ->
+                case filelib:is_regular(filename:join(SnapDir, SnapFile)) of
+                    true ->
+                        ok = file:delete(filename:join(SnapDir, SnapFile));
+                    false ->
+                        ok
+                end,
                 ok = file:make_link(Filename, filename:join(SnapDir, SnapFile));
             B when is_binary(B); is_list(B) ->
                 %% can be a binary or an iolist if it was generated locally
