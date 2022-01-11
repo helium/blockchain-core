@@ -90,12 +90,16 @@ snapshot_take(Filename) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
     ok = blockchain_lock:acquire(),
-    Blocks = blockchain_ledger_snapshot_v1:get_blocks(Chain),
-    Infos = blockchain_ledger_snapshot_v1:get_infos(Chain),
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos),
-    blockchain_lock:release(),
-    BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
-    file:write_file(Filename, BinSnap).
+    case blockchain_ledger_snapshot_v1:get_blocks(Chain) of
+        {error, encountered_a_rescue_block}=Err ->
+            Err;
+        {ok, Blocks} ->
+            Infos = blockchain_ledger_snapshot_v1:get_infos(Chain),
+            {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos),
+            blockchain_lock:release(),
+            BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
+            file:write_file(Filename, BinSnap)
+    end.
 
 snapshot_load_cmd() ->
     [
