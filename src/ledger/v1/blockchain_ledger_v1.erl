@@ -4257,33 +4257,20 @@ count_gateways_in_hexes(Resolution, Ledger) ->
 random_targeting_hex(Entropy, Ledger) ->
     Lookup = xxhash:hash64(Entropy),
     H3CF = h3dex_cf(Ledger),
-    SearchForwards = [{iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿ">>}],
-    SearchBackwards = [{iterate_upper_bound, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},
-                       reverse],
-    %% randomize if we should search forwards or backwards first
-    [Args1, Args2] = case Lookup rem 2 of
-                         0 ->
-                             [SearchForwards, SearchBackwards];
-                         1 ->
-                             [SearchBackwards, SearchForwards]
-                     end,
     try cache_fold(Ledger, H3CF,
-                   fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
-                           throw({result, H3})
+                   fun({<<"random-", Max:64/integer-unsigned-big>>, <<H3:64/integer-unsigned-little>>}, none) ->
+                           Offset = Lookup rem Max +1,
+                           case Offset == Max of
+                               true ->
+                                   throw({result, H3});
+                               false ->
+                                   {ok, <<OtherH3:64/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"random-", Offset:64/integer-unsigned-big>>, []),
+                                   throw({result, OtherH3})
+                           end
                    end, none, [
-                               {start, {seek, <<"random-", Lookup:64/integer-unsigned-big>>}} | Args1]) of
+                               {start, {seek, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}}, reverse]) of
         none ->
-            try cache_fold(Ledger, H3CF,
-                       fun({_Key, <<H3:64/integer-unsigned-little>>}, none) ->
-                               throw({result, H3})
-                       end, none, [
-                                   {start, {seek, <<"random-", Lookup/integer-unsigned-big>>}} | Args2]) of
-                none ->
-                    {error, no_populated_hexes}
-            catch
-                throw:{result, H3} ->
-                    {ok, H3}
-            end
+            {error, no_populated_hexes}
     catch
         throw:{result, H3} ->
             {ok, H3}
@@ -4294,21 +4281,19 @@ build_random_hex_targeting_lookup(Resolution, Ledger) ->
     cache_fold(Ledger, H3CF,
                fun({<<"random-", _/binary>>, _}, Acc) ->
                        Acc;
-                 ({Key, _GWs}, Acc) ->
+                 ({Key, _GWs}, {PrevHex, Count}=Acc) ->
                        H3 = key_to_h3(Key),
                        Hex = h3:parent(H3, Resolution),
-                       case Acc == Hex of
+                       case PrevHex == Hex of
                            true ->
                                %% same parent hex, noop
-                               Hex;
+                               Acc;
                            false ->
-                               %% h3_to_key strips out redundant information to ideally give better hash distribution
-                               HexHash = xxhash:hash64(h3_to_key(Hex)),
                                %% new hex
-                               cache_put(Ledger, H3CF, <<"random-", HexHash:64/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
-                               Hex
+                               cache_put(Ledger, H3CF, <<"random-", Count:64/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
+                               {Hex, Count + 1}
                        end
-               end, #{}, [
+               end, {0, 0}, [
                           %% key_to_h3 returns 7 byte binaries
                           {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
                           {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
@@ -4326,7 +4311,7 @@ clean_random_hex_targeting_lookup(Ledger) ->
                         Acc
                end, 0, [
                           {start, {seek, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}},
-                          {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿ">>}
+                          {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
                          ]
               ),
     {ok, Deleted}.
