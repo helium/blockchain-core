@@ -399,7 +399,7 @@ get_pubkeybin_sigfun(Swarm) ->
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     {PubKeyBin, SigFun}.
 
--spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
+-spec icdf_select([{any(), number()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:foldl(fun({_Node, Weight}, Acc) ->
                               Acc + Weight

@@ -4256,16 +4256,15 @@ count_gateways_in_hexes(Resolution, Ledger) ->
                          ]
               ).
 
-random_targeting_hex(Entropy, Ledger) ->
-    Lookup = xxhash:hash64(Entropy),
+random_targeting_hex(RandState, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     case cache_get(Ledger, H3CF, <<"population">>, []) of
         {ok, <<0:32/integer-unsigned-little>>} ->
             {error, no_populated_hexes};
         {ok, <<Count:32/integer-unsigned-little>>} ->
-            Jump = Lookup rem Count,
-            {ok, <<Hex:64/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"random-", Jump:32/integer-unsigned-big>>, []),
-            {ok, Hex};
+            {Val, NewRandState} = rand:uniform_s(Count, RandState),
+            {ok, <<Hex:64/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"random-", (Val - 1):32/integer-unsigned-big>>, []),
+            {ok, Hex, NewRandState};
         not_found ->
             {error, no_populated_hexes};
         Error ->
