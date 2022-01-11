@@ -228,7 +228,26 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
         _ ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
-handle_info({blockchain_event, {add_block, BlockHash, _, Ledger}},
+handle_info({blockchain_event, {add_block, _BlockHash, true, Ledger}}, State) ->
+    SCs = state_channels(State),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+                  {ok, G} -> G;
+                  _ -> 0
+              end,
+    lists:foreach(fun([H|_]) ->
+                          ExpireAt = blockchain_state_channel_v1:expire_at_block(H),
+                          SCID = blockchain_state_channel_v1:id(H),
+                          case LedgerHeight > ExpireAt + SCGrace of
+                              true ->
+                                  %% it's dead, remove it
+                                  rocksdb:delete(State#state.db, State#state.cf, SCID, []);
+                              false ->
+                                  ok
+                          end
+                  end, SCs),
+    {noreply, State};
+handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
             #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     Block =
         case blockchain:get_block(BlockHash, Chain) of
@@ -325,13 +344,6 @@ handle_info({blockchain_event, {add_block, BlockHash, _, Ledger}},
                                                    end,
                                                    [SCID|Acc];
                                                false ->
-                                                   case LedgerHeight > ExpireAt + SCGrace of
-                                                       true ->
-                                                           %% it's dead, remove it
-                                                           rocksdb:delete(State#state.db, State#state.cf, SCID, []);
-                                                       false ->
-                                                           ok
-                                                   end,
                                                    Acc
                                            end
                                    end, [], SCs),
