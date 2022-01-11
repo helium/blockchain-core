@@ -118,7 +118,7 @@
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash_and_height).
 -define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
--define(OP_SIZE, 1024*1024). % output garbage collection in megabytes
+-define(OP_SIZE, (1024*1024)). % output garbage collection in megabytes
 
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
