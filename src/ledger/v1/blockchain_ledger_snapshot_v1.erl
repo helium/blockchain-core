@@ -876,32 +876,32 @@ hash(Snap) ->
         v6 ->
             %% attempt to incrementally hash the snapshot without building up a big binary
             Ctx0 = crypto:hash_init(sha256),
-            Size = snapshot_size(Snap),
+            Size = snapshot_size(Snap#{blocks => <<>>}),
             Ctx1 = crypto:hash_update(Ctx0, <<6, Size:32/integer-unsigned-little>>),
-            FinalCtx = maps:fold(fun(blocks, _, Acc) ->
+            FinalCtx = lists:foldl(fun({blocks, _}, Acc) ->
                               Key = term_to_binary(blocks),
                               KeyLen = byte_size(Key),
                               crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, 0:32/integer-unsigned-little>>);
-                          (version, Version, Acc) ->
+                          ({version, Version}, Acc) ->
                               Key = term_to_binary(version),
                               KeyLen = byte_size(Key),
                               Value = term_to_binary(Version),
                               ValueLen = byte_size(Value),
                               crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, ValueLen:32/integer-unsigned-little, Value/binary>>);
-                          (K, V, Acc) when is_binary(V) ->
+                          ({K, V}, Acc) when is_binary(V) ->
                               Key = term_to_binary(K),
                               KeyLen = byte_size(Key),
                               ValueLen = byte_size(V),
                               TmpCtx = crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, ValueLen:32/integer-unsigned-little>>),
                               crypto:hash_update(TmpCtx, V);
-                         (K, {FD, Pos, Len}, Acc) ->
+                         ({K, {FD, Pos, Len}}, Acc) ->
                               Key = term_to_binary(K),
                               KeyLen = byte_size(Key),
                               ValueLen = Len,
                               TmpCtx = crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, ValueLen:32/integer-unsigned-little>>),
                               {ok, Pos} = file:position(FD, {bof, Pos}),
                               hash_bytes(TmpCtx, FD, Len)
-                      end, Ctx1, Snap),
+                      end, Ctx1, lists:keysort(1, maps:to_list(Snap))),
             crypto:hash_final(FinalCtx);
         _ -> 
             crypto:hash(sha256, serialize(Snap, noblocks))
