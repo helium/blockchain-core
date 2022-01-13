@@ -1062,7 +1062,7 @@ start_snapshot_sync(Hash, Height, Peer,
                                       %% if the file doesn't deserialize correctly, it will
                                       %% get deleted, so we can redownload it on some other
                                       %% attempt
-                                      attempt_load_snapshot_from_disk(Filename, ConfigHash, Chain);
+                                      ok = attempt_load_snapshot_from_disk(Filename, ConfigHash, Chain);
                                   _ ->
                                       %% don't do anything
                                       ok
@@ -1192,19 +1192,25 @@ attempt_load_snapshot_from_disk(Filename, Hash, Chain) ->
     lager:debug("attempting to load snapshot from ~p", [Filename]),
     %% TODO at some point we could probably load the snapshot file in chunks?
     lager:debug("attempting to deserialize snapshot and validate hash ~p", [Hash]),
-    Snap = case blockchain_ledger_snapshot_v1:deserialize(Hash, {file, Filename}) of
-               {error, _} = Err ->
-                   lager:error("While deserializing ~p, got ~p. Deleting ~p",
-                               [Filename, Err, Filename]),
-                   ok = file:delete(Filename),
-                   throw(Err);
-               {ok, S} -> S
-           end,
-    SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
-    lager:debug("attempting to store snapshot in rocks"),
-    ok = blockchain:add_bin_snapshot({file, Filename}, SnapHeight, Hash, Chain),
-    lager:info("Stored snap ~p - attempting install", [SnapHeight]),
-    blockchain_worker:install_snapshot_from_file(Filename).
+    try blockchain_ledger_snapshot_v1:deserialize(Hash, {file, Filename}) of
+        {error, _} = Err ->
+            lager:error("While deserializing ~p, got ~p. Deleting ~p",
+                        [Filename, Err, Filename]),
+            ok = file:delete(Filename),
+            Err;
+        {ok, Snap} ->
+            SnapHeight = blockchain_ledger_snapshot_v1:height(Snap),
+            lager:debug("attempting to store snapshot in rocks"),
+            ok = blockchain:add_bin_snapshot({file, Filename}, SnapHeight, Hash, Chain),
+            lager:info("Stored snap ~p - attempting install", [SnapHeight]),
+            blockchain_worker:install_snapshot_from_file(Filename)
+    catch
+        What:Why:Stack ->
+            lager:error("While deserializing ~p, got ~p:~p:~p. Deleting ~p",
+                        [Filename, What, Why, Stack, Filename]),
+            ok = file:delete(Filename),
+            {error, {What, Why, Stack}}
+    end.
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,
