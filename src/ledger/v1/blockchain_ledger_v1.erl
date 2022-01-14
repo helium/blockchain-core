@@ -4587,16 +4587,14 @@ subnet_lookup(_, _, _) ->
 -spec snapshot_vars(ledger()) -> [{binary(), binary()}].
 snapshot_vars(Ledger) ->
     CF = default_cf(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, CF,
-          fun({<<"$var_", Name/binary>>, BValue}, Acc) ->
-                  Value = binary_to_term(BValue),
-                  maps:put(Name, Value, Acc)
-          end, #{},
-          [{start, {seek, <<"$var_">>}},
-           {iterate_upper_bound, <<"$var`">>}]))).
+    cache_fold(
+      Ledger, CF,
+      fun({<<"$var_", Name/binary>>, BValue}, Acc) ->
+              Value = binary_to_term(BValue),
+              [{Name, Value} | Acc]
+      end, [],
+      [{start, {seek, <<"$var_">>}},
+       {iterate_upper_bound, <<"$var`">>}]).
 
 load_vars(Vars, Ledger) ->
     vars(maps:from_list(Vars), [], Ledger),
@@ -4607,35 +4605,33 @@ load_vars(Vars, Ledger) ->
 snapshot_delayed_vars(Ledger) ->
     CF = default_cf(Ledger),
     {ok, Height} = current_height(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, CF,
-          fun({<<"$block_", HashHeightBin/binary>>, BP}, Acc) ->
-                  %% there is a long standing bug not deleting
-                  %% these lists once processed, just fixed as
-                  %% this code was written, so we need to ignore
-                  %% old ones till we're past all of this
-                  HashHeight = binary_to_integer(HashHeightBin),
-                  case HashHeight >= Height of
-                      true ->
-                          Hashes = binary_to_term(BP),
-                          Val = lists:sort(
-                                  lists:map(
-                                    fun(Hash) ->
-                                            {ok, Bin} = cache_get(Ledger, CF, Hash, []),
-                                            {Hash, binary_to_term(Bin)}
-                                    end,
-                                    Hashes)),
-                          maps:put(HashHeight, Val, Acc);
-                      false ->
-                          Acc
-                  end
-          end, #{},
-          %% we could iterate from the correct block if I had
-          %% encoded the blocks correctly, but I didn't
-          [{start, {seek, <<"$block_">>}},
-           {iterate_upper_bound, <<"$block`">>}]))).
+    cache_fold(
+      Ledger, CF,
+      fun({<<"$block_", HashHeightBin/binary>>, BP}, Acc) ->
+              %% there is a long standing bug not deleting
+              %% these lists once processed, just fixed as
+              %% this code was written, so we need to ignore
+              %% old ones till we're past all of this
+              HashHeight = binary_to_integer(HashHeightBin),
+              case HashHeight >= Height of
+                  true ->
+                      Hashes = binary_to_term(BP),
+                      Val = lists:sort(
+                              lists:map(
+                                fun(Hash) ->
+                                        {ok, Bin} = cache_get(Ledger, CF, Hash, []),
+                                        {Hash, binary_to_term(Bin)}
+                                end,
+                                Hashes)),
+                      [{HashHeight, Val} | Acc];
+                  false ->
+                      Acc
+              end
+      end, [],
+      %% we could iterate from the correct block if I had
+      %% encoded the blocks correctly, but I didn't
+      [{start, {seek, <<"$block_">>}},
+       {iterate_upper_bound, <<"$block`">>}]).
 
 load_delayed_vars(DVars, Ledger) ->
     CF = default_cf(Ledger),
@@ -4692,16 +4688,14 @@ load_threshold_txns(Txns, Ledger) ->
 -spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, PoCsCF,
-          fun({OnionKeyHash, BValue}, Acc) ->
-                  List = binary_to_term(BValue),
-                  Value = lists:map(fun blockchain_ledger_poc_v2:deserialize/1, List),
-                  maps:put(OnionKeyHash, Value, Acc)
-          end, #{},
-          []))).
+    cache_fold(
+      Ledger, PoCsCF,
+      fun({OnionKeyHash, BValue}, Acc) ->
+              List = binary_to_term(BValue),
+              Value = lists:map(fun blockchain_ledger_poc_v2:deserialize/1, List),
+              maps:put(OnionKeyHash, Value, Acc)
+      end, [],
+      []).
 
 load_pocs(PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
@@ -4848,16 +4842,14 @@ load_htlcs(HTLCs, Ledger) ->
 -spec snapshot_ouis(ledger()) -> [{binary(), binary()}].
 snapshot_ouis(Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, RoutingCF,
-          fun({OUI0, BValue}, Acc) ->
-                  <<OUI:32/integer-unsigned-big>> = OUI0,
-                  Value = blockchain_ledger_routing_v1:deserialize(BValue),
-                  maps:put(OUI, Value, Acc)
-          end, #{},
-          []))).
+    cache_fold(
+      Ledger, RoutingCF,
+      fun({OUI0, BValue}, Acc) ->
+              <<OUI:32/integer-unsigned-big>> = OUI0,
+              Value = blockchain_ledger_routing_v1:deserialize(BValue),
+              [{OUI, Value} | Acc]
+      end, [],
+      []).
 
 load_ouis(OUIs, Ledger) ->
     RoutingCF = routing_cf(Ledger),
@@ -4872,15 +4864,13 @@ load_ouis(OUIs, Ledger) ->
 -spec snapshot_subnets(ledger()) -> [{binary(), binary()}].
 snapshot_subnets(Ledger) ->
     SubnetsCF = subnets_cf(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, SubnetsCF,
-          fun({Subnet, OUI0}, Acc) ->
-                  <<OUI:32/little-unsigned-integer>> = OUI0,
-                  maps:put(Subnet, OUI, Acc)
-          end, #{},
-          []))).
+    cache_fold(
+      Ledger, SubnetsCF,
+      fun({Subnet, OUI0}, Acc) ->
+              <<OUI:32/little-unsigned-integer>> = OUI0,
+              [{Subnet, OUI} | Acc]
+      end, [],
+      []).
 
 load_subnets(Subnets, Ledger) ->
     SubnetsCF = subnets_cf(Ledger),
@@ -4901,16 +4891,14 @@ load_subnets(Subnets, Ledger) ->
     V2 :: blockchain_ledger_state_channel_v2:state_channel_v2().
 snapshot_state_channels(Ledger) ->
     SCsCF = state_channels_cf(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, SCsCF,
-          fun({ID, V}, Acc) ->
-                  %% do we need to decompose the ID here into Key and Owner?
+    cache_fold(
+      Ledger, SCsCF,
+      fun({ID, V}, Acc) ->
+              %% do we need to decompose the ID here into Key and Owner?
                   {_Mod, SC} = deserialize_state_channel(V),
-                  maps:put(ID, SC, Acc)
-          end, #{},
-          []))).
+              [{ID, SC} | Acc]
+      end, [],
+      []).
 
 -spec load_state_channels([tuple()], ledger()) -> ok.
 %% @doc Loads the cache with state channels from a snapshot
@@ -4927,17 +4915,15 @@ load_state_channels(SCs, Ledger) ->
 
 -spec snapshot_hexes(ledger()) -> [{non_neg_integer(), [binary()]} | {list, #{non_neg_integer() => pos_integer()}}].
 snapshot_hexes(Ledger) ->
-    case blockchain_ledger_v1:get_hexes(Ledger) of
-        {ok, HexMap} ->
-            lists:sort(
-              maps:to_list(
-                maps:fold(
-                  fun(HexAddr, _Ct, Acc) ->
-                          {ok, Hex} = get_hex(HexAddr, Ledger),
-                          Acc#{HexAddr => Hex}
-                  end,
-                  #{list => HexMap},
-                  HexMap)));
+    case blockchain_ledger_v1:get_hexes_list(Ledger) of
+        {ok, Hexes} ->
+            lists:foldl(
+              fun({HexAddr, _Ct}, Acc) ->
+                      {ok, Hex} = get_hex(HexAddr, Ledger),
+                      [{HexAddr, Hex} | Acc]
+              end,
+              [{list, Hexes}],
+              Hexes);
         {error, not_found} ->
             []
     end.
