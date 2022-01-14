@@ -43,10 +43,19 @@ init_per_suite(Config) ->
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
-    Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
-
-    ct:pal("loaded ledger at height ~p", [Height]),
+    Ledger0 = blockchain:ledger(Chain),
+    {ok, Height0} = blockchain_ledger_v1:current_height(Ledger0),
+    ct:pal("ledger height BEFORE snap load: ~p", [Height0]),
+    Ledger1 =
+        blockchain_ledger_snapshot_v1:import(
+            Chain,
+            Height0,
+            SHA,
+            Snapshot,
+            BinSnap
+        ),
+    {ok, Height1} = blockchain_ledger_v1:current_height(Ledger1),
+    ct:pal("ledger height AFTER snap load: ~p", [Height1]),
 
     [{chain, blockchain:ledger(Ledger1, Chain)} | Config].
 
