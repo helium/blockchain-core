@@ -129,12 +129,21 @@ basic_test(Config) ->
         snap_hash_without_field(upgrades, SnapshotB),
         "Hashes A and B are equal without \"upgrades\" field."
     ),
+
+    Ledger0 = blockchain:ledger(Chain),
+    {ok, Height0} = blockchain_ledger_v1:current_height(Ledger0),
+    ct:pal("ledger height BEFORE snap load: ~p", [Height0]),
     LedgerB =
         blockchain_ledger_snapshot_v1:import(
             Chain,
+            Height0,
             snap_hash_without_field(upgrades, SnapshotA),
-            SnapshotB
+            SnapshotB,
+            SnapshotABin
         ),
+    {ok, Height1} = blockchain_ledger_v1:current_height(LedgerB),
+    ct:pal("ledger height AFTER snap load: ~p", [Height1]),
+
     {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, [], []),
     ?assertMatch(
         [_|_],
@@ -160,11 +169,17 @@ basic_test(Config) ->
         maps:remove(upgrades, SnapshotC)
     ),
 
-    ok = blockchain:add_snapshot(SnapshotC, Chain),
     HashC = blockchain_ledger_snapshot_v1:hash(SnapshotC),
+    {ok, Height2, HashC2} = blockchain:add_snapshot(SnapshotC, Chain),
+    ?assertEqual(Height1, Height2),
+    ?assertEqual(HashC, HashC2),
     {ok, SnapshotDBin} = blockchain:get_snapshot(HashC, Chain),
     {ok, SnapshotD} = blockchain_ledger_snapshot_v1:deserialize(HashC, SnapshotDBin),
-    ?assertEqual(SnapshotC, SnapshotD),
+
+    % XXX Equality eats 90+% of my 32GB of RAM on failures. Use diff instead.
+    %?assertEqual(SnapshotC, SnapshotD),
+    ?assertEqual([], blockchain_ledger_snapshot_v1:diff(SnapshotC, SnapshotD)),
+
     HashD = blockchain_ledger_snapshot_v1:hash(SnapshotD),
     ?assertEqual(HashC, HashD),
     ok.
@@ -257,10 +272,19 @@ ledger(Config) ->
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
-    Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
-
-    ct:pal("loaded ledger at height ~p", [Height]),
+    Ledger0 = blockchain:ledger(Chain),
+    {ok, Height0} = blockchain_ledger_v1:current_height(Ledger0),
+    ct:pal("ledger height BEFORE snap load: ~p", [Height0]),
+    Ledger1 =
+        blockchain_ledger_snapshot_v1:import(
+            Chain,
+            Height0,
+            SHA,
+            Snapshot,
+            BinSnap
+        ),
+    {ok, Height1} = blockchain_ledger_v1:current_height(Ledger1),
+    ct:pal("ledger height AFTER snap load: ~p", [Height1]),
     Ledger1.
 
 

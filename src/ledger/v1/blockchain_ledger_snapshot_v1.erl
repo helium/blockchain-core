@@ -1286,18 +1286,35 @@ version(#blockchain_snapshot_v3{}) -> v3;
 version(#blockchain_snapshot_v2{}) -> v2;
 version(#blockchain_snapshot_v1{}) -> v1.
 
+kv_stream_to_list(Next) when is_function(Next) ->
+    kv_stream_to_list(Next());
+kv_stream_to_list(ok) -> % FIXME 'ok' is not OK.
+    [];
+kv_stream_to_list({K, V, Next}) ->
+    [{K, V} | kv_stream_to_list(Next())].
+
 diff(#{}=A0, #{}=B0) ->
     A = maps:from_list(
           lists:map(fun({version, V}) ->
                             {version, V};
-                       ({K, V}) ->
-                            {K, deserialize_field(K, V)}
+                       ({K, V0}) ->
+                            V =
+                                case {deserialize_field(K, V0), is_raw_field(K)} of
+                                    {V1, true} -> kv_stream_to_list(V1);
+                                    {V1, false} -> V1
+                                end,
+                            {K, V}
                     end, maps:to_list(A0))),
     B = maps:from_list(
           lists:map(fun({version, V}) ->
                             {version, V};
-                       ({K, V}) ->
-                            {K, deserialize_field(K, V)}
+                       ({K, V0}) ->
+                            V =
+                                case {deserialize_field(K, V0), is_raw_field(K)} of
+                                    {V1, true} -> kv_stream_to_list(V1);
+                                    {V1, false} -> V1
+                                end,
+                            {K, V}
                     end, maps:to_list(B0))),
     lists:foldl(
       fun({Field, AI, BI}, Acc) ->
