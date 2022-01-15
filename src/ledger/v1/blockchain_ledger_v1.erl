@@ -4927,17 +4927,15 @@ load_state_channels(SCs, Ledger) ->
 
 -spec snapshot_hexes(ledger()) -> [{non_neg_integer(), [binary()]} | {list, #{non_neg_integer() => pos_integer()}}].
 snapshot_hexes(Ledger) ->
-    case blockchain_ledger_v1:get_hexes(Ledger) of
-        {ok, HexMap} ->
-            lists:sort(
-              maps:to_list(
-                maps:fold(
-                  fun(HexAddr, _Ct, Acc) ->
-                          {ok, Hex} = get_hex(HexAddr, Ledger),
-                          Acc#{HexAddr => Hex}
-                  end,
-                  #{list => HexMap},
-                  HexMap)));
+    case blockchain_ledger_v1:get_hexes_list(Ledger) of
+        {ok, Hexes} ->
+            lists:foldl(
+              fun({HexAddr, _Ct}, Acc) ->
+                      {ok, Hex} = get_hex(HexAddr, Ledger),
+                      [{HexAddr, Hex} | Acc]
+              end,
+              [{list, Hexes}],
+              Hexes);
         {error, not_found} ->
             []
     end.
