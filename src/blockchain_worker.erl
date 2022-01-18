@@ -45,14 +45,13 @@
     absorb_done/0,
     is_absorbing/0,
 
-    snapshot_sync/2,
     install_snapshot/4,
     install_snapshot_from_file/1,
     install_aux_snapshot/1,
     reset_ledger_to_snap/2,
     async_reset/1,
 
-    grab_snapshot/2, fetch_and_parse_latest_snapshot/1,
+    grab_snapshot/2,
 
     add_commit_hook/3, add_commit_hook/4,
     remove_commit_hook/1,
@@ -85,7 +84,14 @@
 -endif.
 
 -type snap_hash() :: binary().
--type snapshot_info() :: { Hash :: snap_hash(), Height :: pos_integer() }.
+
+-record(snapshot_info, {
+          hash = <<>> :: snap_hash(),
+          height = 0 :: integer(),
+          etag = undefined :: undefined | string()
+         }).
+
+-type snapshot_info() :: #snapshot_info{}.
 
 -record(state,
         {
@@ -96,6 +102,7 @@
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
+         snapshot_timer = undefined :: undefined | reference(),
          snapshot_info :: undefined | snapshot_info(),
          gossip_ref = make_ref() :: reference(),
          absorb_info :: undefined | {pid(), reference()},
@@ -103,7 +110,7 @@
          resync_info :: undefined | {pid(), reference()},
          resync_retries = 3 :: pos_integer(),
          rocksdb_gc_mref :: undefined | reference(),
-         mode :: snapshot | normal | reset
+         mode = normal :: snapshot | normal | reset
         }).
 
 %% ------------------------------------------------------------------
@@ -175,12 +182,6 @@ set_absorbing(Block, Blockchain, Syncing) ->
 -spec reset_ledger_to_snap(binary(), pos_integer()) -> ok.
 reset_ledger_to_snap(Hash, Height) ->
     gen_server:call(?SERVER, {reset_ledger_to_snap, Hash, Height}, infinity).
-
-snapshot_sync(Hash, Height) ->
-    %% needs to be a cast to break a deadlock loop
-    %% mostly doing this to keep the code paths similar, but they
-    %% might want a more extensive reworking?
-    gen_server:cast(?SERVER, {snapshot_sync, Hash, Height}).
 
 install_snapshot(Height, Hash, Snapshot, BinSnap) ->
     gen_server:call(?SERVER, {install_snapshot, Height, Hash, Snapshot, BinSnap}, infinity).
@@ -379,10 +380,11 @@ init(Args) ->
 
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(SwarmTID, Addr) || Addr <- ListenAddrs ]),
-    {Mode, Info} = get_sync_mode(Blockchain),
-
-    {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
-                gossip_ref = Ref, mode = Mode, snapshot_info = Info}}.
+    NewState = #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
+                gossip_ref = Ref},
+    {Mode, Info} = get_sync_mode(NewState),
+    SnapshotTimerRef = schedule_snapshot_timer(),
+    {ok, NewState#state{snapshot_timer=SnapshotTimerRef, mode=Mode, snapshot_info=Info}}.
 
 handle_call({integrate_genesis_block_synchronously, GenesisBlock}, _From, #state{}=S0) ->
     {Result, S1} = integrate_genesis_block_(GenesisBlock, S0),
@@ -540,9 +542,10 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Blockchain, Ref} = load_chain(State#state.swarm, BaseDir, GenDir),
-    {Mode, Info} = get_sync_mode(Blockchain),
+    {Mode, Info} = get_sync_mode(State),
+    NewState = State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info},
     notify({new_chain, Blockchain}),
-    {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info}};
+    {noreply, NewState};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{}=S0) ->
     {_, S1} = integrate_genesis_block_(GenesisBlock, S0),
     {noreply, S1};
@@ -595,9 +598,6 @@ handle_cast({peer_height, Height, Head, _Sender}, #state{blockchain=Chain}=State
                 end
         end,
     {noreply, NewState};
-handle_cast({snapshot_sync, Hash, Height}, State) ->
-    State1 = snapshot_sync(Hash, Height, State),
-    {noreply, State1};
 handle_cast({async_reset, _Height}, State) ->
     lager:info("got async_reset at height ~p, ignoring", [_Height]),
     {noreply, State};
@@ -609,6 +609,10 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(snapshot_timer_tick, State) ->
+    Tref = schedule_snapshot_timer(),
+    {Mode, Info} = get_sync_mode(State#state.blockchain),
+    {noreply, State#state{snapshot_timer = Tref, mode=Mode, snapshot_info=Info}};
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
 handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
@@ -633,8 +637,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
                     {noreply, schedule_sync(State)};
                 _ when Mode == snapshot ->
                     lager:info("snapshot sync down reason ~p", [Reason]),
-                    {Hash, Height} = State#state.snapshot_info,
-                    {noreply, snapshot_sync(Hash, Height, State)};
+                    {noreply, snapshot_sync(State)};
                 _ ->
                     case Reason of dial -> ok; _ -> lager:info("block sync down: ~p", [Reason]) end,
                     %% we're deep in the past here, or the last one errored out, so just start the next sync
@@ -767,7 +770,8 @@ integrate_genesis_block_(_, #state{}=State0) ->
 
 maybe_sync(#state{mode = normal} = State) ->
     maybe_sync_blocks(State);
-maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) ->
+maybe_sync(#state{mode = snapshot, blockchain = Chain,
+                  sync_pid = Pid, snapshot_info = #snapshot_info{height = Height}} = State) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
         %% still waiting for the background process to download and
@@ -775,11 +779,11 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
         {ok, _N} when Pid /= undefined ->
             reset_sync_timer(State);
         {ok, CurrHeight} ->
-            case State#state.snapshot_info of
+            case Height of
                 %% when the current height is *lower* than than the
                 %% snap height, start the sync
-                {Hash, Height} when CurrHeight < Height - 1 ->
-                    snapshot_sync(Hash, Height, State);
+                Height when CurrHeight < Height - 1 ->
+                    snapshot_sync(State);
                 _ ->
                     reset_sync_timer(State)
             end;
@@ -827,25 +831,18 @@ maybe_sync_blocks(#state{blockchain = Chain} = State) ->
             schedule_sync(State)
     end.
 
-snapshot_sync(_Hash, _Height, #state{sync_pid = Pid} = State) when Pid /= undefined ->
+snapshot_sync(#state{sync_pid = Pid} = State) when Pid /= undefined ->
     State;
-snapshot_sync(Hash, Height, #state{swarm_tid = SwarmTID} = State) ->
-    case get_random_peer(SwarmTID) of
-        no_peers ->
-            lager:info("no snapshot peers yet"),
-            %% try again later when there's peers
-            reset_sync_timer(State#state{snapshot_info = {Hash, Height}, mode = snapshot});
-        RandomPeer ->
-            {Pid, Ref} = start_snapshot_sync(Hash, Height, RandomPeer, State),
-            lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
-            State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot,
-                        snapshot_info = {Hash, Height}}
-    end.
+snapshot_sync(State) ->
+    {Pid, Ref, SnapInfo} = start_snapshot_sync(State),
+    lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
+    State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot, snapshot_info=SnapInfo}.
 
 reset_ledger_to_snap(Hash, Height, State) ->
     lager:info("clearing the ledger now"),
     State1 = pause_sync(State),
-    snapshot_sync(Hash, Height, State1).
+    SnapInfo = #snapshot_info{hash=Hash, height=Height},
+    snapshot_sync(State1#state{snapshot_info=SnapInfo}).
 
 start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
     case get_random_peer(SwarmTID) of
@@ -1030,103 +1027,102 @@ grab_snapshot(Height, Hash) ->
             end
     end.
 
-start_snapshot_sync(Hash, Height, Peer,
-                    #state{blockchain=Chain, swarm_tid=SwarmTID, sync_paused=SyncPaused}) ->
-    spawn_monitor(fun() ->
-                          try
-                              BaseUrl = application:get_env(blockchain, snap_source_base_url, undefined),
-                              HonorQS = application:get_env(blockchain, honor_quick_sync, true),
-                              FetchLatest = application:get_env(blockchain, fetch_latest_from_snap_source, true),
+start_snapshot_sync(#state{blockchain=Chain, sync_paused=SyncPaused, snapshot_info=SnapInfo}) ->
 
-                              case {HonorQS, SyncPaused, BaseUrl} of
-                                  {true, false, undefined} ->
-                                      %% blow up, no snap_source base url
-                                      throw({error, no_snap_source_base_url});
-                                  {true, false, BaseUrl} ->
-                                      %% we are looking up the configured blessed
-                                      %% height again because the height passed
-                                      %% into this function has sometimes been
-                                      %% adjusted either +1 or -1
-                                      {ConfigHeight, ConfigHash} =
-                                          case FetchLatest of
-                                              false ->
-                                                  {ok, BlessedHeight} =
-                                                      application:get_env(blockchain, blessed_snapshot_block_height),
-                                                  {BlessedHeight, Hash};
-                                              true ->
-                                                  fetch_and_parse_latest_snapshot(BaseUrl)
-                                          end,
-                                      {ok, Filename} = attempt_fetch_snap_source_snapshot(BaseUrl,
-                                                                                 ConfigHeight),
-                                      lager:info("Successfully saved snap to disk in ~p", [Filename]),
-                                      %% if the file doesn't deserialize correctly, it will
-                                      %% get deleted, so we can redownload it on some other
-                                      %% attempt
-                                      ok = attempt_load_snapshot_from_disk(Filename, ConfigHash, Chain);
-                                  _ ->
-                                      %% don't do anything
+    BaseUrl = application:get_env(blockchain, snap_source_base_url, undefined),
+    try
+        NewSnapInfo = fetch_and_parse_latest_snapshot(SnapInfo),
+
+        {Pid, Ref} = spawn_monitor(fun() ->
+                              try
+                                  HonorQS = application:get_env(blockchain, honor_quick_sync, true),
+                                  case {HonorQS, SyncPaused} of
+                                      {true, false} ->
+                                          {ok, Filename} = attempt_fetch_snap_source_snapshot(BaseUrl,
+                                                                                  NewSnapInfo#snapshot_info.height),
+                                          lager:info("Successfully saved snap to disk in ~p", [Filename]),
+                                          %% if the file doesn't deserialize correctly, it will
+                                          %% get deleted, so we can redownload it on some other
+                                          %% attempt
+                                          ok = attempt_load_snapshot_from_disk(Filename,
+                                                                               NewSnapInfo#snapshot_info.hash,
+                                                                               Chain);
+                                      _ ->
+                                          %% don't do anything
+                                          ok
+                                  end
+                              catch
+                                  _Type:Error:St ->
+                                      lager:error("snapshot download or loading failed because ~p: ~p", [Error, St]),
                                       ok
                               end
-                          catch
-                              _Type:Error:St ->
-                                  lager:error("snapshot download or loading failed because ~p: ~p", [Error, St]),
-                                  attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer)
-                          end
-                  end).
-
--spec attempt_fetch_p2p_snapshot(
-        Hash :: binary(),
-        Height :: non_neg_integer(),
-        SwarmTID :: ets:tid(),
-        Chain :: blockchain:blockchain(),
-        Peer :: string()
-) -> ok.
-attempt_fetch_p2p_snapshot(Hash, Height, SwarmTID, Chain, Peer) ->
-    lager:info("attempting snapshot sync with ~p", [Peer]),
-    case libp2p_swarm:dial_framed_stream(SwarmTID, Peer,
-                                         ?SNAPSHOT_PROTOCOL,
-                                         blockchain_snapshot_handler,
-                                         [Hash, Height, Chain]) of
-        {ok, Stream} ->
-            Ref1 = erlang:monitor(process, Stream),
-            receive
-                cancel ->
-                    lager:info("snapshot sync cancelled"),
-                    libp2p_framed_stream:close(Stream);
-                {'DOWN', Ref1, process, Stream, normal} ->
-                    ok;
-                {'DOWN', Ref1, process, Stream, Reason} ->
-                    lager:info("snapshot sync failed with error ~p", [Reason]),
-                    ok
-            after timer:minutes(15) ->
-                    ok
-            end;
-        _ ->
-            ok
+                      end),
+        {Pid, Ref, NewSnapInfo}
+    catch
+        _T:Error:St ->
+            lager:error("couldn't sync snapshot because ~p: ~p", [Error, St]),
+            {Pid0, Ref0} = spawn_monitor(fun() -> exit(Error) end),
+            {Pid0, Ref0, SnapInfo}
     end.
 
-fetch_and_parse_latest_snapshot(URL) ->
-    Headers = [
-               {"user-agent", "blockchain-worker-2"}
+fetch_and_parse_latest_snapshot(SnapInfo) ->
+    URL = application:get_env(blockchain, snap_source_base_url, undefined),
+    case application:get_env(blockchain, fetch_latest_from_snap_source, true) of
+        true ->
+            try
+                get_latest_snap_data(URL, SnapInfo)
+            catch
+                _Type:Error:St ->
+                    lager:error("Couldn't fetch latest-snap.json because ~p: ~p", [Error, St]),
+                    SnapInfo
+            end;
+        false ->
+            case get_blessed_snapshot_height_and_hash() of
+                {undefined, _} -> SnapInfo;
+                {_, undefined} -> SnapInfo;
+                {BlessedHash, BlessedHeight} ->
+                    #snapshot_info{hash=BlessedHash, height=BlessedHeight}
+            end
+    end.
+
+get_latest_snap_data(URL, #snapshot_info{etag=Etag} = SnapInfo) ->
+    Headers0 = [
+               {"user-agent", "blockchain-worker-3"}
               ],
+    Headers = case Etag of
+                  undefined -> Headers0;
+                  _ -> [ {"if-none-match", "\"" ++ Etag ++ "\""} | Headers0 ]
+               end,
+    %% shorter timeouts here because we're hitting S3 usually...
     HTTPOptions = [
-                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
-                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
+                   {timeout, 30000}, % milliseconds, 30 sec overall request timeout
+                   {connect_timeout, 10000} % milliseconds, 10 second connection timeout
                   ],
     Options = [
-               {body_format, binary}, % return body as a binary
-               {full_result, false} % do not return the "full result" response as defined in httpc docs
+               {body_format, binary} % return body as a binary
               ],
 
     case httpc:request(get, {URL ++ "/latest-snap.json", Headers}, HTTPOptions, Options) of
-        {ok, {200, Latest}} ->
+        {ok, {{_HTTPVer, 200, _Msg}, Headers, Body}} ->
             #{<<"height">> := Height,
-              <<"hash">> := B64Hash} = jsx:decode(Latest, [{return_maps, true}]),
+              <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
             Hash = base64url:decode(B64Hash),
-            {Height, Hash};
-        {ok, {404, _Response}} -> throw({error, url_not_found});
-        {ok, {Status, Response}} -> throw({error, {Status, Response}});
+            NewEtag = get_etag(Headers),
+            lager:debug("new latest-json data: old etag: ~p new height: ~p, new hash: ~p etag: ~p",
+                        [Etag, Height, B64Hash, NewEtag]),
+            #snapshot_info{height=Height, hash=Hash, etag=NewEtag};
+        {ok, {{_HTTPVer, 304, _Msg}, _Headers, _Body}} ->
+            lager:debug("Got 304 from ~p; latest-snap.json has not been modified", [URL]),
+            SnapInfo;
+        {ok, {{_HTTPVer, 404, _Msg}, _Headers, _Body}} -> throw({error, url_not_found});
+        {ok, {{_HTTPVer, Status, _Msg}, _Headers, Body}} -> throw({error, {Status, Body}});
         Other -> throw(Other)
+    end.
+
+get_etag(Headers) ->
+    case lists:keyfind("etag", 1, Headers) of
+        {"etag", Etag} -> Etag;
+        _ -> undefined
     end.
 
 build_filename(Height) ->
@@ -1243,7 +1239,7 @@ get_quick_sync_height_and_hash(Mode) ->
             assumed_valid ->
                 get_assumed_valid_height_and_hash();
             blessed_snapshot ->
-                get_blessed_snapshot_height_and_hash()
+                fetch_and_parse_latest_snapshot(undefined)
         end,
 
     case HashHeight of
@@ -1302,29 +1298,34 @@ schedule_sync(State) ->
           end,
     State#state{sync_timer=Ref}.
 
+schedule_snapshot_timer() ->
+    Interval = application:get_env(blockchain, snapshot_polling_interval_hours, 4),
+    Millis = Interval * 3600 * 1000,
+    erlang:send_after(Millis, self(), snapshot_timer_tick).
 
-get_sync_mode(Blockchain) ->
+get_sync_mode(State) ->
     case application:get_env(blockchain, honor_quick_sync, false) of
         true ->
             case application:get_env(blockchain, quick_sync_mode, assumed_valid) of
                 assumed_valid -> {normal, undefined};
                 blessed_snapshot ->
-                    {ok, Hash} = application:get_env(blockchain, blessed_snapshot_block_hash),
-                    {ok, Height} = application:get_env(blockchain, blessed_snapshot_block_height),
+                    %% reconsider whether the latest-snap.json data is newer
+                    %% than whatever our current ledger height is
+                    #snapshot_info{height=Height} = SnapInfo = fetch_and_parse_latest_snapshot(State#state.snapshot_info),
                     Autoload = application:get_env(blockchain, autoload, true),
-                    case Blockchain of
+                    case State#state.blockchain of
                         undefined when Autoload == false ->
                             {normal, undefined};
                         undefined ->
-                            {snapshot, {Hash, Height}};
+                            {snapshot, SnapInfo};
                         {no_genesis, _} ->
-                            {snapshot, {Hash, Height}};
+                            {snapshot, SnapInfo};
                         _Chain ->
-                            {ok, CurrHeight} = blockchain:height(Blockchain),
+                            {ok, CurrHeight} = blockchain:height(State#state.blockchain),
                             case CurrHeight >= Height - 1 of
                                 %% already loaded the snapshot
                                 true -> {normal, undefined};
-                                false -> {snapshot, {Hash, Height}}
+                                false -> {snapshot, SnapInfo}
                             end
                     end
             end;
