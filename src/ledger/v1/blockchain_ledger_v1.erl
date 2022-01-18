@@ -265,6 +265,7 @@
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
 -type hexmap() :: #{h3:h3_index() => non_neg_integer()}.
+-type hexlist() :: [{h3:h3_index(), non_neg_integer()}].
 -type gateway_offsets() :: [{pos_integer(), libp2p_crypto:pubkey_bin()}].
 -type state_channel_map() ::  #{blockchain_state_channel_v1:id() =>
                                     blockchain_ledger_state_channel_v1:state_channel()
@@ -3986,6 +3987,10 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
 -spec set_hexes(HexMap :: hexmap(), Ledger :: ledger()) -> ok | {error, any()}.
 set_hexes(HexMap, Ledger) ->
     HexList = maps:to_list(HexMap),
+    set_hexes_list(HexList, Ledger).
+
+-spec set_hexes_list(HexList :: hexlist(), Ledger :: ledger()) -> ok | {error, any()}.
+set_hexes_list(HexList, Ledger) ->
     L = lists:sort(HexList),
     CF = default_cf(Ledger),
     cache_put(Ledger, CF, ?hex_list, term_to_binary(L, [compressed])).
@@ -4941,7 +4946,9 @@ snapshot_hexes(Ledger) ->
     end.
 
 load_hexes(Hexes0, Ledger) ->
-    lists:foreach(fun({list, Hexes}) ->
+    lists:foreach(fun({list, Hexes}) when is_list(Hexes) ->
+                          ok = set_hexes_list(Hexes, Ledger);
+                     ({list, Hexes}) when is_map(Hexes) ->
                           ok = set_hexes(Hexes, Ledger);
                      ({HexAddr, Hex}) ->
                       set_hex(HexAddr, Hex, Ledger)
