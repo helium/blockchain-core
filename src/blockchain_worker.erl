@@ -839,23 +839,6 @@ snapshot_sync(State) ->
     lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
     State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot, snapshot_info=SnapInfo}.
 
-%% @doc If this os environment variable is set and is a "truthy" value,
-%% return `true'; otherwise, `false'. Unset variables return the default value.
-%%
-%% False values are "0", "no", "false".  True values are any value that aren't
-%% listed as explicitly false.
-get_boolean_os_var_or_default(VarName, Default) ->
-    case os:getenv(VarName, undefined) of
-        "0" -> false;
-        "no" -> false;
-        "NO" -> false;
-        "FALSE" -> false;
-        "false" -> false;
-        undefined -> Default;
-        _ -> true
-    end.
-
-
 reset_ledger_to_snap(Hash, Height, State) ->
     lager:info("clearing the ledger now"),
     State1 = pause_sync(State),
@@ -1245,8 +1228,14 @@ get_assumed_valid_height_and_hash() ->
      application:get_env(blockchain, assumed_valid_block_height, undefined)}.
 
 get_blessed_snapshot_height_and_hash() ->
-    {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
-     application:get_env(blockchain, blessed_snapshot_block_height, undefined)}.
+    case blockchain_utils:get_boolean_os_env_var("LOAD_SNAPSHOT", true) of
+        true ->
+            {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
+             application:get_env(blockchain, blessed_snapshot_block_height, undefined)};
+        false ->
+            lager:debug("LOAD_SNAPSHOT is false; returning undefined height and hash"),
+            {undefined, undefined}
+    end.
 
 get_quick_sync_height_and_hash(Mode) ->
 
@@ -1320,7 +1309,8 @@ schedule_snapshot_timer() ->
     erlang:send_after(Millis, self(), snapshot_timer_tick).
 
 get_sync_mode(State) ->
-    case application:get_env(blockchain, honor_quick_sync, false) of
+    case application:get_env(blockchain, honor_quick_sync, false)
+            andalso blockchain_utils:get_boolean_os_env_var("LOAD_SNAPSHOT", true) of
         true ->
             case application:get_env(blockchain, quick_sync_mode, assumed_valid) of
                 assumed_valid -> {normal, undefined};
