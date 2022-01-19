@@ -17,7 +17,7 @@
 
 %% API
 -export([
-    send_purchase/6, send_diff/5,
+    send_purchase/6,
     send_response/2,
     send_banner/2,
     send_rejection/2,

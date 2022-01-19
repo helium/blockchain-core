@@ -305,7 +305,6 @@ packet(
         state_channel=SC0,
         skewed=Skewed0,
         db=DB,
-        owner={_Owner, OwnerSigFun},
         bloom=Bloom
     }=State0
 ) ->
