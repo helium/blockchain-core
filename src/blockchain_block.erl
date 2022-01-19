@@ -41,7 +41,7 @@
 
 -export([new_genesis_block/1, new_genesis_block/2,
          prev_hash/1,
-         hash_block/1,
+         hash_block/1, hash_serialized/2,
          height/1,
          time/1,
          hbbft_round/1,
@@ -72,6 +72,9 @@ prev_hash(Block) ->
 hash_block(Block) ->
     (type(Block)):hash_block(Block).
 
+hash_serialized(Type, Block) ->
+    Type:hash_serialized(Block).
+
 -spec height(block()) -> non_neg_integer().
 height(Block) ->
     (type(Block)):height(Block).
@@ -98,11 +101,21 @@ verified_signees(Block) ->
 
 -spec serialize(block()) -> binary().
 serialize(Block) ->
+    lager:info("serializing block ~p", [stack()]),
     blockchain_block_pb:encode_msg(wrap_block(Block)).
 
 -spec deserialize(binary()) -> block().
 deserialize(Bin) ->
+    lager:info("deserializing block ~p", [stack()]),
     unwrap_block(blockchain_block_pb:decode_msg(Bin, blockchain_block_pb)).
+
+stack() ->
+    case get(suppress_stack) of
+        true ->
+            ok;
+        _ ->
+            element(2, erlang:process_info(self(), current_stacktrace))
+    end.
 
 -spec is_rescue_block(block()) -> boolean().
 is_rescue_block(Block) ->
@@ -155,4 +168,4 @@ to_json(Block, Opts) ->
 type(#blockchain_block_v1_pb{}) ->
     blockchain_block_v1;
 type(_) ->
-    undefined.
+    error(unknown_block_type).

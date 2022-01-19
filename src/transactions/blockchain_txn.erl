@@ -440,8 +440,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
-                    Hash = blockchain_block:hash_block(Block),
-                    case BeforeCommit(Chain2, Hash) of
+                    case BeforeCommit(Chain2) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             End2 = erlang:monotonic_time(millisecond),
