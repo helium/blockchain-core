@@ -48,6 +48,13 @@
 %% the right thing for the spots and easy to work around elsewhere.
 -define(min_height, 2).
 
+-type kv_stream() ::
+    kv_stream(binary(), binary()).
+
+%% TODO Should be: -type stream(A) :: fun(() -> none | {some, {A, t(A)}}).
+-type kv_stream(K, V) ::
+    fun(() -> ok | {K, V, kv_stream()}).
+
 %% this is temporary, something to work with easily while we nail the
 %% format and functionality down.  once it's final we can move on to a
 %% more permanent and less flexible format, like protobufs, or
@@ -56,45 +63,40 @@
     #{
         version           => v5,
         current_height    => non_neg_integer(),
-        transaction_fee   =>  non_neg_integer(),
+        transaction_fee   => non_neg_integer(),
         consensus_members => [libp2p_crypto:pubkey_bin()],
         election_height   => non_neg_integer(),
         election_epoch    => non_neg_integer(),
-        delayed_vars      => [{integer(), [{Hash :: term(), TODO :: term()}]}], % TODO More specific
+        delayed_vars      => [{Height :: integer(), [{Hash :: binary(), Vars :: term()}]}], % TODO Type of Vars
         threshold_txns    => [{binary(), binary()}], % According to spec of blockchain_ledger_v1:snapshot_threshold_txns
         master_key        => binary(),
         multi_keys        => [binary()],
         vars_nonce        => pos_integer(),
-        vars              => [{binary(), term()}], % TODO What is the term()?
+        vars              => [{Name :: binary(), Val :: term()}], % XXX Val can be anything.
         htlcs             => [{Address :: binary(), blockchain_ledger_htlc_v1:htlc()}],
-        ouis              => [term()], % TODO Be more specific
-        subnets           => [term()], % TODO Be more specific
+        ouis              => [{non_neg_integer(), blockchain_ledger_routing_v1:routing()}],
+        subnets           => [{Subnet :: binary(), OUI :: non_neg_integer()}],
         oui_counter       => pos_integer(),
-        hexes             => [term()], % TODO Be more specific
+        hexes             => [{list, blockchain_ledger_v1:hexmap()} | {h3:h3_index(), non_neg_integer()}],
         h3dex             => [{integer(), [binary()]}],
         state_channels    => [{binary(), state_channel()}],
         blocks            => [blockchain_block:block()],
         oracle_price      => non_neg_integer(),
         oracle_price_list => [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
-
-        %% Raw
-        gateways          => [{binary(), binary()}],
-        pocs              => [{binary(), binary()}],
-        accounts          => [{binary(), binary()}],
-        dc_accounts       => [{binary(), binary()}],
-        security_accounts => [{binary(), binary()}]
+        key_raw()         => [{binary(), binary()}]
     }.
 
 -type snapshot_v6() ::
     #{
-        version              => v6,
-        key_except_version() => binary() | {file:fd(), non_neg_integer(), pos_integer()}
+        version                   => v6,
+        key_non_version_non_raw() => binary() | {file:fd(), non_neg_integer(), pos_integer()},
+        key_raw()                 => kv_stream()
     }.
 
 -type key() ::
-    version | key_except_version().
+    version | key_non_version_non_raw().
 
--type key_except_version() ::
+-type key_non_version_non_raw() ::
       current_height
     | transaction_fee
     | consensus_members
@@ -117,9 +119,10 @@
     | infos
     | oracle_price
     | oracle_price_list
+    .
 
-    %% Raw
-    | gateways
+-type key_raw() ::
+      gateways
     | pocs
     | accounts
     | dc_accounts
@@ -127,12 +130,13 @@
     .
 
 -type snapshot_of_any_version() ::
-    #blockchain_snapshot_v1{}
+      #blockchain_snapshot_v1{}
     | #blockchain_snapshot_v2{}
     | #blockchain_snapshot_v3{}
     | #blockchain_snapshot_v4{}
     | snapshot_v5()
-    | snapshot_v6().
+    | snapshot_v6()
+    .
 
 -type snapshot() :: snapshot_v6().
 
@@ -289,7 +293,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
             [
                 {version          , v5},
                 {current_height   , CurrHeight},
-                {transaction_fee  ,  0},
+                {transaction_fee  , 0},
                 {consensus_members, ConsensusMembers},
                 {election_height  , ElectionHeight},
                 {election_epoch   , ElectionEpoch},
@@ -1286,18 +1290,35 @@ version(#blockchain_snapshot_v3{}) -> v3;
 version(#blockchain_snapshot_v2{}) -> v2;
 version(#blockchain_snapshot_v1{}) -> v1.
 
+-spec kv_stream_to_list(kv_stream(K, V)) -> [{K, V}].
+kv_stream_to_list(Next0) when is_function(Next0) ->
+    case Next0() of
+        ok -> [];
+        {K, V, Next1} -> [{K, V} | kv_stream_to_list(Next1)]
+    end.
+
 diff(#{}=A0, #{}=B0) ->
     A = maps:from_list(
           lists:map(fun({version, V}) ->
                             {version, V};
-                       ({K, V}) ->
-                            {K, deserialize_field(K, V)}
+                       ({K, V0}) ->
+                            V =
+                                case {deserialize_field(K, V0), is_raw_field(K)} of
+                                    {V1, true} -> kv_stream_to_list(V1);
+                                    {V1, false} -> V1
+                                end,
+                            {K, V}
                     end, maps:to_list(A0))),
     B = maps:from_list(
           lists:map(fun({version, V}) ->
                             {version, V};
-                       ({K, V}) ->
-                            {K, deserialize_field(K, V)}
+                       ({K, V0}) ->
+                            V =
+                                case {deserialize_field(K, V0), is_raw_field(K)} of
+                                    {V1, true} -> kv_stream_to_list(V1);
+                                    {V1, false} -> V1
+                                end,
+                            {K, V}
                     end, maps:to_list(B0))),
     lists:foldl(
       fun({Field, AI, BI}, Acc) ->
@@ -1473,8 +1494,6 @@ find_pairs_in_file(FD, Pos, MaxPos, Acc) when Pos < MaxPos ->
     {ok, <<Key:SizK/binary, SizV:32/integer-unsigned-little>>} = file:read(FD, SizK + 4),
     {ok, NewPosition} = file:position(FD, {cur, SizV}),
     find_pairs_in_file(FD, NewPosition, MaxPos, [{binary_to_term(Key), {FD, Pos + SizK + 8, SizV}} | Acc]).
-
-
 
 deserialize_pairs(<<Bin/binary>>) ->
     lists:map(

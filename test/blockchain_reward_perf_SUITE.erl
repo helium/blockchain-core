@@ -82,8 +82,17 @@ init_per_testcase(_TestCase, Config) ->
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
-    Ledger1 = blockchain_ledger_snapshot_v1:import(Chain, SHA, Snapshot),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger1),
+    Ledger0 = blockchain:ledger(Chain),
+    {ok, Height0} = blockchain_ledger_v1:current_height(Ledger0),
+    Ledger1 =
+        blockchain_ledger_snapshot_v1:import(
+            Chain,
+            Height0,
+            SHA,
+            Snapshot,
+            BinSnap
+        ),
+    {ok, Height1} = blockchain_ledger_v1:current_height(Ledger1),
 
     CLedger = blockchain_ledger_v1:new_context(Ledger1),
     blockchain_ledger_v1:cf_fold(
@@ -95,7 +104,7 @@ init_per_testcase(_TestCase, Config) ->
 
     _ = blockchain_ledger_v1:commit_context(CLedger),
 
-    ct:pal("loaded ledger at height ~p", [Height]),
+    ct:pal("loaded ledger at height ~p", [Height1]),
 
     Chain1 = blockchain:ledger(CLedger, Chain),
 
