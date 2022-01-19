@@ -512,7 +512,7 @@ diff_test(Config) ->
     AppendEntry = {append, #blockchain_state_channel_diff_append_summary_v1_pb{client_pubkeybin=GatewayNode2PubkeyBin, num_packets=1, num_dcs=1}},
     ?assertEqual(AppendEntry, Diff2#blockchain_state_channel_diff_entry_v1_pb.entry),
 
-    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
     ok.
 
