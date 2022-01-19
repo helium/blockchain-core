@@ -12,7 +12,7 @@
     challenger/1, challenger/2,
     block_hash/1, block_hash/2,
     serialize/1, deserialize/1,
-    find_valid/3,
+    is_valid/3,
     rxtx/0, rx/0, tx/0, fail/0
 ]).
 
@@ -162,18 +162,10 @@ convert(#poc_v1{secret_hash=SecretHash,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_valid(pocs(), libp2p_crypto:pubkey_bin(), binary()) -> {ok, poc()} | {error, any()}.
-find_valid([], _Challenger, _Secret) ->
-    {error, not_found};
-find_valid([PoC|PoCs], Challenger, Secret) ->
-    case
-        ?MODULE:challenger(PoC) =:= Challenger andalso
-        ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret)
-    of
-        false -> find_valid(PoCs, Challenger, Secret);
-        true -> {ok, PoC}
-    end.
-
+-spec is_valid(poc(), libp2p_crypto:pubkey_bin(), binary()) -> boolean().
+is_valid(PoC, Challenger, Secret) ->
+    ?MODULE:challenger(PoC) =:= Challenger andalso
+    ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret).
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
