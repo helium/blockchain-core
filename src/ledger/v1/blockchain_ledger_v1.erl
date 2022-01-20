@@ -2044,7 +2044,7 @@ maybe_gc_pocs(Chain, Ledger) ->
 
 upgrade_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    cache_fold(
+    ToStore = cache_fold(
       Ledger,
       PoCsCF,
       fun({KeyHash, BinPoCs}, Acc) ->
@@ -2053,10 +2053,14 @@ upgrade_pocs(Ledger) ->
               lists:foreach(fun(SPoC) ->
                                     PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
                                     Challenger = blockchain_ledger_poc_v2:challenger(PoC),
-                                    cache_put(Ledger, PoCsCF, <<KeyHash/binary, Challenger/binary>>, SPoC)
+                                    [{<<KeyHash/binary, Challenger/binary>>, SPoC} | Acc]
                             end, SPoCs),
               Acc
-      end, []).
+      end, []),
+    lists:foreach(fun({K, V}) ->
+                          cache_put(Ledger, PoCsCF, K, V)
+                  end, ToStore),
+    ok.
 
 -spec zone_list_to_pubkey_bins(ZoneList :: [h3:h3_index()],
                                Ledger :: ledger()) -> [libp2p_crypto:pubkey_bin()].
