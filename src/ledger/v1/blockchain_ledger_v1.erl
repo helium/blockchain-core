@@ -2037,7 +2037,8 @@ maybe_gc_pocs(Chain, Ledger) ->
                         Acc
                 end,
                 []
-                );
+                ),
+            ok;
         _ ->
             ok
     end.
