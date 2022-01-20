@@ -26,7 +26,7 @@
     new_context/1, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
-    get_block/2, get_block_info/2,
+    get_block/2, get_raw_block/2, get_block_info/2,
 
     new_snapshot/1, context_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
 
@@ -3581,27 +3581,44 @@ context_cache(Cache, GwCache, Ledger) ->
 -spec get_block(integer(), ledger()) ->
           {ok, blockchain_block:block()} | {error, any()}.
 get_block(Height, #ledger_v1{blocks_db = DB,
-                             blocks_cf = BlocksCF,
-                             heights_cf = HeightsCF} = Ledger) ->
-    case Height > current_height(Ledger) of
+                             heights_cf = HeightsCF} = Ledger) when is_integer(Height) ->
+    case {ok, Height} > current_height(Ledger) of
         true -> {error, too_new};
         _ ->
             case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
                 {ok, Hash} ->
-                    case rocksdb:get(DB, BlocksCF, Hash, []) of
-                        {ok, BinBlock} ->
-                            {ok, blockchain_block:deserialize(BinBlock)};
-                        not_found ->
-                            {error, not_found};
-                        Error ->
-                            Error
-                    end;
+                    get_block(Hash, Ledger);
                 not_found ->
                     {error, not_found};
                 Error ->
                     Error
             end
+    end;
+get_block(Hash, Ledger) when is_binary(Hash) ->
+    case get_raw_block(Hash, Ledger) of
+        {ok, BinBlock} ->
+            Block = blockchain_block:deserialize(BinBlock),
+            case {ok, blockchain_block:height(Block)} > current_height(Ledger) of
+                true ->
+                    {error, too_new};
+                false ->
+                    {ok, Block}
+            end;
+        Other ->
+            Other
     end.
+
+get_raw_block(Hash, #ledger_v1{blocks_db = DB,
+                               blocks_cf = BlocksCF}) ->
+    case rocksdb:get(DB, BlocksCF, Hash, []) of
+        {ok, BinBlock} ->
+            {ok, BinBlock};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 
 get_block_info(Height, #ledger_v1{blocks_db = DB,
                                   info_cf = InfoCF} = Ledger) ->
