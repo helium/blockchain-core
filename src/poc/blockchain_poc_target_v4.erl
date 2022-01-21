@@ -97,14 +97,14 @@ hex_list(Ledger, RandState) ->
 hex_list(_Ledger, RandState, 0, Acc) ->
     %% usort so if we selected duplicates they don't get overselected
     {lists:usort(Acc), RandState};
-hex_list(Ledger, RandState, Count, Acc) ->
+hex_list(Ledger, RandState, HexCount, Acc) ->
     {ok, Hex, NewRandState} = blockchain_ledger_v1:random_targeting_hex(RandState, Ledger),
     case blockchain_ledger_v1:count_gateways_in_hex(Hex, Ledger) of
         0 ->
             %% this should not happen, but handle it anyway
-            hex_list(Ledger, NewRandState, Count, Acc);
-        Count ->
-            hex_list(Ledger, NewRandState, Count - 1, [{Hex, Count}|Acc])
+            hex_list(Ledger, NewRandState, HexCount, Acc);
+        GWCount ->
+            hex_list(Ledger, NewRandState, HexCount - 1, [{Hex, GWCount}|Acc])
     end.
 
 
