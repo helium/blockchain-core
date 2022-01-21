@@ -1095,6 +1095,8 @@ validate_var(?sc_only_count_open_active, Value) ->
         false -> ok;
         Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
     end;
+validate_var(?sc_dispute_strategy_version, Value) ->
+    validate_int(Value, "sc_dispute_strategy_version", 0, 1, false);
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->

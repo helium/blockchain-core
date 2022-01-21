@@ -341,7 +341,10 @@
 %% The "new" behavior (i.e., `true') is to count state channels
 %% that are only in the open state and ignore closed channels.
 -define(sc_only_count_open_active, sc_only_count_open_active).
-
+%% How to handle rewards when a state channel close is disputed.
+%%  - 0 :: reconcile as much as possible
+%%  - 1 :: accept first dispute, drop all DC from opener, no rewards
+-define(sc_dispute_strategy_version, sc_dispute_strategy_version).
 
 %% ------------------------------------------------------------------
 %% snapshot vars
