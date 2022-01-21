@@ -10,8 +10,8 @@
     secret_hash/1, secret_hash/2,
     onion_key_hash/1, onion_key_hash/2,
     challenger/1, challenger/2,
-    block_hash/1, block_hash/2,
-    serialize/1, deserialize/1,
+    block_hash/1, block_hash/2, block_height/2,
+    serialize/2, deserialize/1,
     is_valid/3,
     rxtx/0, rx/0, tx/0, fail/0
 ]).
@@ -117,17 +117,29 @@ block_hash(PoC) ->
 block_hash(Challenger, PoC) ->
     PoC#poc_v2{block_hash=Challenger}.
 
+-spec block_height(poc() | binary(), blockchain:blockchain()) ->
+          {ok, pos_integer()} | {error, any()}.
+block_height(<<3, Height:64/unsigned-native, _/binary>>, _Chain) ->
+    {ok, Height};
+block_height(<<2, _/binary>> = Bin, Chain) ->
+    PoC = deserialize(Bin),
+    Hash = block_hash(PoC),
+    blockchain:get_block_height(Hash, Chain);
+block_height(#poc_v2{block_hash = Hash}, Chain) ->
+    blockchain:get_block_height(Hash, Chain).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Version 1
 %% @end
 %%--------------------------------------------------------------------
--spec serialize(poc()) -> binary().
-serialize(PoC) ->
+-spec serialize(poc(), blockchain:blockchain()) -> binary().
+serialize(PoC, Chain) ->
     %% intentionally don't compress here, we compress these in batches
     %% in the ledger code, which should get better compression anyway
     BinPoC = erlang:term_to_binary(PoC),
-    <<2, BinPoC/binary>>.
+    {ok, Height} = block_height(PoC, Chain),
+    <<3, Height:64/unsigned-native, BinPoC/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -139,6 +151,8 @@ deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
+    erlang:binary_to_term(Bin);
+deserialize(<<3, _Height:64/unsigned-native, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
 
 -record(poc_v1, {
@@ -166,6 +180,7 @@ convert(#poc_v1{secret_hash=SecretHash,
 is_valid(PoC, Challenger, Secret) ->
     ?MODULE:challenger(PoC) =:= Challenger andalso
     ?MODULE:secret_hash(PoC) =:= crypto:hash(sha256, Secret).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end

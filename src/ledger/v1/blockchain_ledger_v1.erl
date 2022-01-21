@@ -80,7 +80,7 @@
 
     find_pocs/2,
     find_poc/3,
-    request_poc/6,
+    request_poc/7,
     delete_poc/3,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
@@ -184,8 +184,6 @@
     %% snapshot save/restore stuff
     snapshot_vars/1,
     load_vars/2,
-    snapshot_pocs/1,
-    load_pocs/2,
     snapshot_accounts/1,
     load_accounts/2,
     snapshot_dc_accounts/1,
@@ -916,9 +914,7 @@ raw_fingerprint(Ledger, Extended) ->
         DefaultHash = crypto:hash_final(DefaultHash0),
         L0 =
             [cache_fold(Ledger, CF,
-                        fun({K, V}, Acc) when Mod == t2b ->
-                                crypto:hash_update(Acc, term_to_binary({K, erlang:binary_to_term(V)}));
-                           ({K, V}, Acc) when Mod == state_channel ->
+                        fun({K, V}, Acc) when Mod == state_channel ->
                                 {_Mod, SC} = deserialize_state_channel(V),
                                 crypto:hash_update(Acc, term_to_binary({K, SC}));
                            ({K, V}, Acc) when Mod /= undefined ->
@@ -1943,16 +1939,17 @@ find_pocs(OnionKeyHash, Ledger) ->
                   Challenger :: libp2p_crypto:pubkey_bin(),
                   BlockHash :: binary(),
                   Version :: non_neg_integer(),
+                  Chain :: blockchain:blockchain(),
                   Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger) ->
+request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Chain, Ledger) ->
     case ?MODULE:find_gateway_info(Challenger, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
-            request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version)
+            request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Chain, Ledger, Gw0, Version)
     end.
 
-request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version) ->
+request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Chain, Ledger, Gw0, Version) ->
     case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
             ok;
@@ -1967,7 +1964,7 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Versi
 
     PoCsCF = pocs_cf(Ledger),
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
-    PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
+    PoCBin = blockchain_ledger_poc_v2:serialize(PoC, Chain),
     cache_put(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>, PoCBin).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
@@ -1989,18 +1986,6 @@ maybe_gc_pocs(Chain, Ledger) ->
             lager:debug("gcing old pocs"),
             PoCInterval = blockchain_utils:challenge_interval(Ledger),
             PoCsCF = pocs_cf(Ledger),
-            %% construct a list of recent hashes instead of fetching all the blocks by their hashes,
-            %% which ends up being much much cheaper
-            Hashes =
-                lists:foldl(
-                  fun(H, Acc) ->
-                          case blockchain:get_block_hash(H, Chain) of
-                              {ok, Hash} ->
-                                  Acc#{Hash => H};
-                              _ ->
-                                  Acc
-                          end
-                  end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
             cache_fold(
                 Ledger,
                 PoCsCF,
@@ -2011,28 +1996,12 @@ maybe_gc_pocs(Chain, Ledger) ->
                         %% in some cases differing) data in the ledger.  here, we pull that data
                         %% out and delete anything that's too old, as determined by being older
                         %% than twice the request interval, which controls receipt validity.
-                        PoC = blockchain_ledger_poc_v2:deserialize(BinPoC),
-                        H = blockchain_ledger_poc_v2:block_hash(PoC),
-                        case H of
-                            <<>> ->
-                                %% pre-upgrade pocs are ancient
+                        {ok, PH} = blockchain_ledger_poc_v2:block_height(BinPoC, Chain),
+                        case (Height - PH) < PoCInterval * 2 of
+                            false ->
                                 cache_delete(Ledger, PoCsCF, KeyHash);
-                            _ ->
-                                case maps:find(H, Hashes) of
-                                    {ok, BH} ->
-                                        %% not sure this is even needed, it might
-                                        %% always be true? but just in case
-                                        case (Height - BH) < PoCInterval * 2 of
-                                            false ->
-                                                cache_delete(Ledger, PoCsCF, KeyHash);
-                                            true ->
-                                                ok
-                                        end;
-                                    error ->
-                                        %% if it's not in the hashes map, it's too
-                                        %% old by construction
-                                        cache_delete(Ledger, PoCsCF, KeyHash)
-                                end
+                            true ->
+                                ok
                         end,
                         Acc
                 end,
@@ -4672,30 +4641,6 @@ snapshot_threshold_txns(Ledger) ->
 
 load_threshold_txns(Txns, Ledger) ->
     lists:map(fun(T) -> save_threshold_txn(T, Ledger) end, Txns),
-    ok.
-
--spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
-snapshot_pocs(Ledger) ->
-    PoCsCF = pocs_cf(Ledger),
-    lists:sort(
-      maps:to_list(
-        cache_fold(
-          Ledger, PoCsCF,
-          fun({OnionKeyHash, BValue}, Acc) ->
-                  List = binary_to_term(BValue),
-                  Value = lists:map(fun blockchain_ledger_poc_v2:deserialize/1, List),
-                  maps:put(OnionKeyHash, Value, Acc)
-          end, #{},
-          []))).
-
-load_pocs(PoCs, Ledger) ->
-    PoCsCF = pocs_cf(Ledger),
-    maps:map(
-      fun(OnionHash, P) ->
-              BPoC = term_to_binary(lists:map(fun blockchain_ledger_poc_v2:serialize/1, P)),
-              cache_put(Ledger, PoCsCF, OnionHash, BPoC)
-      end,
-      maps:from_list(PoCs)),
     ok.
 
 -spec snapshot_raw(CFSpec, ledger()) ->

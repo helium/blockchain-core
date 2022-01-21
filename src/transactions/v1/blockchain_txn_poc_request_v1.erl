@@ -225,7 +225,7 @@ absorb(Txn, Chain) ->
     SecretHash = ?MODULE:secret_hash(Txn),
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     BlockHash = ?MODULE:block_hash(Txn),
-    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger).
+    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Chain, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -1048,6 +1048,7 @@ v2_to_v3(#blockchain_snapshot_v2{
             oracle_price = OraclePrice,
             oracle_price_list = OraclePriceList
            }) ->
+    Chain = blockchain_worker:blockchain(),
     #blockchain_snapshot_v3{
        current_height = CurrHeight,
        transaction_fee = 0,
@@ -1069,7 +1070,7 @@ v2_to_v3(#blockchain_snapshot_v2{
        pocs =
             lists:map(
                 fun({K, V}) ->
-                    List = lists:map(fun blockchain_ledger_poc_v2:serialize/1, V),
+                    List = lists:map(fun(P) -> blockchain_ledger_poc_v2:serialize(P, Chain) end, V),
                     Value = term_to_binary(List),
                     {K, Value}
                 end,
