@@ -43,7 +43,7 @@ handle_call(_Other, _From, State) ->
 
 
 maybe_gc(State=#state{bytes=Bytes}) ->
-    case application:get_env(blockchain, gc_byte_interval, 10 * 1024 * 1024) < Bytes of
+    case application:get_env(blockchain, gc_byte_interval, 100 * 1024 * 1024) < Bytes of
         true ->
             %% run a GC, this blocks the process
             blockchain:rocksdb_gc(Bytes, blockchain_worker:blockchain()),

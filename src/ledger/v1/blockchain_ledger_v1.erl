@@ -3582,7 +3582,8 @@ context_cache(Cache, GwCache, Ledger) ->
           {ok, blockchain_block:block()} | {error, any()}.
 get_block(Height, #ledger_v1{blocks_db = DB,
                              heights_cf = HeightsCF} = Ledger) when is_integer(Height) ->
-    case {ok, Height} > current_height(Ledger) of
+    {ok, LedgerHeight} = current_height(Ledger),
+    case Height > LedgerHeight of
         true -> {error, too_new};
         _ ->
             case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
