@@ -1512,7 +1512,6 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
                             VW;
                         VW -> VW
                     end,
-                lager:info("challenge witness ~p", [erlang:phash2(ValidWitnesses)]),
                 ValidWitnesses
             catch
                 throw:{error, {unknown_region, Region}}:_ST ->
