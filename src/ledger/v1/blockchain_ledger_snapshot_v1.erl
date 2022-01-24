@@ -586,6 +586,13 @@ load_into_ledger(Snapshot, L0, Mode) ->
                        end || maps:is_key(hnt_burned, Snapshot)] ++
                       %% keep this last so incomplete loads are obvious
                       [current_height], Get, L),
+    case blockchain_ledger_v1:check_key(<<"poc_upgrade">>, L) of
+        true -> ok;
+        _ ->
+            %% have to do this here, otherwise it'll break block loads
+            blockchain_ledger_v1:upgrade_pocs(L),
+            blockchain_ledger_v1:mark_key(<<"poc_upgrade">>, L)
+    end,
     blockchain_ledger_v1:commit_context(L).
 
 

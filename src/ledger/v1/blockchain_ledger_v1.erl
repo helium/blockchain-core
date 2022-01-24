@@ -916,9 +916,7 @@ raw_fingerprint(Ledger, Extended) ->
         DefaultHash = crypto:hash_final(DefaultHash0),
         L0 =
             [cache_fold(Ledger, CF,
-                        fun({K, V}, Acc) when Mod == t2b ->
-                                crypto:hash_update(Acc, term_to_binary({K, erlang:binary_to_term(V)}));
-                           ({K, V}, Acc) when Mod == state_channel ->
+                        fun({K, V}, Acc) when Mod == state_channel ->
                                 {_Mod, SC} = deserialize_state_channel(V),
                                 crypto:hash_update(Acc, term_to_binary({K, SC}));
                            ({K, V}, Acc) when Mod /= undefined ->
@@ -2051,12 +2049,12 @@ upgrade_pocs(Ledger) ->
       fun({KeyHash, BinPoCs}, Acc) ->
               SPoCs = erlang:binary_to_term(BinPoCs),
               cache_delete(Ledger, PoCsCF, KeyHash),
-              lists:foreach(fun(SPoC) ->
-                                    PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
-                                    Challenger = blockchain_ledger_poc_v2:challenger(PoC),
-                                    [{<<KeyHash/binary, Challenger/binary>>, SPoC} | Acc]
-                            end, SPoCs),
-              Acc
+              lists:foldl(
+                fun(SPoC, A) ->
+                        PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
+                        Challenger = blockchain_ledger_poc_v2:challenger(PoC),
+                        [{<<KeyHash/binary, Challenger/binary>>, SPoC} | A]
+                end, Acc, SPoCs)
       end, []),
     lists:foreach(fun({K, V}) ->
                           cache_put(Ledger, PoCsCF, K, V)
