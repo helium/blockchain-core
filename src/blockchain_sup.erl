@@ -128,6 +128,7 @@ init(Args) ->
         ++
         [?WORKER(blockchain_score_cache, []),
          ?WORKER(blockchain_worker, [BWorkerOpts]),
+         ?WORKER(blockchain_gc, []),
          ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
          ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
          ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])
