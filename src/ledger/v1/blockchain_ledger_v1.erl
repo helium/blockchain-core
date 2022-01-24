@@ -4113,7 +4113,8 @@ add_to_hex(Hex, Gateway, Res, Ledger) ->
     {ok, h3dex} ->
       add_gw_to_h3dex(Hex, Gateway, Res, Ledger);
     _ ->
-      add_gw_to_hex(Hex, Gateway, Res, Ledger)
+      add_gw_to_hex(Hex, Gateway, Res, Ledger),
+      add_gw_to_h3dex(Hex, Gateway, Res, Ledger)
   end.
 
 add_gw_to_hex(Hex, Gateway, Res, Ledger) ->
@@ -4368,7 +4369,6 @@ key_to_h3(Key) ->
     <<H3:64/integer-unsigned-big>> = <<0:1, 1:4/integer-unsigned-big, 0:3, (15 - InverseResolution):4/integer-unsigned-big, BaseCell:7/integer-unsigned-big, Digits:45/integer-unsigned-big>>,
     H3.
 
-
 -spec add_gw_to_h3dex(Hex :: non_neg_integer(),
                     GWAddr :: libp2p_crypto:pubkey_bin(),
                     Res :: h3:index(),
@@ -4429,7 +4429,11 @@ maybe_gc_h3dex(Ledger) ->
     %% pick a random h3dex index and remove any inactive hotspots from it
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, Width} ->
-            {ok, InactivityThreshold} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
+            InactivityThreshold =
+              case ?MODULE:config(?hip17_interactivity_blocks, Ledger) of
+                {ok, InActV} -> InActV;
+                _ -> 10
+              end,
             %% we need a fairly deterministic way to choose hexes to be GC'd
             %% that ideally is not tied to internal representations like rocksdb
             %% sort order, etc.
