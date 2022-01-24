@@ -304,7 +304,8 @@ check_is_valid_poc(Txn, Chain) ->
                                                        {ok, V} when V >= 8 ->
                                                            %% Targeting phase
                                                            %% Find the original target
-                                                           {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
+                                                           TargetingMod = targeting_mod(Ledger),
+                                                           {ok, {Target, TargetRandState}} = TargetingMod:target(Challenger, Entropy, OldLedger, Vars),
                                                            StartB = maybe_log_duration(target, StartFT),
                                                            %% Path building phase
                                                            RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
@@ -1755,6 +1756,12 @@ poc_version(Ledger) ->
         {ok, V} -> V
     end.
 
+-spec targeting_mod(blockchain_ledger_v1:ledger()) -> atom().
+targeting_mod(Ledger) ->
+  case blockchain:config(?poc_targeting_version, Ledger) of
+    {ok, 4} -> blockchain_poc_target_v4;
+    _ -> blockchain_poc_target_v3
+  end.
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
