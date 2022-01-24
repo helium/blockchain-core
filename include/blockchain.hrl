@@ -37,7 +37,8 @@
     <<"clear_witnesses">>,
     <<"clear_scores">>,
     <<"clear_scores2">>,
-    <<"nonce_rescue">>
+    <<"nonce_rescue">>,
+    <<"poc_upgrade">>
 ]).
 
 -define(bones(HNT), HNT * 100000000).

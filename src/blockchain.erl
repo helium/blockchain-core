@@ -132,7 +132,8 @@
                           fun clear_witnesses/1,
                           fun upgrade_gateways_score/1,
                           fun upgrade_gateways_score/1,
-                          fun upgrade_nonce_rescue/1]).
+                          fun upgrade_nonce_rescue/1,
+                          fun blockchain_ledger_v1:upgrade_pocs/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.

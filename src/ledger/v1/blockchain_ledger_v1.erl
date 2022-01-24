@@ -78,11 +78,14 @@
     update_gateway_oui/4,
     gateway_count/1,
 
-    find_poc/2,
+    find_pocs/2,
+    find_poc/3,
     request_poc/6,
-    delete_poc/3, delete_pocs/2,
+    delete_poc/3,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
+
+    upgrade_pocs/1,
 
     find_entry/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
@@ -913,9 +916,7 @@ raw_fingerprint(Ledger, Extended) ->
         DefaultHash = crypto:hash_final(DefaultHash0),
         L0 =
             [cache_fold(Ledger, CF,
-                        fun({K, V}, Acc) when Mod == t2b ->
-                                crypto:hash_update(Acc, term_to_binary({K, erlang:binary_to_term(V)}));
-                           ({K, V}, Acc) when Mod == state_channel ->
+                        fun({K, V}, Acc) when Mod == state_channel ->
                                 {_Mod, SC} = deserialize_state_channel(V),
                                 crypto:hash_update(Acc, term_to_binary({K, SC}));
                            ({K, V}, Acc) when Mod /= undefined ->
@@ -929,7 +930,7 @@ raw_fingerprint(Ledger, Extended) ->
                      {entries_cf(Ledger), blockchain_ledger_entry_v1},
                      {dc_entries_cf(Ledger), blockchain_ledger_data_credits_entry_v1},
                      {htlcs_cf(Ledger), blockchain_ledger_htlc_v1},
-                     {pocs_cf(Ledger), t2b},
+                     {pocs_cf(Ledger), blockchain_ledger_poc_v2},
                      {securities_cf(Ledger), blockchain_ledger_security_entry_v1},
                      {routing_cf(Ledger), blockchain_ledger_routing_v1},
                      {state_channels_cf(Ledger), state_channel},
@@ -1910,17 +1911,29 @@ refresh_gateway_witnesses(Hash, Ledger) ->
             ok
     end.
 
--spec find_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v2:pocs()} | {error, any()}.
-find_poc(OnionKeyHash, Ledger) ->
+find_poc(OnionKeyHash, Challenger, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
-        {ok, BinPoCs} ->
-            PoCs = erlang:binary_to_term(BinPoCs),
-            {ok, lists:map(fun blockchain_ledger_poc_v2:deserialize/1, PoCs)};
+    case cache_get(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>, []) of
+        {ok, BinPoC} ->
+            {ok, blockchain_ledger_poc_v2:deserialize(BinPoC)};
         not_found ->
             {error, not_found};
         Error ->
             Error
+    end.
+
+
+-spec find_pocs(binary(), ledger()) -> {ok, blockchain_ledger_poc_v2:pocs()} | {error, any()}.
+find_pocs(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    PoCs = cache_fold(Ledger, PoCsCF,
+                     fun({_, V}, Acc) ->
+                             [blockchain_ledger_poc_v2:deserialize(V)|Acc]
+                     end, [], [{start, <<OnionKeyHash/binary>>}, {iterate_upper_bound, increment_bin(OnionKeyHash)}]),
+    case PoCs of
+        [] ->
+            {error, not_found};
+        _ -> {ok, PoCs}
     end.
 
 -spec request_poc(OnionKeyHash :: binary(),
@@ -1934,26 +1947,15 @@ request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Version, Ledger) ->
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
-            case ?MODULE:find_poc(OnionKeyHash, Ledger) of
-                {error, not_found} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, []);
-                {error, _} ->
-                    {error, fail_getting_poc};
-                {ok, PoCs} ->
-                    request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs)
-            end
+            request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version)
     end.
 
-request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version, PoCs) ->
+request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Version) ->
     case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
             ok;
         LastOnionKeyHash  ->
-            case delete_poc(LastOnionKeyHash, Challenger, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                ok -> ok
-            end
+            delete_poc(LastOnionKeyHash, Challenger, Ledger)
     end,
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
@@ -1961,40 +1963,15 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Versi
     Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
     ok = update_gateway(Gw3, Challenger, Ledger),
 
+    PoCsCF = pocs_cf(Ledger),
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
-    BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)], [compressed]),
-    PoCsCF = pocs_cf(Ledger),
-    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs).
+    cache_put(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>, PoCBin).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
-    case ?MODULE:find_poc(OnionKeyHash, Ledger) of
-        {error, not_found} ->
-            ok;
-        {error, _}=Error ->
-            Error;
-        {ok, PoCs} ->
-            FilteredPoCs = lists:filter(
-                fun(PoC) ->
-                    blockchain_ledger_poc_v2:challenger(PoC) =/= Challenger
-                end,
-                PoCs
-            ),
-            case FilteredPoCs of
-                [] ->
-                    ?MODULE:delete_pocs(OnionKeyHash, Ledger);
-                _ ->
-                    BinPoCs = erlang:term_to_binary(lists:map(fun blockchain_ledger_poc_v2:serialize/1, FilteredPoCs), [compressed]),
-                    PoCsCF = pocs_cf(Ledger),
-                    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
-            end
-    end.
-
--spec delete_pocs(binary(), ledger()) -> ok | {error, any()}.
-delete_pocs(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    cache_delete(Ledger, PoCsCF, OnionKeyHash).
+    cache_delete(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>).
 
 maybe_gc_pocs(Chain, Ledger) ->
     {ok, Height} = current_height(Ledger),
@@ -2022,66 +1999,67 @@ maybe_gc_pocs(Chain, Ledger) ->
                                   Acc
                           end
                   end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
-            Alters =
-                cache_fold(
-                  Ledger,
-                  PoCsCF,
-                  fun({KeyHash, BinPoCs}, Acc) ->
-                          %% this CF contains all the poc request state that needs to be retained
-                          %% between request and receipt validation.  however, it's possible that
-                          %% both requests stop and a receipt never comes, which leads to stale (and
-                          %% in some cases differing) data in the ledger.  here, we pull that data
-                          %% out and delete anything that's too old, as determined by being older
-                          %% than twice the request interval, which controls receipt validity.
-                          SPoCs = erlang:binary_to_term(BinPoCs),
-                          PoCs = lists:map(fun blockchain_ledger_poc_v2:deserialize/1, SPoCs),
-                          FPoCs =
-                              lists:filter(
-                                fun(PoC) ->
-                                        H = blockchain_ledger_poc_v2:block_hash(PoC),
-                                        case H of
-                                            <<>> ->
-                                                %% pre-upgrade pocs are ancient
-                                                false;
-                                            _ ->
-                                                case maps:find(H, Hashes) of
-                                                    {ok, BH} ->
-                                                        %% not sure this is even needed, it might
-                                                        %% always be true? but just in case
-                                                        (Height - BH) < PoCInterval * 2;
-                                                    error ->
-                                                        %% if it's not in the hashes map, it's too
-                                                        %% old by construction
-                                                        false
-                                                end
-                                        end
-                                end, PoCs),
-                          case FPoCs == PoCs of
-                              true ->
-                                  Acc;
-                              _ ->
-                                  [{KeyHash, FPoCs} | Acc]
-                          end
-                  end,
-                  []
-                 ),
-            lager:debug("Alterations ~p", [Alters]),
-            %% here we have two clauses, so we don't uselessly store a [] in the ledger, as that
-            %% might cause drift, depending on the timing of the GC and a few other factors.
-            lists:foreach(
-              fun({KeyHash, []}) ->
-                      cache_delete(Ledger, PoCsCF, KeyHash);
-                 ({KeyHash, NewPoCs}) ->
-                      BinPoCs = erlang:term_to_binary(
-                                  lists:map(fun blockchain_ledger_poc_v2:serialize/1,
-                                            NewPoCs), [compressed]),
-                      cache_put(Ledger, PoCsCF, KeyHash, BinPoCs)
-              end,
-              Alters),
+            cache_fold(
+                Ledger,
+                PoCsCF,
+                fun({KeyHash, BinPoC}, Acc) ->
+                        %% this CF contains all the poc request state that needs to be retained
+                        %% between request and receipt validation.  however, it's possible that
+                        %% both requests stop and a receipt never comes, which leads to stale (and
+                        %% in some cases differing) data in the ledger.  here, we pull that data
+                        %% out and delete anything that's too old, as determined by being older
+                        %% than twice the request interval, which controls receipt validity.
+                        PoC = blockchain_ledger_poc_v2:deserialize(BinPoC),
+                        H = blockchain_ledger_poc_v2:block_hash(PoC),
+                        case H of
+                            <<>> ->
+                                %% pre-upgrade pocs are ancient
+                                cache_delete(Ledger, PoCsCF, KeyHash);
+                            _ ->
+                                case maps:find(H, Hashes) of
+                                    {ok, BH} ->
+                                        %% not sure this is even needed, it might
+                                        %% always be true? but just in case
+                                        case (Height - BH) < PoCInterval * 2 of
+                                            false ->
+                                                cache_delete(Ledger, PoCsCF, KeyHash);
+                                            true ->
+                                                ok
+                                        end;
+                                    error ->
+                                        %% if it's not in the hashes map, it's too
+                                        %% old by construction
+                                        cache_delete(Ledger, PoCsCF, KeyHash)
+                                end
+                        end,
+                        Acc
+                end,
+                []
+                ),
             ok;
         _ ->
             ok
     end.
+
+upgrade_pocs(Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    ToStore = cache_fold(
+      Ledger,
+      PoCsCF,
+      fun({KeyHash, BinPoCs}, Acc) ->
+              SPoCs = erlang:binary_to_term(BinPoCs),
+              cache_delete(Ledger, PoCsCF, KeyHash),
+              lists:foldl(
+                fun(SPoC, A) ->
+                        PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
+                        Challenger = blockchain_ledger_poc_v2:challenger(PoC),
+                        [{<<KeyHash/binary, Challenger/binary>>, SPoC} | A]
+                end, Acc, SPoCs)
+      end, []),
+    lists:foreach(fun({K, V}) ->
+                          cache_put(Ledger, PoCsCF, K, V)
+                  end, ToStore),
+    ok.
 
 -spec zone_list_to_pubkey_bins(ZoneList :: [h3:h3_index()],
                                Ledger :: ledger()) -> [libp2p_crypto:pubkey_bin()].
@@ -5328,7 +5306,7 @@ poc_test() ->
                         {ok, ?GW_CAPABILITIES_FULL_GATEWAY_V1}
                 end),
 
-    ?assertEqual({error, not_found}, find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({error, not_found}, find_pocs(OnionKeyHash0, Ledger)),
 
     commit(
         fun(L) ->
@@ -5339,7 +5317,8 @@ poc_test() ->
         Ledger
     ),
     PoC0 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash0, Challenger0, BlockHash),
-    ?assertEqual({ok, [PoC0]} ,find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({ok, [PoC0]} ,find_pocs(OnionKeyHash0, Ledger)),
+    ?assertEqual({ok, PoC0} ,find_poc(OnionKeyHash0, Challenger0, Ledger)),
     {ok, GwInfo0} = find_gateway_info(Challenger0, Ledger),
     ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo0)),
     ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo0)),
@@ -5351,7 +5330,7 @@ poc_test() ->
         Ledger
     ),
     PoC1 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash0, Challenger1, BlockHash),
-    ?assertEqual({ok, [PoC1, PoC0]}, find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({ok, [PoC1, PoC0]}, find_pocs(OnionKeyHash0, Ledger)),
 
     commit(
         fun(L) ->
@@ -5359,7 +5338,7 @@ poc_test() ->
         end,
         Ledger
     ),
-    ?assertEqual({ok, [PoC1]} ,find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({ok, [PoC1]} ,find_pocs(OnionKeyHash0, Ledger)),
 
     commit(
         fun(L) ->
@@ -5367,7 +5346,7 @@ poc_test() ->
         end,
         Ledger
     ),
-    ?assertEqual({error, not_found} ,find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({error, not_found} ,find_pocs(OnionKeyHash0, Ledger)),
 
     commit(
         fun(L) ->
@@ -5375,7 +5354,7 @@ poc_test() ->
         end,
         Ledger
     ),
-    ?assertEqual({ok, [PoC0]} ,find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({ok, [PoC0]} ,find_pocs(OnionKeyHash0, Ledger)),
 
     commit(
         fun(L) ->
@@ -5383,9 +5362,9 @@ poc_test() ->
         end,
         Ledger
     ),
-    ?assertEqual({error, not_found} ,find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({error, not_found} ,find_pocs(OnionKeyHash0, Ledger)),
     PoC2 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash1, Challenger0, BlockHash),
-    ?assertEqual({ok, [PoC2]}, find_poc(OnionKeyHash1, Ledger)),
+    ?assertEqual({ok, [PoC2]}, find_pocs(OnionKeyHash1, Ledger)),
     {ok, GwInfo1} = find_gateway_info(Challenger0, Ledger),
     ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo1)),
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo1)),
