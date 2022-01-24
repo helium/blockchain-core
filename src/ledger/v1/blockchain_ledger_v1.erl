@@ -77,6 +77,7 @@
     update_gateway_score/3, gateway_score/2,
     update_gateway_oui/4,
     gateway_count/1,
+    gateway_update_challenge/5,
 
     find_poc/2,
     request_poc/6,
@@ -153,16 +154,16 @@
     set_hexes/2, get_hexes/1, get_hexes_list/1,
     set_hex/3, get_hex/2, delete_hex/2,
 
-    add_to_hex/3,
-    remove_from_hex/3,
+    add_to_hex/4,
+    remove_from_hex/4,
 
     clean_all_hexes/1,
 
     bootstrap_h3dex/1,
     get_h3dex/1, delete_h3dex/1,
     lookup_gateways_from_hex/2,
-    add_gw_to_hex/3,
-    remove_gw_from_hex/3,
+    add_gw_to_h3dex/4,
+    remove_gw_from_h3dex/4,
     count_gateways_in_hex/2,
     count_gateways_in_hexes/2,
     random_targeting_hex/2,
@@ -1538,8 +1539,7 @@ add_gateway(OwnerAddr,
                     {ok, V} when V > 6 ->
                         {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
                         Hex = h3:parent(Location, Res),
-                        add_to_hex(Hex, GatewayAddress, Ledger),
-                        add_gw_to_hex(Hex, GatewayAddress, Ledger),
+                        add_to_hex(Hex, GatewayAddress, Res, Ledger),
                         NewGw0;
                     {ok, V} when V > 3 ->
                         Gateways = active_gateways(Ledger),
@@ -1988,15 +1988,16 @@ gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, _Width} ->
             {ok, InactivityThreshold} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
+            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
             case blockchain_ledger_gateway_v2:last_poc_challenge(Gw0) of
               undefined ->
                     %% it might have been GC'd because of inactivity, so re-add it
                     Location = blockchain_ledger_gateway_v2:location(Gw0),
-                    add_gw_to_hex(Location, Challenger, Ledger);
+                    add_gw_to_h3dex(Location, Challenger, Res, Ledger);
                 LastChallenge when Height - LastChallenge > InactivityThreshold ->
                     %% it might have been GC'd because of inactivity, so re-add it
                     Location = blockchain_ledger_gateway_v2:location(Gw0),
-                    add_gw_to_hex(Location, Challenger, Ledger);
+                    add_gw_to_h3dex(Location, Challenger, Res, Ledger);
                   _ ->
                     ok
             end;
@@ -4104,14 +4105,26 @@ hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
 
 
-add_to_hex(Hex, Gateway, Ledger) ->
+add_to_hex(Hex, Gateway, Res, Ledger) ->
+  case blockchain:config(?poc_hexing_type, Ledger) of
+    {ok, hex_h3dex} ->
+      add_gw_to_hex(Hex, Gateway, Res, Ledger),
+      add_gw_to_h3dex(Hex, Gateway, Res, Ledger);
+    {ok, h3dex} ->
+      add_gw_to_h3dex(Hex, Gateway, Res, Ledger);
+    _ ->
+      add_gw_to_hex(Hex, Gateway, Res, Ledger)
+  end.
+
+add_gw_to_hex(Hex, Gateway, Res, Ledger) ->
+    ParentHex = h3:parent(Hex, Res),
     Hexes = case get_hexes(Ledger) of
                 {ok, Hs} ->
                     Hs;
                 {error, not_found} ->
                     #{}
             end,
-    Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
+    Hexes1 = maps:update_with(ParentHex, fun(X) -> X + 1 end, 1, Hexes),
     ok = set_hexes(Hexes1, Ledger),
 
     case get_hex(Hex, Ledger) of
@@ -4121,7 +4134,18 @@ add_to_hex(Hex, Gateway, Ledger) ->
             ok = set_hex(Hex, [Gateway], Ledger)
     end.
 
-remove_from_hex(Hex, Gateway, Ledger) ->
+remove_from_hex(Hex, Gateway, Res, Ledger) ->
+  case blockchain:config(?poc_hexing_type, Ledger) of
+    hex_h3dex ->
+      remove_gw_from_hex(Hex, Gateway, Ledger),
+      remove_gw_from_h3dex(Hex, Gateway, Res, Ledger);
+    h3dex ->
+      remove_gw_from_hex(Hex, Gateway, Ledger);
+    _ ->
+      remove_gw_from_hex(Hex, Gateway, Ledger)
+  end.
+
+remove_gw_from_hex(Hex, Gateway, Ledger) ->
     {ok, Hexes} = get_hexes(Ledger),
     Hexes1 =
         case maps:get(Hex, Hexes) of
@@ -4345,11 +4369,12 @@ key_to_h3(Key) ->
     H3.
 
 
--spec add_gw_to_hex(Hex :: non_neg_integer(),
+-spec add_gw_to_h3dex(Hex :: non_neg_integer(),
                     GWAddr :: libp2p_crypto:pubkey_bin(),
+                    Res :: h3:index(),
                     Ledger :: ledger()) -> ok | {error, any()}.
 %% @doc During an assert, this function will add a gateway address to a hex
-add_gw_to_hex(Hex, GWAddr, Ledger) ->
+add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
@@ -4358,12 +4383,7 @@ add_gw_to_hex(Hex, GWAddr, Ledger) ->
                 0 ->
                     %% populating a hex means we need to recalculate the set of populated
                     %% hexes
-                    case blockchain:config(?poc_target_hex_parent_res, Ledger) of
-                        {ok, Res} ->
-                            build_random_hex_targeting_lookup(Res, Ledger);
-                        _ ->
-                            ok
-                    end;
+                    build_random_hex_targeting_lookup(Res, Ledger);
                 _ ->
                     ok
             end,
@@ -4374,13 +4394,14 @@ add_gw_to_hex(Hex, GWAddr, Ledger) ->
         Error -> Error
     end.
 
--spec remove_gw_from_hex(Hex :: non_neg_integer(),
+-spec remove_gw_from_h3dex(Hex :: non_neg_integer(),
                          GWAddr :: libp2p_crypto:pubkey_bin(),
+                          Res :: h3:index(),
                          Ledger :: ledger()) -> ok | {error, any()}.
 %% @doc During an assert, if a gateway already had an asserted location
 %% (and has been reasserted), this function will remove a gateway
 %% address from a hex
-remove_gw_from_hex(Hex, GWAddr, Ledger) ->
+remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
@@ -4388,16 +4409,11 @@ remove_gw_from_hex(Hex, GWAddr, Ledger) ->
         {ok, BinGws} ->
             case lists:delete(GWAddr, binary_to_term(BinGws)) of
                 [] ->
-                    case count_gateways_in_hex(h3:parent(Hex, 5), Ledger) of
+                    case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
                         0 ->
                             %% removing a hex means we need to recalculate the set of populated
                             %% hexes
-                            case blockchain:config(?poc_target_hex_parent_res, Ledger) of
-                                {ok, Res} ->
-                                    build_random_hex_targeting_lookup(Res, Ledger);
-                                _ ->
-                                    ok
-                            end;
+                            build_random_hex_targeting_lookup(Res, Ledger);
                         _ ->
                             ok
                     end,
@@ -4449,12 +4465,13 @@ maybe_gc_h3dex(Ledger) ->
 
 gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger) ->
     HexMap = lookup_gateways_from_hex(Location, Ledger),
+    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
     %% no maps:foreach in otp 22
     maps:fold(fun(H3, Gateways, _Acc) ->
                       lists:foreach(fun(GW) ->
                                             case find_gateway_last_challenge(GW, Ledger) of
                                                 {ok, LastActive} when Height - LastActive > InactivityThreshold ->
-                                                    remove_gw_from_hex(H3, GW, Ledger);
+                                                    remove_gw_from_h3dex(H3, GW, Res, Ledger);
                                                 _ ->
                                                     ok
                                             end

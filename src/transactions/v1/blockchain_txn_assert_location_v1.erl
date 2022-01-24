@@ -393,10 +393,11 @@ absorb(Txn, Chain) ->
             Error;
         ok ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger),
-            %% hex index update code needs to be unconditional and hard-coded
-            %% until we have chain var update hook
-            %% {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-            Res = 5,
+            Res =
+              case blockchain:config(?poc_target_hex_parent_res, Ledger) of
+                {ok, ResV} -> ResV;
+                _ -> 5
+              end,
             OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
             OldHex =
                 case OldLoc of
@@ -408,36 +409,25 @@ absorb(Txn, Chain) ->
             Hex = h3:parent(Location, Res),
 
             case {OldLoc, Location, Hex} of
-                {undefined, New, H} ->
+                {undefined, New, _H} ->
                     %% no previous location
-
                     %% add new hex
-                    blockchain_ledger_v1:add_to_hex(H, Gateway, Ledger),
-                    %% add new location of this gateway to h3dex
-                    blockchain_ledger_v1:add_gw_to_hex(New, Gateway, Ledger);
+                    blockchain_ledger_v1:add_to_hex(New, Gateway, Res, Ledger);
                 {Old, Old, _H} ->
                     %% why even check this, same loc as old loc
                     ok;
                 {Old, New, H} when H == OldHex ->
                     %% moved within the same Hex
-
                     %% remove old location of this gateway from h3dex
-                    blockchain_ledger_v1:remove_gw_from_hex(Old, Gateway, Ledger),
-
-                    %% add new location of this gateway to h3dex
-                    blockchain_ledger_v1:add_gw_to_hex(New, Gateway, Ledger);
-                {Old, New, H} ->
+                  blockchain_ledger_v1:remove_from_hex(Old, Gateway, Res, Ledger),
+                  %% add new location of this gateway to h3dex
+                  blockchain_ledger_v1:add_to_hex(New, Gateway, Res, Ledger);
+                {Old, New, _H} ->
                     %% moved to a different hex
-
                     %% remove this hex
-                    blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
-                    %% add new hex
-                    blockchain_ledger_v1:add_to_hex(H, Gateway, Ledger),
-
-                    %% remove old location of this gateway from h3dex
-                    blockchain_ledger_v1:remove_gw_from_hex(Old, Gateway, Ledger),
-                    %% add new location of this gateway to h3dex
-                    blockchain_ledger_v1:add_gw_to_hex(New, Gateway, Ledger)
+                  blockchain_ledger_v1:remove_from_hex(Old, Gateway, Res, Ledger),
+                  %% add new hex
+                  blockchain_ledger_v1:add_to_hex(New, Gateway, Res, Ledger)
             end,
 
             case blockchain:config(?poc_version, Ledger) of

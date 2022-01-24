@@ -972,6 +972,12 @@ validate_var(?check_snr, Value) ->
     end;
 validate_var(?polyfill_resolution, Value) ->
     validate_int(Value, "polyfill_resolution", 0, 15, false);
+validate_var(?h3dex_gc_width, Value) ->
+  validate_int(Value, "h3dex_gc_width", 1, 10000, false);
+validate_var(?poc_targeting_version, Value) ->
+  validate_int(Value, "poc_targeting_version", 1, 1000, false);
+validate_var(?poc_target_pool_size, Value) ->
+  validate_int(Value, "poc_target_pool_size", 1, 1000000, false);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
