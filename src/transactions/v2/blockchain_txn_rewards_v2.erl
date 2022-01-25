@@ -358,7 +358,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
     end.
 
 perf(Tag, Time) ->
-    ets:update_counter(rwd_perf, Tag, Time, {Tag, Time}).
+    catch ets:update_counter(rwd_perf, Tag, Time, {Tag, Time}).
 
 perf_report(Tab) ->
     case application:get_env(blockchain, print_rewards_perf, false) of

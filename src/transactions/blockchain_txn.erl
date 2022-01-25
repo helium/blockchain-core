@@ -1104,8 +1104,8 @@ sc_depends_on_test() ->
     [{Payer, SigFun}] = gen_payers(1),
     [{Payer1, SigFun1}] = gen_payers(1),
 
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    {Filter1, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    {Filter1, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
     %% oui for payer
     O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(1, Payer, [Payer], Filter, 8), SigFun),
@@ -1296,7 +1296,7 @@ txn_fees_oui_test() ->
     #{public := OwnerPubKey, secret := OwnerPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     OwnerPubkeyBin = libp2p_crypto:pubkey_to_bin(OwnerPubKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_oui_v1:new(OUI, OwnerPubkeyBin, [?ADDRESS_KEY1], Filter, 32, Payer),
@@ -1346,7 +1346,7 @@ txn_fees_routing_update_router_test() ->
 
 txn_fees_routing_new_xor_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_routing_v1:new_xor(1, Owner, Filter,  1),
@@ -1371,7 +1371,7 @@ txn_fees_routing_new_xor_test() ->
 
 txn_fees_routing_update_xor_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_routing_v1:update_xor(1, Owner, 0, Filter,  1),

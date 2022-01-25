@@ -591,7 +591,7 @@ txn_fees_pay_with_dc(Config) ->
     OUI1 = 1,
     Addresses0 = [Payer],
 
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     %% base txn
     OUITx0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     %% get the fees for this txn
@@ -1157,7 +1157,7 @@ txn_fees_pay_with_hnt(Config) ->
     OUI1 = 1,
     Addresses0 = [Payer],
 
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     %% base txn
     OUITx0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     %% get the fees for this txn

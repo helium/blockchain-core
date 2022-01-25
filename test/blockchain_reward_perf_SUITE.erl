@@ -122,6 +122,7 @@ init_per_testcase(TestCase, Config) ->
         end,
 
     ct:pal("loaded ledger at height ~p", [Height]),
+    ?assertEqual(LoadHeight, Height),
     Chain1 = blockchain:ledger(Ledger0, Chain),
 
     [{chain, Chain1}
