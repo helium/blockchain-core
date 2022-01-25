@@ -81,7 +81,7 @@ get_txn_status(TxnKey) ->
             case get_txn_status(TxnKey, State) of
                 {ok, {cleared, _Block}} = Resp ->
                     Resp;
-                {ok, {failed, _Reason}} = Resp ->
+                {ok, {failed, _FailReason}} = Resp ->
                     Resp;
                 {ok, pending} ->
                     %% if we hit here its odd

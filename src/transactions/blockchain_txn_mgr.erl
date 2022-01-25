@@ -17,6 +17,7 @@
 -export([
          start_link/1,
          submit/2, submit/3,
+         grpc_submit/1,
          set_chain/1,
          txn_list/0,
          txn_status/1,
@@ -116,6 +117,12 @@ start_link(Args) when is_map(Args) ->
 submit(Txn, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, get_txn_key(), Callback}).
 
+-spec grpc_submit(Txn :: blockchain_txn:txn()) -> {ok, txn_key()}.
+grpc_submit(Txn) ->
+    TxnKey = get_txn_key(),
+    gen_server:cast(?MODULE, {submit, Txn, TxnKey, fun()-> ok end}),
+    {ok, TxnKey}.
+
 -spec submit(Txn :: blockchain_txn:txn(), Key :: txn_key(), Callback :: fun()) -> ok.
 submit(Txn, Key, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, Key, Callback}).
@@ -128,13 +135,14 @@ set_chain(Chain) ->
 txn_list() ->
     gen_server:call(?MODULE, txn_list, infinity).
 
--spec txn_status(txn_key()) -> {ok, map()} | {error, not_found}.
+-spec txn_status(txn_key()) -> {ok, pending, map()} | {error, not_found}.
 txn_status(TxnKey) ->
     case cached_txn(TxnKey) of
         {ok, {TxnKey, _Txn, #txn_data{acceptions = Acceptions, rejections = Rejections, recv_block_height = RecvBlockHeight} = _TxnData}} ->
-            {ok, #{  recv_block_height => RecvBlockHeight,
-                acceptors => Acceptions,
-                rejectors => Rejections}};
+            {ok, pending,
+                #{  recv_block_height => RecvBlockHeight,
+                    acceptors => Acceptions,
+                    rejectors => Rejections}};
         {error, txn_not_found} = Error ->
             Error
 
@@ -837,8 +845,6 @@ reject_f(NumMembers)->
     %% 2F+1
     (trunc((NumMembers) div 3) * 2) + 1.
 
--spec get_txn_key()-> txn_key().
+-spec get_txn_key()-> blockchain_txn_mgr:txn_key().
 get_txn_key()->
-    %% define a unique value to use as they cache key for the received txn, for now its just a mono increasing timestamp.
-    %% Timestamp is a poormans key but as txns are serialised via a single txn mgr per node, it satisfies the need here
-    erlang:monotonic_time().
+    integer_to_binary(erlang:monotonic_time()).
