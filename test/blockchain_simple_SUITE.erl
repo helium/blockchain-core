@@ -1061,7 +1061,7 @@ routing_test(Config) ->
 
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm), Router1],
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
@@ -1091,10 +1091,10 @@ routing_test(Config) ->
 
     OUITxn3 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 2),
     SignedOUITxn3 = blockchain_txn_routing_v1:sign(OUITxn3, SigFun),
-    {Filter2, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn4 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter2, 3),
     SignedOUITxn4 = blockchain_txn_routing_v1:sign(OUITxn4, SigFun),
-    {Filter2a, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2a, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn4a = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2a, 4),
     SignedOUITxn4a = blockchain_txn_routing_v1:sign(OUITxn4a, SigFun),
 
@@ -1150,15 +1150,15 @@ routing_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn11]),
 
     %% fill up the xor list for this node
-    {Filter2b, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2b, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn4b = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2b, 5),
     SignedOUITxn4b = blockchain_txn_routing_v1:sign(OUITxn4b, SigFun),
 
-    {Filter2c, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2c, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn4c = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2c, 6),
     SignedOUITxn4c = blockchain_txn_routing_v1:sign(OUITxn4c, SigFun),
 
-    {Filter2d, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2d, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn4d = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2d, 7),
     SignedOUITxn4d = blockchain_txn_routing_v1:sign(OUITxn4d, SigFun),
 
@@ -1176,7 +1176,7 @@ routing_test(Config) ->
     ?assertEqual(7, blockchain_ledger_routing_v1:nonce(Routing3)),
 
     %% no more filters can be added
-    {Filter2e, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2e, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn4e = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2e, 8),
     SignedOUITxn4e = blockchain_txn_routing_v1:sign(OUITxn4e, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4e]),
@@ -1196,7 +1196,7 @@ routing_test(Config) ->
     ?assertEqual({ok, Routing4}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     %% Test if router (in addresses can modify filters)
-    {FilterX, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {FilterX, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn02 = blockchain_txn_routing_v1:new_xor(OUI2, Router1, FilterX, 1),
     SignedOUITxn02 = blockchain_txn_routing_v1:sign(OUITxn02, RouterSigFun),
     {ok, Block5} = test_utils:create_block(ConsensusMembers, [SignedOUITxn02]),
@@ -1208,7 +1208,7 @@ routing_test(Config) ->
     ?assertEqual([Filter, FilterX], blockchain_ledger_routing_v1:filters(Routing5)),
 
     %% Test if OUI owner can modify filters
-    {FilterY, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {FilterY, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn03 = blockchain_txn_routing_v1:new_xor(OUI2, Payer, FilterY, 2),
     SignedOUITxn03 = blockchain_txn_routing_v1:sign(OUITxn03, SigFun),
     {ok, Block6} = test_utils:create_block(ConsensusMembers, [SignedOUITxn03]),
@@ -1223,7 +1223,7 @@ routing_test(Config) ->
     #{secret := NegPivKey, public := NegPubKey} = libp2p_crypto:generate_keys(ecc_compact),
     NegPubKeyBin = libp2p_crypto:pubkey_to_bin(NegPubKey),
     NegSigFun = libp2p_crypto:mk_sig_fun(NegPivKey),
-    {FilterZ, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {FilterZ, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn04 = blockchain_txn_routing_v1:new_xor(OUI2, NegPubKeyBin, FilterZ, 3),
     SignedOUITxn04 = blockchain_txn_routing_v1:sign(OUITxn04, NegSigFun),
     {error, _} = test_utils:create_block(ConsensusMembers, [SignedOUITxn04]),
@@ -1251,7 +1251,7 @@ max_subnet_test(Config) ->
 
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
@@ -2662,7 +2662,7 @@ payer_test(Config) ->
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses0, Filter, 8, Payer),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
@@ -2987,7 +2987,7 @@ update_gateway_oui_test(Config) ->
     SignedGatewayAddGatewayTxn = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTxn, GatewaySigFun),
     OUI1 = 1,
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses, Filter, 8),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
     {ok, Block23} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
@@ -3052,7 +3052,7 @@ replay_oui_test(Config) ->
 
     %% construct oui txn
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
     OUITxn1 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign(OUITxn1, OwnerSigFun),
 

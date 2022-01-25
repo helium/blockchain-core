@@ -494,7 +494,7 @@ atom_ext(<<Bin/binary>>) ->
 -spec bin_to_atom(frame(), binary(), binary()) -> result_internal(atom()).
 bin_to_atom(F, <<AtomName/binary>>, <<Rest/binary>>) ->
     try
-        {ok, {binary_to_atom(AtomName), Rest}}
+        {ok, {list_to_atom(unicode:characters_to_list(AtomName)), Rest}}
     catch
         error:badarg ->
             {error, {frame, F, {unsound, atom_characters_invalid}}};

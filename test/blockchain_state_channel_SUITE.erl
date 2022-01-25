@@ -272,7 +272,7 @@ full_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -399,7 +399,7 @@ overspent_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -623,7 +623,7 @@ cached_routing_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(OUI, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(OUI, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -698,7 +698,7 @@ max_actor_cache_eviction_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -835,7 +835,7 @@ max_actor_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -968,7 +968,7 @@ replay_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1065,7 +1065,7 @@ multiple_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
 
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
@@ -1187,7 +1187,7 @@ multi_owner_multi_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode2, Self),
 
     %% Create OUI txn for RouterNode1
-    SignedOUITxn1 = create_oui_txn(1, RouterNode1, [], 8),
+    SignedOUITxn1 = create_oui_txn(1, RouterNode1, [{0, 0}], 8),
 
     %% Create 3 SCs for RouterNode1
     Expiry = 20,
@@ -1222,7 +1222,7 @@ multi_owner_multi_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(RouterNode2, 3),
 
     %% Create OUI txn for RouterNode2
-    SignedOUITxn2 = create_oui_txn(2, RouterNode2, [], 8),
+    SignedOUITxn2 = create_oui_txn(2, RouterNode2, [{0, 0}], 8),
     ID21 = crypto:strong_rand_bytes(24),
     ID22 = crypto:strong_rand_bytes(24),
 
@@ -1328,7 +1328,7 @@ multi_active_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1501,7 +1501,7 @@ max_scs_open_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     ExpireWithin = 11,
@@ -1550,7 +1550,7 @@ max_scs_open_v2_test(Config) ->
     RouterLedger = blockchain:ledger(RouterChain),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1631,7 +1631,7 @@ oui_not_found_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1663,7 +1663,7 @@ unknown_owner_test(Config) ->
     PayerPubkeyBin = libp2p_crypto:pubkey_to_bin(PayerPubkey),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     {ok, B0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn]),
@@ -1709,7 +1709,7 @@ crash_single_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1817,7 +1817,7 @@ crash_multi_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create first state channel open txn
@@ -1998,7 +1998,7 @@ crash_sc_sup_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -2111,7 +2111,7 @@ hotspot_in_router_oui_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(OUI, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(OUI, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     ct:pal("ConsensusMembers: ~p", [ConsensusMembers]),
@@ -2219,7 +2219,7 @@ default_routers_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{0, 0}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
