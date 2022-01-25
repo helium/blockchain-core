@@ -177,6 +177,7 @@
 -define(h3dex_gc_width, h3dex_gc_width).
 
 %% the version number of poc targeting in use: integer
+%% if not set, code paths with default to 3 ( blockchain_poc_target_v3 )
 -define(poc_targeting_version, poc_targeting_version).
 
 %% the number of random hexes to utilize when targeting: integer

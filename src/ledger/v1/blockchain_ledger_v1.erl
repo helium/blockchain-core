@@ -4143,7 +4143,8 @@ remove_from_hex(Hex, Gateway, Res, Ledger) ->
     h3dex ->
       remove_gw_from_hex(Hex, Gateway, Ledger);
     _ ->
-      remove_gw_from_hex(Hex, Gateway, Ledger)
+      remove_gw_from_hex(Hex, Gateway, Ledger),
+      remove_gw_from_h3dex(Hex, Gateway, Res, Ledger)
   end.
 
 remove_gw_from_hex(Hex, Gateway, Ledger) ->
