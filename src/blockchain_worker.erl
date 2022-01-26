@@ -1088,9 +1088,8 @@ fetch_and_parse_latest_snapshot(SnapInfo) ->
 get_latest_snap_data(URL, SnapInfo) ->
     ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
     Etag = case SnapInfo of
-               undefined -> undefined;
-               #snapshot_info{etag=undefined} -> undefined;
                #snapshot_info{etag=Etag0} -> Etag0
+               _ -> undefined;
            end,
     ReqHeaders = case Etag of
                   undefined -> ReqHeaders0;
