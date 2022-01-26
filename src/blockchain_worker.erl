@@ -611,7 +611,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(snapshot_timer_tick, State) ->
     Tref = schedule_snapshot_timer(),
-    {Mode, Info} = get_sync_mode(State#state.blockchain),
+    {Mode, Info} = get_sync_mode(State),
     {noreply, State#state{snapshot_timer = Tref, mode=Mode, snapshot_info=Info}};
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
@@ -763,7 +763,8 @@ integrate_genesis_block_(
                     blockchain = Chain,
                     gossip_ref = GossipRef
                 },
-            {ok, S1}
+            {Mode, SyncInfo} = get_sync_mode(S1),
+            {ok, S1#state{mode=Mode, snapshot_info=SyncInfo}}
     end;
 integrate_genesis_block_(_, #state{}=State0) ->
     {{error, not_in_no_genesis_state}, State0}.
@@ -1067,29 +1068,30 @@ start_snapshot_sync(#state{blockchain=Chain, sync_paused=SyncPaused, snapshot_in
 
 fetch_and_parse_latest_snapshot(SnapInfo) ->
     URL = application:get_env(blockchain, snap_source_base_url, undefined),
+    DefaultSnapInfo = case get_blessed_snapshot_height_and_hash() of
+                          {undefined, _} -> SnapInfo;
+                          {_, undefined} -> SnapInfo;
+                          {BlessedHash, BlessedHeight} ->
+                              #snapshot_info{hash=BlessedHash, height=BlessedHeight}
+                      end,
     case application:get_env(blockchain, fetch_latest_from_snap_source, true) of
         true ->
             try
-                get_latest_snap_data(URL, SnapInfo)
+                get_latest_snap_data(URL, DefaultSnapInfo)
             catch
                 _Type:Error:St ->
                     lager:error("Couldn't fetch latest-snap.json because ~p: ~p", [Error, St]),
-                    SnapInfo
+                    DefaultSnapInfo
             end;
         false ->
-            case get_blessed_snapshot_height_and_hash() of
-                {undefined, _} -> SnapInfo;
-                {_, undefined} -> SnapInfo;
-                {BlessedHash, BlessedHeight} ->
-                    #snapshot_info{hash=BlessedHash, height=BlessedHeight}
-            end
+            DefaultSnapInfo
     end.
 
 get_latest_snap_data(URL, SnapInfo) ->
     ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
     Etag = case SnapInfo of
-               #snapshot_info{etag=Etag0} -> Etag0
-               _ -> undefined;
+               #snapshot_info{etag=Etag0} -> Etag0;
+               _ -> undefined
            end,
     ReqHeaders = case Etag of
                   undefined -> ReqHeaders0;
