@@ -1085,47 +1085,21 @@ fetch_and_parse_latest_snapshot(SnapInfo) ->
             end
     end.
 
-get_latest_snap_data(URL, undefined) ->
-    ReqHeaders = [
-                  {"user-agent", "blockchain-worker-2"}
-                 ],
-    %% shorter timeouts here because we're hitting s3 usually...
-    HTTPOptions = [
-                   {timeout, 30000}, % milliseconds, 30 sec overall request timeout
-                   {connect_timeout, 10000} % milliseconds, 10 second connection timeout
-                  ],
-    Options = [
-               {body_format, binary}
-              ],
-    case httpc:request(get, {URL ++ "/latest-snap.json", ReqHeaders}, HTTPOptions, Options) of
-        {ok, {{_HTTPVer, 200, _Msg}, RespHeaders, Body}} ->
-            #{<<"height">> := Height,
-              <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
-            Hash = base64url:decode(B64Hash),
-            Etag = get_etag(RespHeaders),
-            lager:debug("new latest-json data: old etag: ~p new height: ~p, new hash: ~p new etag: ~p",
-                        [undefined, Height, B64Hash, Etag]),
-            #snapshot_info{height=Height, hash=Hash, etag=Etag};
-        {ok, {{_HTTPVer, 404, _Msg}, _RespHeaders, _Body}} -> throw({error, url_not_found});
-        {ok, {{_HTTPVer, Status, _Msg}, _RespHeaders, Body}} -> throw({error, {Status, Body}});
-        Other -> throw(Other)
-    end;
-get_latest_snap_data(URL, #snapshot_info{etag=Etag} = SnapInfo) ->
-    ReqHeaders0 = [
-                   {"user-agent", "blockchain-worker-3"}
-                  ],
+get_latest_snap_data(URL, SnapInfo) ->
+    ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
+    Etag = case SnapInfo of
+               undefined -> undefined;
+               #snapshot_info{etag=undefined} -> undefined;
+               #snapshot_info{etag=Etag0} -> Etag0
+           end,
     ReqHeaders = case Etag of
                   undefined -> ReqHeaders0;
                   _ -> [ {"if-none-match", "\"" ++ Etag ++ "\""} | ReqHeaders0 ]
                end,
     %% shorter timeouts here because we're hitting S3 usually...
-    HTTPOptions = [
-                   {timeout, 30000}, % milliseconds, 30 sec overall request timeout
-                   {connect_timeout, 10000} % milliseconds, 10 second connection timeout
-                  ],
-    Options = [
-               {body_format, binary} % return body as a binary
-              ],
+    HTTPOptions = [{timeout, 30000}, % milliseconds, 30 sec overall request timeout
+                   {connect_timeout, 10000}], % milliseconds, 10 second connection timeout
+    Options = [{body_format, binary}], % return body as a binary
     case httpc:request(get, {URL ++ "/latest-snap.json", ReqHeaders}, HTTPOptions, Options) of
         {ok, {{_HTTPVer, 200, _Msg}, RespHeaders, Body}} ->
             #{<<"height">> := Height,
@@ -1145,7 +1119,7 @@ get_latest_snap_data(URL, #snapshot_info{etag=Etag} = SnapInfo) ->
 
 get_etag(Headers) ->
     case lists:keyfind("etag", 1, Headers) of
-        {"etag", Etag} -> Etag;
+        {"etag", Etag} -> string:trim(Etag, both, "\"");
         _ -> undefined
     end.
 
