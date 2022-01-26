@@ -103,7 +103,7 @@
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
          snapshot_timer = undefined :: undefined | reference(),
-         snapshot_info :: undefined | snapshot_info(),
+         snapshot_info = #snapshot_info{} :: snapshot_info(),
          gossip_ref = make_ref() :: reference(),
          absorb_info :: undefined | {pid(), reference()},
          absorb_retries = 3 :: pos_integer(),
@@ -611,7 +611,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(snapshot_timer_tick, State) ->
     Tref = schedule_snapshot_timer(),
-    {Mode, Info} = get_sync_mode(State#state.blockchain),
+    {Mode, Info} = get_sync_mode(State),
     {noreply, State#state{snapshot_timer = Tref, mode=Mode, snapshot_info=Info}};
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
@@ -703,6 +703,7 @@ handle_info({'DOWN', RocksGCRef, process, RocksGCPid, Reason},
     {noreply, State#state{rocksdb_gc_mref = undefined}};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    %% todo get sync mode
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
@@ -763,7 +764,9 @@ integrate_genesis_block_(
                     blockchain = Chain,
                     gossip_ref = GossipRef
                 },
-            {ok, S1}
+            {Mode, SyncInfo} = get_sync_mode(S1),
+            %% TODO get sync_type
+            {ok, S1#state{mode=Mode, snapshot_info=SyncInfo}}
     end;
 integrate_genesis_block_(_, #state{}=State0) ->
     {{error, not_in_no_genesis_state}, State0}.
@@ -1085,7 +1088,13 @@ fetch_and_parse_latest_snapshot(SnapInfo) ->
             end
     end.
 
-get_latest_snap_data(URL, #snapshot_info{etag=Etag} = SnapInfo) ->
+get_latest_snap_data(URL, SnapInfo) ->
+    Etag = case SnapInfo of
+               #snapshot_info{etag=E} ->
+                   E;
+               _ ->
+                   undefined
+           end,
     Headers0 = [
                {"user-agent", "blockchain-worker-3"}
               ],
@@ -1103,11 +1112,11 @@ get_latest_snap_data(URL, #snapshot_info{etag=Etag} = SnapInfo) ->
               ],
 
     case httpc:request(get, {URL ++ "/latest-snap.json", Headers}, HTTPOptions, Options) of
-        {ok, {{_HTTPVer, 200, _Msg}, Headers, Body}} ->
+        {ok, {{_HTTPVer, 200, _Msg}, ResponseHeaders, Body}} ->
             #{<<"height">> := Height,
               <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
             Hash = base64url:decode(B64Hash),
-            NewEtag = get_etag(Headers),
+            NewEtag = get_etag(ResponseHeaders),
             lager:debug("new latest-json data: old etag: ~p new height: ~p, new hash: ~p etag: ~p",
                         [Etag, Height, B64Hash, NewEtag]),
             #snapshot_info{height=Height, hash=Hash, etag=NewEtag};
@@ -1239,7 +1248,7 @@ get_quick_sync_height_and_hash(Mode) ->
             assumed_valid ->
                 get_assumed_valid_height_and_hash();
             blessed_snapshot ->
-                fetch_and_parse_latest_snapshot(undefined)
+                fetch_and_parse_latest_snapshot(#snapshot_info{})
         end,
 
     case HashHeight of
@@ -1311,7 +1320,8 @@ get_sync_mode(State) ->
                 blessed_snapshot ->
                     %% reconsider whether the latest-snap.json data is newer
                     %% than whatever our current ledger height is
-                    #snapshot_info{height=Height} = SnapInfo = fetch_and_parse_latest_snapshot(State#state.snapshot_info),
+                    SnapInfo = fetch_and_parse_latest_snapshot(State#state.snapshot_info),
+                    lager:info("snap info for chain is ~p", [SnapInfo]),
                     Autoload = application:get_env(blockchain, autoload, true),
                     case State#state.blockchain of
                         undefined when Autoload == false ->
@@ -1322,10 +1332,12 @@ get_sync_mode(State) ->
                             {snapshot, SnapInfo};
                         _Chain ->
                             {ok, CurrHeight} = blockchain:height(State#state.blockchain),
-                            case CurrHeight >= Height - 1 of
-                                %% already loaded the snapshot
-                                true -> {normal, undefined};
-                                false -> {snapshot, SnapInfo}
+                            case SnapInfo of
+                                #snapshot_info{height=Height} when is_integer(Height) andalso Height > 0 andalso CurrHeight > Height - 1 ->
+                                    %% already loaded the snapshot
+                                    {normal, undefined};
+                                _ ->
+                                    {snapshot, SnapInfo}
                             end
                     end
             end;
