@@ -611,7 +611,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(snapshot_timer_tick, State) ->
     Tref = schedule_snapshot_timer(),
-    {Mode, Info} = get_sync_mode(State#state.blockchain),
+    {Mode, Info} = get_sync_mode(State),
     {noreply, State#state{snapshot_timer = Tref, mode=Mode, snapshot_info=Info}};
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
