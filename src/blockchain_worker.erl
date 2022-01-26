@@ -611,7 +611,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(snapshot_timer_tick, State) ->
     Tref = schedule_snapshot_timer(),
-    {Mode, Info} = get_sync_mode(State#state.blockchain),
+    {Mode, Info} = get_sync_mode(State),
     {noreply, State#state{snapshot_timer = Tref, mode=Mode, snapshot_info=Info}};
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
@@ -763,7 +763,8 @@ integrate_genesis_block_(
                     blockchain = Chain,
                     gossip_ref = GossipRef
                 },
-            {ok, S1}
+            {Mode, SyncInfo} = get_sync_mode(S1),
+            {ok, S1#state{mode=Mode, snapshot_info=SyncInfo}}
     end;
 integrate_genesis_block_(_, #state{}=State0) ->
     {{error, not_in_no_genesis_state}, State0}.
@@ -1067,61 +1068,59 @@ start_snapshot_sync(#state{blockchain=Chain, sync_paused=SyncPaused, snapshot_in
 
 fetch_and_parse_latest_snapshot(SnapInfo) ->
     URL = application:get_env(blockchain, snap_source_base_url, undefined),
+    DefaultSnapInfo = case get_blessed_snapshot_height_and_hash() of
+                          {undefined, _} -> SnapInfo;
+                          {_, undefined} -> SnapInfo;
+                          {BlessedHash, BlessedHeight} ->
+                              #snapshot_info{hash=BlessedHash, height=BlessedHeight}
+                      end,
     case application:get_env(blockchain, fetch_latest_from_snap_source, true) of
         true ->
             try
-                get_latest_snap_data(URL, SnapInfo)
+                get_latest_snap_data(URL, DefaultSnapInfo)
             catch
                 _Type:Error:St ->
                     lager:error("Couldn't fetch latest-snap.json because ~p: ~p", [Error, St]),
-                    SnapInfo
+                    DefaultSnapInfo
             end;
         false ->
-            case get_blessed_snapshot_height_and_hash() of
-                {undefined, _} -> SnapInfo;
-                {_, undefined} -> SnapInfo;
-                {BlessedHash, BlessedHeight} ->
-                    #snapshot_info{hash=BlessedHash, height=BlessedHeight}
-            end
+            DefaultSnapInfo
     end.
 
-get_latest_snap_data(URL, #snapshot_info{etag=Etag} = SnapInfo) ->
-    Headers0 = [
-               {"user-agent", "blockchain-worker-3"}
-              ],
-    Headers = case Etag of
-                  undefined -> Headers0;
-                  _ -> [ {"if-none-match", "\"" ++ Etag ++ "\""} | Headers0 ]
+get_latest_snap_data(URL, SnapInfo) ->
+    ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
+    Etag = case SnapInfo of
+               #snapshot_info{etag=Etag0} -> Etag0;
+               _ -> undefined
+           end,
+    ReqHeaders = case Etag of
+                  undefined -> ReqHeaders0;
+                  _ -> [ {"if-none-match", "\"" ++ Etag ++ "\""} | ReqHeaders0 ]
                end,
     %% shorter timeouts here because we're hitting S3 usually...
-    HTTPOptions = [
-                   {timeout, 30000}, % milliseconds, 30 sec overall request timeout
-                   {connect_timeout, 10000} % milliseconds, 10 second connection timeout
-                  ],
-    Options = [
-               {body_format, binary} % return body as a binary
-              ],
-
-    case httpc:request(get, {URL ++ "/latest-snap.json", Headers}, HTTPOptions, Options) of
-        {ok, {{_HTTPVer, 200, _Msg}, Headers, Body}} ->
+    HTTPOptions = [{timeout, 30000}, % milliseconds, 30 sec overall request timeout
+                   {connect_timeout, 10000}], % milliseconds, 10 second connection timeout
+    Options = [{body_format, binary}], % return body as a binary
+    case httpc:request(get, {URL ++ "/latest-snap.json", ReqHeaders}, HTTPOptions, Options) of
+        {ok, {{_HTTPVer, 200, _Msg}, RespHeaders, Body}} ->
             #{<<"height">> := Height,
               <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
             Hash = base64url:decode(B64Hash),
-            NewEtag = get_etag(Headers),
+            NewEtag = get_etag(RespHeaders),
             lager:debug("new latest-json data: old etag: ~p new height: ~p, new hash: ~p etag: ~p",
                         [Etag, Height, B64Hash, NewEtag]),
             #snapshot_info{height=Height, hash=Hash, etag=NewEtag};
-        {ok, {{_HTTPVer, 304, _Msg}, _Headers, _Body}} ->
+        {ok, {{_HTTPVer, 304, _Msg}, _RespHeaders, _Body}} ->
             lager:debug("Got 304 from ~p; latest-snap.json has not been modified", [URL]),
             SnapInfo;
-        {ok, {{_HTTPVer, 404, _Msg}, _Headers, _Body}} -> throw({error, url_not_found});
-        {ok, {{_HTTPVer, Status, _Msg}, _Headers, Body}} -> throw({error, {Status, Body}});
+        {ok, {{_HTTPVer, 404, _Msg}, _RespHeaders, _Body}} -> throw({error, url_not_found});
+        {ok, {{_HTTPVer, Status, _Msg}, _RespHeaders, Body}} -> throw({error, {Status, Body}});
         Other -> throw(Other)
     end.
 
 get_etag(Headers) ->
     case lists:keyfind("etag", 1, Headers) of
-        {"etag", Etag} -> Etag;
+        {"etag", Etag} -> string:trim(Etag, both, "\"");
         _ -> undefined
     end.
 
