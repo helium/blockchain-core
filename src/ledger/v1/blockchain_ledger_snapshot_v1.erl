@@ -362,20 +362,15 @@ serialize(Snapshot, BlocksOrNoBlocks) ->
 
 -spec serialize_v6(snapshot_v6(), blocks | noblocks) -> iolist().
 serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
+    EmptyListBin = term_to_binary([]),
     Blocks =
         case BlocksOrNoBlocks of
             blocks ->
-                term_to_binary(
-                  lists:map(
-                    fun (B) when is_tuple(B) ->
-                            blockchain_block:serialize(B);
-                        (B) -> B
-                    end,
-                    deserialize_field(blocks, maps:get(blocks, Snapshot0, []))
-                   ));
+                maps:get(blocks, Snapshot0, EmptyListBin);
             noblocks ->
-                term_to_binary([])
+                EmptyListBin
         end,
+
     Snapshot1 = maps:put(blocks, Blocks, Snapshot0),
 
     Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
@@ -806,7 +801,7 @@ height(#{current_height := HeightBin}) when is_binary(HeightBin) ->
 
 -spec hash(snapshot_of_any_version()) -> binary().
 hash(Snap) ->
-    case maps:get(version, Snap) of
+    case version(Snap) of
         v6 ->
             %% attempt to incrementally hash the snapshot without building up a big binary
             Ctx0 = crypto:hash_init(sha256),
