@@ -119,6 +119,9 @@
     | infos
     | oracle_price
     | oracle_price_list
+    | upgrades
+    | net_overage
+    | hnt_burned
     .
 
 -type key_raw() ::
