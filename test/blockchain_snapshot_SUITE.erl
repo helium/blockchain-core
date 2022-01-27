@@ -46,9 +46,8 @@ basic_from_file_test(Cfg) ->
 basic_test(DeserializeFrom, Cfg0) ->
     % XXX Snap equality check eats 90+% of my 32GB of RAM on failures. Use diff instead. -- @xandkar
     %% TODO Assert ledger fields are equal to snap fields after import.
-    %% FIXME 1160641 gets OOM-killed on blockchain_ledger_snapshot_v1:snapshot
-    %SnapHeight = 1160641,
-    SnapHeight = 913684,
+    SnapHeight = 1160641,
+    SnapExpectedMem = 1024, % 1160641 needs 1 GB, while 913684 was ok on 200 MB.
     SnapFilePath = snap_download(SnapHeight, Cfg0),
     {ok, SnapBin} = file:read_file(SnapFilePath),
     {ok, Snap} =
@@ -60,6 +59,7 @@ basic_test(DeserializeFrom, Cfg0) ->
         end,
     Cfg = chain_start_from_snap(Snap, SnapBin, Cfg0),
     Chain = ?config(chain, Cfg),
+    ok = application:set_env(blockchain, snapshot_memory_limit, SnapExpectedMem),
     LedgerA = blockchain:ledger(Chain),
     case blockchain_ledger_v1:get_h3dex(LedgerA) of
         #{} ->
