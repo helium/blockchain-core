@@ -429,7 +429,7 @@ deserialize(DigestOpt, {file, Filename}) ->
             file:close(FD),
             {ok, Bin} = file:read_file(Filename),
             deserialize(DigestOpt, Bin);
-        _ ->
+        6 ->
             Pairs = find_pairs_in_file(FD, 5, 5+Siz),
             {ok, upgrade(maps:from_list(Pairs ++ [{version, v6}]))}
     end;
