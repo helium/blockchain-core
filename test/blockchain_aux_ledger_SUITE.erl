@@ -131,7 +131,7 @@ alter_var_test(Config) ->
 
     AlteredMonthlyReward = MonthlyReward * 100,
 
-    AlterVars = #{<<"monthly_reward">> => AlteredMonthlyReward},
+    AlterVars = #{monthly_reward => AlteredMonthlyReward},
 
     ok = blockchain_aux_ledger_v1:set_vars(AlterVars, AuxLedger),
 
