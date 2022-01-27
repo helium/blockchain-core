@@ -4,20 +4,31 @@
 -include_lib("common_test/include/ct.hrl").
 
 -export([
-    all/0
+    all/0,
+    init_per_suite/1,
+    end_per_suite/1
 ]).
 
 -export([
-    basic_test/1,
+    basic_from_bin_test/1,
+    basic_from_file_test/1,
     new_test/1,
     mem_limit_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
 
+init_per_suite(Cfg) ->
+    {ok, _} = application:ensure_all_started(lager),
+    Cfg.
+
+end_per_suite(_) ->
+    ok.
+
 all() ->
     [
-        basic_test,
+        basic_from_bin_test,
+        basic_from_file_test,
         new_test,
         mem_limit_test
     ].
@@ -26,13 +37,28 @@ all() ->
 %% Test cases
 %% ----------------------------------------------------------------------------
 
-basic_test(Cfg0) ->
-    % XXX Snap equality check eats 90+% of my 32GB of RAM on failures. Use diff instead. -- @xandkar
+basic_from_bin_test(Cfg) ->
+    basic_test(from_bin, Cfg).
 
+basic_from_file_test(Cfg) ->
+    basic_test(from_file, Cfg).
+
+basic_test(DeserializeFrom, Cfg0) ->
+    % XXX Snap equality check eats 90+% of my 32GB of RAM on failures. Use diff instead. -- @xandkar
+    %% TODO Assert ledger fields are equal to snap fields after import.
     %% FIXME 1160641 gets OOM-killed on blockchain_ledger_snapshot_v1:snapshot
     %SnapHeight = 1160641,
     SnapHeight = 913684,
-    Cfg = chain_start_from_snap(SnapHeight, Cfg0),
+    SnapFilePath = snap_download(SnapHeight, Cfg0),
+    {ok, SnapBin} = file:read_file(SnapFilePath),
+    {ok, Snap} =
+        case DeserializeFrom of
+            from_bin ->
+                blockchain_ledger_snapshot_v1:deserialize(SnapBin);
+            from_file ->
+                blockchain_ledger_snapshot_v1:deserialize({file, SnapFilePath})
+        end,
+    Cfg = chain_start_from_snap(Snap, SnapBin, Cfg0),
     Chain = ?config(chain, Cfg),
     LedgerA = blockchain:ledger(Chain),
     case blockchain_ledger_v1:get_h3dex(LedgerA) of
@@ -186,11 +212,7 @@ snap_hash_without_fields(Fields, Snap) ->
 snap_without_fields(Fields, Snap) ->
     lists:foldl(fun (F, S) -> maps:remove(F, S) end, Snap, Fields).
 
-chain_start_from_snap(SnapHeight, Cfg) ->
-    {ok, _} = application:ensure_all_started(lager),
-    SnapFilePath = snap_download(SnapHeight, Cfg),
-    {ok, BinSnap} = file:read_file(SnapFilePath),
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+chain_start_from_snap(Snapshot, SnapBin, Cfg) ->
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
     GenesisBlock = blockchain_block:deserialize(BinGen),
@@ -206,7 +228,7 @@ chain_start_from_snap(SnapHeight, Cfg) ->
             Height0,
             SHA,
             Snapshot,
-            BinSnap
+            SnapBin
         ),
     {ok, Height1} = blockchain_ledger_v1:current_height(Ledger1),
     ct:pal("ledger height AFTER snap load: ~p", [Height1]),
