@@ -70,23 +70,14 @@ basic_test(DeserializeFrom, Cfg0) ->
     end,
     {ok, SnapshotA} = blockchain_ledger_snapshot_v1:snapshot(LedgerA, [], []),
 
-    ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotA, undefined)),
-        "New snapshot (A) has \"upgrades\" field."
-    ),
+    VolatileFields = [upgrades],
     SnapshotAIOList = blockchain_ledger_snapshot_v1:serialize(SnapshotA),
     SnapshotABin = iolist_to_binary(SnapshotAIOList),
     {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(SnapshotABin),
-    ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotB, undefined)),
-        "Deserialized snapshot (B) has \"upgrades\" field."
-    ),
     ?assertEqual(
-        snap_hash_without_fields([upgrades], SnapshotA),
-        snap_hash_without_fields([upgrades], SnapshotB),
-        "Hashes A and B are equal without \"upgrades\" field."
+        snap_hash_without_fields(VolatileFields, SnapshotA),
+        snap_hash_without_fields(VolatileFields, SnapshotB),
+        "Hashes A and B are equal after removal of VolatileFields."
     ),
 
     Ledger0 = blockchain:ledger(Chain),
@@ -96,7 +87,7 @@ basic_test(DeserializeFrom, Cfg0) ->
         blockchain_ledger_snapshot_v1:import(
             Chain,
             Height0,
-            snap_hash_without_fields([upgrades], SnapshotA),
+            snap_hash_without_fields(VolatileFields, SnapshotA),
             SnapshotB,
             SnapshotABin
         ),
@@ -104,11 +95,6 @@ basic_test(DeserializeFrom, Cfg0) ->
     ct:pal("ledger height AFTER snap load: ~p", [Height1]),
 
     {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, [], []),
-    ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotC, undefined)),
-        "New snapshot (C) has \"upgrades\" field."
-    ),
     DiffBC = blockchain_ledger_snapshot_v1:diff(SnapshotB, SnapshotC),
     ct:pal("DiffBC: ~p", [DiffBC]),
     %% C has new elements in upgrades, otherwise B and C should be the same.
@@ -116,9 +102,9 @@ basic_test(DeserializeFrom, Cfg0) ->
     ?assertEqual([], DiffBC),
 
     ?assertEqual(
-        snap_hash_without_fields([upgrades], SnapshotB),
-        snap_hash_without_fields([upgrades], SnapshotC),
-        "Hashes B and C are equal without fields:  [upgrades]."
+        snap_hash_without_fields(VolatileFields, SnapshotB),
+        snap_hash_without_fields(VolatileFields, SnapshotC),
+        "Hashes B and C are equal after removal of VolatileFields."
     ),
 
     DiffAB = blockchain_ledger_snapshot_v1:diff(SnapshotA, SnapshotB),
