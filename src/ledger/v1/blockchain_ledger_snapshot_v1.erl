@@ -635,19 +635,31 @@ print_memory() ->
 -spec load_blocks(blockchain_ledger_v1:ledger(), blockchain:blockchain(), snapshot()) ->
     ok.
 load_blocks(Ledger0, Chain, Snapshot) ->
-    lager:info("loading blocks"),
     print_memory(),
+    lager:info("loading block info"),
     Infos =
         case maps:find(infos, Snapshot) of
             {ok, Is} when is_binary(Is) ->
-                lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
-            {ok, {FD, Pos, Len}} ->
-                {ok, Pos} = file:position(FD, {bof, Pos}),
-                {ok, Is} = file:read(FD, Len),
-                lists:map(fun erlang:binary_to_term/1, binary_to_term(Is));
+                stream_from_list(binary_to_term(Is));
+            {ok, {_, _, _}=InfoFileHandle} ->
+                blockchain_term:from_file_stream_bin_list(InfoFileHandle);
             error ->
-                []
+                stream_from_list([])
         end,
+    stream_iter(
+      fun(Bin) ->
+              case binary_to_term(Bin) of
+                  ({Ht, #block_info{hash = Hash} = Info}) ->
+                      ok = blockchain:put_block_height(Hash, Ht, Chain),
+                      ok = blockchain:put_block_info(Ht, Info, Chain);
+                  ({Ht, #block_info_v2{hash = Hash} = Info}) ->
+                      ok = blockchain:put_block_height(Hash, Ht, Chain),
+                      ok = blockchain:put_block_info(Ht, Info, Chain)
+              end
+      end,
+      Infos),
+    print_memory(),
+    lager:info("loading blocks"),
     BlockStream =
         case maps:find(blocks, Snapshot) of
             {ok, <<Bs/binary>>} ->
@@ -668,21 +680,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
-
-    case Infos of
-        [] -> ok;
-        [_|_] ->
-            lists:foreach(
-              fun
-                  ({Ht, #block_info{hash = Hash} = Info}) ->
-                      ok = blockchain:put_block_height(Hash, Ht, Chain),
-                      ok = blockchain:put_block_info(Ht, Info, Chain);
-                  ({Ht, #block_info_v2{hash = Hash} = Info}) ->
-                      ok = blockchain:put_block_height(Hash, Ht, Chain),
-                      ok = blockchain:put_block_info(Ht, Info, Chain)
-              end,
-              Infos)
-    end,
 
     stream_iter(
       fun(Res) ->
