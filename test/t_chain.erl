@@ -11,6 +11,7 @@
     stop/0,
 
     commit/3,
+    commit_n_empty_blocks/3,
     get_active_gateways/1,
     get_balance/2
 ]).
@@ -191,10 +192,18 @@ stop() ->
     end,
     ok.
 
+-spec commit_n_empty_blocks(t(), [t_user:t()], pos_integer()) ->
+    ok | {error, _}.
+commit_n_empty_blocks(Chain, ConsensusMembers, N) ->
+    lists:foreach(
+        fun (_) -> ok = commit(Chain, ConsensusMembers, []) end,
+        lists:seq(1, N)
+    ).
+
 %% Make block and add it to chain.
 -spec commit(t(), [t_user:t()], [t_txn:t()]) ->
     ok | {error, _}.
-commit(Chain, ConsensusMembers, [_|_]=Txns0) ->
+commit(Chain, ConsensusMembers, Txns0) ->
     Txns = lists:sort(fun blockchain_txn:sort/2, Txns0),
     case blockchain_txn:validate(Txns, Chain) of
         {_, []} ->

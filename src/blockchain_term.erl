@@ -5,12 +5,14 @@
 -module(blockchain_term).
 
 -export([
-    from_bin/1
+    from_bin/1,
+    from_file_stream_bin_list/1
 ]).
 
 -export_type([
     t/0,
     result/0,
+    stream/1,
     error/0,
     frame/0,
     unsound/0,
@@ -101,69 +103,59 @@
 %% Public API - just the final, parsed term:
 -type result() :: result(t()).
 
--define(VERSION, 131).
+-include("blockchain_term.hrl").
 
--define(TAG_COMPRESSED         ,  80).
+%% TODO Maybe use a map?
+-type file_handle() ::
+    {
+        file:fd(),
+        Pos :: non_neg_integer(),
+        Len :: pos_integer()
+    }.
 
-%% integer()
--define(TAG_SMALL_INTEGER_EXT  ,  97).
--define(TAG_INTEGER_EXT        ,  98).
--define(TAG_SMALL_BIG_EXT      , 110).
--define(TAG_LARGE_BIG_EXT      , 111).
-
-%% float()
--define(TAG_FLOAT_EXT          ,  99).
--define(TAG_NEW_FLOAT_EXT      ,  70).
-
-%% atom()
--define(TAG_ATOM_EXT           , 100). % deprecated
--define(TAG_ATOM_CACHE_REF     ,  82).
--define(TAG_ATOM_UTF8_EXT      , 118).
--define(TAG_SMALL_ATOM_UTF8_EXT, 119).
--define(TAG_SMALL_ATOM_EXT     , 115). % deprecated
-
-%% tuple()
--define(TAG_SMALL_TUPLE_EXT    , 104).
--define(TAG_LARGE_TUPLE_EXT    , 105).
-
-%% string()
--define(TAG_STRING_EXT         , 107).
-
-%% list()
--define(TAG_NIL_EXT            , 106).
--define(TAG_LIST_EXT           , 108).
-
-%% binary()
--define(TAG_BINARY_EXT         , 109).
--define(TAG_BIT_BINARY_EXT     ,  77).
-
-%% map()
--define(TAG_MAP_EXT            , 116).
-
-%% port()
--define(TAG_PORT_EXT           , 102).
--define(TAG_NEW_PORT_EXT       ,  89).
--define(TAG_V4_PORT_EXT        , 120).
-
-%% pid()
--define(TAG_PID_EXT            , 103).
--define(TAG_NEW_PID_EXT        ,  88).
-
-%% reference()
--define(TAG_REFERENCE_EXT      , 101). % deprecated
--define(TAG_NEW_REFERENCE_EXT  , 114).
--define(TAG_NEWER_REFERENCE_EXT,  90).
-
-%% fun()
--define(TAG_FUN_EXT            , 117).
--define(TAG_NEW_FUN_EXT        , 112).
-
-%% fun M:F/A
--define(TAG_EXPORT_EXT         , 113).
+-type stream(A) :: fun(() -> none | {some, {A, stream(A)}}).
 
 -spec from_bin(binary()) -> result().
 from_bin(<<Bin/binary>>) ->
     envelope(Bin).
+
+%% Tries to stream a list of binaries from file.
+%% TODO Generalize.
+-spec from_file_stream_bin_list(file_handle()) -> stream(result()).
+from_file_stream_bin_list({Fd, Pos, Len}) ->
+    {ok, Pos} = file:position(Fd, {bof, Pos}),
+    case file:read(Fd, 6) of
+        {ok, <<?ETF_VERSION, ?ETF_TAG_LIST_EXT, N:32/integer-unsigned-big>>} ->
+            stream_bin_list_elements(N, {Fd, Pos + 6, Len});
+        {ok, <<V/binary>>} ->
+            {some, {{error, {bad_etf_version_and_tag_and_len, V}}, stream_end()}};
+        {error, _}=Err ->
+            {some, {Err, stream_end()}}
+    end.
+
+stream_bin_list_elements(0, {_, _, _}) ->
+    fun () -> none end;
+stream_bin_list_elements(N, {Fd, Pos0, L}) ->
+    fun () ->
+        {ok, Pos1} = file:position(Fd, {bof, Pos0}),
+        case file:read(Fd, 5) of
+            {ok, <<?ETF_TAG_BINARY_EXT, Len:32/integer-unsigned-big>>} ->
+                {ok, Pos2} = file:position(Fd, {bof, Pos1 + 5}),
+                case file:read(Fd, Len) of
+                    {ok, <<Bin/binary>>} ->
+                        {some, {Bin, stream_bin_list_elements(N - 1, {Fd, Pos2 + Len, L})}};
+                    {error, _}=Err ->
+                        {some, {Err, stream_end()}}
+                end;
+            {ok, <<_/binary>>} ->
+                {some, {{error, bad_bin_list_element}, stream_end()}};
+            {error, _}=Err ->
+                {some, {Err, stream_end()}}
+        end
+    end.
+
+stream_end() ->
+    fun () -> none end.
 
 %% TODO -spec from_bin_with_contract(binary(), blockchain_contract:t()) ->
 %%     {ok, t()} | {error, error() | blockchain_contract:error()}.
@@ -185,7 +177,7 @@ from_bin(<<Bin/binary>>) ->
 %% 131     Data
 %% TODO Distribution Header?
 -spec envelope(binary()) -> result().
-envelope(<<?VERSION, Rest/binary>>) ->
+envelope(<<?ETF_VERSION, Rest/binary>>) ->
     case frame(Rest) of
         {ok, {Term, <<>>}} ->
             {ok, Term};
@@ -197,7 +189,7 @@ envelope(<<?VERSION, Rest/binary>>) ->
             Err
     end;
 envelope(<<Version:8/integer, _/binary>>) ->
-    {error, {envelope, {head_version_unsupported, Version, expected, [?VERSION]}}};
+    {error, {envelope, {head_version_unsupported, Version, expected, [?ETF_VERSION]}}};
 envelope(<<Bin/binary>>) ->
     {error, {envelope, {unmatched, Bin}}}.
 
@@ -206,39 +198,39 @@ envelope(<<Bin/binary>>) ->
 %% 1       N
 %% Tag     Data
 -spec frame(binary()) -> result_internal().
-frame(<<?TAG_COMPRESSED          , R/binary>>) -> compressed(R);
-frame(<<?TAG_SMALL_INTEGER_EXT   , R/binary>>) -> small_integer_ext(R);
-frame(<<?TAG_INTEGER_EXT         , R/binary>>) -> integer_ext(R);
-frame(<<?TAG_ATOM_EXT            , R/binary>>) -> atom_ext(R);
-frame(<<?TAG_ATOM_UTF8_EXT       , R/binary>>) -> atom_utf8_ext(R);
-frame(<<?TAG_SMALL_ATOM_UTF8_EXT , R/binary>>) -> small_atom_utf8_ext(R);
-frame(<<?TAG_SMALL_TUPLE_EXT     , R/binary>>) -> small_tuple_ext(R);
-frame(<<?TAG_LARGE_TUPLE_EXT     , R/binary>>) -> large_tuple_ext(R);
-frame(<<?TAG_NIL_EXT             , R/binary>>) -> {ok, {[], R}};
-frame(<<?TAG_STRING_EXT          , R/binary>>) -> string_ext(R);
-frame(<<?TAG_LIST_EXT            , R/binary>>) -> list_ext(R);
-frame(<<?TAG_BINARY_EXT          , R/binary>>) -> binary_ext(R);
-frame(<<?TAG_SMALL_BIG_EXT       , R/binary>>) -> small_big_ext(R);
-frame(<<?TAG_LARGE_BIG_EXT       , R/binary>>) -> large_big_ext(R);
-frame(<<?TAG_MAP_EXT             , R/binary>>) -> map_ext(R);
-frame(<<?TAG_NEW_FLOAT_EXT       , R/binary>>) -> new_float_ext(R);
-frame(<<?TAG_FLOAT_EXT           , _/binary>>) -> {error, {frame, 'FLOAT_EXT'          , unsupported}};  % TODO
-frame(<<?TAG_ATOM_CACHE_REF      , _/binary>>) -> {error, {frame, 'ATOM_CACHE_REF'     , unsupported}};  % TODO
-frame(<<?TAG_SMALL_ATOM_EXT      , _/binary>>) -> {error, {frame, 'SMALL_ATOM_EXT'     , unsupported}};  % TODO
-frame(<<?TAG_BIT_BINARY_EXT      , _/binary>>) -> {error, {frame, 'BIT_BINARY_EXT'     , unsupported}};  % TODO
-frame(<<?TAG_PORT_EXT            , _/binary>>) -> {error, {frame, 'PORT_EXT'           , unsupported}};  % TODO
-frame(<<?TAG_NEW_PORT_EXT        , _/binary>>) -> {error, {frame, 'NEW_PORT_EXT'       , unsupported}};  % TODO
-frame(<<?TAG_V4_PORT_EXT         , _/binary>>) -> {error, {frame, 'V4_PORT_EXT'        , unsupported}};  % TODO
-frame(<<?TAG_PID_EXT             , _/binary>>) -> {error, {frame, 'PID_EXT'            , unsupported}};  % TODO
-frame(<<?TAG_NEW_PID_EXT         , _/binary>>) -> {error, {frame, 'NEW_PID_EXT'        , unsupported}};  % TODO
-frame(<<?TAG_REFERENCE_EXT       , _/binary>>) -> {error, {frame, 'REFERENCE_EXT'      , unsupported}};  % TODO
-frame(<<?TAG_NEW_REFERENCE_EXT   , _/binary>>) -> {error, {frame, 'NEW_REFERENCE_EXT'  , unsupported}};  % TODO
-frame(<<?TAG_NEWER_REFERENCE_EXT , _/binary>>) -> {error, {frame, 'NEWER_REFERENCE_EXT', unsupported}};  % TODO
-frame(<<?TAG_FUN_EXT             , _/binary>>) -> {error, {frame, 'FUN_EXT'            , unsupported}};  % TODO
-frame(<<?TAG_NEW_FUN_EXT         , _/binary>>) -> {error, {frame, 'NEW_FUN_EXT'        , unsupported}};  % TODO
-frame(<<?TAG_EXPORT_EXT          , _/binary>>) -> {error, {frame, 'EXPORT_EXT'         , unsupported}};  % TODO
-frame(<<Tag:8/integer            , _/binary>>) -> {error, {frame_unrecognized_tag, Tag}};
-frame(<<Bin/binary>>                         ) -> {error, {frame_unrecognized, Bin}}.
+frame(<<?ETF_TAG_COMPRESSED          , R/binary>>) -> compressed(R);
+frame(<<?ETF_TAG_SMALL_INTEGER_EXT   , R/binary>>) -> small_integer_ext(R);
+frame(<<?ETF_TAG_INTEGER_EXT         , R/binary>>) -> integer_ext(R);
+frame(<<?ETF_TAG_ATOM_EXT            , R/binary>>) -> atom_ext(R);
+frame(<<?ETF_TAG_ATOM_UTF8_EXT       , R/binary>>) -> atom_utf8_ext(R);
+frame(<<?ETF_TAG_SMALL_ATOM_UTF8_EXT , R/binary>>) -> small_atom_utf8_ext(R);
+frame(<<?ETF_TAG_SMALL_TUPLE_EXT     , R/binary>>) -> small_tuple_ext(R);
+frame(<<?ETF_TAG_LARGE_TUPLE_EXT     , R/binary>>) -> large_tuple_ext(R);
+frame(<<?ETF_TAG_NIL_EXT             , R/binary>>) -> {ok, {[], R}};
+frame(<<?ETF_TAG_STRING_EXT          , R/binary>>) -> string_ext(R);
+frame(<<?ETF_TAG_LIST_EXT            , R/binary>>) -> list_ext(R);
+frame(<<?ETF_TAG_BINARY_EXT          , R/binary>>) -> binary_ext(R);
+frame(<<?ETF_TAG_SMALL_BIG_EXT       , R/binary>>) -> small_big_ext(R);
+frame(<<?ETF_TAG_LARGE_BIG_EXT       , R/binary>>) -> large_big_ext(R);
+frame(<<?ETF_TAG_MAP_EXT             , R/binary>>) -> map_ext(R);
+frame(<<?ETF_TAG_NEW_FLOAT_EXT       , R/binary>>) -> new_float_ext(R);
+frame(<<?ETF_TAG_FLOAT_EXT           , _/binary>>) -> {error, {frame, 'FLOAT_EXT'          , unsupported}};  % TODO
+frame(<<?ETF_TAG_ATOM_CACHE_REF      , _/binary>>) -> {error, {frame, 'ATOM_CACHE_REF'     , unsupported}};  % TODO
+frame(<<?ETF_TAG_SMALL_ATOM_EXT      , _/binary>>) -> {error, {frame, 'SMALL_ATOM_EXT'     , unsupported}};  % TODO
+frame(<<?ETF_TAG_BIT_BINARY_EXT      , _/binary>>) -> {error, {frame, 'BIT_BINARY_EXT'     , unsupported}};  % TODO
+frame(<<?ETF_TAG_PORT_EXT            , _/binary>>) -> {error, {frame, 'PORT_EXT'           , unsupported}};  % TODO
+frame(<<?ETF_TAG_NEW_PORT_EXT        , _/binary>>) -> {error, {frame, 'NEW_PORT_EXT'       , unsupported}};  % TODO
+frame(<<?ETF_TAG_V4_PORT_EXT         , _/binary>>) -> {error, {frame, 'V4_PORT_EXT'        , unsupported}};  % TODO
+frame(<<?ETF_TAG_PID_EXT             , _/binary>>) -> {error, {frame, 'PID_EXT'            , unsupported}};  % TODO
+frame(<<?ETF_TAG_NEW_PID_EXT         , _/binary>>) -> {error, {frame, 'NEW_PID_EXT'        , unsupported}};  % TODO
+frame(<<?ETF_TAG_REFERENCE_EXT       , _/binary>>) -> {error, {frame, 'REFERENCE_EXT'      , unsupported}};  % TODO
+frame(<<?ETF_TAG_NEW_REFERENCE_EXT   , _/binary>>) -> {error, {frame, 'NEW_REFERENCE_EXT'  , unsupported}};  % TODO
+frame(<<?ETF_TAG_NEWER_REFERENCE_EXT , _/binary>>) -> {error, {frame, 'NEWER_REFERENCE_EXT', unsupported}};  % TODO
+frame(<<?ETF_TAG_FUN_EXT             , _/binary>>) -> {error, {frame, 'FUN_EXT'            , unsupported}};  % TODO
+frame(<<?ETF_TAG_NEW_FUN_EXT         , _/binary>>) -> {error, {frame, 'NEW_FUN_EXT'        , unsupported}};  % TODO
+frame(<<?ETF_TAG_EXPORT_EXT          , _/binary>>) -> {error, {frame, 'EXPORT_EXT'         , unsupported}};  % TODO
+frame(<<Tag:8/integer                , _/binary>>) -> {error, {frame_unrecognized_tag, Tag}};
+frame(<<Bin/binary>>                             ) -> {error, {frame_unrecognized, Bin}}.
 
 %% BINARY_EXT
 %% 4       Len

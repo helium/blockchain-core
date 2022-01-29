@@ -3,96 +3,64 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([
+    all/0,
+    init_per_suite/1,
+    end_per_suite/1
+]).
 
 -export([
-    basic_test/1,
+    basic_from_bin_test/1,
+    basic_from_file_test/1,
     new_test/1,
     mem_limit_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
 
-%%--------------------------------------------------------------------
-%% COMMON TEST CALLBACK FUNCTIONS
-%%--------------------------------------------------------------------
+init_per_suite(Cfg) ->
+    {ok, _} = application:ensure_all_started(lager),
+    Cfg.
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%%   Running tests for this suite
-%% @end
-%%--------------------------------------------------------------------
+end_per_suite(_) ->
+    ok.
+
 all() ->
     [
-        basic_test,
+        basic_from_bin_test,
+        basic_from_file_test,
         new_test,
         mem_limit_test
     ].
 
-%%--------------------------------------------------------------------
-%% TEST CASE SETUP
-%%--------------------------------------------------------------------
+%% ----------------------------------------------------------------------------
+%% Test cases
+%% ----------------------------------------------------------------------------
 
-init_per_testcase(mem_limit_test, Config) ->
-    {ok, _} = application:ensure_all_started(lager),
+basic_from_bin_test(Cfg) ->
+    basic_test(from_bin, Cfg).
 
-    Dir = ?config(priv_dir, Config),
-    PrivDir = filename:join([Dir, "priv"]),
-    NewDir = PrivDir ++ "/ledger/",
-    ok = filelib:ensure_dir(NewDir),
+basic_from_file_test(Cfg) ->
+    basic_test(from_file, Cfg).
 
-    SnapFileName = "snap-913684",
-    SnapFilePath = Dir ++ "/" ++ SnapFileName,
-    os:cmd("cd " ++ Dir ++ " && wget -c https://snapshots.helium.wtf/mainnet/" ++ SnapFileName),
-
-    [{filename, SnapFilePath} | Config];
-init_per_testcase(TestCase, Config) ->
-    Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    Balance = 5000,
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
-
-    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
-        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, #{}),
-
-    Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
-    N = length(ConsensusMembers),
-
-    % Check ledger to make sure everyone has the right balance
-    Ledger = blockchain:ledger(Chain),
-    Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-                              Balance = blockchain_ledger_entry_v1:balance(Entry),
-                              0 = blockchain_ledger_entry_v1:nonce(Entry)
-                      end, maps:values(Entries)),
-
-    [
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {chain, Chain},
-     {swarm, Swarm},
-     {n, N},
-     {consensus_members, ConsensusMembers},
-     {genesis_members, GenesisMembers},
-     Keys
-     | Config0
-    ].
-
-%%--------------------------------------------------------------------
-%% TEST CASE TEARDOWN
-%%--------------------------------------------------------------------
-end_per_testcase(_, _Config) ->
-    ok.
-
-%%--------------------------------------------------------------------
-%% TEST CASES
-%%--------------------------------------------------------------------
-basic_test(Config) ->
-    LedgerA = ledger(Config),
+basic_test(DeserializeFrom, Cfg0) ->
+    % XXX Snap equality check eats 90+% of my 32GB of RAM on failures. Use diff instead. -- @xandkar
+    %% TODO Assert ledger fields are equal to snap fields after import.
+    SnapHeight = 1160641,
+    SnapExpectedMem = 1024, % 1160641 needs 1 GB, while 913684 was ok on 200 MB.
+    SnapFilePath = snap_download(SnapHeight, Cfg0),
+    {ok, SnapBin} = file:read_file(SnapFilePath),
+    {ok, Snap} =
+        case DeserializeFrom of
+            from_bin ->
+                blockchain_ledger_snapshot_v1:deserialize(SnapBin);
+            from_file ->
+                blockchain_ledger_snapshot_v1:deserialize({file, SnapFilePath})
+        end,
+    Cfg = chain_start_from_snap(Snap, SnapBin, Cfg0),
+    Chain = ?config(chain, Cfg),
+    ok = application:set_env(blockchain, snapshot_memory_limit, SnapExpectedMem),
+    LedgerA = blockchain:ledger(Chain),
     case blockchain_ledger_v1:get_h3dex(LedgerA) of
         #{} ->
             LedgerBoot = blockchain_ledger_v1:new_context(LedgerA),
@@ -101,33 +69,15 @@ basic_test(Config) ->
         _ -> ok
     end,
     {ok, SnapshotA} = blockchain_ledger_snapshot_v1:snapshot(LedgerA, [], []),
-    %% make a dir for the loaded snapshot
-    Dir = ?config(priv_dir, Config),
-    PrivDir = filename:join([Dir, "priv"]),
-    NewDir = PrivDir ++ "/ledger2/",
-    ok = filelib:ensure_dir(NewDir),
 
-    ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotA, undefined)),
-        "New snapshot (A) has \"upgrades\" field."
-    ),
+    VolatileFields = [upgrades],
     SnapshotAIOList = blockchain_ledger_snapshot_v1:serialize(SnapshotA),
     SnapshotABin = iolist_to_binary(SnapshotAIOList),
-    ct:pal("dir: ~p", [os:cmd("pwd")]),
-    {ok, BinGen} = file:read_file("../../../../test/genesis"),
-    GenesisBlock = blockchain_block:deserialize(BinGen),
-    {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
     {ok, SnapshotB} = blockchain_ledger_snapshot_v1:deserialize(SnapshotABin),
-    ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotB, undefined)),
-        "Deserialized snapshot (B) has \"upgrades\" field."
-    ),
     ?assertEqual(
-        snap_hash_without_field(upgrades, SnapshotA),
-        snap_hash_without_field(upgrades, SnapshotB),
-        "Hashes A and B are equal without \"upgrades\" field."
+        snap_hash_without_fields(VolatileFields, SnapshotA),
+        snap_hash_without_fields(VolatileFields, SnapshotB),
+        "Hashes A and B are equal after removal of VolatileFields."
     ),
 
     Ledger0 = blockchain:ledger(Chain),
@@ -137,7 +87,7 @@ basic_test(Config) ->
         blockchain_ledger_snapshot_v1:import(
             Chain,
             Height0,
-            snap_hash_without_field(upgrades, SnapshotA),
+            snap_hash_without_fields(VolatileFields, SnapshotA),
             SnapshotB,
             SnapshotABin
         ),
@@ -145,29 +95,21 @@ basic_test(Config) ->
     ct:pal("ledger height AFTER snap load: ~p", [Height1]),
 
     {ok, SnapshotC} = blockchain_ledger_snapshot_v1:snapshot(LedgerB, [], []),
-    ?assertMatch(
-        [_|_],
-        blockchain_ledger_snapshot_v1:deserialize_field(upgrades, maps:get(upgrades, SnapshotC, undefined)),
-        "New snapshot (C) has \"upgrades\" field."
-    ),
+    DiffBC = blockchain_ledger_snapshot_v1:diff(SnapshotB, SnapshotC),
+    ct:pal("DiffBC: ~p", [DiffBC]),
+    %% C has new elements in upgrades, otherwise B and C should be the same.
+    %% However, diff ignores the upgrades field.
+    ?assertEqual([], DiffBC),
+
     ?assertEqual(
-        snap_hash_without_field(upgrades, SnapshotB),
-        snap_hash_without_field(upgrades, SnapshotC),
-        "Hashes B and C are equal without \"upgrades\" field."
+        snap_hash_without_fields(VolatileFields, SnapshotB),
+        snap_hash_without_fields(VolatileFields, SnapshotC),
+        "Hashes B and C are equal after removal of VolatileFields."
     ),
 
     DiffAB = blockchain_ledger_snapshot_v1:diff(SnapshotA, SnapshotB),
     ct:pal("DiffAB: ~p", [DiffAB]),
     ?assertEqual([], DiffAB),
-    ?assertEqual(SnapshotA, SnapshotB),
-    DiffBC = blockchain_ledger_snapshot_v1:diff(SnapshotB, SnapshotC),
-    ct:pal("DiffBC: ~p", [DiffBC]),
-
-    %% C has new elements in upgrades, otherwise B and C should be the same:
-    ?assertEqual(
-        maps:remove(upgrades, SnapshotB),
-        maps:remove(upgrades, SnapshotC)
-    ),
 
     HashC = blockchain_ledger_snapshot_v1:hash(SnapshotC),
     {ok, Height2, HashC2} = blockchain:add_snapshot(SnapshotC, Chain),
@@ -175,26 +117,25 @@ basic_test(Config) ->
     ?assertEqual(HashC, HashC2),
     {ok, SnapshotDBin} = blockchain:get_snapshot(HashC, Chain),
     {ok, SnapshotD} = blockchain_ledger_snapshot_v1:deserialize(HashC, SnapshotDBin),
-
-    % XXX Equality eats 90+% of my 32GB of RAM on failures. Use diff instead.
-    %?assertEqual(SnapshotC, SnapshotD),
     ?assertEqual([], blockchain_ledger_snapshot_v1:diff(SnapshotC, SnapshotD)),
-
     HashD = blockchain_ledger_snapshot_v1:hash(SnapshotD),
     ?assertEqual(HashC, HashD),
     ok.
 
-new_test(Config) ->
-    Chain = ?config(chain, Config),
+new_test(Cfg0) ->
+    Cfg = t_chain:start(Cfg0),
+    Chain = ?config(chain, Cfg),
+    ConsensusMembers = ?config(users_in_consensus, Cfg),
     Ledger = blockchain:ledger(Chain),
 
-    %% add 20 blocks
-    ok = add_k_blocks(Config, 20),
+    N = 20,
+    ?assertMatch(ok, t_chain:commit_n_empty_blocks(Chain, ConsensusMembers, N)),
+    HeightExpected = N + 1,
 
-    Ht = 21,
-
-    {ok, Ht} = blockchain:height(Chain),
-    {ok, Ht} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, HeightChain} = blockchain:height(Chain),
+    {ok, HeightLedger} = blockchain_ledger_v1:current_height(Ledger),
+    ?assertEqual(HeightExpected, HeightChain),
+    ?assertEqual(HeightExpected, HeightLedger),
 
     {ok, Snap} = blockchain_ledger_v1:new_snapshot(Ledger),
     ct:pal("Snap: ~p", [Snap]),
@@ -203,7 +144,7 @@ new_test(Config) ->
     %% call clean_checkpoints, this will invoke remove_checkpoints
     %% check that subdirs are empty after cleanup
 
-    CheckpointDir = blockchain_ledger_v1:checkpoint_dir(Ledger, Ht),
+    CheckpointDir = blockchain_ledger_v1:checkpoint_dir(Ledger, HeightExpected),
     ct:pal("CheckpointDir: ~p", [CheckpointDir]),
 
     RecordDir = blockchain_ledger_v1:dir(Ledger),
@@ -225,16 +166,15 @@ new_test(Config) ->
 
     ok.
 
-mem_limit_test(Config) ->
-    Filename = ?config(filename, Config),
-
+mem_limit_test(Cfg) ->
+    Filename = snap_download(1160641, Cfg),
     {ok, BinSnap} = file:read_file(Filename),
-
     {Pid, Ref} =
         spawn_monitor(
           fun() ->
                   %% on master, this takes MB = 160 to pass on my laptop reliably, but this version
                   %% seems fine with 10?  I'm not sure how this works.
+                  %% -- @evanmcc
                   MB = 10,
                   erlang:process_flag(max_heap_size, #{kill => true, size => (MB * 1024 * 1024) div 8}),
                   {ok, _Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap)
@@ -246,59 +186,55 @@ mem_limit_test(Config) ->
 
     ok.
 
+%% ----------------------------------------------------------------------------
+%% Helpers
+%% ----------------------------------------------------------------------------
 
-%% utils
--spec snap_hash_without_field(atom(), map()) -> map().
-snap_hash_without_field(Field, Snap) ->
-    blockchain_ledger_snapshot_v1:hash(maps:remove(Field, Snap)).
+-spec snap_hash_without_fields([atom()], map()) -> map().
+snap_hash_without_fields(Fields, Snap) ->
+    blockchain_ledger_snapshot_v1:hash(snap_without_fields(Fields, Snap)).
 
-ledger(Config) ->
-    Dir = ?config(priv_dir, Config),
-    PrivDir = filename:join([Dir, "priv"]),
-    NewDir = PrivDir ++ "/ledger/",
-    ok = filelib:ensure_dir(NewDir),
+-spec snap_without_fields([atom()], map()) -> map().
+snap_without_fields(Fields, Snap) ->
+    lists:foldl(fun (F, S) -> maps:remove(F, S) end, Snap, Fields).
 
-    SnapFileName = "snap-913684",
-    SnapFilePath = filename:join(Dir, SnapFileName),
-    SnapURI = "https://snapshots.helium.wtf/mainnet/" ++ SnapFileName,
-    os:cmd("cd " ++ Dir ++ "  && wget -c " ++ SnapURI),
-
-    {ok, BinSnap} = file:read_file(SnapFilePath),
-
-    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+chain_start_from_snap(Snapshot, SnapBin, Cfg) ->
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
-
     {ok, BinGen} = file:read_file("../../../../test/genesis"),
     GenesisBlock = blockchain_block:deserialize(BinGen),
-    {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
-
-    Ledger0 = blockchain:ledger(Chain),
+    LedgerDir = filename:join([?config(priv_dir, Cfg), "priv", "ledger"]),
+    ok = filelib:ensure_dir(filename:join(LedgerDir, "DUMMY_FILENAME_TO_ENSURE_PARENT_DIR")),
+    {ok, Chain0} = blockchain:new(LedgerDir, GenesisBlock, blessed_snapshot, undefined),
+    Ledger0 = blockchain:ledger(Chain0),
     {ok, Height0} = blockchain_ledger_v1:current_height(Ledger0),
     ct:pal("ledger height BEFORE snap load: ~p", [Height0]),
     Ledger1 =
         blockchain_ledger_snapshot_v1:import(
-            Chain,
+            Chain0,
             Height0,
             SHA,
             Snapshot,
-            BinSnap
+            SnapBin
         ),
     {ok, Height1} = blockchain_ledger_v1:current_height(Ledger1),
     ct:pal("ledger height AFTER snap load: ~p", [Height1]),
-    Ledger1.
 
+    %% XXX The following ledger update in chain MUST be done manually.
+    %% XXX A symptom that it wasn't done: rocksdb badarg.
+    Chain1 = blockchain:ledger(Ledger1, Chain0),
 
-add_k_blocks(Config, K) ->
-    Chain = ?config(chain, Config),
-    ConsensusMembers = ?config(consensus_members, Config),
-    lists:reverse(
-      lists:foldl(
-        fun(_, Acc) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
-                [Block | Acc]
-        end,
-        [],
-        lists:seq(1, K)
-       )),
-    ok.
+    [{chain, Chain1} | Cfg].
+
+snap_download(SnapHeight, Cfg) ->
+    PrivDir = ?config(priv_dir, Cfg),
+    SnapFileName = lists:flatten(io_lib:format("snap-~b", [SnapHeight])),
+    SnapFilePath = filename:join(PrivDir, SnapFileName),
+    Cmd =
+        %% The -c option in wget effectively memoizes the downloaded file,
+        %% since priv_dir is per-suite.
+        lists:flatten(io_lib:format(
+            "cd ~s && wget -c https://snapshots.helium.wtf/mainnet/~s",
+            [PrivDir, SnapFileName]
+        )),
+    os:cmd(Cmd),
+    SnapFilePath.
