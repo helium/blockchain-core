@@ -128,9 +128,9 @@ from_file_stream_bin_list({Fd, Pos, Len}) ->
         {ok, <<?ETF_VERSION, ?ETF_TAG_LIST_EXT, N:32/integer-unsigned-big>>} ->
             stream_bin_list_elements(N, {Fd, Pos + 6, Len});
         {ok, <<V/binary>>} ->
-            {some, {{error, {bad_etf_version_and_tag_and_len, V}}, stream_end()}};
+            fun () -> {some, {{error, {bad_etf_version_and_tag_and_len, V}}, stream_end()}} end;
         {error, _}=Err ->
-            {some, {Err, stream_end()}}
+            fun () -> {some, {Err, stream_end()}} end
     end.
 
 stream_bin_list_elements(0, {_, _, _}) ->
