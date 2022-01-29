@@ -643,30 +643,24 @@ load_blocks(Ledger0, Chain, Snapshot) ->
             error ->
                 []
         end,
-    Blocks =
+    BlockIter =
         case maps:find(blocks, Snapshot) of
             {ok, <<Bs/binary>>} ->
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
                 %% use a custom decoder here to preserve sub binary references
                 {ok, Blocks0} = blockchain_term:from_bin(Bs),
-                Blocks0;
-            {ok, {FD2, Pos2, Len2}} ->
-                {ok, Pos2} = file:position(FD2, {bof, Pos2}),
-                {ok, Bs} = file:read(FD2, Len2),
-                lager:info("blocks binary is ~p", [byte_size(Bs)]),
-                print_memory(),
-                {ok, Blocks0} = blockchain_term:from_bin(Bs),
-                Blocks0;
+                mk_list_iterator(Blocks0);
+            {ok, {FD2, Pos2, _Len2}} ->
+                mk_blocks_iterator(FD2, Pos2);
             error ->
-                []
+                fun() -> ok end
         end,
 
     print_memory(),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
-    lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
     case Infos of
         [] -> ok;
@@ -683,58 +677,53 @@ load_blocks(Ledger0, Chain, Snapshot) ->
               Infos)
     end,
 
-    case Blocks of
-        [] ->
-            %% ignore blocks in testing
-            ok;
-        [_|_] ->
-            %% just store the head, we'll need it sometimes
-            lists:foreach(
-              fun(Block0) ->
-                      Block =
-                      case Block0 of
-                          B when is_binary(B) ->
-                              blockchain_block:deserialize(B);
-                          B -> B
-                      end,
+    load_block(BlockIter(), Chain, Ledger0, Curr2).
 
-                      Ht = blockchain_block:height(Block),
-                      %% since hash and block are written at the same time, just getting the
-                      %% hash from the height is an acceptable presence check, and much cheaper
-                      case blockchain:get_block_hash(Ht, Chain, false) of
-                          {ok, _Hash} ->
-                              lager:info("skipping block ~p", [Ht]),
-                              %% already have it, don't need to store it again.
-                              ok;
-                          _ ->
-                              lager:info("saving block ~p", [Ht]),
-                              ok = blockchain:save_block(Block, Chain)
-                      end,
-                      print_memory(),
-                      case Ht > Curr2 of
-                          %% we need some blocks before for history, only absorb if they're
-                          %% not on the ledger already
-                          true ->
-                              lager:info("loading block ~p", [Ht]),
-                              Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
-                              Chain1 = blockchain:ledger(Ledger2, Chain),
-                              Rescue = blockchain_block:is_rescue_block(Block),
-                              {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                              %% Hash = blockchain_block:hash_block(Block),
-                              ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
-                              ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
-                              %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
-                              ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
-                              %% TODO Q: Why no match result?
-                              blockchain_ledger_v1:commit_context(Ledger2),
-                              blockchain_ledger_v1:new_snapshot(Ledger0),
-                              print_memory();
-                          _ ->
-                              ok
-                      end
-              end,
-              Blocks)
-    end.
+
+load_block(ok, _Chain, _Ledger, _LedgerHeight) ->
+    ok;
+load_block({Block0, BlockIter}, Chain, Ledger, LedgerHeight) ->
+    Block = case Block0 of
+        B when is_binary(B) ->
+            blockchain_block:deserialize(B);
+        B -> B
+    end,
+
+    Ht = blockchain_block:height(Block),
+    %% since hash and block are written at the same time, just getting the
+    %% hash from the height is an acceptable presence check, and much cheaper
+    case blockchain:get_block_hash(Ht, Chain, false) of
+        {ok, _Hash} ->
+            lager:info("skipping block ~p", [Ht]),
+            %% already have it, don't need to store it again.
+            ok;
+        _ ->
+            lager:info("saving block ~p", [Ht]),
+            ok = blockchain:save_block(Block, Chain)
+    end,
+    print_memory(),
+    case Ht > LedgerHeight of
+        %% we need some blocks before for history, only absorb if they're
+        %% not on the ledger already
+        true ->
+            lager:info("loading block ~p", [Ht]),
+            Ledger2 = blockchain_ledger_v1:new_context(Ledger),
+            Chain1 = blockchain:ledger(Ledger2, Chain),
+            Rescue = blockchain_block:is_rescue_block(Block),
+            {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+            %% Hash = blockchain_block:hash_block(Block),
+            ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
+            ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
+            %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
+            ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
+            %% TODO Q: Why no match result?
+            blockchain_ledger_v1:commit_context(Ledger2),
+            blockchain_ledger_v1:new_snapshot(Ledger),
+            print_memory();
+        _ ->
+            ok
+    end,
+    load_block(BlockIter(), Chain, Ledger, LedgerHeight).
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
@@ -1514,7 +1503,30 @@ mk_file_iterator(FD, Pos, End) when Pos < End ->
             {K, V, mk_file_iterator(FD, Pos + 4 + SizK + 4 + SizV, End)}
     end.
 
+mk_blocks_iterator(FD, Pos) ->
+    {ok, Pos} = file:position(FD, {bof, Pos}),
+    %% read the list header so we know how many blocks there are
+    {ok, <<131, 108, BlockCount:32/integer-unsigned-big>>} = file:read(FD, 6),
+    mk_blocks_iterator(FD, Pos + 6, BlockCount).
 
+mk_blocks_iterator(_FD, _Pos, 0) ->
+    fun() -> ok end;
+mk_blocks_iterator(FD, Pos, Count) ->
+    fun() ->
+            {ok, Pos} = file:position(FD, {bof, Pos}),
+            %% read binary length
+            {ok, <<109, Len:32/integer-unsigned-big>>} = file:read(FD, 5),
+            %% read block binary
+            {ok, BinBlock} = file:read(FD, Len),
+            {BinBlock, mk_blocks_iterator(FD, Pos + 5 + Len, Count - 1)}
+    end.
+
+mk_list_iterator([]) ->
+    fun() -> ok end;
+mk_list_iterator([H|T]) ->
+    fun() ->
+            {H, mk_list_iterator(T)}
+    end.
 
 -spec bin_pairs_from_bin(binary()) -> [{binary(), binary()}].
 bin_pairs_from_bin(<<Bin/binary>>) ->
