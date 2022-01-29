@@ -727,6 +727,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
       end,
       BlockStream).
 
+-spec stream_iter(fun((A) -> ok), blockchain_term:stream(A)) -> ok.
 stream_iter(F, S0) ->
     case S0() of
         none ->
@@ -736,6 +737,7 @@ stream_iter(F, S0) ->
             stream_iter(F, S1)
     end.
 
+-spec stream_from_list([A]) -> blockchain_term:stream(A).
 stream_from_list([]) ->
     fun () -> none end;
 stream_from_list([X | Xs]) ->
