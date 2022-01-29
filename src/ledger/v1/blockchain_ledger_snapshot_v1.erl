@@ -86,10 +86,17 @@
         key_raw()         => [{binary(), binary()}]
     }.
 
+-type file_position() ::
+    {
+        file:fd(),
+        Pos :: non_neg_integer(),
+        Len :: pos_integer()
+    }.
+
 -type snapshot_v6() ::
     #{
         version                   => v6,
-        key_non_version_non_raw() => binary() | {file:fd(), non_neg_integer(), pos_integer()},
+        key_non_version_non_raw() => binary() | file_position(),
         key_raw()                 => kv_stream()
     }.
 
@@ -641,30 +648,26 @@ load_blocks(Ledger0, Chain, Snapshot) ->
             error ->
                 []
         end,
-    Blocks =
+    BlockStream =
         case maps:find(blocks, Snapshot) of
             {ok, <<Bs/binary>>} ->
                 lager:info("blocks binary is ~p", [byte_size(Bs)]),
                 print_memory(),
                 %% use a custom decoder here to preserve sub binary references
                 {ok, Blocks0} = blockchain_term:from_bin(Bs),
-                Blocks0;
-            {ok, {FD2, Pos2, Len2}} ->
-                {ok, Pos2} = file:position(FD2, {bof, Pos2}),
-                {ok, Bs} = file:read(FD2, Len2),
-                lager:info("blocks binary is ~p", [byte_size(Bs)]),
-                print_memory(),
-                {ok, Blocks0} = blockchain_term:from_bin(Bs),
-                Blocks0;
+                stream_from_list(Blocks0);
+            {ok, {_, _, _}=FileHandle} ->
+                blockchain_term:from_file_stream_bin_list(FileHandle);
             error ->
-                []
+                stream_from_list([])
         end,
+
+    true = erlang:is_function(BlockStream),
 
     print_memory(),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
-    lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
     case Infos of
         [] -> ok;
@@ -681,58 +684,70 @@ load_blocks(Ledger0, Chain, Snapshot) ->
               Infos)
     end,
 
-    case Blocks of
-        [] ->
-            %% ignore blocks in testing
-            ok;
-        [_|_] ->
-            %% just store the head, we'll need it sometimes
-            lists:foreach(
-              fun(Block0) ->
-                      Block =
-                      case Block0 of
-                          B when is_binary(B) ->
-                              blockchain_block:deserialize(B);
-                          B -> B
-                      end,
-
-                      Ht = blockchain_block:height(Block),
-                      %% since hash and block are written at the same time, just getting the
-                      %% hash from the height is an acceptable presence check, and much cheaper
-                      case blockchain:get_block_hash(Ht, Chain, false) of
-                          {ok, _Hash} ->
-                              lager:info("skipping block ~p", [Ht]),
-                              %% already have it, don't need to store it again.
-                              ok;
-                          _ ->
-                              lager:info("saving block ~p", [Ht]),
-                              ok = blockchain:save_block(Block, Chain)
-                      end,
-                      print_memory(),
-                      case Ht > Curr2 of
-                          %% we need some blocks before for history, only absorb if they're
-                          %% not on the ledger already
-                          true ->
-                              lager:info("loading block ~p", [Ht]),
-                              Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
-                              Chain1 = blockchain:ledger(Ledger2, Chain),
-                              Rescue = blockchain_block:is_rescue_block(Block),
-                              {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                              %% Hash = blockchain_block:hash_block(Block),
-                              ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
-                              ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
-                              %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
-                              ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
-                              %% TODO Q: Why no match result?
-                              blockchain_ledger_v1:commit_context(Ledger2),
-                              blockchain_ledger_v1:new_snapshot(Ledger0),
-                              print_memory();
-                          _ ->
-                              ok
-                      end
+    stream_iter(
+      fun(Res) ->
+            Block0 =
+                case Res of
+                    {ok, <<B0/binary>>} -> B0;
+                    <<B0/binary>> -> B0
+                end,
+              Block =
+              case Block0 of
+                  B when is_binary(B) ->
+                      blockchain_block:deserialize(B);
+                  B -> B
               end,
-              Blocks)
+
+              Ht = blockchain_block:height(Block),
+              %% since hash and block are written at the same time, just getting the
+              %% hash from the height is an acceptable presence check, and much cheaper
+              case blockchain:get_block_hash(Ht, Chain, false) of
+                  {ok, _Hash} ->
+                      lager:info("skipping block ~p", [Ht]),
+                      %% already have it, don't need to store it again.
+                      ok;
+                  _ ->
+                      lager:info("saving block ~p", [Ht]),
+                      ok = blockchain:save_block(Block, Chain)
+              end,
+              print_memory(),
+              case Ht > Curr2 of
+                  %% we need some blocks before for history, only absorb if they're
+                  %% not on the ledger already
+                  true ->
+                      lager:info("loading block ~p", [Ht]),
+                      Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
+                      Chain1 = blockchain:ledger(Ledger2, Chain),
+                      Rescue = blockchain_block:is_rescue_block(Block),
+                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+                      %% Hash = blockchain_block:hash_block(Block),
+                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
+                      ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
+                      %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
+                      ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
+                      %% TODO Q: Why no match result?
+                      blockchain_ledger_v1:commit_context(Ledger2),
+                      blockchain_ledger_v1:new_snapshot(Ledger0),
+                      print_memory();
+                  _ ->
+                      ok
+              end
+      end,
+      BlockStream).
+
+stream_iter(F, S0) ->
+    case S0() of
+        none ->
+            ok;
+        {some, {X, S1}} ->
+            F(X),
+            stream_iter(F, S1)
     end.
+
+stream_from_list([]) ->
+    fun () -> none end;
+stream_from_list([X | Xs]) ->
+    fun () -> {some, {X, stream_from_list(Xs)}} end.
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
@@ -1511,8 +1526,6 @@ mk_file_iterator(FD, Pos, End) when Pos < End ->
             lager:debug("read key of size ~p and value of size ~p", [SizK, SizV]),
             {K, V, mk_file_iterator(FD, Pos + 4 + SizK + 4 + SizV, End)}
     end.
-
-
 
 -spec bin_pairs_from_bin(binary()) -> [{binary(), binary()}].
 bin_pairs_from_bin(<<Bin/binary>>) ->
