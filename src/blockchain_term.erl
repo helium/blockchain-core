@@ -133,8 +133,18 @@ from_file_stream_bin_list({Fd, Pos, Len}) ->
             fun () -> {some, {Err, stream_end()}} end
     end.
 
-stream_bin_list_elements(0, {_, _, _}) ->
-    fun () -> none end;
+stream_bin_list_elements(0, {Fd, Pos, _}) ->
+    fun () ->
+        {ok, Pos} = file:position(Fd, {bof, Pos}),
+        case file:read(Fd, 1) of
+            {ok, <<?ETF_TAG_NIL_EXT>>} ->
+                none;
+            {ok, <<_/binary>>} ->
+                {some, {{error, bad_bin_list_nil_tag}, stream_end()}};
+            {error, _}=Err ->
+                {some, {Err, stream_end()}}
+        end
+    end;
 stream_bin_list_elements(N, {Fd, Pos0, L}) ->
     fun () ->
         {ok, Pos1} = file:position(Fd, {bof, Pos0}),
