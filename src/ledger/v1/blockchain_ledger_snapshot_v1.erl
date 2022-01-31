@@ -674,8 +674,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                 stream_from_list([])
         end,
 
-    true = erlang:is_function(BlockStream),
-
     print_memory(),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
