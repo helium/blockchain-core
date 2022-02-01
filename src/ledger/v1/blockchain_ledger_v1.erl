@@ -295,10 +295,17 @@ new(Dir, ReadOnly, BlocksDB, BlocksCF, HeightsCF, InfoCF, Options) ->
     L = new(Dir, ReadOnly, Options),
 
     %% allow config-set commit hooks in case we're worried about something being racy
-    Hooks =
-        [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}
-         || {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
-
+    Hooks = lists:foldl(fun(Hook, Acc) ->
+                            case Hook of
+                                {CF, Predicate, HookIncFun, HookEndFun, IncludeHeight} ->
+                                    HookRecord = [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun, include_height = IncludeHeight}];
+                                {CF, Predicate, HookIncFun, HookEndFun} ->
+                                    HookRecord = [#hook{cf = CF, predicate = Predicate, hook_inc_fun = HookIncFun, hook_end_fun = HookEndFun}]
+                            end,
+                            lists:append(Acc, HookRecord)
+                        end,
+                        [],
+                        application:get_env(blockchain, commit_hook_callbacks, [])),
     Ledger = maybe_load_aux(L#ledger_v1{
         blocks_db = BlocksDB,
         blocks_cf = BlocksCF,
@@ -4474,7 +4481,8 @@ batch_from_cache(ETS, #ledger_v1{commit_hooks = Hooks, mode = Mode} = Ledger) ->
                           {B, Changes1}
                   end, {Batch, []}, ETS),
     %% we don't actually want to invoke this here, but passing back the arguments is kind of clunky
-    {fun() -> invoke_commit_hooks(FilteredChanges, Filters) end, Batch}.
+    {ok, Height} = current_height(Ledger),
+    {fun() -> invoke_commit_hooks(FilteredChanges, Filters, Height) end, Batch}.
 
 apply_filters(CF, Filters, Key, Value) ->
     %% pre-tested for existence
@@ -4489,10 +4497,10 @@ apply_filters(CF, Filters, Key, Value) ->
             lists:any(fun(P) -> P(Key, Value) end, Preds)
     end.
 
-invoke_commit_hooks([] = _Changes, _Filters) ->
+invoke_commit_hooks([] = _Changes, _Filters, _Height) ->
     %% if no changes then do nothing
     ok;
-invoke_commit_hooks(Changes, Filters) ->
+invoke_commit_hooks(Changes, Filters, Height) ->
     %% best effort async delivery
     FiltersMap = maps:fold(fun(CF, HookList, Acc) ->
                                    #hook{cf = CFAtom} = hd(HookList),
@@ -4522,14 +4530,24 @@ invoke_commit_hooks(Changes, Filters) ->
                                 noop;
                             HookChanges ->
                                 lists:foreach(
-                                  fun(#hook{hook_inc_fun = HookFun, predicate = undefined}) ->
-                                          HookFun(HookChanges);
-                                     (#hook{hook_inc_fun = HookFun, predicate = Pred}) ->
+                                  fun(#hook{hook_inc_fun = HookFun, predicate = undefined, include_height = IncludeHeight}) ->
+                                          case IncludeHeight of
+                                              true ->
+                                                HookFun(HookChanges, Height);
+                                              _ ->
+                                                HookFun(HookChanges)
+                                          end;
+                                     (#hook{hook_inc_fun = HookFun, predicate = Pred, include_height = IncludeHeight}) ->
                                           FilteredHookChanges =
                                               lists:filter(fun({_, _, K, V}) ->
                                                                    Pred(K, V)
                                                            end, HookChanges),
-                                          HookFun(FilteredHookChanges)
+                                          case IncludeHeight of
+                                              true ->
+                                                HookFun(FilteredHookChanges, Height);
+                                              _ ->
+                                                HookFun(FilteredHookChanges)
+                                          end
                                   end, HookList)
                         end
                 end,
@@ -4549,9 +4567,15 @@ invoke_commit_hooks(Changes, Filters) ->
                                 %% iterate over the changes for this group and collect the keys which have been modified
                                 CFChangedKeys = [{Action, Key} || {_CF, Action, Key, _Value} <- CFChanges],
                                 lists:foreach(
-                                  fun(#hook{hook_end_fun = HookFun}) ->
+                                  fun(#hook{hook_end_fun = HookFun, include_height = IncludeHeight}) ->
                                           %% call the end fun, pass it the updated CF and the list of modified keys
-                                          HookFun(CFAtom, CFChangedKeys)
+                                          case IncludeHeight of
+                                              true ->
+                                                %% include the ledger commit height if requested
+                                                HookFun(CFAtom, CFChangedKeys, Height);
+                                              _ ->
+                                                HookFun(CFAtom, CFChangedKeys)
+                                          end
                                   end, HookList)
                         end
                 end,
@@ -5627,15 +5651,23 @@ commit_hooks_test() ->
     Me = self(),
     %% check that config-set hooks work
     %% {CF, Predicate, HookIncFun, HookEndFun} <- application:get_env(blockchain, commit_hook_callbacks, [])],
+    %% {CF, Predicate, HookIncFun, HookEndFun, IncludeHeight} <- application:get_env(blockchain, commit_hook_callbacks, [])],
     application:set_env(blockchain, commit_hook_callbacks,
                         [{active_gateways,
                             undefined,
                             fun(Changes) -> Me ! {hook1, Changes} end,
-                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end
+                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end                            
+                        },
+                        {active_gateways,
+                            undefined,
+                            fun(Changes, Height) -> Me ! {hook2, Changes, Height} end,
+                            fun(_CF, ChangedKeys, Height) -> Me ! {hook2, changes_complete, ChangedKeys, Height} end,
+                            true                            
                         }]),
 
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
+    {ok, Ledger1Height} = current_height(Ledger1),
     ok = add_gateway(<<"owner_address 1">>, <<"gw_address">>, Ledger1),
     ok = commit_context(Ledger1),
 
@@ -5651,10 +5683,26 @@ commit_hooks_test() ->
             error(config_set_timeout)
     end,
 
+    receive
+        {hook2, _, ReceivedHeight1} -> 
+            ?assertMatch(Ledger1Height,
+                         ReceivedHeight1)
+    after 200 ->
+            error(hook2_timeout)
+    end,
+
+    receive
+        {hook2, changes_complete, _, ReceivedHeight2} ->
+            ?assertMatch(Ledger1Height,
+                         ReceivedHeight2)
+    after 200 ->
+            error(config_set_timeout)
+    end,
+
     %% check that multiple hooks fire
     {_Ref, Ledger2} = add_commit_hook(entries,
-                                        fun(Changes) -> Me ! {hook2, Changes} end,
-                                        fun(_CF, ChangedKeys) -> Me ! {hook2, changes_complete, ChangedKeys} end,
+                                        fun(Changes) -> Me ! {hook3, Changes} end,
+                                        fun(_CF, ChangedKeys) -> Me ! {hook3, changes_complete, ChangedKeys} end,
                                         fun(K, _) -> K == <<"my_address">> end, Ledger1),
     Ledger3 = new_context(Ledger2),
     ok = add_gateway(<<"owner_address 2">>, <<"gw_address 2">>, Ledger3),
@@ -5678,17 +5726,17 @@ commit_hooks_test() ->
 
     %% confirm we get expected msgs from the 2nd hook
     receive
-        {hook2, Changes} ->
+        {hook3, Changes} ->
             ?assertMatch([{_, put, <<"my_address">>, _}],
                          Changes)
     after 200 ->
-            error(hook2_timeout)
+            error(hook3_timeout)
     end,
 
     receive
-        {hook2, changes_complete, _ReceivedChangedKeys3} -> ok
+        {hook3, changes_complete, _ReceivedChangedKeys3} -> ok
     after 200 ->
-            error(hook2_timeout)
+            error(hook3_timeout)
     end,
 
 

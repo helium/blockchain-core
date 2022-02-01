@@ -4,7 +4,8 @@
          predicate :: undefined | fun(),
          hook_inc_fun :: fun(),  %% fun called for each incremental/partial update for the relevant CF
          hook_end_fun :: fun(),  %% fun called after all incremental/partial updates are complete for the relevant cf
-         ref :: undefined | reference()
+         ref :: undefined | reference(),
+         include_height=false :: boolean()
         }).
 
 -record(ledger_v1, {
