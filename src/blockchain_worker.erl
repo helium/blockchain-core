@@ -1228,8 +1228,14 @@ get_assumed_valid_height_and_hash() ->
      application:get_env(blockchain, assumed_valid_block_height, undefined)}.
 
 get_blessed_snapshot_height_and_hash() ->
-    {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
-     application:get_env(blockchain, blessed_snapshot_block_height, undefined)}.
+    case blockchain_utils:get_boolean_os_env_var("LOAD_SNAPSHOT", true) of
+        true ->
+            {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
+             application:get_env(blockchain, blessed_snapshot_block_height, undefined)};
+        false ->
+            lager:debug("LOAD_SNAPSHOT is false; returning undefined height and hash"),
+            {undefined, undefined}
+    end.
 
 get_quick_sync_height_and_hash(Mode) ->
 
@@ -1303,7 +1309,8 @@ schedule_snapshot_timer() ->
     erlang:send_after(Millis, self(), snapshot_timer_tick).
 
 get_sync_mode(State) ->
-    case application:get_env(blockchain, honor_quick_sync, false) of
+    case application:get_env(blockchain, honor_quick_sync, false)
+            andalso blockchain_utils:get_boolean_os_env_var("LOAD_SNAPSHOT", true) of
         true ->
             case application:get_env(blockchain, quick_sync_mode, assumed_valid) of
                 assumed_valid -> {normal, undefined};

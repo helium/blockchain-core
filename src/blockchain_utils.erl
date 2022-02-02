@@ -40,6 +40,7 @@
     do_calculate_dc_amount/2,
     deterministic_subset/3,
     fold_condition_checks/1,
+    get_boolean_os_env_var/2,
 
     %% exports for simulations
     free_space_path_loss/4,
@@ -607,6 +608,28 @@ do_condition_check(_Conditions, PrevErr, false) -> PrevErr;
 do_condition_check([], _PrevErr, true) -> ok;
 do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
     do_condition_check(Tail, Error, Condition()).
+
+%% @doc If this os environment variable is set and is a "truthy" value,
+%% return `true'; otherwise, `false'. Unset variables return the default value.
+%%
+%% False values are "0", "n", "no", "false". Values are converted to lowercase
+%% before deciding if they are truthy or not ("FaLsE" is a false value.)
+%%
+%% True values are any value that isn't listed as explicitly false.
+%% ("1", "tRuE", "yes" and "WOMBAT" are all true values.)
+-spec get_boolean_os_env_var( VarName :: string(), Default :: boolean() ) -> boolean().
+get_boolean_os_env_var(VarName, Default) ->
+    case os:getenv(VarName) of
+        Value when is_list(Value) -> is_truthy(string:lowercase(Value));
+        _ -> Default
+    end.
+
+is_truthy("0") -> false;
+is_truthy("false") -> false;
+is_truthy("no") -> false;
+is_truthy("n") -> false;
+is_truthy(_) -> true.
+
 
 majority(N) ->
     (N div 2) + 1.
