@@ -506,6 +506,7 @@ invoke_callback(Callback, Msg) ->
 -spec signatory_rand_members(blockchain:blockchain(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> {ok, [libp2p_crypto:pubkey_bin()]}.
 signatory_rand_members(Chain, SubmitF, Acceptions, Rejections, Dialers) ->
     {_, MembersBeingDialed} = lists:unzip(Dialers),
+    {MembersAccepted, _H, _QP} = lists:unzip(Acceptions),
     {ok, PrevBlock} = blockchain:head_block(Chain),
     Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock),
         not (Signer =:= blockchain_swarm:pubkey_bin())],
@@ -515,12 +516,12 @@ signatory_rand_members(Chain, SubmitF, Acceptions, Rejections, Dialers) ->
             %% so use a random consensus member
             Ledger = blockchain:ledger(Chain),
             {ok, Members0} = blockchain_ledger_v1:consensus_members(Ledger),
-            Members = ((Members0 -- [blockchain_swarm:pubkey_bin()] -- Acceptions) -- Rejections) -- MembersBeingDialed,
+            Members = ((Members0 -- [blockchain_swarm:pubkey_bin()] -- MembersAccepted) -- Rejections) -- MembersBeingDialed,
             RandomMembers = blockchain_utils:shuffle(Members),
             {ok, lists:sublist(RandomMembers, SubmitF)};
         _ ->
             %% we have signatories
-            RandomSignatories = ((blockchain_utils:shuffle(Signatories) -- Acceptions) -- Rejections) -- MembersBeingDialed,
+            RandomSignatories = ((blockchain_utils:shuffle(Signatories) -- MembersAccepted) -- Rejections) -- MembersBeingDialed,
             {ok, lists:sublist(RandomSignatories, SubmitF)}
     end.
 
@@ -683,7 +684,8 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                     [] ->
                         [Dep1TxnDialedMember || {_, Dep1TxnDialedMember} <- Dep1TxnDialers];
                     Dep1TxnAccs ->
-                        Dep1TxnAccs
+                        [MemberAccepted || {MemberAccepted, _, _} <- Dep1TxnAccs]
+
                 end,
 
             ElegibleMembers = sets:to_list(lists:foldl(fun({Dep2TxnKey, _Dep2Txn, _Dep2TxnData}, Acc) ->
@@ -693,7 +695,7 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                                                                         [] ->
                                                                             [Dep2TxnDialedMember || {_, Dep2TxnDialedMember} <- Dep2TxnDialers];
                                                                         Dep2TxnAccs ->
-                                                                            Dep2TxnAccs
+                                                                            [Dep2MemberAccepted || {Dep2MemberAccepted, _, _} <- Dep2TxnAccs]
                                                                     end,
                                                                sets:intersection(Acc, sets:from_list(A1))
                                                        end, sets:from_list(A0), tl(Dependencies))),
@@ -735,7 +737,7 @@ accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos) ->
                     ok;
                 true ->
                     %% add the member to the accepted list, so we avoid potentially resubmitting to same one again later
-                    cache_txn(TxnKey, Txn, TxnData#txn_data{ acceptions = lists:keysort(1, [{Member, Height, QueuePos} |Acceptions]),
+                    cache_txn(TxnKey, Txn, TxnData#txn_data{ acceptions = lists:keysort(1, [{Member, Height, QueuePos} | Acceptions]),
                                                     dialers = lists:keydelete(Dialer, 1, Dialers)})
             end
     end.
