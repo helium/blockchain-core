@@ -451,7 +451,7 @@ absorb(Txn, Chain) ->
                     {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
                     ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
                     Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
-                    ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
+                    ok = blockchain_ledger_v1:update_gateway(Gw, Gw1, Gateway, Ledger)
 
             end
     end.
