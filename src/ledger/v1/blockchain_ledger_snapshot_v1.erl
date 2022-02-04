@@ -380,10 +380,18 @@ serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
             noblocks ->
                 EmptyListBin
         end,
+    Infos =
+        case BlocksOrNoBlocks of
+            blocks ->
+                maps:get(infos, Snapshot0, EmptyListBin);
+            noblocks ->
+                EmptyListBin
+        end,
 
     Snapshot1 = maps:put(blocks, Blocks, Snapshot0),
+    Snapshot2 = maps:put(infos, Infos, Snapshot1),
 
-    Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
+    Pairs = lists:keysort(1, maps:to_list(Snapshot2)),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
@@ -854,7 +862,7 @@ hash(Snap) ->
                               hash_bytes(TmpCtx, FD, Len)
                       end, Ctx1, lists:keysort(1, maps:to_list(Snap))),
             crypto:hash_final(FinalCtx);
-        _ -> 
+        _ ->
             crypto:hash(sha256, serialize(Snap, noblocks))
     end.
 
