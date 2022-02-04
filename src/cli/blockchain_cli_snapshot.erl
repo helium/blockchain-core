@@ -192,7 +192,7 @@ snapshot_info(["snapshot", "info", Filename], [], []) ->
             {number_blocks, NumBlocks},
             {start_block, StartBlockHt},
             {end_block, EndBlockHt},
-            {raw_hash, io_lib:format("~w", [blockchain_ledger_snapshot_v1:hash(Snap)])},
+            {raw_hash, io_lib:format("~w", [RawHash])},
             {hex_hash, binary_to_hex(RawHash)},
             {b64_hash, base64url:encode(RawHash)} ],
     R = [ {K, to_list(V)} || {K, V} <- Out ],
