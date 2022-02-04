@@ -983,6 +983,14 @@ validate_var(?poc_targeting_version, Value) ->
         _ ->
             throw({error, {invalid_poc_targeting_version, Value}})
     end;
+validate_var(?poc_hexing_type, Value) ->
+  case Value of
+    hex_h3dex -> ok;
+    h3dex -> ok;
+    hex -> ok;
+    _ ->
+      throw({error, {poc_hexing_type, Value}})
+  end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
