@@ -674,8 +674,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                 stream_from_list([])
         end,
 
-    true = erlang:is_function(BlockStream),
-
     print_memory(),
     {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
 
@@ -688,12 +686,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                     {ok, <<B0/binary>>} -> B0;
                     <<B0/binary>> -> B0
                 end,
-              Block =
-              case Block0 of
-                  B when is_binary(B) ->
-                      blockchain_block:deserialize(B);
-                  B -> B
-              end,
+            Block = blockchain_block:deserialize(Block0),
 
               Ht = blockchain_block:height(Block),
               %% since hash and block are written at the same time, just getting the
@@ -732,6 +725,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
       end,
       BlockStream).
 
+-spec stream_iter(fun((A) -> ok), blockchain_term:stream(A)) -> ok.
 stream_iter(F, S0) ->
     case S0() of
         none ->
@@ -741,6 +735,7 @@ stream_iter(F, S0) ->
             stream_iter(F, S1)
     end.
 
+-spec stream_from_list([A]) -> blockchain_term:stream(A).
 stream_from_list([]) ->
     fun () -> none end;
 stream_from_list([X | Xs]) ->

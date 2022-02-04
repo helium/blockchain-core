@@ -12,7 +12,7 @@
 -export_type([
     t/0,
     result/0,
-    stream/1,
+    stream/1, % TODO Find stream def a better home module than this one.
     error/0,
     frame/0,
     unsound/0,
@@ -121,20 +121,33 @@ from_bin(<<Bin/binary>>) ->
 
 %% Tries to stream a list of binaries from file.
 %% TODO Generalize.
--spec from_file_stream_bin_list(file_handle()) -> stream(result()).
+-spec from_file_stream_bin_list(file_handle()) ->
+    stream({ok, binary()} | {error, term()}).
 from_file_stream_bin_list({Fd, Pos, Len}) ->
     {ok, Pos} = file:position(Fd, {bof, Pos}),
     case file:read(Fd, 6) of
         {ok, <<?ETF_VERSION, ?ETF_TAG_LIST_EXT, N:32/integer-unsigned-big>>} ->
             stream_bin_list_elements(N, {Fd, Pos + 6, Len});
         {ok, <<V/binary>>} ->
-            {some, {{error, {bad_etf_version_and_tag_and_len, V}}, stream_end()}};
+            fun () -> {some, {{error, {bad_etf_version_and_tag_and_len, V}}, stream_end()}} end;
         {error, _}=Err ->
-            {some, {Err, stream_end()}}
+            fun () -> {some, {Err, stream_end()}} end
     end.
 
-stream_bin_list_elements(0, {_, _, _}) ->
-    fun () -> none end;
+-spec stream_bin_list_elements(non_neg_integer(), file_handle()) ->
+    stream({ok, binary()} | {error, term()}).
+stream_bin_list_elements(0, {Fd, Pos, _}) ->
+    fun () ->
+        {ok, Pos} = file:position(Fd, {bof, Pos}),
+        case file:read(Fd, 1) of
+            {ok, <<?ETF_TAG_NIL_EXT>>} ->
+                none;
+            {ok, <<_/binary>>} ->
+                {some, {{error, bad_bin_list_nil_tag}, stream_end()}};
+            {error, _}=Err ->
+                {some, {Err, stream_end()}}
+        end
+    end;
 stream_bin_list_elements(N, {Fd, Pos0, L}) ->
     fun () ->
         {ok, Pos1} = file:position(Fd, {bof, Pos0}),
