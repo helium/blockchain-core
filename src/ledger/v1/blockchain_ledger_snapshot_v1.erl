@@ -757,7 +757,7 @@ get_infos(Chain) ->
      || N <- lists:seq(max(?min_height, LoadInfoStart), Height)].
 
 -spec get_blocks(blockchain:blockchain()) ->
-    [binary()].
+    {ok, [binary()]} | {error, encountered_a_rescue_block}.
 get_blocks(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -784,11 +784,23 @@ get_blocks(Chain) ->
     %% whichever is lower.
     LoadBlockStart = min(DHeight, ElectionHeight - GraceBlocks),
 
-    [begin
-         {ok, B} = blockchain:get_raw_block(N, Chain),
-         B
-     end
-     || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
+    BlockHeightRange = lists:seq(max(?min_height, LoadBlockStart), Height),
+    Error = encountered_a_rescue_block,
+    try
+        FetchBlockAtHeight =
+            fun (H) ->
+                {ok, <<BlockRaw/binary>>} = blockchain:get_raw_block(H, Chain),
+                Block = blockchain_block:deserialize(BlockRaw),
+                case blockchain_block:is_rescue_block(Block) of
+                    true -> throw(Error);
+                    false -> BlockRaw
+                end
+            end,
+        Blocks = lists:map(FetchBlockAtHeight, BlockHeightRange),
+        {ok, Blocks}
+    catch throw:Error ->
+        {error, Error}
+    end.
 
 is_v6(#{version := v6}) -> true;
 is_v6(_) -> false.
