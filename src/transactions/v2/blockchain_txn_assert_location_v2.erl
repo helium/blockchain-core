@@ -4,7 +4,9 @@
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_assert_location_v2).
+-ifdef(TEST).
 -include_lib("common_test/include/ct.hrl").
+-endif
 
 -behavior(blockchain_txn).
 
