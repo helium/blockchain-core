@@ -200,13 +200,14 @@ init_per_testcase(Test, Config) ->
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
     GenDCsTxs = [blockchain_txn_dc_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
+    GenPriceOracle = blockchain_txn_gen_price_oracle_v1:new(100000000), % 1 dollar
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
 
     %% Make one consensus member the owner of all gateways
     GenGwTxns = [blockchain_txn_gen_gateway_v1:new(Addr, hd(ConsensusAddrs), h3:from_geo({37.780586, -122.469470}, 13), 0)
                  || Addr <- Addrs],
 
-    Txs = InitialVars ++ GenPaymentTxs ++ GenDCsTxs ++ GenGwTxns ++ [GenConsensusGroupTx],
+    Txs = InitialVars ++ [GenPriceOracle] ++ GenPaymentTxs ++ GenDCsTxs ++ GenGwTxns ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
     %% tell each node to integrate the genesis block
@@ -1749,9 +1750,10 @@ sc_dispute_prevention_test(Config) ->
 
     %% REVIEW: How can I assert something here about the rewards?
     %% Nothing has been disputed yet.
-    {ok, Rewards1} = ct_rpc:call(RouterNode, blockchain_txn_rewards_v2, calculate_rewards_metadata, [5, 16, RouterChain]),
-    ct:pal("PubkeyBins: ~n~p", [[{routernode, RouterPubkeyBin}, {gateway_1, Gateway1PubkeyBin}, {gateway_2, Gateway2PubkeyBin}]]),
-    ct:pal("potential Rewards: ~p", [lager:pr(Rewards1, blockchain_txn_rewards_v2)]),
+    %{ok, Rewards1} = ct_rpc:call(RouterNode, blockchain_txn_rewards_v2, calculate_rewards_metadata, [5, 16, RouterChain]),
+    %?assertNotEqual(#{}, maps:get(dc_rewards, Rewards1)),
+    %ct:pal("PubkeyBins: ~n~p", [[{routernode, RouterPubkeyBin}, {gateway_1, Gateway1PubkeyBin}, {gateway_2, Gateway2PubkeyBin}]]),
+    %ct:pal("potential Rewards: ~p", [lager:pr(Rewards1, blockchain_txn_rewards_v2)]),
 
     %% ===================================================================
     %% Make two disputes that are both valid before they are submitted
@@ -1784,8 +1786,7 @@ sc_dispute_prevention_test(Config) ->
     ?assertEqual(ok, Res2, "Our second dispute close is valid"),
 
     %% Should not be able to create a block with more than 1 dispute
-    %% REVIEW: Even with sc_dispute_prevention `false' this line passes
-    {error, {invalid_txns, [_]}} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedTxn1, SignedTxn1]),
+    {error, {invalid_txns, [_]}} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedTxn1, SignedTxn2]),
 
     %% ===================================================================
     %% Submit one fo the close txns to put SC0 in dispute
@@ -1793,10 +1794,11 @@ sc_dispute_prevention_test(Config) ->
     ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B3, RouterChain, Self, RouterSwarm]),
 
     %% wait until this block has made it everywhere
-    AddFakeBlocksFn(1, 18, [RouterNode, GatewayNode1, GatewayNode1]),
+    AddFakeBlocksFn(3, 20, [RouterNode, GatewayNode1, GatewayNode1]),
 
-    %% REVIEW: How can I assert something here about the rewards?
-    {ok, Rewards2} = ct_rpc:call(RouterNode, blockchain_txn_rewards_v2, calculate_rewards_metadata, [5, 18, RouterChain]),
+    {ok, Rewards2} = ct_rpc:call(RouterNode, blockchain_txn_rewards_v2, calculate_rewards_metadata, [5, 20, RouterChain]),
+    %% there should be no rewards here
+    ?assertEqual(#{}, maps:get(dc_rewards, Rewards2)),
     ct:pal("PubkeyBins: ~n~p", [[{routernode, RouterPubkeyBin}, {gateway_1, Gateway1PubkeyBin}, {gateway_2, Gateway2PubkeyBin}]]),
     ct:pal("disputed Rewards: ~p", [lager:pr(Rewards2, blockchain_txn_rewards_v2)]),
 
