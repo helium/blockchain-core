@@ -835,10 +835,14 @@ hash(Snap) ->
         v6 ->
             %% attempt to incrementally hash the snapshot without building up a big binary
             Ctx0 = crypto:hash_init(sha256),
-            Size = snapshot_size(Snap#{blocks => <<>>}),
+            Size = snapshot_size(Snap#{blocks => <<>>, infos => <<>>}),
             Ctx1 = crypto:hash_update(Ctx0, <<6, Size:32/integer-unsigned-little>>),
             FinalCtx = lists:foldl(fun({blocks, _}, Acc) ->
                               Key = term_to_binary(blocks),
+                              KeyLen = byte_size(Key),
+                              crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, 0:32/integer-unsigned-little>>);
+                          ({infos, _}, Acc) ->
+                              Key = term_to_binary(infos),
                               KeyLen = byte_size(Key),
                               crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, 0:32/integer-unsigned-little>>);
                           ({version, Version}, Acc) ->
