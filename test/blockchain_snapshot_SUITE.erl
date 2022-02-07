@@ -80,6 +80,22 @@ basic_test(DeserializeFrom, Cfg0) ->
         "Hashes A and B are equal after removal of VolatileFields."
     ),
 
+    ?assertEqual(
+        snap_hash_with_field(SnapshotA, blocks, [<<"fake-block">>]),
+        snap_hash_with_field(SnapshotA, blocks, []),
+        "'blocks' field is ignored in hashing."
+    ),
+    ?assertEqual(
+        snap_hash_with_field(SnapshotA, infos, [<<"fake-info">>]),
+        snap_hash_with_field(SnapshotA, infos, []),
+        "'infos' field is ignored in hashing."
+    ),
+    ?assertNotEqual(
+        snap_hash_with_field(SnapshotA, multi_keys, [<<"fake-key">>]),
+        snap_hash_with_field(SnapshotA, multi_keys, []),
+        "'multi_keys' is NOT ignored in hashing." % TODO Test other fields too.
+    ),
+
     Ledger0 = blockchain:ledger(Chain),
     {ok, Height0} = blockchain_ledger_v1:current_height(Ledger0),
     ct:pal("ledger height BEFORE snap load: ~p", [Height0]),
@@ -193,6 +209,10 @@ mem_limit_test(Cfg) ->
 -spec snap_hash_without_fields([atom()], map()) -> map().
 snap_hash_without_fields(Fields, Snap) ->
     blockchain_ledger_snapshot_v1:hash(snap_without_fields(Fields, Snap)).
+
+-spec snap_hash_with_field(map(), atom(), term()) -> map().
+snap_hash_with_field(Snap, Key, Val) ->
+    blockchain_ledger_snapshot_v1:hash(maps:put(Key, term_to_binary(Val), Snap)).
 
 -spec snap_without_fields([atom()], map()) -> map().
 snap_without_fields(Fields, Snap) ->

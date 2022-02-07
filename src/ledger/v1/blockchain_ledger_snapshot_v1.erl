@@ -380,10 +380,18 @@ serialize_v6(#{version := v6}=Snapshot0, BlocksOrNoBlocks) ->
             noblocks ->
                 EmptyListBin
         end,
+    Infos =
+        case BlocksOrNoBlocks of
+            blocks ->
+                maps:get(infos, Snapshot0, EmptyListBin);
+            noblocks ->
+                EmptyListBin
+        end,
 
     Snapshot1 = maps:put(blocks, Blocks, Snapshot0),
+    Snapshot2 = maps:put(infos, Infos, Snapshot1),
 
-    Pairs = lists:keysort(1, maps:to_list(Snapshot1)),
+    Pairs = lists:keysort(1, maps:to_list(Snapshot2)),
     frame(6, serialize_pairs(Pairs)).
 
 -spec serialize_v5(snapshot_v5(), noblocks) -> binary().
@@ -827,10 +835,14 @@ hash(Snap) ->
         v6 ->
             %% attempt to incrementally hash the snapshot without building up a big binary
             Ctx0 = crypto:hash_init(sha256),
-            Size = snapshot_size(Snap#{blocks => <<>>}),
+            Size = snapshot_size(Snap#{blocks => <<>>, infos => <<>>}),
             Ctx1 = crypto:hash_update(Ctx0, <<6, Size:32/integer-unsigned-little>>),
             FinalCtx = lists:foldl(fun({blocks, _}, Acc) ->
                               Key = term_to_binary(blocks),
+                              KeyLen = byte_size(Key),
+                              crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, 0:32/integer-unsigned-little>>);
+                          ({infos, _}, Acc) ->
+                              Key = term_to_binary(infos),
                               KeyLen = byte_size(Key),
                               crypto:hash_update(Acc, <<KeyLen:32/integer-unsigned-little, Key/binary, 0:32/integer-unsigned-little>>);
                           ({version, Version}, Acc) ->
@@ -854,7 +866,7 @@ hash(Snap) ->
                               hash_bytes(TmpCtx, FD, Len)
                       end, Ctx1, lists:keysort(1, maps:to_list(Snap))),
             crypto:hash_final(FinalCtx);
-        _ -> 
+        _ ->
             crypto:hash(sha256, serialize(Snap, noblocks))
     end.
 
