@@ -31,6 +31,8 @@
          sign_seller/2,
          sign_buyer/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          is_valid_seller/1,
          is_valid_buyer/1,
          absorb/2,
@@ -39,8 +41,13 @@
          to_json/2
 ]).
 
--type txn_transfer_hotspot() :: #blockchain_txn_transfer_hotspot_v1_pb{}.
--export_type([txn_transfer_hotspot/0]).
+-define(T, #blockchain_txn_transfer_hotspot_v1_pb).
+
+-type t() :: txn_transfer_hotspot().
+
+-type txn_transfer_hotspot() :: ?T{}.
+
+-export_type([t/0, txn_transfer_hotspot/0]).
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
@@ -194,6 +201,15 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                   {fun() -> buyer_has_enough_hnt(Txn, Ledger) end,
                                           {error, buyer_insufficient_hnt_balance}}],
     blockchain_utils:fold_condition_checks(Conditions).
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->

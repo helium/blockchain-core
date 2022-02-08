@@ -31,6 +31,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -41,13 +43,18 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_routing() :: #blockchain_txn_routing_v1_pb{}.
+-define(T, #blockchain_txn_routing_v1_pb).
+
+-type t() :: txn_routing().
+
+-type txn_routing() :: ?T{}.
+
 -type action() :: {update_routers, RouterAddresses::[binary()]} |
                   {new_xor, Filter::binary()} |
                   {update_xor, Index::non_neg_integer(), Filter::binary()} |
                   {request_subnet, SubnetSize::non_neg_integer()}.
 
--export_type([txn_routing/0, action/0]).
+-export_type([t/0, txn_routing/0, action/0]).
 
 -spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer()) -> txn_routing().
 update_router_addresses(OUI, Owner, Addresses, Nonce) ->
@@ -254,6 +261,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

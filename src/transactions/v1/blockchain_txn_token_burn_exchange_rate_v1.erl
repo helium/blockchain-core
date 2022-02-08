@@ -24,6 +24,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     sign/2,
     print/1,
@@ -35,8 +37,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_token_burn_exchange_rate() :: #blockchain_txn_token_burn_exchange_rate_v1_pb{}.
--export_type([txn_token_burn_exchange_rate/0]).
+-define(T, #blockchain_txn_token_burn_exchange_rate_v1_pb).
+
+-type t() :: txn_token_burn_exchange_rate().
+
+-type txn_token_burn_exchange_rate() :: ?T{}.
+
+-export_type([t/0, txn_token_burn_exchange_rate/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -90,7 +97,7 @@ fee_payer(_Txn, _Ledger) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> {error, atom()} | {error, {atom(), any()}}.
 is_valid(_Txn, _Chain) ->
-    {error, not_implemented}.
+    {error, not_implemented}.  % TODO Huh? What is going on here?
     % Amount = ?MODULE:rate(Txn),
     % case Amount > 0 of
     %     true ->
@@ -98,6 +105,15 @@ is_valid(_Txn, _Chain) ->
     %     false ->
     %         {error, zero_or_negative_rate}
     % end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

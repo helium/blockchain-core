@@ -25,6 +25,8 @@
     hash/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     is_valid_owner/1,
     absorb/2,
     print/1,
@@ -32,8 +34,12 @@
     to_json/2
 ]).
 
--type txn_transfer_hotspot_v2() :: #blockchain_txn_transfer_hotspot_v2_pb{}.
--export_type([txn_transfer_hotspot_v2/0]).
+-define(T, #blockchain_txn_transfer_hotspot_v2_pb).
+
+-type t() :: txn_transfer_hotspot_v2().
+
+-type txn_transfer_hotspot_v2() :: ?T{}.
+-export_type([t/0, txn_transfer_hotspot_v2/0]).
 
 -spec new(
     Gateway :: libp2p_crypto:pubkey_bin(),
@@ -158,6 +164,15 @@ is_valid(Txn, Chain) ->
         _ ->
             {error, transaction_validity_version_not_set}
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->

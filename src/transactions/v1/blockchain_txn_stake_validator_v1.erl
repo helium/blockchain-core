@@ -25,14 +25,21 @@
          fee_payer/2,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
          to_json/2
         ]).
 
--type txn_stake_validator() :: #blockchain_txn_stake_validator_v1_pb{}.
--export_type([txn_stake_validator/0]).
+-define(T, #blockchain_txn_stake_validator_v1_pb).
+
+-type t() :: txn_stake_validator().
+
+-type txn_stake_validator() :: ?T{}.
+
+-export_type([t/0, txn_stake_validator/0]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -192,6 +199,15 @@ is_valid(Txn, Chain) ->
                     {error, Cause}
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_stake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

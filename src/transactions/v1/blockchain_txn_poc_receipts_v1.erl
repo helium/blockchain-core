@@ -28,6 +28,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     create_secret_hash/2,
     connections/1,
@@ -47,11 +49,30 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v1_pb{}.
--type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
--type tagged_witnesses() :: [{IsValid :: boolean(), InvalidReason :: binary(), Witness :: blockchain_poc_witness_v1:witness()}].
+-define(T, #blockchain_txn_poc_receipts_v1_pb).
 
--export_type([txn_poc_receipts/0]).
+-type t() :: txn_poc_receipts().
+
+-type txn_poc_receipts() :: ?T{}.
+
+-type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
+
+-type tagged_witness() ::
+    {
+        IsValid :: boolean(),
+        InvalidReason :: binary(),
+        Witness :: blockchain_poc_witness_v1:witness()
+    }.
+
+-type tagged_witnesses() ::
+    [tagged_witness()].
+
+-export_type([
+    t/0,
+    txn_poc_receipts/0,
+    tagged_witness/0,
+    tagged_witnesses/0
+]).
 
 -define(poc_vars, [
     ?poc_version,
@@ -224,6 +245,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec check_is_valid_poc(Txn :: txn_poc_receipts(),
                          Chain :: blockchain:blockchain()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.

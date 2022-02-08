@@ -21,6 +21,8 @@
          fee/1,
          fee_payer/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          master_key/1,
          multi_keys/1,
          key_proof/1, key_proof/2,
@@ -75,8 +77,13 @@
 -define(expire_lower_bound, 9).
 -endif.
 
--type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
--export_type([txn_vars/0]).
+-define(T, #blockchain_txn_vars_v1_pb).
+
+-type t() :: txn_vars().
+
+-type txn_vars() :: ?T{}.
+
+-export_type([t/0, txn_vars/0]).
 
 %% message var_v1 {
 %%     string name = 1;
@@ -355,6 +362,15 @@ is_valid(Txn, Chain) ->
         1 ->
             legacy_is_valid(Txn, Chain)
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 legacy_is_valid(Txn, Chain) ->

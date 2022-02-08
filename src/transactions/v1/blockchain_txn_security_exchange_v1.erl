@@ -27,6 +27,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -37,8 +39,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_security_exchange() :: #blockchain_txn_security_exchange_v1_pb{}.
--export_type([txn_security_exchange/0]).
+-define(T, #blockchain_txn_security_exchange_v1_pb).
+
+-type t() :: txn_security_exchange().
+
+-type txn_security_exchange() :: ?T{}.
+
+-export_type([t/0, txn_security_exchange/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -218,6 +225,15 @@ is_valid(Txn, Chain) ->
             end;
         Error -> Error
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

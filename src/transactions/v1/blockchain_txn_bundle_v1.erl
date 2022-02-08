@@ -24,13 +24,19 @@
     fee_payer/2,
     txns/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     print/1,
     json_type/0,
     to_json/2
 ]).
 
--type txn_bundle() :: #blockchain_txn_bundle_v1_pb{}.
--export_type([txn_bundle/0]).
+-define(T, #blockchain_txn_bundle_v1_pb).
+
+-type t() :: txn_bundle().
+-type txn_bundle() :: ?T{}.
+
+-export_type([t/0, txn_bundle/0]).
 
 -spec new(Txns :: blockchain_txn:txns()) -> txn_bundle().
 new(Txns) ->
@@ -95,6 +101,15 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec print(txn_bundle()) -> iodata().
 print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->

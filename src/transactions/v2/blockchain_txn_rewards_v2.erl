@@ -36,6 +36,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_rewards/3,
     calculate_rewards_metadata/3,
@@ -49,7 +51,10 @@
 -export([v1_to_v2/1]).
 -endif.
 
--type txn_rewards_v2() :: #blockchain_txn_rewards_v2_pb{}.
+-define(T, #blockchain_txn_rewards_v2_pb).
+
+-type t() :: txn_rewards_v2().
+-type txn_rewards_v2() :: ?T{}.
 -type reward_v2() :: #blockchain_txn_reward_v2_pb{}.
 -type rewards() :: [reward_v2()].
 -type reward_vars() :: map().
@@ -73,7 +78,7 @@
                                securities_rewards => rewards_map(),
                                overages => non_neg_integer() }.
 
--export_type([txn_rewards_v2/0, rewards_metadata/0]).
+-export_type([t/0, txn_rewards_v2/0, rewards_metadata/0]).
 
 %% ------------------------------------------------------------------
 %% Public API
@@ -143,6 +148,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

@@ -26,6 +26,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -36,8 +38,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
--export_type([txn_redeem_htlc/0]).
+-define(T, #blockchain_txn_redeem_htlc_v1_pb).
+
+-type t() :: txn_redeem_htlc().
+
+-type txn_redeem_htlc() :: ?T{}.
+
+-export_type([t/0, txn_redeem_htlc/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage) ->
@@ -192,6 +199,15 @@ is_valid(Txn, Chain) ->
         Error ->
             Error
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

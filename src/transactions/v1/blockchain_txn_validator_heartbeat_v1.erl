@@ -25,6 +25,8 @@
          fee_payer/2,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -35,8 +37,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_validator_heartbeat() :: #blockchain_txn_validator_heartbeat_v1_pb{}.
--export_type([txn_validator_heartbeat/0]).
+-define(T, #blockchain_txn_validator_heartbeat_v1_pb).
+
+-type t() :: txn_validator_heartbeat().
+
+-type txn_validator_heartbeat() :: ?T{}.
+
+-export_type([t/0, txn_validator_heartbeat/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
           txn_validator_heartbeat().
@@ -133,6 +140,15 @@ is_valid(Txn, Chain) ->
                     {error, Cause}
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %% oh dialyzer
 valid_version(V) when is_integer(V) andalso V > 0 ->

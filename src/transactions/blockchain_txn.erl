@@ -50,14 +50,29 @@
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
--export_type([hash/0, txn/0, txns/0]).
+-export_type([hash/0, txn/0, txns/0, is_prompt/0]).
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
 -callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+
+%% Check the transaction has the required fields and they're well formed and
+%% in-bounds. Use contracts heavily here.
+-callback is_well_formed(txn()) -> ok | {error, {contract_breach, any()}}.
+
+%% Check the txn has the right causal information (nonce, block height, etc) to
+%% be absorbed.  This should be quick.
+-callback is_prompt(txn(), blockchain:blockchain()) ->
+    {ok, is_prompt()} | {error, term()}.
+-type is_prompt() ::
+    yes | no | {not_yet, Delta :: pos_integer()}.
+
+%% Final heavy-weight validity checks, including signature verification and
+%% other complex calculations:
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
@@ -597,9 +612,24 @@ is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
         {value, _} ->
-            try Type:is_valid(Txn, Chain) of
-                Res ->
-                    Res
+            try
+                case Type:is_well_formed(Txn) of
+                    {error, _}=Err ->
+                        Err;
+                    ok ->
+                        case Type:is_prompt() of
+                            {ok, yes} ->
+                                Type:is_valid(Txn, Chain);
+                            {ok, no} ->
+                                {error, txn_too_late_or_too_early};
+                            {ok, {not_yet, _Delta}} ->
+                                % TODO Bound delta?
+                                % TODO Anything more interesting that can be done here?
+                                {error, txn_too_early};
+                            {error, _}=Err ->
+                                Err
+                        end
+                end
             catch
                 What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),

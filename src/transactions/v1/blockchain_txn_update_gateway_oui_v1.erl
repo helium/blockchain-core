@@ -30,6 +30,8 @@
     is_valid_gateway_owner/2,
     is_valid_oui_owner/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -42,8 +44,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_update_gateway_oui() :: #blockchain_txn_update_gateway_oui_v1_pb{}.
--export_type([txn_update_gateway_oui/0]).
+-define(T, #blockchain_txn_update_gateway_oui_v1_pb).
+
+-type t() :: txn_update_gateway_oui().
+
+-type txn_update_gateway_oui() :: ?T{}.
+
+-export_type([t/0, txn_update_gateway_oui/0]).
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           OUI :: pos_integer(),
@@ -177,6 +184,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

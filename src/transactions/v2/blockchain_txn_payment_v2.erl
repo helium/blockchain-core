@@ -32,6 +32,8 @@
          signature/1,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -42,9 +44,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_payment_v2() :: #blockchain_txn_payment_v2_pb{}.
+-define(T, #blockchain_txn_payment_v2_pb).
 
--export_type([txn_payment_v2/0]).
+-type t() :: txn_payment_v2().
+
+-type txn_payment_v2() :: ?T{}.
+
+-export_type([t/0, txn_payment_v2/0]).
 
 -spec new(Payer :: libp2p_crypto:pubkey_bin(),
           Payments :: blockchain_payment_v2:payments(),
@@ -140,6 +146,14 @@ is_valid(Txn, Chain) ->
             {error, {invalid, max_payments_not_set}}
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->

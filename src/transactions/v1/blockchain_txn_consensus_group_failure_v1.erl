@@ -29,14 +29,21 @@
     verify_signature/3,
     set_signatures/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
     to_json/2
 ]).
 
--type txn_consensus_group_failure() :: #blockchain_txn_consensus_group_failure_v1_pb{}.
--export_type([txn_consensus_group_failure/0]).
+-define(T, #blockchain_txn_consensus_group_failure_v1_pb).
+
+-type t() :: txn_consensus_group_failure().
+
+-type txn_consensus_group_failure() :: ?T{}.
+
+-export_type([t/0, txn_consensus_group_failure/0]).
 
 -spec new([libp2p_crypto:pubkey_bin()], pos_integer(), non_neg_integer()) ->
     txn_consensus_group_failure().
@@ -196,6 +203,15 @@ is_valid(Txn, Chain) ->
         throw:E ->
             {error, E}
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list

@@ -35,6 +35,8 @@
     is_valid_location/2,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -46,9 +48,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(T, #blockchain_txn_assert_location_v2_pb).
+
+-type t() :: txn_assert_location().
+
 -type location() :: h3:h3index().
--type txn_assert_location() :: #blockchain_txn_assert_location_v2_pb{}.
--export_type([txn_assert_location/0]).
+
+-type txn_assert_location() :: ?T{}.
+
+-export_type([t/0, txn_assert_location/0]).
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
@@ -322,6 +330,14 @@ is_valid(Txn, Chain) ->
             {error, {invalid_assert_loc_txn_v2, insufficient_assert_loc_txn_version}}
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec do_is_valid_checks(Txn :: txn_assert_location(),
                          Chain :: blockchain:blockchain()) -> ok | {error, any()}.

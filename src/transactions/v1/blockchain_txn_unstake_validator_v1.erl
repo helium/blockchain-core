@@ -26,6 +26,8 @@
          fee_payer/2,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -37,8 +39,13 @@
 -export([is_valid_owner/1]).
 -endif.
 
--type txn_unstake_validator() :: #blockchain_txn_unstake_validator_v1_pb{}.
--export_type([txn_unstake_validator/0]).
+-define(T, #blockchain_txn_unstake_validator_v1_pb).
+
+-type t() :: txn_unstake_validator().
+
+-type txn_unstake_validator() :: ?T{}.
+
+-export_type([t/0, txn_unstake_validator/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           pos_integer(), pos_integer(), pos_integer()) ->
@@ -185,6 +192,15 @@ is_valid(Txn, Chain) ->
                     {error, Cause}
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_unstake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

@@ -29,6 +29,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -39,9 +41,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_state_channel_open() :: #blockchain_txn_state_channel_open_v1_pb{}.
+-define(T, #blockchain_txn_state_channel_open_v1_pb).
+
+-type t() :: txn_state_channel_open().
+
+-type txn_state_channel_open() :: ?T{}.
+
 -type id() :: binary().
--export_type([id/0, txn_state_channel_open/0]).
+
+-export_type([id/0, t/0, txn_state_channel_open/0]).
 
 -spec new(ID :: id(),
           Owner :: libp2p_crypto:pubkey_bin(),
@@ -144,6 +152,15 @@ is_valid(Txn, Chain) ->
         true ->
             do_is_valid_checks(Txn, Chain)
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(Txn :: txn_state_channel_open(),
              Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

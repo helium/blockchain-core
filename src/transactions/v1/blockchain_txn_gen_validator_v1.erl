@@ -22,6 +22,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -32,8 +34,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_genesis_validator() :: #blockchain_txn_gen_validator_v1_pb{}.
--export_type([txn_genesis_validator/0]).
+-define(T, #blockchain_txn_gen_validator_v1_pb).
+
+-type t() :: txn_genesis_validator().
+
+-type txn_genesis_validator() :: ?T{}.
+
+-export_type([t/0, txn_genesis_validator/0]).
 
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
@@ -87,6 +94,15 @@ is_valid(_Txn, Chain) ->
         _ ->
             {error, not_in_genesis_block}
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

@@ -30,6 +30,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -40,8 +42,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_state_channel_close() :: #blockchain_txn_state_channel_close_v1_pb{}.
--export_type([txn_state_channel_close/0]).
+-define(T, #blockchain_txn_state_channel_close_v1_pb).
+
+-type t() :: txn_state_channel_close().
+
+-type txn_state_channel_close() :: ?T{}.
+
+-export_type([t/0, txn_state_channel_close/0]).
 
 -spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin()) -> txn_state_channel_close().
 new(SC, Closer) ->
@@ -235,6 +242,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 check_close_updates(LedgerSC, Txn, Ledger) ->
     %% a close from a participant in the SC, not from the owner

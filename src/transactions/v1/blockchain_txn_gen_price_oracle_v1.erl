@@ -20,6 +20,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -30,8 +32,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_genesis_price_oracle() :: #blockchain_txn_gen_price_oracle_v1_pb{}.
--export_type([txn_genesis_price_oracle/0]).
+-define(T, #blockchain_txn_gen_price_oracle_v1_pb).
+
+-type t() :: txn_genesis_price_oracle().
+
+-type txn_genesis_price_oracle() :: ?T{}.
+
+-export_type([t/0, txn_genesis_price_oracle/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -100,6 +107,15 @@ is_valid(Txn, Chain) ->
         _ ->
             {error, not_in_genesis_block}
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

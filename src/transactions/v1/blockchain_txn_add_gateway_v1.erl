@@ -34,6 +34,8 @@
     is_valid_payer/1,
     is_valid_staking_key/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -45,8 +47,12 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_add_gateway() :: #blockchain_txn_add_gateway_v1_pb{}.
--export_type([txn_add_gateway/0]).
+-define(T, #blockchain_txn_add_gateway_v1_pb).
+
+-type txn_add_gateway() :: ?T{}.
+-type t() :: txn_add_gateway().
+
+-export_type([t/0, txn_add_gateway/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -363,6 +369,15 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc

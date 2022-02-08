@@ -23,6 +23,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_rewards/3,
     print/1,
@@ -43,8 +45,13 @@
 % poc_witnesses_percent   0.02 + 0.03
 % consensus_percent       0.10
 
--type txn_rewards() :: #blockchain_txn_rewards_v1_pb{}.
--export_type([txn_rewards/0]).
+-define(T, #blockchain_txn_rewards_v1_pb).
+
+-type t() :: txn_rewards().
+
+-type txn_rewards() :: ?T{}.
+
+-export_type([t/0, txn_rewards/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -128,6 +135,15 @@ is_valid(Txn, Chain) ->
                 true -> ok
             end
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(?T{}) ->
+    ok.
+
+-spec is_prompt(t(), blockchain:blockchain()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)
