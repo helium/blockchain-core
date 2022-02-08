@@ -698,7 +698,8 @@ var_cache_stats() ->
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
-    e2qc:teardown(?VAR_CACHE).
+    e2qc:teardown(?VAR_CACHE),
+    ok.
 
 init_var_cache() ->
     %% TODO could pull cache settings from app env here
