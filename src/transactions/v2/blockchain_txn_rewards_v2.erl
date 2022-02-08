@@ -688,6 +688,10 @@ get_reward_vars(Start, End, Ledger) ->
                     _ ->
                         1
                 end,
+    SCDisputeStrategyVersion = case blockchain:config(?sc_dispute_strategy_version, Ledger) of
+                                   {ok, SCDV} -> SCDV;
+                                   _ -> 0
+                               end,
     POCVersion = case blockchain:config(?poc_version, Ledger) of
                      {ok, V} -> V;
                      _ -> 1
@@ -746,6 +750,7 @@ get_reward_vars(Start, End, Ledger) ->
         dc_percent => DCPercent,
         sc_grace_blocks => SCGrace,
         sc_version => SCVersion,
+        sc_dispute_strategy_version => SCDisputeStrategyVersion,
         poc_version => POCVersion,
         reward_version => RewardVersion,
         witness_redundancy => WitnessRedundancy,
@@ -1377,26 +1382,39 @@ dc_reward(Txn, End, AccIn, Ledger, #{ sc_grace_blocks := GraceBlocks,
                                     %% pull out the final version of the state channel
                                     FinalSC = blockchain_ledger_state_channel_v2:state_channel(SC),
                                     RewardVersion = maps:get(reward_version, Vars, 1),
+                                    CloseState = blockchain_ledger_state_channel_v2:close_state(SC),
+                                    SCDisputeStrategy = maps:get(?sc_dispute_strategy_version, Vars, 0),
+                                    {Summaries, Bonus} =
+                                        case {SCDisputeStrategy, CloseState} of
+                                            {Ver, dispute} when Ver >= 1 ->
+                                                %% When sc_dispute_strategy_version is 1 we want to zero out as much as possible.
+                                                %% No Bonuses, no summaries. All slashed.
+                                                {[], 0};
+                                            {_, _} ->
 
-                                    Summaries = case RewardVersion > 3 of
-                                                    %% reward version 4 normalizes payouts
-                                                    true -> blockchain_state_channel_v1:summaries(blockchain_state_channel_v1:normalize(FinalSC));
-                                                    false -> blockchain_state_channel_v1:summaries(FinalSC)
-                                                end,
-                                    %% check the dispute status
-                                    Bonus = case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                %% Reward version 4 or higher just slashes overcommit
-                                                dispute when RewardVersion < 4 ->
-                                                    %% the owner of the state channel
-                                                    %% did a naughty thing, divide
-                                                    %% their overcommit between the
-                                                    %% participants
-                                                    OverCommit = blockchain_ledger_state_channel_v2:amount(SC)
-                                                        - blockchain_ledger_state_channel_v2:original(SC),
-                                                    OverCommit div length(Summaries);
-                                                _ ->
-                                                    0
-                                            end,
+                                                InnerSummaries = case RewardVersion > 3 of
+                                                                     %% reward version 4 normalizes payouts
+                                                                     true -> blockchain_state_channel_v1:summaries(blockchain_state_channel_v1:normalize(FinalSC));
+                                                                     false -> blockchain_state_channel_v1:summaries(FinalSC)
+                                                                 end,
+
+                                                %% check the dispute status
+                                                InnerBonus = case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                                 %% Reward version 4 or higher just slashes overcommit
+                                                                 dispute when RewardVersion < 4 ->
+                                                                     %% the owner of the state channel
+                                                                     %% did a naughty thing, divide
+                                                                     %% their overcommit between the
+                                                                     %% participants
+
+                                                                     OverCommit = blockchain_ledger_state_channel_v2:amount(SC)
+                                                                         - blockchain_ledger_state_channel_v2:original(SC),
+                                                                     OverCommit div length(InnerSummaries);
+                                                                 _ ->
+                                                                     0
+                                                             end,
+                                                {InnerSummaries, InnerBonus}
+                                        end,
 
                                     lists:foldl(fun(Summary, A) ->
                                                         Key = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
@@ -1768,6 +1786,54 @@ poc_witnesses_rewards_test() ->
     ?assertEqual(Rewards, normalize_witness_rewards(WitnessShares, EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
+dc_rewards_sc_dispute_strategy_test() ->
+    BaseDir = test_utils:tmp_dir("dc_rewards_dispute_sc_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    Vars = #{
+        epoch_reward => 100000,
+        dc_percent => 0.3,
+        consensus_percent => 0.06 + 0.025,
+        poc_challengees_percent => 0.18,
+        poc_challengers_percent => 0.0095,
+        poc_witnesses_percent => 0.0855,
+        securities_percent => 0.34,
+        sc_version => 2,
+        sc_grace_blocks => 5,
+        reward_version => 4,
+        oracle_price => 100000000, %% 1 dollar
+        consensus_members => [<<"c">>, <<"d">>],
+        %% This is the important part of what's being tested here.
+        sc_dispute_strategy_version => 1
+    },
+
+    LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
+    SCValid = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1), blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
+    SCDispute = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 2, 2), blockchain_state_channel_summary_v1:new(<<"b">>, 3, 3)], SC0),
+
+    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SCValid, <<"id">>, false, Ledger1),
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"a">>, SCDispute, <<"id">>, true, Ledger1),
+
+    SCClose = blockchain_txn_state_channel_close_v1:new(SCValid, <<"owner">>),
+    {ok, _DCsInEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(3, 100000000), %% 3 DCs burned at HNT price of 1 dollar
+
+    DCShares = dc_reward(SCClose, 100, #{}, Ledger1, Vars),
+
+    %% We only care that no rewards are generated when sc_dispute_strategy_version is active.
+    {Res, M} = normalize_dc_rewards(DCShares, Vars),
+    ?assertEqual(#{}, M, "no summaries in rewards map"),
+    ?assertEqual(30000, Res),
+    test_utils:cleanup_tmp_dir(BaseDir).
+
 dc_rewards_v3_test() ->
     BaseDir = test_utils:tmp_dir("dc_rewards_v3_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
@@ -1783,6 +1849,7 @@ dc_rewards_v3_test() ->
         securities_percent => 0.34,
         sc_version => 2,
         sc_grace_blocks => 5,
+        sc_dispute_strategy_version => 0,
         reward_version => 3,
         oracle_price => 100000000, %% 1 dollar
         consensus_members => [<<"c">>, <<"d">>]

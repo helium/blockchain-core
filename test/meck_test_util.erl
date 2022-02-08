@@ -5,7 +5,7 @@
 forward_submit_txn(Pid) ->
     meck:expect(blockchain_txn_mgr, submit, fun(T, F) ->
         Pid ! {txn, T},
-        F(ok, T),
+        F(ok),
         ok
     end),
     ok.
