@@ -1794,13 +1794,7 @@ sc_dispute_prevention_test(Config) ->
     ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B3, RouterChain, Self, RouterSwarm]),
 
     %% wait until this block has made it everywhere
-    AddFakeBlocksFn(3, 20, [RouterNode, GatewayNode1, GatewayNode1]),
-
-    {ok, Rewards2} = ct_rpc:call(RouterNode, blockchain_txn_rewards_v2, calculate_rewards_metadata, [5, 20, RouterChain]),
-    %% there should be no rewards here
-    ?assertEqual(#{}, maps:get(dc_rewards, Rewards2)),
-    ct:pal("PubkeyBins: ~n~p", [[{routernode, RouterPubkeyBin}, {gateway_1, Gateway1PubkeyBin}, {gateway_2, Gateway2PubkeyBin}]]),
-    ct:pal("disputed Rewards: ~p", [lager:pr(Rewards2, blockchain_txn_rewards_v2)]),
+    AddFakeBlocksFn(1, 18, [RouterNode, GatewayNode1, GatewayNode1]),
 
     %% Check that the state that was first closed by routernode, is in dispute
     {ok, LedgerSC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID1, RouterPubkeyBin, RouterLedger]),
@@ -1812,6 +1806,16 @@ sc_dispute_prevention_test(Config) ->
     Res3 = ct_rpc:call(RouterNode, blockchain_txn_state_channel_close_v1, is_valid, [SignedTxn2, RouterChain]),
     ct:pal("Trying to create block with bad txn: ~p", [Res3]),
     ?assertEqual({error, already_disputed}, Res3, "Our second dispute close is not valid"),
+
+    %% ===================================================================
+    %% Move past the grace period and check that the no rewards are generated
+    AddFakeBlocksFn(2, 20, [RouterNode, GatewayNode1, GatewayNode2]),
+    {ok, Rewards2} = ct_rpc:call(RouterNode, blockchain_txn_rewards_v2, calculate_rewards_metadata, [5, 20, RouterChain]),
+    %% there should be no rewards here
+    ?assertEqual(#{}, maps:get(dc_rewards, Rewards2)),
+    ct:pal("PubkeyBins: ~n~p", [[{routernode, RouterPubkeyBin}, {gateway_1, Gateway1PubkeyBin}, {gateway_2, Gateway2PubkeyBin}]]),
+    ct:pal("disputed Rewards: ~p", [lager:pr(Rewards2, blockchain_txn_rewards_v2)]),
+
 
     ok.
 
