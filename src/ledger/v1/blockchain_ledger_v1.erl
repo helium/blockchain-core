@@ -63,7 +63,7 @@
     %% todo add more here
 
     add_gateway/3, add_gateway/4, add_gateway/6,
-    update_gateway/3,
+    update_gateway/4,
     fixup_neighbors/4,
     add_gateway_location/4,
     add_gateway_gain/4,
@@ -1228,13 +1228,13 @@ load_gateways(Gws, Ledger) ->
     maps:map(
       fun(Address, Gw) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
-              write_gw_denorm_values(Address, Gw, Ledger),
+              write_gw_denorm_values(Address, new, Gw, Ledger),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
       maps:from_list(Gws)),
     ok.
 
-write_gw_denorm_values(Address, Gw, Ledger) ->
+write_gw_denorm_values(Address, new, Gw, Ledger) ->
     GwDenormCF = gw_denorm_cf(Ledger),
     Location = blockchain_ledger_gateway_v2:location(Gw),
     Mode = blockchain_ledger_gateway_v2:mode(Gw),
@@ -1246,7 +1246,40 @@ write_gw_denorm_values(Address, Gw, Ledger) ->
               term_to_binary(LastChallenge)),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner),
     cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode)),
-    cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain)).
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain));
+write_gw_denorm_values(Address, Old, Gw, Ledger) ->
+    GwDenormCF = gw_denorm_cf(Ledger),
+    OldLocation = blockchain_ledger_gateway_v2:location(Old),
+    Location = blockchain_ledger_gateway_v2:location(Gw),
+    OldMode = blockchain_ledger_gateway_v2:mode(Old),
+    Mode = blockchain_ledger_gateway_v2:mode(Gw),
+    OldGain = blockchain_ledger_gateway_v2:gain(Old),
+    Gain = blockchain_ledger_gateway_v2:gain(Gw),
+    OldLastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Old),
+    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gw),
+    OldOwner = blockchain_ledger_gateway_v2:owner_address(Old),
+    Owner = blockchain_ledger_gateway_v2:owner_address(Gw),
+    case Location == OldLocation of
+        true -> ok;
+        _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-loc">>, term_to_binary(Location))
+    end,
+    case LastChallenge == OldLastChallenge of
+        true -> ok;
+        _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-challenge">>,
+                       term_to_binary(LastChallenge))
+    end,
+    case Owner == OldOwner of
+        true -> ok;
+        _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-owner">>, Owner)
+    end,
+    case Mode == OldMode of
+        true -> ok;
+        _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-mode">>, term_to_binary(Mode))
+    end,
+    case Gain == OldGain of
+        true -> ok;
+            _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain))
+    end.
 
 -spec entries(ledger()) -> entries().
 entries(Ledger) ->
@@ -1509,7 +1542,7 @@ add_gateway(OwnerAddr, GatewayAddress, Mode, Ledger) ->
             {error, gateway_already_active};
         _ ->
             Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined, Mode),
-            update_gateway(Gateway, GatewayAddress, Ledger)
+            update_gateway(new, Gateway, GatewayAddress, Ledger)
     end.
 
 %% NOTE: This should only be allowed when adding a gateway which was
@@ -1556,7 +1589,7 @@ add_gateway(OwnerAddr,
                         NewGw1
                 end,
 
-            update_gateway(NewGw, GatewayAddress, Ledger)
+            update_gateway(new, NewGw, GatewayAddress, Ledger)
     end.
 
 fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
@@ -1584,14 +1617,15 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
                           blockchain_ledger_gateway_v2:add_neighbor(Addr, G)
                   end, Add),
     maps:map(fun(A, G) ->
-                     update_gateway(G, A, Ledger)
+                     update_gateway(new, G, A, Ledger)
              end, maps:merge(R1, A1)),
     ok.
 
--spec update_gateway(Gw :: blockchain_ledger_gateway_v2:gateway(),
+-spec update_gateway(Old :: blockchain_ledger_gateway_v2:gateway() | new,
+                     Gw :: blockchain_ledger_gateway_v2:gateway(),
                      GwAddr :: libp2p_crypto:pubkey_bin(),
                      Ledger :: ledger()) -> ok | {error, _}.
-update_gateway(Gw0, GwAddr, Ledger) ->
+update_gateway(Old, Gw0, GwAddr, Ledger) ->
     %% we have to do this each time to make sure that we have ledger convergence for snapshots, but
     %% it feels relatively cheap in comparison to continuing to update scores.
     Gw =
@@ -1606,7 +1640,7 @@ update_gateway(Gw0, GwAddr, Ledger) ->
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin),
-    write_gw_denorm_values(GwAddr, Gw, Ledger).
+    write_gw_denorm_values(GwAddr, Old, Gw, Ledger).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
@@ -1621,7 +1655,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             Gw3 = Gw2, %blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
             Gw4 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
             NewGw = blockchain_ledger_gateway_v2:clear_witnesses(Gw4),
-            update_gateway(NewGw, GatewayAddress, Ledger)
+            update_gateway(Gw, NewGw, GatewayAddress, Ledger)
     end.
 
 -spec add_gateway_gain(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -1632,7 +1666,7 @@ add_gateway_gain(GatewayAddress, Gain, Nonce, Ledger) ->
         {ok, Gw} ->
             Gw1 = blockchain_ledger_gateway_v2:gain(Gain, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            update_gateway(Gw2, GatewayAddress, Ledger)
+            update_gateway(Gw, Gw2, GatewayAddress, Ledger)
     end.
 
 -spec add_gateway_elevation(libp2p_crypto:pubkey_bin(), integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -1643,7 +1677,7 @@ add_gateway_elevation(GatewayAddress, Elevation, Nonce, Ledger) ->
         {ok, Gw} ->
             Gw1 = blockchain_ledger_gateway_v2:elevation(Elevation, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            update_gateway(Gw2, GatewayAddress, Ledger)
+            update_gateway(Gw, Gw2, GatewayAddress, Ledger)
     end.
 
 cg_versions(Ledger) ->
@@ -1767,7 +1801,7 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
             NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(blockchain_utils:normalize_float(Alpha0 + Alpha),
                                                                       blockchain_utils:normalize_float(Beta0 + Beta),
                                                                       Height, Gw),
-            update_gateway(NewGw, GatewayAddress, Ledger)
+            update_gateway(Gw, NewGw, GatewayAddress, Ledger)
     end.
 
 -spec gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) -> {ok, float()} | {error, any()}.
@@ -1792,7 +1826,7 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
         {ok, Gw} ->
             NewGw0 = blockchain_ledger_gateway_v2:oui(OUI, Gw),
             NewGw = blockchain_ledger_gateway_v2:nonce(Nonce, NewGw0),
-            update_gateway(NewGw, Gateway, Ledger)
+            update_gateway(Gw, NewGw, Gateway, Ledger)
     end.
 
 -spec insert_witnesses(PubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -1868,7 +1902,7 @@ remove_gateway_witness(GatewayPubkeyBin, Ledger) ->
             Error;
         {ok, GW0} ->
             GW1 = blockchain_ledger_gateway_v2:clear_witnesses(GW0),
-            ?MODULE:update_gateway(GW1, GatewayPubkeyBin, Ledger)
+            ?MODULE:update_gateway(GW0, GW1, GatewayPubkeyBin, Ledger)
     end.
 
 -spec refresh_gateway_witnesses(blockchain_block:hash(), ledger()) -> ok | {error, any()}.
@@ -1968,7 +2002,7 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, Versi
     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
     Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
-    ok = update_gateway(Gw3, Challenger, Ledger),
+    ok = update_gateway(Gw0, Gw3, Challenger, Ledger),
 
     PoCsCF = pocs_cf(Ledger),
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
@@ -4249,7 +4283,7 @@ bootstrap_gw_denorm(Ledger) ->
       AGwsCF,
       fun({GwAddr, Binary}, _) ->
               Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-              write_gw_denorm_values(GwAddr, Gw, Ledger)
+              write_gw_denorm_values(GwAddr, new, Gw, Ledger)
       end,
       ignore).
 

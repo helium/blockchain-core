@@ -755,7 +755,7 @@ filter_stale_witnesses(GatewayBin, GatewayToPurge = #gateway_v2{witnesses = Witn
             GatewayToPurge, Witnesses),
     case PurgeGW of
         true ->
-            ok = blockchain_ledger_v1:update_gateway(PurgedGW, GatewayBin, Ledger);
+            ok = blockchain_ledger_v1:update_gateway(GatewayToPurge, PurgedGW, GatewayBin, Ledger);
         _ ->
             noop
     end,

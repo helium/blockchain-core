@@ -179,7 +179,7 @@ absorb(Txn, Chain) ->
         ok ->
             NewGWInfo0 = blockchain_ledger_gateway_v2:owner_address(NewOwner, GWInfo),
             NewGWInfo1 = blockchain_ledger_gateway_v2:nonce(Nonce, NewGWInfo0),
-            ok = blockchain_ledger_v1:update_gateway(NewGWInfo1, Gateway, Ledger)
+            ok = blockchain_ledger_v1:update_gateway(GWInfo, NewGWInfo1, Gateway, Ledger)
     end.
 
 -spec print(txn_transfer_hotspot_v2()) -> iodata().

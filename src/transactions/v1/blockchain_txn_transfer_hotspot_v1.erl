@@ -215,7 +215,7 @@ absorb(Txn, Chain) ->
             ok = blockchain_ledger_v1:debit_account(Buyer, HNTToSeller, BuyerNonce, Ledger),
             ok = blockchain_ledger_v1:credit_account(Seller, HNTToSeller, Ledger),
             NewGWInfo = blockchain_ledger_gateway_v2:owner_address(Buyer, GWInfo),
-            ok = blockchain_ledger_v1:update_gateway(NewGWInfo, Gateway, Ledger)
+            ok = blockchain_ledger_v1:update_gateway(GWInfo, NewGWInfo, Gateway, Ledger)
     end.
 
 -spec print(txn_transfer_hotspot()) -> iodata().

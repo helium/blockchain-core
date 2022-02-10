@@ -261,7 +261,7 @@ upgrade_gateways_v2(Ledger) ->
                            Neighbors = blockchain_poc_path:neighbors(A, Gateways, Ledger),
                            blockchain_ledger_gateway_v2:neighbors(Neighbors, G)
                    end,
-              blockchain_ledger_v1:update_gateway(G1, A, Ledger)
+              blockchain_ledger_v1:update_gateway(G, G1, A, Ledger)
       end, Gateways),
     ok.
 
@@ -275,7 +275,7 @@ upgrade_gateways_lg(Ledger) ->
               case blockchain_ledger_gateway_v2:serialize(Gw) of
                   BinGw -> ok;
                   _ ->
-                      blockchain_ledger_v1:update_gateway(Gw, Addr, Ledger)
+                      blockchain_ledger_v1:update_gateway(new, Gw, Addr, Ledger)
               end
       end,
       whatever,
@@ -293,7 +293,7 @@ upgrade_gateways_score(Ledger) ->
                       case blockchain_ledger_gateway_v2:serialize(Gw1) of
                           BinGw -> ok;
                           _ ->
-                              blockchain_ledger_v1:update_gateway(Gw1, Addr, Ledger)
+                              blockchain_ledger_v1:update_gateway(Gw, Gw1, Addr, Ledger)
                       end
               end,
               whatever,
@@ -365,7 +365,7 @@ upgrade_gateways_oui(Ledger) ->
     %% find all neighbors for everyone
     maps:map(
       fun(A, G) ->
-              blockchain_ledger_v1:update_gateway(G, A, Ledger)
+              blockchain_ledger_v1:update_gateway(new, G, A, Ledger)
       end, Gateways),
     ok.
 
@@ -381,7 +381,7 @@ clear_witnesses(Ledger) ->
               case blockchain_ledger_gateway_v2:serialize(Gw2) of
                   BinGw -> ok;
                   _ ->
-                      blockchain_ledger_v1:update_gateway(Gw2, Addr, Ledger)
+                      blockchain_ledger_v1:update_gateway(Gw, Gw2, Addr, Ledger)
               end
       end,
       whatever,
