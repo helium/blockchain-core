@@ -60,7 +60,7 @@
 
     init_assumed_valid/2,
 
-    add_gateway_txn/2, add_gateway_txn/4,
+    add_gateway_txn/4,
     assert_loc_txn/4, assert_loc_txn/6,
 
     add_snapshot/2, add_bin_snapshot/4,
