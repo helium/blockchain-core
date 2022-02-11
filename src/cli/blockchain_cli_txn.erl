@@ -124,7 +124,7 @@ txn_add_gateway_cmd() ->
 
 txn_add_gateway_usage() ->
     [["txn", "add_gateway"],
-     ["txn add_gateway owner=<owner> [--payer <payer>] [--fee <fee>] [--stakig_fee <staking_fee>]\n\n",
+     ["txn add_gateway owner=<owner> [--payer <payer>] [--fee <fee>] [--staking_fee <staking_fee>]\n\n",
       "  Creates a signed add gateway transaction required to add a new Gateway to the Helium network.\n"
       "  Requires an owner address. Optionally takes a payer address if the payer of the cost and fee is \n"
       "  not the same as the owner. Also optionally takes the transaction and staking fees (in DC) if the \n"
