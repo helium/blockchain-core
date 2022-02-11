@@ -116,7 +116,7 @@ txn_add_gateway_cmd() ->
                 {datatype, integer}, {validator, fun validate_pos/1}]}
       ],
       [
-        {stakig_fee, [{longname, "staking_fee"},
+        {staking_fee, [{longname, "staking_fee"},
                 {datatype, integer}, {validator, fun validate_pos/1}]}
       ], 
       fun txn_add_gateway/3]
