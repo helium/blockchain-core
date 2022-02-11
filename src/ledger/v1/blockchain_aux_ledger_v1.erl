@@ -152,7 +152,6 @@ bootstrap(Path, Ledger) ->
 
 -spec set_vars(AuxVars :: map(), AuxLedger :: ledger()) -> ok.
 set_vars(AuxVars, #ledger_v1{mode = aux} = AuxLedger) ->
-    ok = blockchain_utils:teardown_var_cache(),
     Ctx = blockchain_ledger_v1:new_context(AuxLedger),
     ok = blockchain_ledger_v1:vars(AuxVars, [], Ctx),
     ok = blockchain_ledger_v1:commit_context(Ctx),

@@ -115,15 +115,17 @@ gossip_test(Config) ->
     ct:pal("N: ~p", [N]),
 
     GossipGroup = ct_rpc:call(FirstNode, libp2p_swarm, gossip_group, [Swarm]),
-    GossipData = ct_rpc:call(FirstNode, blockchain_gossip_handler, gossip_data, [Swarm, Block]),
+    GossipData = ct_rpc:call(FirstNode, blockchain_gossip_handler, gossip_data_v1, [Swarm, Block]),
 
-    ct_rpc:call(FirstNode, libp2p_group_gossip, send, [GossipGroup, ?GOSSIP_PROTOCOL_V1, GossipData]),
+    CallRet = ct_rpc:call(FirstNode, libp2p_group_gossip, send, [GossipGroup, ?GOSSIP_PROTOCOL_V1, GossipData]),
+
+    ct:pal("call return ~p", [CallRet]),
 
     ok = lists:foreach(fun(Node) ->
         ok = blockchain_ct_utils:wait_until(fun() ->
             C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
             {ok, 2} == ct_rpc:call(Node, blockchain, height, [C])
-        end, 100, timer:seconds(1))
+        end, 10, timer:seconds(1))
     end, Nodes),
 
     Chain2 = ct_rpc:call(FirstNode, blockchain_worker, blockchain, []),

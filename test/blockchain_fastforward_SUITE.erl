@@ -49,8 +49,13 @@ end_per_suite(Config) ->
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
     % Simulate other chain with fastforward handler only
-    {ok, SimSwarm} = libp2p_swarm:start(fastforward_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
+    {ok, SimSwarm} = libp2p_swarm:start(fastforward_SUITE_sim, [{libp2p_nat, [{enabled, false}]},
+                                                                {libp2p_peerbook,
+                                                                 [{allow_rfc1918, true}]}
+
+                                                               ]),
     ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
+    application:set_env(blockchain, peerbook_allow_rfc1918, true),
     blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, [{swarm, SimSwarm}|Config]).
 
 %%--------------------------------------------------------------------
@@ -70,8 +75,9 @@ v1(Config) ->
     {ok, Sup, Keys, _Opts} = test_utils:init(BaseDir),
     try
         basic(v1, Sup, Keys, Config)
-    catch C:E ->
-            lager:info("XXXX ~p:~p", [C, E]),
+    catch C:E:S ->
+            lager:info("v1 failure ~p:~p", [C, E]),
+            lager:info("stacktrace ~p", [S]),
             true = erlang:exit(Sup, normal),
             ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
             erlang:C(E)
@@ -90,7 +96,8 @@ v2(Config) ->
     try
         basic(v2, Sup, Keys, Config)
     catch C:E:S ->
-            lager:info("XXXX ~p:~p ~p", [C, E, S]),
+            lager:info("v2 failure ~p:~p", [C, E]),
+            lager:info("stacktrace ~p", [S]),
             true = erlang:exit(Sup, normal),
             ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
             erlang:C(E)
@@ -137,7 +144,10 @@ basic(Version, Sup, {PrivKey, PubKey}, Config) ->
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
     {ok, _} = libp2p_swarm:connect(SimSwarm, ListenAddr),
     [ListenAddr2|_] = libp2p_swarm:listen_addrs(SimSwarm),
-    ok = test_utils:wait_until(fun() -> erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1 end),
+    ok = test_utils:wait_until(
+           fun() ->
+                   erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1
+           end),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     ?assertEqual({ok, 101}, blockchain:height(Chain0)),
@@ -154,7 +164,7 @@ basic(Version, Sup, {PrivKey, PubKey}, Config) ->
             ok
     end,
 
-    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end, 100, 1000),
+    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end, 10, 1000),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
     gen:stop(Sup),
     ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
