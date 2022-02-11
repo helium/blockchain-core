@@ -60,7 +60,7 @@
 
     init_assumed_valid/2,
 
-    add_gateway_txn/2, add_gateway_txn/4,
+    add_gateway_txn/4,
     assert_loc_txn/4, assert_loc_txn/6,
 
     add_snapshot/2, add_bin_snapshot/4,
@@ -2280,9 +2280,9 @@ load_genesis(Dir) ->
 %% the supplied staking fee will have been derived from the API ( which will have the chain vars )
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined,
-                      Fee::pos_integer(),
-                      StakingFee::non_neg_integer()) -> {ok, binary()}.
-add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
+                      Fee::pos_integer() | undefined,
+                      StakingFee::non_neg_integer() | undefined) -> {ok, binary()}.
+add_gateway_txn(OwnerB58, PayerB58, Fee0, StakingFee0) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
     Payer = case PayerB58 of
                 undefined -> <<>>;
@@ -2292,35 +2292,21 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     Txn0 = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer),
-    Txn = blockchain_txn_add_gateway_v1:staking_fee(blockchain_txn_add_gateway_v1:fee(Txn0, Fee), StakingFee),
-    SignedTxn = blockchain_txn_add_gateway_v1:sign_request(Txn, SigFun),
-    {ok, blockchain_txn:serialize(SignedTxn)}.
-
-%% @doc Creates a signed add_gatewaytransaction with this blockchain's keys as
-%% the gateway, and the given owner and payer
-%%
-%% NOTE: This is an alternative add_gateway creation that calculates the fee and
-%% staking fee from the current live blockchain.
--spec add_gateway_txn(OwnerB58::string(),
-                      PayerB58::string() | undefined) -> {ok, binary()}.
-add_gateway_txn(OwnerB58, PayerB58) ->
-    Owner = libp2p_crypto:b58_to_bin(OwnerB58),
-    Payer = case PayerB58 of
-                undefined -> <<>>;
-                [] -> <<>>;
-                _ -> libp2p_crypto:b58_to_bin(PayerB58)
-            end,
-    Chain = blockchain_worker:blockchain(),
-    {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Txn0 = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer),
-    StakingFee = blockchain_txn_add_gateway_v1:calculate_staking_fee(Txn0, Chain),
+    StakingFee = case StakingFee0 of 
+        undefined -> 
+            blockchain_txn_add_gateway_v1:calculate_staking_fee(Txn0, blockchain_worker:blockchain());
+        _ -> StakingFee0
+    end,
     Txn1 = blockchain_txn_add_gateway_v1:staking_fee(Txn0, StakingFee),
-    Fee = blockchain_txn_add_gateway_v1:calculate_fee(Txn1, Chain),
-    Txn = blockchain_txn_add_gateway_v1:fee(Txn1, Fee),
-    SignedTxn = blockchain_txn_add_gateway_v1:sign_request(Txn, SigFun),
+    Fee = case Fee0 of
+        undefined -> 
+            blockchain_txn_add_gateway_v1:calculate_fee(Txn1, blockchain_worker:blockchain());
+        _ ->
+            Fee0
+    end,
+    Txn2 = blockchain_txn_add_gateway_v1:fee(Txn1, Fee),
+    SignedTxn = blockchain_txn_add_gateway_v1:sign_request(Txn2, SigFun),
     {ok, blockchain_txn:serialize(SignedTxn)}.
-
 
 %% @doc Creates a signed assert_location transaction using the keys of
 %% this blockchain as the gateway to be asserted for the given

@@ -111,15 +111,24 @@ txn_add_gateway_cmd() ->
        {payer, [{longname, "payer"},
                 {datatype, string}, {validator, fun validate_b58/1}]}
       ],
+      [
+       {fee, [{longname, "fee"},
+                {datatype, integer}, {validator, fun validate_pos/1}]}
+      ],
+      [
+        {staking_fee, [{longname, "staking_fee"},
+                {datatype, integer}, {validator, fun validate_pos/1}]}
+      ], 
       fun txn_add_gateway/3]
     ].
 
 txn_add_gateway_usage() ->
     [["txn", "add_gateway"],
-     ["txn add_gateway owner=<owner> [--payer <payer>]\n\n",
+     ["txn add_gateway owner=<owner> [--payer <payer>] [--fee <fee>] [--staking_fee <staking_fee>]\n\n",
       "  Creates a signed add gateway transaction required to add a new Gateway to the Helium network.\n"
       "  Requires an owner address. Optionally takes a payer address if the payer of the cost and fee is \n"
-      "  not the same as the owner.\n\n"
+      "  not the same as the owner. Also optionally takes the transaction and staking fees (in DC) if the \n"
+      "  caller knows these ahead of time.\n\n"
       "  Returns a Base64 encoded transaction to be used as an input to either the\n"
       "  Helium mobile application or the wallet CLI for signing by the owner, and payer if provided, and \n"
       "  final submission to the blockchain.\n\n"
@@ -129,6 +138,10 @@ txn_add_gateway_usage() ->
       "Options:\n\n"
       "  --payer <address>\n",
       "    The b58 address of the payer of the fees. Defaults to the provided owner address\n"
+      "  --staking_fee <dc_staking_fee>\n",
+      "    The transaction fee in DC. Defaults to a chain computed staking fee\n"
+      "  --fee <dc_fee>\n",
+      "    The transaction fee in DC. Defaults to a chain computed fee\n"
      ]
     ].
 
@@ -140,8 +153,10 @@ txn_add_gateway(_CmdBase, Keys, Flags) ->
         Owner = proplists:get_value(owner, Keys),
         %% Get options
         Payer = proplists:get_value(payer, Flags, undefined),
-
-        {ok, TxnBin} = blockchain:add_gateway_txn(Owner, Payer),
+        StakingFee = proplists:get_value(staking_fee, Flags, undefined),
+        Fee = proplists:get_value(fee, Flags, undefined),
+        
+        {ok, TxnBin} = blockchain:add_gateway_txn(Owner, Payer, Fee, StakingFee),
         TxnB64 = base64:encode_to_string(TxnBin),
         print_txn_result(TxnB64)
     catch
