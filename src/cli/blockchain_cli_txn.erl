@@ -103,22 +103,17 @@ format_txn_list(TxnList) ->
 txn_add_gateway_cmd() ->
     [
      [["txn", "add_gateway"],
+      [],
       [
        {owner, [{shortname, "o"}, {longname, "owner"},
-                {datatype, string}, {validator, fun validate_b58/1}]}
-      ],
-      [
+                {datatype, string}, {validator, fun validate_b58/1}]},
        {payer, [{longname, "payer"},
-                {datatype, string}, {validator, fun validate_b58/1}]}
-      ],
-      [
+                {datatype, string}, {validator, fun validate_b58/1}]},
        {fee, [{longname, "fee"},
-                {datatype, integer}, {validator, fun validate_pos/1}]}
-      ],
-      [
+                {datatype, integer}, {validator, fun validate_pos/1}]},
         {staking_fee, [{longname, "staking_fee"},
                 {datatype, integer}, {validator, fun validate_pos/1}]}
-      ], 
+      ],
       fun txn_add_gateway/3]
     ].
 
@@ -155,7 +150,7 @@ txn_add_gateway(_CmdBase, Keys, Flags) ->
         Payer = proplists:get_value(payer, Flags, undefined),
         StakingFee = proplists:get_value(staking_fee, Flags, undefined),
         Fee = proplists:get_value(fee, Flags, undefined),
-        
+
         {ok, TxnBin} = blockchain:add_gateway_txn(Owner, Payer, Fee, StakingFee),
         TxnB64 = base64:encode_to_string(TxnBin),
         print_txn_result(TxnB64)
