@@ -103,15 +103,16 @@ format_txn_list(TxnList) ->
 txn_add_gateway_cmd() ->
     [
      [["txn", "add_gateway"],
-      [],
+      [       
+        {owner, [{shortname, "o"}, {longname, "owner"},
+                {datatype, string}, {validator, fun validate_b58/1}]}
+      ],
       [
-       {owner, [{shortname, "o"}, {longname, "owner"},
-                {datatype, string}, {validator, fun validate_b58/1}]},
        {payer, [{longname, "payer"},
                 {datatype, string}, {validator, fun validate_b58/1}]},
        {fee, [{longname, "fee"},
                 {datatype, integer}, {validator, fun validate_pos/1}]},
-        {staking_fee, [{longname, "staking_fee"},
+       {staking_fee, [{longname, "staking_fee"},
                 {datatype, integer}, {validator, fun validate_pos/1}]}
       ],
       fun txn_add_gateway/3]
