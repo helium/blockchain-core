@@ -40,7 +40,9 @@
          sign/2,
          print/1,
          json_type/0,
-         to_json/2
+         to_json/2,
+         process_hooks/3,
+         var_hook/3, unset_hook/2
         ]).
 
 %% helper API
@@ -597,6 +599,7 @@ delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
     Unsets = decode_unsets(unsets(Txn)),
     ok = blockchain_ledger_v1:vars(Vars, Unsets, Ledger),
+    ok = process_hooks(Vars, Unsets, Ledger),
     case blockchain:config(?use_multi_keys, Ledger) of
         {ok, true} ->
             case multi_keys(Txn) of
@@ -668,6 +671,28 @@ to_json(Txn, _Opts) ->
       unsets => unsets(Txn),
       nonce => nonce(Txn)
      }.
+
+-spec process_hooks(Vars :: map(), Unsets :: list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+process_hooks(Vars, Unsets, Ledger) ->
+    _ = maps:map(
+          fun(Var, Value) ->
+                  ?MODULE:var_hook(Var, Value, Ledger)
+          end, Vars),
+    _ = lists:foreach(
+          fun(Var) ->
+                  ?MODULE:unset_hook(Var, Ledger)
+          end, Unsets),
+    ok.
+
+%% Separate out hook functions and call them in separate functions below the hook section.
+
+-spec var_hook(Var :: atom(), Value :: any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+var_hook(_Var, _Value, _Ledger) ->
+    ok.
+
+-spec unset_hook(Var :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+unset_hook(_Var, _Ledger) ->
+    ok.
 
 %%%
 %%% Helper API
