@@ -314,7 +314,6 @@ hook_test(Cfg) ->
     ConsensusMembers = ?config(users_in_consensus, Cfg),
     Chain = ?config(chain, Cfg),
     Ledger = blockchain:ledger(Chain),
-    SelfPid = self(),
 
     Key = garbage_value,
 
@@ -342,12 +341,6 @@ hook_test(Cfg) ->
     ),
     ?assertEqual({ok, reset_vars_nonce}, var_get(Key, Chain)),
 
-    %% Checking whether the above meck expectation got met
-    %% It's unclear why neither meck:called | meck:validate | meck:num_calls return
-    %% the right answer, but this works
-    MeckHist1 = meck:history(blockchain_txn_vars_v1),
-    {SelfPid, _, {ok, var_hook_invoked}} = lists:keyfind({ok, var_hook_invoked}, 3, MeckHist1),
-
     meck:expect(blockchain_txn_vars_v1,
                 unset_hook,
                 fun(garbage_value, _Ledger) ->
@@ -361,8 +354,10 @@ hook_test(Cfg) ->
     ),
     ?assertEqual({error, not_found}, var_get(Key, Chain)),
 
-    MeckHist2 = meck:history(blockchain_txn_vars_v1),
-    {SelfPid, _, {ok, unset_hook_invoked}} = lists:keyfind({ok, unset_hook_invoked}, 3, MeckHist2),
+    %% check the hooks got called with the expected values
+    true = meck:called(blockchain_txn_vars_v1, var_hook, [garbage_value, reset_vars_nonce, '_']),
+    true = meck:called(blockchain_txn_vars_v1, unset_hook, [garbage_value, '_']),
+    true = meck:validate(blockchain_txn_vars_v1),
 
     meck:unload(blockchain_txn_vars_v1),
     ok.
