@@ -687,10 +687,40 @@ process_hooks(Vars, Unsets, Ledger) ->
 %% Separate out hook functions and call them in separate functions below the hook section.
 
 -spec var_hook(Var :: atom(), Value :: any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+var_hook(?poc_targeting_version, 4, Ledger) ->
+    %% v4 targeting enabled, build the h3dex lookup
+    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
+    blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
+    ok;
+var_hook(?poc_targeting_version, 3, Ledger) ->
+    %% v3 targeting enabled, remove the h3dex lookup
+    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
+    ok;
+var_hook(?poc_target_hex_parent_res, Value, Ledger) ->
+    %% targeting resolution changed, rebuild h3dex lookup
+    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
+    blockchain_ledger_v1:build_random_hex_targeting_lookup(Value, Ledger),
+    ok;
+var_hook(?poc_hexing_type, h3dex, Ledger) ->
+    %% the hexes keys should be safe to remove now
+    blockchain_ledger_v1:clean_all_hexes(Ledger),
+    ok;
+var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
+    %% rebuild hexes since we're back to updating them
+    blockchain:bootstrap_hexes(Ledger),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
 -spec unset_hook(Var :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+unset_hook(?poc_targeting_version, Ledger) ->
+    %% going back to the default, which is v3 so remove the h3dex lookup
+    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
+    ok;
+unset_hook(?poc_hexing_type, Ledger) ->
+    %% rebuild hexes since we're back to updating them
+    blockchain:bootstrap_hexes(Ledger),
+    ok;
 unset_hook(_Var, _Ledger) ->
     ok.
 

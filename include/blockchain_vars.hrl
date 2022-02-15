@@ -170,7 +170,7 @@
 %% determines which hexing type to use for gateways: hex_h3dex | h3dex or not set
 %% hex_h3dex will result in both hexes and h3dex being updated
 %% h3dex will result in only h3dex being updated
-%% not set will result in hexes being updated
+%% not set will result in both hexes and h3dex being updated
 -define(poc_hexing_type, poc_hexing_type).
 
 %% max number of hexes to GC in the h3dex per block: integer

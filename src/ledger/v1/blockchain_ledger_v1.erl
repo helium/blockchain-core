@@ -4416,7 +4416,7 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found ->
-            case count_gateways_in_hex(h3:parent(Hex, 5), Ledger) of
+            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
                 0 ->
                     %% populating a hex means we need to recalculate the set of populated
                     %% hexes
