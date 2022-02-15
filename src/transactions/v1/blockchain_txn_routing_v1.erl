@@ -317,6 +317,27 @@ is_well_formed_update_xor(#update_xor_pb{}=UX) ->
 is_well_formed_update_xor(_) ->
     false.
 
+is_well_formed_update_routers(#update_routers_pb{}=UR) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(update_routers_pb, UR),
+        {kvl, [
+            {router_addresses, {list, any, {binary, any}}} % TODO Stricter contract. {address, libp2p}?
+        ]}
+    );
+is_well_formed_update_routers(_) ->
+    false.
+
+is_well_formed_update_xor(#update_xor_pb{}=UX) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(update_xor_pb, UX),
+        {kvl, [
+            {index, {integer, {min, 0}}},
+            {filter, {binary, any}}  % TODO Stricter contract?
+        ]}
+    );
+is_well_formed_update_xor(_) ->
+    false.
+
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
 is_prompt(#?T{}, _) ->
