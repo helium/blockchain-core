@@ -12,6 +12,7 @@
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
 
 -export([
@@ -43,11 +44,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_routing_v1_pb).
+-define(T, blockchain_txn_routing_v1_pb).
 
 -type t() :: txn_routing().
 
--type txn_routing() :: ?T{}.
+-type txn_routing() :: #?T{}.
 
 -type action() :: {update_routers, RouterAddresses::[binary()]} |
                   {new_xor, Filter::binary()} |
@@ -263,12 +264,62 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {oui        , {integer, {min, 0}}},
+            {owner      , {address, libp2p}},
+            {fee        , {integer, {min, 0}}},
+            {staking_fee, {integer, {min, 0}}},
+            {nonce      , {integer, {min, 1}}},
+            {signature  , {binary, any}},
+            {update     , {one_of, [
+                undefined,
+                {tuple, [
+                    {val, update_routers},
+                    {custom, fun is_well_formed_update_routers/1, invalid_update_routers}
+                ]},
+                {tuple, [
+                    {val, new_xor},
+                    {binary, any} % TODO Stricter contract
+                ]},
+                {tuple, [
+                    {val, update_xor},
+                    {custom, fun is_well_formed_update_xor/1, invalid_update_xor}
+                ]},
+                {tuple, [
+                    {val, request_subnet},
+                    {integer, {min, 0}} % TODO Stricter contract. Power of 2?
+                ]}
+            ]}}
+        ]}
+    ).
+
+is_well_formed_update_routers(#update_routers_pb{}=UR) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(update_routers_pb, UR),
+        {kvl, [
+            {router_addresses, {list, any, {binary, any}}} % TODO Stricter contract. {address, libp2p}?
+        ]}
+    );
+is_well_formed_update_routers(_) ->
+    false.
+
+is_well_formed_update_xor(#update_xor_pb{}=UX) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(update_xor_pb, UX),
+        {kvl, [
+            {index, {integer, {min, 0}}},
+            {filter, {binary, any}}  % TODO Stricter contract?
+        ]}
+    );
+is_well_formed_update_xor(_) ->
+    false.
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 %%--------------------------------------------------------------------
@@ -600,4 +651,39 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, oui, owner, fee, action, nonce])).
 
+-define(TSET(T, K, V), T#?T{K = V}).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #?T{
+            oui         = 0,
+            owner       = Addr,
+            fee         = 0,
+            staking_fee = 0,
+            nonce       = 1,
+            signature   = <<>>,
+            update      = undefined
+        },
+    UX =
+        #update_xor_pb{
+            index = 0,
+            filter = <<"fake_filter">>
+        },
+    UR =
+        #update_routers_pb{
+            router_addresses = [<<"fake_router_addr">>]
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {request_subnet, 1}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {new_xor, <<>>}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {update_xor, UX}))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, update, {update_routers, UR})))
+    ].
 -endif.
