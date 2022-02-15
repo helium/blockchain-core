@@ -2048,7 +2048,7 @@ gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
     end,
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
     Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
-    ok = update_gateway(Gw3, Challenger, Ledger).
+    ok = update_gateway(Gw0, Gw3, Challenger, Ledger).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
