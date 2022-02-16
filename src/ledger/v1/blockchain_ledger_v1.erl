@@ -4141,27 +4141,27 @@ hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
 
 
-add_to_hex(Hex, Gateway, Res, Ledger) ->
-  case blockchain:config(?poc_hexing_type, Ledger) of
-    {ok, hex_h3dex} ->
-      add_gw_to_hex(Hex, Gateway, Res, Ledger),
-      add_gw_to_h3dex(Hex, Gateway, Res, Ledger);
-    {ok, h3dex} ->
-      add_gw_to_h3dex(Hex, Gateway, Res, Ledger);
-    _ ->
-      add_gw_to_hex(Hex, Gateway, Res, Ledger),
-      add_gw_to_h3dex(Hex, Gateway, Res, Ledger)
-  end.
+add_to_hex(Loc, Gateway, Res, Ledger) ->
+    Hex = h3:parent(Loc, 5), % ugh
+    case blockchain:config(?poc_hexing_type, Ledger) of
+        {ok, hex_h3dex} ->
+            add_gw_to_hex(Hex, Gateway, Ledger),
+            add_gw_to_h3dex(Loc, Gateway, Res, Ledger);
+        {ok, h3dex} ->
+            add_gw_to_h3dex(Loc, Gateway, Res, Ledger);
+        _ ->
+            add_gw_to_hex(Hex, Gateway, Ledger),
+            add_gw_to_h3dex(Loc, Gateway, Res, Ledger)
+    end.
 
-add_gw_to_hex(Hex, Gateway, Res, Ledger) ->
-    ParentHex = h3:parent(Hex, Res),
+add_gw_to_hex(Hex, Gateway, Ledger) ->
     Hexes = case get_hexes(Ledger) of
                 {ok, Hs} ->
                     Hs;
                 {error, not_found} ->
                     #{}
             end,
-    Hexes1 = maps:update_with(ParentHex, fun(X) -> X + 1 end, 1, Hexes),
+    Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
     ok = set_hexes(Hexes1, Ledger),
 
     case get_hex(Hex, Ledger) of
@@ -4171,16 +4171,17 @@ add_gw_to_hex(Hex, Gateway, Res, Ledger) ->
             ok = set_hex(Hex, [Gateway], Ledger)
     end.
 
-remove_from_hex(Hex, Gateway, Res, Ledger) ->
-  case blockchain:config(?poc_hexing_type, Ledger) of
-    {ok, hex_h3dex} ->
-      remove_gw_from_hex(Hex, Gateway, Ledger),
-      remove_gw_from_h3dex(Hex, Gateway, Res, Ledger);
-    {ok, h3dex} ->
-      remove_gw_from_hex(Hex, Gateway, Ledger);
-    _ ->
-      remove_gw_from_hex(Hex, Gateway, Ledger),
-      remove_gw_from_h3dex(Hex, Gateway, Res, Ledger)
+remove_from_hex(Loc, Gateway, Res, Ledger) ->
+    Hex = h3:parent(Loc, 5), % ugh
+    case blockchain:config(?poc_hexing_type, Ledger) of
+        {ok, hex_h3dex} ->
+            remove_gw_from_hex(Hex, Gateway, Ledger),
+            remove_gw_from_h3dex(Loc, Gateway, Res, Ledger);
+        {ok, h3dex} ->
+            remove_gw_from_h3dex(Loc, Gateway, Res, Ledger);
+        _ ->
+            remove_gw_from_hex(Hex, Gateway, Ledger),
+            remove_gw_from_h3dex(Loc, Gateway, Res, Ledger)
   end.
 
 remove_gw_from_hex(Hex, Gateway, Ledger) ->
