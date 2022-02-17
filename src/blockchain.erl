@@ -66,6 +66,7 @@
     add_snapshot/2, add_bin_snapshot/4,
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
+    save_bin_snapshot/2,  hash_bin_snapshot/1, size_bin_snapshot/1,
 
     add_implicit_burn/3,
     get_implicit_burn/2,
@@ -1966,22 +1967,7 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
         SnapDir = filename:join(Dir, "saved-snaps"),
         SnapFile = list_to_binary(io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)])),
         OhSnap = filename:join(SnapDir, SnapFile),
-        ok = filelib:ensure_dir(OhSnap),
-        case BinSnap of
-            {file, Filename} ->
-                case filelib:is_regular(OhSnap) of
-                    true ->
-                        ok = file:delete(OhSnap);
-                    false ->
-                        ok
-                end,
-                ok = file:make_link(Filename, OhSnap);
-            B when is_binary(B); is_list(B) ->
-                %% can be a binary or an iolist if it was generated locally
-                %% and we can avoid constructing a large binary by just dumping the
-                %% iolist to disk
-                ok = file:write_file(filename:join(SnapDir, SnapFile), BinSnap)
-        end,
+        ok = save_bin_snapshot(OhSnap, BinSnap),
         {ok, Batch} = rocksdb:batch(),
         %% store the snap as a filename
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, <<"file:", SnapFile/binary>>),
@@ -1992,6 +1978,35 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
             lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
     end.
+
+-spec save_bin_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) -> 
+    ok | {error, term()}.
+save_bin_snapshot(DestFilename, {file, Filename}) ->
+    ok = filelib:ensure_dir(DestFilename),
+    case filelib:is_regular(DestFilename) of
+        true ->
+            ok = file:delete(DestFilename);
+        false ->
+            ok
+    end,
+    file:make_link(Filename, DestFilename);
+save_bin_snapshot(DestFilename, BinSnap) when is_binary(BinSnap); is_list(BinSnap) ->
+    %% can be a binary or an iolist if it was generated locally
+    %% and we can avoid constructing a large binary by just dumping the
+    %% iolist to disk
+    file:write_file(DestFilename, BinSnap).
+
+-spec hash_bin_snapshot(blockchain_ledger_snapshot:snapshot()) -> {ok, binary()} | {error, term()}.
+hash_bin_snapshot({file, Filename}) ->
+    blockchain_utils:streaming_file_hash(Filename);
+hash_bin_snapshot(BinSnap) when is_binary(BinSnap); is_list(BinSnap) ->
+    {ok, crypto:hash(sha256, BinSnap)}.
+
+-spec size_bin_snapshot(blockchain_ledger_snapshot:snapshot()) -> non_neg_integer().
+size_bin_snapshot({file, Filename}) ->
+    filelib:file_size(Filename);
+size_bin_snapshot(BinSnap) when is_binary(BinSnap); is_list(BinSnap) ->
+    byte_size(BinSnap).
 
 rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     {ok, Height} = blockchain:height(Blockchain),
