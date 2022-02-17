@@ -4336,32 +4336,40 @@ random_targeting_hex(RandState, Ledger) ->
     end.
 
 build_random_hex_targeting_lookup(Resolution, Ledger) ->
-    H3CF = h3dex_cf(Ledger),
-    {_, Total} = cache_fold(Ledger, H3CF,
-               fun({<<"random-", _/binary>>, _}, Acc) ->
-                       Acc;
-                  ({<<"population">>, _}, Acc) ->
-                       Acc;
-                 ({Key, _GWs}, {PrevHex, Count}=Acc) ->
-                       H3 = key_to_h3(Key),
-                       Hex = h3:parent(H3, Resolution),
-                       case PrevHex == Hex of
-                           true ->
-                               %% same parent hex, noop
-                               Acc;
-                           false ->
-                               %% new hex
-                               cache_put(Ledger, H3CF, <<"random-", Count:32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
-                               {Hex, Count + 1}
-                       end
-               end, {0, 0}, [
-                          %% key_to_h3 returns 7 byte binaries
-                          {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
-                          {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
-                         ]
-              ),
-    cache_put(Ledger, H3CF, <<"population">>, <<Total:32/integer-unsigned-little>>),
-    ok.
+    %% we only want to do this if poc version >= 4, which means h3dex targeting
+    case config(?poc_targeting_version, Ledger) of
+        {ok, N} when N >= 4 ->
+            H3CF = h3dex_cf(Ledger),
+            {_, Total} = cache_fold(
+                           Ledger, H3CF,
+                           fun({<<"random-", _/binary>>, _}, Acc) ->
+                                   Acc;
+                              ({<<"population">>, _}, Acc) ->
+                                   Acc;
+                              ({Key, _GWs}, {PrevHex, Count}=Acc) ->
+                                   H3 = key_to_h3(Key),
+                                   Hex = h3:parent(H3, Resolution),
+                                   case PrevHex == Hex of
+                                       true ->
+                                           %% same parent hex, noop
+                                           Acc;
+                                       false ->
+                                           %% new hex
+                                           cache_put(Ledger, H3CF, <<"random-", Count:32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
+                                           {Hex, Count + 1}
+                                   end
+                           end, {0, 0},
+                           [
+                            %% key_to_h3 returns 7 byte binaries
+                            {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
+                            {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
+                           ]
+                          ),
+            cache_put(Ledger, H3CF, <<"population">>, <<Total:32/integer-unsigned-little>>),
+            ok;
+        _ ->
+            ok
+    end.
 
 clean_random_hex_targeting_lookup(Ledger) ->
     H3CF = h3dex_cf(Ledger),
@@ -5255,31 +5263,44 @@ load_hexes(Hexes0, Ledger) ->
 
 -spec snapshot_h3dex(ledger()) -> [{binary(), binary()}].
 snapshot_h3dex(Ledger) ->
-    lists:sort(
-      maps:to_list(
-        get_h3dex(Ledger))).
+    case config(?poc_targeting_version, Ledger) of
+        {ok, N} when N >= 4 ->
+            {_Name, _DB, H3CF} = h3dex_cf(Ledger),
+            snapshot_raw(H3CF, Ledger);
+        _ ->
+            lists:sort(
+              maps:to_list(
+                get_h3dex(Ledger)))
+    end.
 
 -spec load_h3dex([{binary(), binary()}], ledger()) -> ok.
 load_h3dex(H3DexList, Ledger) ->
-    {_Name, DB, H3CF} = h3dex_cf(Ledger),
-    {ok, Batch0} = rocksdb:batch(),
-    BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
-    FinalBatch = lists:foldl(fun({Loc, Gateways}, Batch) ->
-                         BinLoc = h3_to_key(Loc),
-                         BinGWs = term_to_binary(lists:sort(Gateways), [compressed]),
-                         rocksdb:batch_put(Batch, H3CF, BinLoc, BinGWs),
-                         case rocksdb:batch_count(Batch) > BatchSize of
-                             true ->
-                                 rocksdb:write_batch(DB, Batch, []),
-                                 {ok, NewBatch} = rocksdb:batch(),
-                                 NewBatch;
-                             false ->
-                                 Batch
-                         end
-                 end, Batch0, H3DexList),
-
-    rocksdb:write_batch(DB, FinalBatch, []),
-    ok.
+    case config(?poc_targeting_version, Ledger) of
+        {ok, N} when N >= 4 ->
+            {_Name, _DB, H3CF} = h3dex_cf(Ledger),
+            load_raw(H3DexList, H3CF, Ledger);
+        _ ->
+            {_Name, DB, H3CF} = h3dex_cf(Ledger),
+            {ok, Batch0} = rocksdb:batch(),
+            BatchSize = application:get_env(blockchain, snapshot_load_batch_size, 100),
+            FinalBatch =
+                lists:foldl(
+                  fun({Loc, Gateways}, Batch) ->
+                          BinLoc = h3_to_key(Loc),
+                          BinGWs = term_to_binary(lists:sort(Gateways), [compressed]),
+                          rocksdb:batch_put(Batch, H3CF, BinLoc, BinGWs),
+                          case rocksdb:batch_count(Batch) > BatchSize of
+                              true ->
+                                  rocksdb:write_batch(DB, Batch, []),
+                                  {ok, NewBatch} = rocksdb:batch(),
+                                  NewBatch;
+                              false ->
+                                  Batch
+                          end
+                  end, Batch0, H3DexList),
+            rocksdb:write_batch(DB, FinalBatch, []),
+            ok
+    end.
 
 -spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
                            blockchain_ledger_state_channel_v2:state_channel_v2(),
