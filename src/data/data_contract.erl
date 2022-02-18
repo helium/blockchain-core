@@ -84,6 +84,7 @@
     | {ordset, measure(), t()}
     | {ordset, measure(), t(), Cmp :: fun((val(), val()) -> boolean())}
 
+    | {number, measure(float() | integer())}
     | {float, measure(float())}
     | {integer, measure(integer())}
     % TODO Design integration of finer refinements, like is_power_of_2, etc.
@@ -228,6 +229,7 @@ test(V, {ordset, Measure, C, F})     -> test_ordset(V, Measure, C, F);
 test(V, {kvl, KeyContracts})         -> test_kvl(V, KeyContracts);
 test(V, {integer, Measure})          -> test_int(V, Measure);
 test(V, {float, Measure})            -> test_float(V, Measure);
+test(V, {number, Measure})           -> test_number(V, Measure);
 test(V, {member, Vs})                -> test_membership(V, Vs);
 test(V, {address, libp2p})           -> test_address_libp2p(V);
 test(V, h3_string)                   -> test_h3_string(V);
@@ -474,6 +476,18 @@ test_float(V, Range) ->
 -spec test_int(val(), measure()) -> test_result().
 test_int(V, Range) ->
     test_num(V, Range, fun erlang:is_integer/1, not_an_integer, integer_out_of_range).
+
+-spec test_number(val(), measure(integer() | float())) -> test_result().
+test_number(V, Range) ->
+    test(V,
+        {either, [
+            {float, Range},
+            {integer, Range},
+            {val, infinity},
+            {val, '-infinity'},
+            {val, nan}
+        ]}
+    ).
 
 -spec test_num(val(), measure(Type), fun((val()) -> boolean()), atom(), atom()) ->
     test_result() when Type :: integer() | float().
