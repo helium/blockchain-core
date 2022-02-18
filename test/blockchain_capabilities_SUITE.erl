@@ -342,7 +342,7 @@ dataonly_gateway_poc_checks(Config0) ->
     %%
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     SecondGWInfo0 = blockchain_ledger_gateway_v2:mode(full, SecondGWInfo),
-    _ = blockchain_ledger_v1:update_gateway(SecondGWInfo0, SecondGateway, Ledger1),
+    _ = blockchain_ledger_v1:update_gateway(SecondGWInfo, SecondGWInfo0, SecondGateway, Ledger1),
     ?assertEqual(true, blockchain_poc_witness_v1:is_valid(SignedWitness, Ledger1)),
     ?assertEqual(true, blockchain_poc_receipt_v1:is_valid(SignedRx1, Ledger1)),
     _ = blockchain_ledger_v1:commit_context(Ledger1),

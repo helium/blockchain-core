@@ -1653,7 +1653,7 @@ election_test(Config) ->
          Alpha = (rand:uniform() * 10.0) + 1.0,
          Beta = (rand:uniform() * 10.0) + 1.0,
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+         blockchain_ledger_v1:update_gateway(I, I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
@@ -1713,7 +1713,7 @@ election_v3_test(Config) ->
          Alpha = 20.0,
          Beta = 1.0,
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+         blockchain_ledger_v1:update_gateway(I, I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
@@ -1846,7 +1846,7 @@ election_v4_test(Config) ->
          Alpha = 1.0 + rand:uniform(20),
          Beta = 1.0 + rand:uniform(4),
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+         blockchain_ledger_v1:update_gateway(I, I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
@@ -1988,7 +1988,7 @@ light_gw_election_v4_test(Config) ->
          Beta = 1.0 + rand:uniform(4),
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
          I3 = blockchain_ledger_gateway_v2:mode(light, I2),
-         blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
+         blockchain_ledger_v1:update_gateway(I, I3, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
@@ -2048,7 +2048,7 @@ light_gw_election_v4_test(Config) ->
     [begin
          {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger2),
          I2 = blockchain_ledger_gateway_v2:mode(light, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
+         blockchain_ledger_v1:update_gateway(I, I2, Addr, Ledger2)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger2),
@@ -2093,7 +2093,7 @@ dataonly_gw_election_v4_test(Config) ->
          Beta = 1.0 + rand:uniform(4),
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
          I3 = blockchain_ledger_gateway_v2:mode(dataonly, I2),
-         blockchain_ledger_v1:update_gateway(I3, Addr, Ledger1)
+         blockchain_ledger_v1:update_gateway(I, I3, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
@@ -2153,7 +2153,7 @@ dataonly_gw_election_v4_test(Config) ->
     [begin
          {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger2),
          I2 = blockchain_ledger_gateway_v2:mode(dataonly, I),
-         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger2)
+         blockchain_ledger_v1:update_gateway(I, I2, Addr, Ledger2)
      end
      || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger2),

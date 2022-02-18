@@ -112,7 +112,7 @@ init_per_testcase(TestCase, Config) ->
                   active_gateways,
                   fun({Addr, BG}, _) ->
                           G = blockchain_ledger_gateway_v2:deserialize(BG),
-                          blockchain_ledger_v1:update_gateway(G, Addr, CLedger)
+                          blockchain_ledger_v1:update_gateway(new, G, Addr, CLedger)
                   end, foo, CLedger),
 
                 _ = blockchain_ledger_v1:commit_context(CLedger),
