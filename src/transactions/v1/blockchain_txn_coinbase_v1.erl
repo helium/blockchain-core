@@ -6,10 +6,10 @@
 -module(blockchain_txn_coinbase_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_coinbase_v1_pb.hrl").
 
@@ -34,9 +34,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_coinbase_v1_pb).
+-define(T, blockchain_txn_coinbase_v1_pb).
 
--type txn_coinbase() :: ?T{}.
+-type txn_coinbase() :: #?T{}.
 
 -type t() :: txn_coinbase().
 
@@ -117,12 +117,18 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {payee, {address, libp2p}},
+            {amount, {integer, {min, 1}}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 %%--------------------------------------------------------------------
@@ -181,5 +187,25 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, amount])).
+
+
+is_well_formed_test_() ->
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end)(),
+    T = #?T{payee = Addr, amount = 1},
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertEqual(ok, is_well_formed(T#?T{amount=1000})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{amount = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{amount = 0})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{amount = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{payee = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{payee = <<>>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{payee = <<"not address">>}))
+    ].
 
 -endif.
