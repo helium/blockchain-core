@@ -6,10 +6,10 @@
 -module(blockchain_txn_bundle_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_pb.hrl").
 
@@ -31,10 +31,10 @@
     to_json/2
 ]).
 
--define(T, #blockchain_txn_bundle_v1_pb).
+-define(T, blockchain_txn_bundle_v1_pb).
 
 -type t() :: txn_bundle().
--type txn_bundle() :: ?T{}.
+-type txn_bundle() :: #?T{}.
 
 -export_type([t/0, txn_bundle/0]).
 
@@ -103,12 +103,18 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    %% Min size is static, so we can check it here without any other info, but
+    %% max size check has to be deferred for later, since we first need to
+    %% lookup the current max in a chain var, for which we need the chain param.
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec print(txn_bundle()) -> iodata().
@@ -163,3 +169,46 @@ speculative_absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}, Chain0) ->
                               Txns),
     blockchain_ledger_v1:delete_context(LedgerContext),
     InvalidTxns.
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
+
+is_well_formed_test_() ->
+    Tx = blockchain_txn_assert_location_v1:gen_new_valid(),
+    [
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {not_a_list, undefined}}]}}},
+            is_well_formed(#?T{transactions=undefined})
+        ),
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 0, {min, 2}}}]}}},
+            is_well_formed(#?T{transactions=[]})
+        ),
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_wrong_size, 1, {min, 2}}}]}}},
+            is_well_formed(#?T{transactions=[Tx]})
+        ),
+        ?_assertEqual(
+            ok,
+            is_well_formed(#?T{
+                transactions = [Tx, Tx]
+            })
+        ),
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [{not_a_txn, trust_me_im_a_txn}]}}]}}},
+            is_well_formed(#?T{transactions = [Tx, Tx, trust_me_im_a_txn]})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [
+                {txn_malformed, #blockchain_txn_assert_location_v1_pb{}}
+            ]}}]}}},
+            is_well_formed(#?T{transactions = [
+                Tx,
+                Tx#blockchain_txn_assert_location_v1_pb{gateway = undefined}
+            ]})
+        )
+    ].
+
+-endif.

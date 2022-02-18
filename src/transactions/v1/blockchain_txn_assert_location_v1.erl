@@ -47,7 +47,7 @@
 ]).
 
 -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
+-export([gen_new_valid/0]).
 -endif.
 
 -define(T, blockchain_txn_assert_location_v1_pb).
@@ -526,7 +526,33 @@ staking_fee_for_gw_mode(_, Ledger)->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -define(TEST_LOCATION, 631210968840687103).
+
+gen_new_valid() ->
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end),
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    Loc = ?TEST_LOCATION,
+    #blockchain_txn_assert_location_v1_pb{
+        gateway           = Addr1,
+        gateway_signature = <<>>,
+        owner             = Addr2,
+        owner_signature   = <<>>,
+        payer             = Addr3,
+        payer_signature   = <<>>,
+        location          = h3:to_string(Loc),
+        nonce             = 1,
+        staking_fee       = ?LEGACY_STAKING_FEE,
+        fee               = ?LEGACY_TXN_FEE
+    }.
 
 new() ->
     #blockchain_txn_assert_location_v1_pb{
