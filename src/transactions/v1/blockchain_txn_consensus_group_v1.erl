@@ -6,10 +6,11 @@
 -module(blockchain_txn_consensus_group_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain.hrl").
+-include("blockchain_records_meta.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_v1_pb.hrl").
 
@@ -38,11 +39,19 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_consensus_group_v1_pb).
+-define(T, blockchain_txn_consensus_group_v1_pb).
+
+%% TODO Perhaps we need blockchain_limits.hrl ?
+-define(HEIGHT_MIN, 1).
+-define(HEIGHT_MAX, 2 * ceil(math:pow(2, 63)) - 1).  % 64-bit unsigned
+-define(DELAY_MIN, 0).
+-define(DELAY_MAX, 2 * ceil(math:pow(2, 31)) - 1).  % 32-bit unsigned
+-define(PROOF_MIN, 5).
+-define(PROOF_MAX, 1024 * 1024).
 
 -type t() :: txn_consensus_group().
 
--type txn_consensus_group() :: ?T{}.
+-type txn_consensus_group() :: #?T{}.
 
 -export_type([t/0, txn_consensus_group/0]).
 
@@ -211,12 +220,20 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {members, {list, {min, 1}, {address, libp2p}}},
+            {proof  , {binary , {range, ?PROOF_MIN, ?PROOF_MAX}}},
+            {height , {integer, {range, ?HEIGHT_MIN, ?HEIGHT_MAX}}},
+            {delay  , {integer, {range, ?DELAY_MIN, ?DELAY_MAX}}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 %%--------------------------------------------------------------------
@@ -388,5 +405,57 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, members, proof, height, delay])).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #?T{
+            members = [Addr],
+            proof = <<"12345">>,
+            height = 1,
+            delay = 0
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertEqual(
+            {error,
+                {contract_breach, {invalid_kvl_pairs, [
+                    {height,
+                        {integer_out_of_range,
+                            ?HEIGHT_MIN - 1,
+                            {range, ?HEIGHT_MIN, ?HEIGHT_MAX}
+                        }
+                    }
+                ]}}
+            },
+            is_well_formed(T#?T{height = ?HEIGHT_MIN - 1})
+        ),
+        ?_assertEqual(
+            {error,
+                {contract_breach, {invalid_kvl_pairs, [
+                    {delay,
+                        {integer_out_of_range,
+                            ?DELAY_MIN - 1,
+                            {range, ?DELAY_MIN, ?DELAY_MAX}
+                        }
+                    }
+                ]}}
+            },
+            is_well_formed(T#?T{delay = ?DELAY_MIN - 1})
+        ),
+        ?_assertEqual(
+            {error,
+                {contract_breach, {invalid_kvl_pairs, [
+                    {proof, {binary_wrong_size, 1, {range, ?PROOF_MIN, ?PROOF_MAX}}}
+                ]}}
+            },
+            is_well_formed(T#?T{proof = <<"1">>})
+        )
+    ].
 
 -endif.
