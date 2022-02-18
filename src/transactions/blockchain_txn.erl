@@ -437,6 +437,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
+            AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
@@ -445,7 +446,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             End2 = erlang:monotonic_time(millisecond),
-                            ok = absorb_delayed(Block, Chain0),
+                            ok = handle_absorb_delayed_result(AbsordDelayedRef),
                             case absorb_aux(Block, Chain0) of
                                 ok -> ok;
                                 Err ->
@@ -488,6 +489,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
+            AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
@@ -496,7 +498,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             End2 = erlang:monotonic_time(millisecond),
-                            absorb_delayed(Block, Chain0),
+                            ok = handle_absorb_delayed_result(AbsordDelayedRef),
                             absorb_aux(Block, Chain0),
                             End3 = erlang:monotonic_time(millisecond),
                             lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
@@ -792,42 +794,74 @@ absorb_txns([Txn|Txns], Rescue, Chain) ->
 %%--------------------------------------------------------------------
 -spec absorb_delayed(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_delayed(Block0, Chain0) ->
-    Ledger0 = blockchain:ledger(Chain0),
-    DelayedLedger0 = blockchain_ledger_v1:mode(delayed, Ledger0),
-    DelayedLedger1 = blockchain_ledger_v1:new_context(DelayedLedger0),
-    Chain1 = blockchain:ledger(DelayedLedger1, Chain0),
-    case blockchain_ledger_v1:current_height(Ledger0) of
-        % This is so it absorbs genesis
-        {ok, H} when H < 2 ->
-            plain_absorb_(Block0, Chain1),
-            ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
-        {ok, CurrentHeight} ->
-            {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
-            % Then we absorb if minimum limit is there
-            case CurrentHeight - DelayedHeight > ?BLOCK_DELAY of
-                false ->
-                    ok;
-                true ->
-                    %% bound the number of blocks we do at a time
-                    Lag = min(?BLOCK_DELAY, CurrentHeight - DelayedHeight - ?BLOCK_DELAY),
-                    Res = lists:foldl(fun(H, ok) ->
-                                              {ok, Block1} = blockchain:get_block(H, Chain0),
-                                              plain_absorb_(Block1, Chain1);
-                                         (_, Acc) ->
-                                              Acc
-                                      end,
-                                      ok,
-                                      lists:seq(DelayedHeight+1, DelayedHeight + Lag)),
-                    case Res of
-                        ok ->
-                            ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
-                        Error ->
-                            Error
-                    end
-            end;
-        _Any ->
-            _Any
+    {Pid, Ref, MonitorRef} = absorb_delayed_async(Block0, Chain0),
+    handle_absorb_delayed_result({Pid, Ref, MonitorRef}).
+
+handle_absorb_delayed_result({Pid, Ref, MonitorRef}) ->
+    receive
+        {'ETS-TRANSFER', _, _, _} ->
+            %% we don't need this message, just discard it
+            handle_absorb_delayed_result({Pid, Ref, MonitorRef});
+        {Ref, ok} ->
+            %% nothing to absorb
+            erlang:demonitor(MonitorRef, [flush]),
+            ok;
+        {Ref, {ok, Ledger}} ->
+            erlang:demonitor(MonitorRef, [flush]),
+            blockchain_ledger_v1:commit_context(Ledger),
+            ok;
+        {Ref, Other} ->
+            erlang:demonitor(MonitorRef, [flush]),
+            Other;
+        {'DOWN', MonitorRef, process, Pid, Reason} when Reason /= normal ->
+            {error, Reason}
     end.
+
+absorb_delayed_async(Block0, Chain0) ->
+    Ref = make_ref(),
+    Parent = self(),
+    {Pid, MonitorRef} =
+    spawn_monitor(fun() ->
+                          Ledger0 = blockchain:ledger(Chain0),
+                          DelayedLedger0 = blockchain_ledger_v1:mode(delayed, Ledger0),
+                          DelayedLedger1 = blockchain_ledger_v1:new_context(DelayedLedger0),
+                          Chain1 = blockchain:ledger(DelayedLedger1, Chain0),
+                          case blockchain_ledger_v1:current_height(Ledger0) of
+                              % This is so it absorbs genesis
+                              {ok, H} when H < 2 ->
+                                  plain_absorb_(Block0, Chain1),
+                                  blockchain_ledger_v1:give_context(DelayedLedger1, Parent),
+                                  Parent ! {Ref, {ok, DelayedLedger1}};
+                              {ok, CurrentHeight} ->
+                                  {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
+                                  % Then we absorb if minimum limit is there
+                                  case CurrentHeight - DelayedHeight > ?BLOCK_DELAY of
+                                      false ->
+                                          Parent ! {Ref, ok};
+                                      true ->
+                                          %% bound the number of blocks we do at a time
+                                          Lag = min(?BLOCK_DELAY, CurrentHeight - DelayedHeight - ?BLOCK_DELAY),
+                                          Res = lists:foldl(fun(H, ok) ->
+                                                                    {ok, Block1} = blockchain:get_block(H, Chain0),
+                                                                    plain_absorb_(Block1, Chain1);
+                                                               (_, Acc) ->
+                                                                    Acc
+                                                            end,
+                                                            ok,
+                                                            lists:seq(DelayedHeight+1, DelayedHeight + Lag)),
+                                          case Res of
+                                              ok ->
+                                                  blockchain_ledger_v1:give_context(DelayedLedger1, Parent),
+                                                  Parent ! {Ref, {ok, DelayedLedger1}};
+                                              Error ->
+                                                  Parent ! {Ref, Error}
+                                          end
+                                  end;
+                              Any ->
+                                  Parent ! {Ref, Any}
+                          end
+                  end),
+    {Pid, Ref, MonitorRef}.
 
 
 -spec absorb_aux(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
