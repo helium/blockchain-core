@@ -379,7 +379,6 @@ is_well_formed(#?T{}=T) ->
             {multi_keys       , {list, any, {binary, any}}},
             {multi_proofs     , {list, any, {binary, any}}},
             {multi_key_proofs , {list, any, {binary, any}}},
-
             {vars, {list, any, {custom,
                 fun (#blockchain_var_v1_pb{}=Var) ->
                         data_contract:is_satisfied(
