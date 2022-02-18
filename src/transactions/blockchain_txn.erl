@@ -799,6 +799,9 @@ absorb_delayed(Block0, Chain0) ->
 
 handle_absorb_delayed_result({Pid, Ref, MonitorRef}) ->
     receive
+        {'ETS-TRANSFER', _, _, _} ->
+            %% we don't need this message, just discard it
+            handle_absorb_delayed_result({Pid, Ref, MonitorRef});
         {Ref, ok} ->
             %% nothing to absorb
             erlang:demonitor(MonitorRef, [flush]),
