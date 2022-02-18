@@ -10,6 +10,7 @@
 -include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_caps.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
@@ -49,11 +50,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_poc_receipts_v1_pb).
+-define(T, blockchain_txn_poc_receipts_v1_pb).
 
 -type t() :: txn_poc_receipts().
 
--type txn_poc_receipts() :: ?T{}.
+-type txn_poc_receipts() :: #?T{}.
 
 -type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
 
@@ -246,13 +247,95 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed_blockchain_poc_receipt_v1_pb(any()) -> boolean().
+is_well_formed_blockchain_poc_receipt_v1_pb(
+    #blockchain_poc_receipt_v1_pb{}=Receipt
+) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(blockchain_poc_receipt_v1_pb, Receipt),
+        {kvl, [
+            {gateway  , {binary, any}},
+            {timestamp, {integer, {min, 0}}},
+            {signal   , {integer, {min, 0}}},
+            {data     , {binary, any}},
+            {origin   , {either, [{val, p2p}, {val, radio}, {integer, any}]}},
+            {signature, {binary, any}},
+            {snr      , {number, any}},
+            {frequency, {number, any}},
+            {channel  , {integer, {min, 0}}},
+            {datarate , {iodata, any}},
+            {addr_hash, {binary, any}},
+            {tx_power , {integer, {min, 0}}}
+        ]}
+    );
+is_well_formed_blockchain_poc_receipt_v1_pb(_) ->
+    false.
+
+-spec is_well_formed_blockchain_poc_witness_v1_pb(any()) -> boolean().
+is_well_formed_blockchain_poc_witness_v1_pb(
+    #blockchain_poc_witness_v1_pb{}=Witness
+) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(blockchain_poc_witness_v1_pb, Witness),
+        {kvl, [
+            {gateway    , {binary, any}},
+            {timestamp  , {integer, {min, 0}}}, % max 64 bit
+            {signal     , {integer, {min, 0}}}, % max 32 bit
+            {packet_hash, {binary, any}},
+            {signature  , {binary, any}},
+            {snr        , {number, any}},
+            {frequency  , {number, any}},
+            {channel    , {integer, {min, 0}}}, % max 32 bit
+            {datarate   , {iodata, any}}
+        ]}
+    );
+is_well_formed_blockchain_poc_witness_v1_pb(_) ->
+    false.
+
+-spec is_well_formed_blockchain_poc_path_element_v1_pb(any()) -> boolean().
+is_well_formed_blockchain_poc_path_element_v1_pb(
+    #blockchain_poc_path_element_v1_pb{}=PathElement
+) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(blockchain_poc_path_element_v1_pb, PathElement),
+        {kvl, [
+            {challengee, {binary, any}},
+            {receipt,
+                {either, [
+                    undefined,
+                    {custom,
+                        fun is_well_formed_blockchain_poc_receipt_v1_pb/1,
+                        invalid_receipt}
+                ]}},
+            {witnesses,
+                {list,
+                    any,
+                    {custom,
+                        fun is_well_formed_blockchain_poc_witness_v1_pb/1,
+                        invalid_witness}}}
+        ]}
+    );
+is_well_formed_blockchain_poc_path_element_v1_pb(_) ->
+    false.
+
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {challenger        , {binary, any}},
+            {secret            , {binary, any}},
+            {onion_key_hash    , {binary, any}},
+            {path              , {list, any, {custom, fun is_well_formed_blockchain_poc_path_element_v1_pb/1, invalid_path_element}}},
+            {fee               , {integer, {min, 0}}},
+            {signature         , {binary, any}},
+            {request_block_hash, {binary, any}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec check_is_valid_poc(Txn :: txn_poc_receipts(),
@@ -1960,5 +2043,27 @@ eirp_from_closest_freq_test() ->
     FreqEirps = [{915.8, 10}, {915.3, 20}, {914.9, 30}, {915.2, 15}, {915.7, 12}, {916.9, 100}],
     EIRP = eirp_from_closest_freq(915.1, FreqEirps),
     ?assertEqual(15, EIRP).
+
+is_well_formed_test_() ->
+    PathElement =
+        #blockchain_poc_path_element_v1_pb{
+            challengee = <<"fake_challengee">>,
+            receipt    = #blockchain_poc_receipt_v1_pb{},
+            witnesses  = [#blockchain_poc_witness_v1_pb{}]
+        },
+    T =
+        #?T{
+            challenger         = <<"fake_challenger">>,
+            secret             = <<"fake_secret">>,
+            onion_key_hash     = <<"fake_onion">>,
+            path               = [PathElement],
+            fee                = 0,
+            signature          = <<>>,
+            request_block_hash = <<"fake_request_block_hash">>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+        %% TODO More tests?
+    ].
 
 -endif.
