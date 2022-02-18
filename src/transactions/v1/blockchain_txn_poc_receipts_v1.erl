@@ -1974,6 +1974,7 @@ delta_test() ->
     ok.
 
 duplicate_delta_test() ->
+    %% TODO Is there a good reason for this terrible record-construction?
     Txn = {blockchain_txn_poc_receipts_v1_pb,<<"foo">>,
                                    <<"bar">>,
                                    <<"baz">>,
