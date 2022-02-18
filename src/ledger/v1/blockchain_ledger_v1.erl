@@ -23,7 +23,7 @@
 
     check_key/2, mark_key/2, unmark_key/2,
 
-    new_context/1, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
+    new_context/1, give_context/2, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
     get_block/2, get_raw_block/2, get_block_info/2,
@@ -467,6 +467,19 @@ new_context(Ledger) ->
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(Cache, GwCache, Ledger).
+
+
+give_context(Ledger, Pid) ->
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} ->
+            ok;
+        {direct, _GwCache} ->
+            ok;
+        {Cache, _GwCache} ->
+            ets:give_away(Cache, Pid, Ledger),
+            ok
+    end.
+
 
 -spec new_direct_context(ledger()) -> ledger().
 new_direct_context(Ledger) ->
