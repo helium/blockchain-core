@@ -9,6 +9,7 @@
 -behavior(blockchain_json).
 
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v2_pb.hrl").
 -include("blockchain_vars.hrl").
@@ -48,13 +49,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_assert_location_v2_pb).
+-define(T, blockchain_txn_assert_location_v2_pb).
+
+-define(ELEVATION_MIN, -2147483648).
 
 -type t() :: txn_assert_location().
 
 -type location() :: h3:h3index().
 
--type txn_assert_location() :: ?T{}.
+-type txn_assert_location() :: #?T{}.
 
 -export_type([t/0, txn_assert_location/0]).
 
@@ -331,12 +334,27 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {gateway        , {address, libp2p}},
+            {owner          , {address, libp2p}},
+            {owner_signature, {binary, any}},
+            {payer          , {any_of, [{address, libp2p}, {binary, {exactly, 0}}]}},
+            {payer_signature, {binary, any}},
+            {location       , h3_string},
+            {nonce          , {integer, {min, 1}}},
+            {gain           , {integer, any}},
+            {elevation      , {integer, {min, ?ELEVATION_MIN}}},
+            {staking_fee    , {integer, {min, 0}}},
+            {fee            , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec do_is_valid_checks(Txn :: txn_assert_location(),
@@ -692,5 +710,46 @@ is_valid_gain_test() ->
     ?assert(is_valid_gain(ValidT2, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT3, MinGain, MaxGain)),
     ?assert(is_valid_gain(ValidT4, MinGain, MaxGain)).
+
+is_well_formed_test_() ->
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end),
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    T =
+        #blockchain_txn_assert_location_v2_pb{
+            gateway         = Addr1,
+            owner           = Addr2,
+            payer           = Addr3,
+            owner_signature = <<>>,
+            payer_signature = <<>>,
+            location        = h3:to_string(?TEST_LOCATION),
+            nonce           = 1,
+            gain            = 0,
+            elevation       = ?ELEVATION_MIN,
+            staking_fee     = 0,
+            fee             = 0
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(ok, is_well_formed(T#?T{payer = <<>>})),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{payer = <<"foo">>})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{nonce = 0})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{elevation = ?ELEVATION_MIN - 1})
+        )
+    ].
 
 -endif.
