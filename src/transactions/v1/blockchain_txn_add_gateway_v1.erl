@@ -6,9 +6,10 @@
 -module(blockchain_txn_add_gateway_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
@@ -47,9 +48,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_add_gateway_v1_pb).
+-define(T, blockchain_txn_add_gateway_v1_pb).
 
--type txn_add_gateway() :: ?T{}.
+-type txn_add_gateway() :: #?T{}.
 -type t() :: txn_add_gateway().
 
 -export_type([t/0, txn_add_gateway/0]).
@@ -371,12 +372,24 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {owner            , {address, libp2p}},
+            {owner_signature  , {binary, any}},
+            {gateway          , {address, libp2p}},
+            {gateway_signature, {binary, any}},
+            {payer            , {either, [{address, libp2p}, {binary, {exactly, 0}}]}},
+            {payer_signature  , {binary, any}},
+            {staking_fee      , {integer, {min, 0}}}, % TODO Max 64 bit?
+            {fee              , {integer, {min, 0}}}  % TODO Max 64 bit?
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 %%--------------------------------------------------------------------
@@ -571,5 +584,28 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, fee, staking_fee])).
 
+
+is_well_formed_test_() ->
+    [
+        ?_assertEqual(
+            {error, {contract_breach, {invalid_kvl_pairs, [
+                {owner, invalid_address},
+                {gateway, invalid_address}
+            ]}}},
+            is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
+        ),
+        ?_assertEqual(
+            ok,
+            (fun() ->
+                #{public := PubKey, secret := _} =
+                    libp2p_crypto:generate_keys(ecc_compact),
+                Addr = libp2p_crypto:pubkey_to_bin(PubKey),
+                %% All that is_well_formed cares about is syntactic validity of
+                %% _independent_ fields. No semantic nuances or field
+                %% interdependencies are expected to be checked.
+                is_well_formed(new(Addr, Addr))
+            end)()
+        )
+    ].
 
 -endif.
