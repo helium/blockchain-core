@@ -6,9 +6,10 @@
 -module(blockchain_txn_stake_validator_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
@@ -33,11 +34,11 @@
          to_json/2
         ]).
 
--define(T, #blockchain_txn_stake_validator_v1_pb).
+-define(T, blockchain_txn_stake_validator_v1_pb).
 
 -type t() :: txn_stake_validator().
 
--type txn_stake_validator() :: ?T{}.
+-type txn_stake_validator() :: #?T{}.
 
 -export_type([t/0, txn_stake_validator/0]).
 
@@ -201,12 +202,21 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {address        , {address, libp2p}},
+            {owner          , {address, libp2p}},
+            {stake          , {integer, {min, 0}}},
+            {owner_signature, {binary, any}},
+            {fee            , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec absorb(txn_stake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -264,5 +274,19 @@ to_json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_stake_validator_v1_pb))).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #?T{
+            address = Addr,
+            owner   = Addr
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.
