@@ -6,11 +6,12 @@
 -module(blockchain_txn_assert_location_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 
@@ -49,10 +50,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_assert_location_v1_pb).
+-define(T, blockchain_txn_assert_location_v1_pb).
 
 -type location() :: h3:h3index().
--type txn_assert_location() :: ?T{}.
+-type txn_assert_location() :: #?T{}.
 -type t() :: txn_assert_location().
 
 -export_type([t/0, txn_assert_location/0]).
@@ -378,12 +379,27 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    %% TODO Are sig size specs correct?
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {owner            , {address, libp2p}},
+            {gateway          , {address, libp2p}},
+            {payer            , {either, [{binary, {exactly, 0}}, {address, libp2p}]}},
+            {owner_signature  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {gateway_signature, {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {payer_signature  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {nonce            , {integer, {min, 1}}},
+            {staking_fee      , {integer, {min, 0}}},
+            {fee              , {integer, {min, 0}}},
+            {location         , h3_string}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 %%--------------------------------------------------------------------
@@ -644,5 +660,57 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, location, nonce, staking_fee, fee])).
+
+is_well_formed_test_() ->
+    %% All that is_well_formed cares about is syntactic validity of
+    %% _independent_ fields. No semantic nuances or field interdependencies are
+    %% expected to be checked.
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end),
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    Loc = ?TEST_LOCATION,
+    T =
+        #?T{
+            gateway           = Addr1,
+            gateway_signature = <<>>,
+            owner             = Addr2,
+            owner_signature   = <<>>,
+            payer             = Addr3,
+            payer_signature   = <<>>,
+            location          = h3:to_string(Loc),
+            nonce             = 1,
+            staking_fee       = ?LEGACY_STAKING_FEE,
+            fee               = ?LEGACY_TXN_FEE
+        },
+    [
+        {"Baseline all ok", ?_assertEqual(ok, is_well_formed(T))},
+        {"Empty payer is OK", ?_assertEqual(ok, is_well_formed(T#?T{payer = <<>>}))},
+        {"All same addresses is OK", ?_assertEqual(ok, is_well_formed(T#?T{gateway = Addr1, owner = Addr1, payer = Addr1}))},
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{gateway, _}]}}}, is_well_formed(T#?T{gateway = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{owner, _}]}}}, is_well_formed(T#?T{owner = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{payer, _}]}}}, is_well_formed(T#?T{payer = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{gateway_signature, _}]}}}, is_well_formed(T#?T{gateway_signature = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{owner_signature, _}]}}}, is_well_formed(T#?T{owner_signature = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{payer_signature, _}]}}}, is_well_formed(T#?T{payer_signature = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{staking_fee, _}]}}}, is_well_formed(T#?T{staking_fee = undefined})),
+
+        ?_assertMatch({error, _}, is_well_formed(T#?T{staking_fee = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{fee         = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{fee         = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{owner       = <<"not-addr">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{gateway     = <<"not-addr">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{payer       = <<"not-addr">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = <<>>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = <<"foo">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = "foo"})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{nonce       = -1}))
+    ].
 
 -endif.
