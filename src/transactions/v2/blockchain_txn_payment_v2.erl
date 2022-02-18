@@ -9,9 +9,10 @@
 -module(blockchain_txn_payment_v2).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -44,11 +45,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_payment_v2_pb).
+-define(T, blockchain_txn_payment_v2_pb).
 
 -type t() :: txn_payment_v2().
 
--type txn_payment_v2() :: ?T{}.
+-type txn_payment_v2() :: #?T{}.
 
 -export_type([t/0, txn_payment_v2/0]).
 
@@ -146,13 +147,40 @@ is_valid(Txn, Chain) ->
             {error, {invalid, max_payments_not_set}}
     end.
 
+is_well_formed_payment(#payment_pb{}=P, Payer) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(payment_pb, P),
+        {kvl, [
+            {payee , {forall, [{address, libp2p}, {'not', {val, Payer}}]}},
+            {amount, {integer, {min, 0}}},
+            {memo  , {integer, {min, 0}}}  % TODO better validity test?
+        ]}
+    );
+is_well_formed_payment(_, _) ->
+    false.
+
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{payer=Payer}=T) ->
+    PaymentIsValid = fun (P) -> is_well_formed_payment(P, Payer) end,
+    PaymentsCmp = fun (#payment_pb{payee=A}, #payment_pb{payee=B}) -> A =< B end,
+    data_contract:check(
+        ?RECORD_TO_KVL(blockchain_txn_payment_v2_pb, T),
+        {kvl, [
+            {payer    , {address, libp2p}},
+            {fee      , {integer, {min, 0}}},
+            {nonce    , {integer, {min, 1}}},
+            {signature, {binary, any}},
+            {payments,
+                {ordset,
+                    {min, 1},
+                    {custom, PaymentIsValid, invalid_payment},
+                    PaymentsCmp}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -467,5 +495,25 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, payer, payments, fee, nonce])).
 
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #blockchain_txn_payment_v2_pb{
+            payer    = Addr(),
+            payments = [#payment_pb{payee = Addr()}],
+            nonce    = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#blockchain_txn_payment_v2_pb{payments=[]})
+        )
+    ].
 
 -endif.
