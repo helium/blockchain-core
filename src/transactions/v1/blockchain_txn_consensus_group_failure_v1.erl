@@ -206,7 +206,7 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
 is_well_formed(#?T{}=T) ->
     data_contract:check(
-        ?RECORD_TO_KVL(blockchain_txn_consensus_group_failure_v1_pb, T),
+        ?RECORD_TO_KVL(?T, T),
         {kvl, [
             {failed_members, {list, any, {address, libp2p}}},
             {height        , {integer, {min, 0}}},

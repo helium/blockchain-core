@@ -230,7 +230,7 @@ is_valid(Txn, Chain) ->
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
 is_well_formed(#?T{}=T) ->
     data_contract:check(
-        ?RECORD_TO_KVL(blockchain_txn_security_exchange_v1_pb, T),
+        ?RECORD_TO_KVL(?T, T),
         {kvl, [
             {payer, {address, libp2p}},
             {payee, {address, libp2p}},
