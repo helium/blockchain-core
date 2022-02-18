@@ -2032,7 +2032,7 @@ gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
             {ok, InactivityThreshold} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
             {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
             case blockchain_ledger_gateway_v2:last_poc_challenge(Gw0) of
-              undefined ->
+                undefined ->
                     %% it might have been GC'd because of inactivity, so re-add it
                     Location = blockchain_ledger_gateway_v2:location(Gw0),
                     add_gw_to_h3dex(Location, Challenger, Res, Ledger);
@@ -4304,7 +4304,7 @@ count_gateways_in_hex(Hex, Ledger) ->
                          ]
               ).
 
-
+%%% TODO: rewrite for post-hex targeting
 -spec count_gateways_in_hexes(Resolution :: h3:resolution(), Ledger :: ledger()) -> #{h3:h3_index() => non_neg_integer()}.
 count_gateways_in_hexes(Resolution, Ledger) ->
     H3CF = h3dex_cf(Ledger),
