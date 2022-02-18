@@ -6,9 +6,10 @@
 -module(blockchain_txn_payment_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -39,11 +40,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_payment_v1_pb).
+-define(T, blockchain_txn_payment_v1_pb).
 
 -type t() :: txn_payment().
 
--type txn_payment() :: ?T{}.
+-type txn_payment() :: #?T{}.
 
 -export_type([t/0, txn_payment/0]).
 
@@ -197,12 +198,23 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    %% TODO Should ?txn_field_validation_version matter here?
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {payer     , {forall, [{address, libp2p}, {'not', {val, payee(T)}}]}},
+            {payee     , {forall, [{binary, any}, {'not', {val, payer(T)}}]}},
+            {amount    , {integer, {min, 0}}},  % TODO Limit to 64bit?
+            {fee       , {integer, {min, 0}}},  % TODO Limit to 64bit?
+            {nonce     , {integer, {min, 1}}},  % TODO Limit to 64bit?
+            {signature , {binary, any}}         % TODO Size constraint?
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec absorb(txn_payment(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -346,5 +358,44 @@ is_valid_with_extended_validation_test() ->
              meck:unload(blockchain_ledger_v1),
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Payer = Addr(),
+    Payee = Addr(),
+    T =
+        #?T{
+            payer     = Payer,
+            payee     = Payee,
+            amount    = 1,
+            fee       = 1,
+            nonce     = 1,
+            signature = <<>>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+
+        %% No self-payment is allowed
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{payer = Payee})),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{payee = Payer})),
+
+        %% Must be a binary
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{payee = undefined})),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{payee = 0})),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{payee = "not addr"})),
+
+        %% But, more-refined validation will happen later, in is_valid/2
+        ?_assertMatch(ok, is_well_formed(T#?T{payee = <<>>})),
+        ?_assertMatch(ok, is_well_formed(T#?T{payee = <<"not addr">>})),
+
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{amount = undefined})),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{amount = -1})),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{fee    = -1})),
+        ?_assertMatch({error, {contract_breach, _}}, is_well_formed(T#?T{nonce  = -1}))
+    ].
 
 -endif.
