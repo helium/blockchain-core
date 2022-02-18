@@ -6,10 +6,11 @@
 -module(blockchain_txn_state_channel_open_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
@@ -41,11 +42,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(T, #blockchain_txn_state_channel_open_v1_pb).
+-define(T, blockchain_txn_state_channel_open_v1_pb).
 
 -type t() :: txn_state_channel_open().
 
--type txn_state_channel_open() :: ?T{}.
+-type txn_state_channel_open() :: #?T{}.
 
 -type id() :: binary().
 
@@ -154,12 +155,24 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
-is_well_formed(?T{}) ->
-    ok.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {id           , {binary, any}},
+            {owner        , {address, libp2p}},
+            {amount       , {integer, {min, 0}}},
+            {expire_within, {integer, {min, 0}}},
+            {oui          , {integer, {min, 0}}},
+            {nonce        , {integer, {min, 1}}},
+            {signature    , {binary, any}},
+            {fee          , {integer, {min, 0}}}
+        ]}
+    ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(?T{}, _) ->
+is_prompt(#?T{}, _) ->
     {ok, yes}.
 
 -spec absorb(Txn :: txn_state_channel_open(),
@@ -390,5 +403,20 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #?T{
+            owner = Addr,
+            nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.
