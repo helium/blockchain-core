@@ -55,7 +55,7 @@
          time :: non_neg_integer(),
          height :: non_neg_integer(),
          hash :: blockchain_block:hash(),
-         pocs :: map(),
+         pocs :: [{integer(), binary()}] | map(),
          hbbft_round :: non_neg_integer(),
          election_info :: {non_neg_integer(), non_neg_integer()},
          penalties :: {binary(), [{pos_integer(), binary()}]}

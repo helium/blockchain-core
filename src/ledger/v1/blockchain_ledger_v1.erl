@@ -82,7 +82,14 @@
     find_pocs/2,
     find_poc/3,
     request_poc/6,
+    process_poc_keys/4,
+    save_public_poc/5,
+    find_public_poc/2,
+    delete_public_poc/2,
+    update_public_poc/2,
+    active_public_pocs/1,
     delete_poc/3,
+    purge_pocs/1,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
     maybe_gc_h3dex/1,
@@ -957,7 +964,12 @@ raw_fingerprint(Ledger, Extended) ->
                      {entries_cf(Ledger), blockchain_ledger_entry_v1},
                      {dc_entries_cf(Ledger), blockchain_ledger_data_credits_entry_v1},
                      {htlcs_cf(Ledger), blockchain_ledger_htlc_v1},
-                     {pocs_cf(Ledger), blockchain_ledger_poc_v2},
+                     {pocs_cf(Ledger), case config(?poc_challenger_type, Ledger) of
+                                           {ok, validator} ->
+                                               blockchain_ledger_poc_v3;
+                                           _ ->
+                                               blockchain_ledger_poc_v2
+                                       end},
                      {securities_cf(Ledger), blockchain_ledger_security_entry_v1},
                      {routing_cf(Ledger), blockchain_ledger_routing_v1},
                      {state_channels_cf(Ledger), state_channel},
@@ -2068,7 +2080,190 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>).
 
+-spec process_poc_keys(
+    Block :: blockchain_block:block(),
+    BlockHeight :: pos_integer(),
+    BlockHash :: binary(),
+    Ledger :: ledger()
+) -> ok.
+process_poc_keys(Block, BlockHeight, BlockHash, Ledger) ->
+    %% we need to update the ledger with public poc data
+    %% based on the blocks poc ephemeral keys
+    %% these will be a prop with tuples: {MemberPosInCG :: Integer, PocKeyHash :: binary()}
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, validator} ->
+            BlockPocEphemeralKeys = blockchain_block_v1:poc_keys(Block),
+            {ok, CGMembers} = blockchain_ledger_v1:consensus_members(Ledger),
+            lists:foreach(
+                fun({CGPos, OnionKeyHash}) ->
+                    %% the published poc key is a hash of the public key, aka the onion key hash
+                    ChallengerAddr = lists:nth(CGPos, CGMembers),
+                    lager:info("saving public poc data for poc key ~p and challenger ~p at blockheight ~p", [OnionKeyHash, ChallengerAddr, BlockHeight]),
+                    catch ok = blockchain_ledger_v1:save_public_poc(OnionKeyHash, ChallengerAddr, BlockHash, BlockHeight, Ledger)
+                end,
+                BlockPocEphemeralKeys);
+        _ ->
+            ok
+    end,
+    ok.
+
+-spec save_public_poc(  OnionKeyHash :: binary(),
+                        Challenger :: libp2p_crypto:pubkey_bin(),
+                        BlockHash :: binary(),
+                        BlockHeight :: pos_integer(),
+                        Ledger :: ledger()) -> ok | {error, any()}.
+save_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+    case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
+        {error, _Reason}=Error ->
+            lager:warning("failed to save poc for key ~p, validator not found for challenger ~p",[Challenger]),
+            Error;
+        {ok, _ChallengerInfo} ->
+            case ?MODULE:find_public_poc(OnionKeyHash, Ledger) of
+                {error, not_found} ->
+                    save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger);
+                {error, _Reason} = Error ->
+                    Error
+            end
+    end.
+
+save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+    PoC = blockchain_ledger_poc_v3:new(OnionKeyHash, Challenger, BlockHash, BlockHeight),
+    PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
+    PoCsCF = pocs_cf(Ledger),
+    cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
+
+-spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
+find_public_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
+        {ok, BinPoC} ->
+            {ok, blockchain_ledger_poc_v3:deserialize(BinPoC)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec delete_public_poc(binary(), ledger()) -> ok | {error, any()}.
+delete_public_poc(OnionKeyHash, Ledger) ->
+    case ?MODULE:find_public_poc(OnionKeyHash, Ledger) of
+        {error, not_found} ->
+            ok;
+        {error, _}=Error ->
+            Error;
+        {ok, _PoC} ->
+          PoCsCF = pocs_cf(Ledger),
+          cache_delete(Ledger, PoCsCF, OnionKeyHash)
+    end.
+
+-spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
+                     Ledger :: ledger()) -> ok | {error, _}.
+update_public_poc(POC, Ledger) ->
+    POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
+    Bin = blockchain_ledger_poc_v3:serialize(POC),
+    POCsCF = pocs_cf(Ledger),
+    cache_put(Ledger, POCsCF, POCAddr, Bin).
+
+
+-spec active_public_pocs(ledger()) -> [blockchain_ledger_poc_v3:poc()].
+active_public_pocs(Ledger) ->
+    POCsCF = pocs_cf(Ledger),
+    cache_fold(
+      Ledger,
+      POCsCF,
+      fun
+          ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
+              try
+                  POC = blockchain_ledger_poc_v3:deserialize(PoCBin),
+                    [POC | Acc]
+              catch _:_ ->
+                  lager:info("could not decode poc, possible wrong version, ignoring: ~p", [PoCBin]),
+                  Acc
+              end;
+          ({_KeyHash, _NonV3PoCBin}, Acc) ->
+              lager:info("could not decode poc, possible wrong version, ignoring: ~p", [_NonV3PoCBin]),
+              Acc
+      end,
+      []
+     ).
+
+-spec purge_pocs(ledger()) -> ok | {error, any()}.
+purge_pocs(Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    _ = cache_fold(
+          Ledger,
+          PoCsCF,
+          fun({KeyHash, _}, _Acc) ->
+              cache_delete(Ledger, PoCsCF, KeyHash)
+          end,
+          []
+    ).
+
 maybe_gc_pocs(Chain, Ledger) ->
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, validator} ->
+            maybe_gc_pocs(Chain, Ledger, validator);
+        _ ->
+            maybe_gc_pocs(Chain, Ledger, undefined)
+    end.
+maybe_gc_pocs(_Chain, Ledger, validator) ->
+    %% iterate over the public POCs,
+    %% delete any which are beyond the lifespan
+    %% of when the active POC would have ended
+    %% and any receipts txn would have been
+    %% 'expected' to be absorbed
+    %% a public poc is a representation of the data
+    %% included in a block as part of poc metadata
+    %% we need to keep it available on the ledger
+    %% until after the associated receipt v2 txn has
+    %% has been absorbed or would have been expected
+    %% to be absorbed
+    {ok, CurHeight} = current_height(Ledger),
+    %%  set GC point off by one so it doesnt align with so many other gc processes
+    case CurHeight rem 101 == 0 of
+        true ->
+            POCsCF = pocs_cf(Ledger),
+            {ok, POCTimeout} = get_config(?poc_timeout, Ledger, 10),
+            {ok, POCReceiptsAbsorbTimeout} = get_config(?poc_receipts_absorb_timeout, Ledger, 50),
+
+            %% allow for the possibility there may be a mix of POC versions in the POC CF
+            %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
+            %% or the reverse
+            %% anything other than V3s we will want to GC no matter what
+            %% V3s we will GC if lifespan is up
+            cache_fold(
+              Ledger,
+              POCsCF,
+              fun
+                  ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
+                      V3PoC = blockchain_ledger_poc_v3:deserialize(PoCBin),
+                      POCStartHeight = blockchain_ledger_poc_v3:start_height(V3PoC),
+                      OnionKeyHash = blockchain_ledger_poc_v3:onion_key_hash(V3PoC),
+                      %% the public poc data is required by the receipts v2 txn absorb
+                      %% the public poc will be GCed as part of that absorb
+                      %% but in case that fails we will GC it here after giving
+                      %% the txn N blocks to be absorbed
+                      case (CurHeight - POCStartHeight) > (POCTimeout + POCReceiptsAbsorbTimeout)  of
+                        true ->
+                          %% the lifespan of the POC for this key has passed, we can GC
+                          ok = delete_public_poc(OnionKeyHash, Ledger);
+                        _ ->
+                          ok
+                      end,
+                      Acc;
+
+                  ({KeyHash, _NonV3PoCBin} = _PoC, Acc) ->
+                      lager:info("non v3 poc, deleting: ~p", [_PoC]),
+                      cache_delete(Ledger, POCsCF, KeyHash),
+                      Acc
+              end,
+              []
+             ),
+            ok;
+        _ ->
+          ok
+    end;
+maybe_gc_pocs(Chain, Ledger, _) ->
     {ok, Height} = current_height(Ledger),
     Version = case ?MODULE:config(?poc_version, Ledger) of
                   {ok, V} -> V;
@@ -2094,43 +2289,56 @@ maybe_gc_pocs(Chain, Ledger) ->
                                   Acc
                           end
                   end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
+
+            %% allow for the possibility there may be a mix of POC versions in the POC CF
+            %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
+            %% or the reverse
+            %% anything other than V2s we will want to GC no matter what
+            %% V2s we will GC if lifespan is up
             cache_fold(
-                Ledger,
-                PoCsCF,
-                fun({KeyHash, BinPoC}, Acc) ->
-                        %% this CF contains all the poc request state that needs to be retained
-                        %% between request and receipt validation.  however, it's possible that
-                        %% both requests stop and a receipt never comes, which leads to stale (and
-                        %% in some cases differing) data in the ledger.  here, we pull that data
-                        %% out and delete anything that's too old, as determined by being older
-                        %% than twice the request interval, which controls receipt validity.
-                        PoC = blockchain_ledger_poc_v2:deserialize(BinPoC),
-                        H = blockchain_ledger_poc_v2:block_hash(PoC),
-                        case H of
-                            <<>> ->
-                                %% pre-upgrade pocs are ancient
-                                cache_delete(Ledger, PoCsCF, KeyHash);
-                            _ ->
-                                case maps:find(H, Hashes) of
-                                    {ok, BH} ->
-                                        %% not sure this is even needed, it might
-                                        %% always be true? but just in case
-                                        case (Height - BH) < PoCInterval * 2 of
-                                            false ->
-                                                cache_delete(Ledger, PoCsCF, KeyHash);
-                                            true ->
-                                                ok
-                                        end;
-                                    error ->
-                                        %% if it's not in the hashes map, it's too
-                                        %% old by construction
-                                        cache_delete(Ledger, PoCsCF, KeyHash)
-                                end
-                        end,
-                        Acc
-                end,
-                []
-                ),
+              Ledger,
+              PoCsCF,
+              fun
+                  ({KeyHash, <<3, _Rest/binary>>}, Acc) ->
+                      %% we have a v3 POC, must be some contagion from a revert from validator generated POCs
+                      %% to hotspot generated POCs
+                      %% can be deleted
+                      ok = delete_public_poc(KeyHash, Ledger),
+                      Acc;
+                  ({KeyHash, BinPoC}, Acc) ->
+                      %% this CF contains all the poc request state that needs to be retained
+                      %% between request and receipt validation.  however, it's possible that
+                      %% both requests stop and a receipt never comes, which leads to stale (and
+                      %% in some cases differing) data in the ledger.  here, we pull that data
+                      %% out and delete anything that's too old, as determined by being older
+                      %% than twice the request interval, which controls receipt validity.
+                      PoC = blockchain_ledger_poc_v2:deserialize(BinPoC),
+                      H = blockchain_ledger_poc_v2:block_hash(PoC),
+                      case H of
+                          <<>> ->
+                              %% pre-upgrade pocs are ancient
+                              cache_delete(Ledger, PoCsCF, KeyHash);
+                          _ ->
+                              case maps:find(H, Hashes) of
+                                  {ok, BH} ->
+                                      %% not sure this is even needed, it might
+                                      %% always be true? but just in case
+                                      case (Height - BH) < PoCInterval * 2 of
+                                          false ->
+                                              cache_delete(Ledger, PoCsCF, KeyHash);
+                                          true ->
+                                              ok
+                                      end;
+                                  error ->
+                                      %% if it's not in the hashes map, it's too
+                                      %% old by construction
+                                      cache_delete(Ledger, PoCsCF, KeyHash)
+                              end
+                      end,
+                      Acc
+              end,
+              []
+             ),
             ok;
         _ ->
             ok
@@ -2138,23 +2346,29 @@ maybe_gc_pocs(Chain, Ledger) ->
 
 upgrade_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    ToStore = cache_fold(
-      Ledger,
-      PoCsCF,
-      fun({KeyHash, BinPoCs}, Acc) ->
-              SPoCs = erlang:binary_to_term(BinPoCs),
-              cache_delete(Ledger, PoCsCF, KeyHash),
-              lists:foldl(
-                fun(SPoC, A) ->
-                        PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
-                        Challenger = blockchain_ledger_poc_v2:challenger(PoC),
-                        [{<<KeyHash/binary, Challenger/binary>>, SPoC} | A]
-                end, Acc, SPoCs)
-      end, []),
-    lists:foreach(fun({K, V}) ->
-                          cache_put(Ledger, PoCsCF, K, V)
-                  end, ToStore),
-    ok.
+    %% don't need to do this in the validator challenge world
+    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+        {ok, validator} ->
+            ok;
+        {error, not_found} ->
+            ToStore = cache_fold(
+                        Ledger,
+                        PoCsCF,
+                        fun({KeyHash, BinPoCs}, Acc) ->
+                                SPoCs = erlang:binary_to_term(BinPoCs),
+                                cache_delete(Ledger, PoCsCF, KeyHash),
+                                lists:foldl(
+                                  fun(SPoC, A) ->
+                                          PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
+                                          Challenger = blockchain_ledger_poc_v2:challenger(PoC),
+                                          [{<<KeyHash/binary, Challenger/binary>>, SPoC} | A]
+                                  end, Acc, SPoCs)
+                        end, []),
+            lists:foreach(fun({K, V}) ->
+                                  cache_put(Ledger, PoCsCF, K, V)
+                          end, ToStore),
+            ok
+    end.
 
 -spec zone_list_to_pubkey_bins(ZoneList :: [h3:h3_index()],
                                Ledger :: ledger()) -> [libp2p_crypto:pubkey_bin()].
@@ -5020,6 +5234,27 @@ load_threshold_txns(Txns, Ledger) ->
 
 -spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, Type} ->
+            snapshot_pocs(Type, Ledger);
+        _ ->
+            snapshot_pocs(undefined, Ledger)
+    end.
+
+-spec snapshot_pocs(atom(), ledger()) -> [{binary(), binary()}].
+snapshot_pocs(validator, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, PoCsCF,
+          fun({OnionKeyHash, BValue}, Acc) ->
+                  PoC = binary_to_term(BValue),
+                  Value = blockchain_ledger_poc_v3:deserialize(PoC),
+                  maps:put(OnionKeyHash, Value, Acc)
+          end, #{},
+          [])));
+snapshot_pocs(_, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     lists:sort(
       maps:to_list(
@@ -5033,6 +5268,23 @@ snapshot_pocs(Ledger) ->
           []))).
 
 load_pocs(PoCs, Ledger) ->
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, Type} ->
+            load_pocs(Type, PoCs, Ledger);
+        _ ->
+            load_pocs(undefined, PoCs, Ledger)
+    end.
+
+load_pocs(validator, PoCs, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    maps:map(
+      fun(OnionHash, P) ->
+              BPoC = term_to_binary(blockchain_ledger_poc_v3:serialize(P)),
+              cache_put(Ledger, PoCsCF, OnionHash, BPoC)
+      end,
+      maps:from_list(PoCs)),
+    ok;
+load_pocs(_, PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     maps:map(
       fun(OnionHash, P) ->
@@ -5333,6 +5585,11 @@ get_sc_mod(Channel, Ledger) ->
         _ -> blockchain_ledger_state_channel_v1
     end.
 
+get_config(Var, Ledger, Default) ->
+    case blockchain:config(Var, Ledger) of
+        {ok, V} -> {ok, V};
+        _ -> {ok, Default}
+    end.
 %%--------------------------------------------------------------------
 %% @doc
 %% This function allows us to get a lower sc_max_actors for testing

@@ -196,7 +196,7 @@ pfind(F, ToDos, Timeout) ->
             Parent = self(),
             Workers = lists:foldl(
                 fun(Args, Acc) ->
-                    {Pid, _Ref} = 
+                    {Pid, _Ref} =
                         erlang:spawn_opt(
                             fun() ->
                                 Result = erlang:apply(F, Args),
@@ -221,7 +221,7 @@ pfind(F, ToDos, Timeout) ->
     after Timeout ->
         false
     end.
- 
+
 pfind_rcv(_Ref, Result, 0) ->
     Result;
 pfind_rcv(Ref, Result, Left) ->
