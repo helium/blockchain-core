@@ -31,6 +31,7 @@
     seen_votes/1,
     bba_completion/1,
     snapshot_hash/1,
+    poc_keys/1,
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1,
     is_election_block/1,
@@ -58,7 +59,8 @@
                        rescue_signature => binary(),
                        seen_votes => [{pos_integer(), binary()}],
                        bba_completion => binary(),
-                       snapshot_hash => binary()
+                       snapshot_hash => binary(),
+                       poc_keys => [any()]
                       }.
 
 -export_type([block/0, block_map/0]).
@@ -77,7 +79,9 @@ new(#{prev_hash := PrevHash,
       election_epoch := ElectionEpoch,
       epoch_start := EpochStart,
       seen_votes := Votes,
-      bba_completion := Completion} = Map) ->
+      bba_completion := Completion,
+      poc_keys := PocKeys } = Map) ->
+    lager:info("*** new block with poc keys ~p",[PocKeys]),
     #blockchain_block_v1_pb{
        prev_hash = PrevHash,
        height = Height,
@@ -89,7 +93,8 @@ new(#{prev_hash := PrevHash,
        epoch_start = EpochStart,
        seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
        bba_completion = Completion,
-       snapshot_hash = maps:get(snapshot_hash, Map, <<>>)
+       snapshot_hash = maps:get(snapshot_hash, Map, <<>>),
+       poc_keys = [wrap_poc_key(V) || V <- lists:sort(PocKeys)]
       }.
 
 -spec rescue(block_map())-> block().
@@ -191,6 +196,9 @@ bba_completion(Block) ->
 snapshot_hash(Block) ->
     Block#blockchain_block_v1_pb.snapshot_hash.
 
+-spec poc_keys(block()) -> [any()].
+poc_keys(Block) ->
+    [unwrap_poc_key(V) || V <- Block#blockchain_block_v1_pb.poc_keys].
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -233,6 +241,7 @@ new_genesis_block(Transactions) ->
                   election_epoch => 1,
                   epoch_start => 0,
                   seen_votes => [],
+                  poc_keys => [],
                   bba_completion => <<>>}).
 
 %%--------------------------------------------------------------------
@@ -388,8 +397,8 @@ to_json(Block, _Opts) ->
       hash => ?BIN_TO_B64(hash_block(Block)),
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
       transactions => [
-        #{ 
-            hash => ?BIN_TO_B64(blockchain_txn:hash(T)), 
+        #{
+            hash => ?BIN_TO_B64(blockchain_txn:hash(T)),
             type => blockchain_txn:json_type(T)
         } || T <- transactions(Block)]
      }.
@@ -437,6 +446,13 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
+-spec wrap_poc_key({integer(), binary()}) -> #blockchain_poc_key_pb{}.
+wrap_poc_key({PosInCG, Key}) ->
+    #blockchain_poc_key_pb{pos = PosInCG, key = Key}.
+
+-spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {integer(), binary()}.
+unwrap_poc_key(#blockchain_poc_key_pb{pos = PosInCG, key = Key}) ->
+    {PosInCG, Key}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -454,7 +470,8 @@ new_merge(Overrides) ->
              election_epoch => 0,
              epoch_start => 0,
              seen_votes => [],
-             bba_completion => <<>>
+             bba_completion => <<>>,
+             poc_keys => []
            },
           Overrides)).
 
@@ -571,7 +588,8 @@ remove_var_txns_test() ->
                 election_epoch => 0,
                 epoch_start    => 0,
                 seen_votes     => [],
-                bba_completion => <<>>
+                bba_completion => <<>>,
+                poc_keys       => []
              }
         ),
     ?assertMatch(

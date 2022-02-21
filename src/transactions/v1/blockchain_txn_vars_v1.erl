@@ -709,6 +709,14 @@ var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
     %% rebuild hexes since we're back to updating them
     blockchain:bootstrap_hexes(Ledger),
     ok;
+%% poc challenger type has been modified
+%% we want to clear out the pocs CF
+%% we dont care about its value, if its been
+%% updated then we wipe all POCs
+var_hook(?poc_challenger_type, _, Ledger) ->
+    lager:info("poc_challenger_type changed, purging pocs", []),
+    purge_pocs(Ledger),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
@@ -720,6 +728,10 @@ unset_hook(?poc_targeting_version, Ledger) ->
 unset_hook(?poc_hexing_type, Ledger) ->
     %% rebuild hexes since we're back to updating them
     blockchain:bootstrap_hexes(Ledger),
+    ok;
+unset_hook(?poc_challenger_type, Ledger) ->
+    lager:info("poc_challenger_type unset, purging pocs", []),
+    purge_pocs(Ledger),
     ok;
 unset_hook(_Var, _Ledger) ->
     ok.
@@ -950,6 +962,20 @@ validate_var(?min_assert_h3_res, Value) ->
     validate_int(Value, "min_assert_h3_res", 0, 15, false);
 validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
+validate_var(?poc_challenge_rate, Value) ->
+    validate_int(Value, "poc_challenge_rate", 1, 10000, false);
+validate_var(?poc_timeout, Value) ->
+    validate_int(Value, "poc_timeout", 1, 50, false);
+validate_var(?poc_receipts_absorb_timeout, Value) ->
+    validate_int(Value, "poc_receipts_absorb_timeout", 10, 100, false);
+
+validate_var(?poc_challenger_type, Value) ->
+    case Value of
+        validator ->
+            ok;
+        _ ->
+            throw({error, {poc_challenger_type, Value}})
+    end;
 validate_var(?poc_version, Value) ->
     case Value of
         N when is_integer(N), N >= 1,  N =< 11 ->
@@ -1532,6 +1558,8 @@ validate_region_params(Var, Value) when is_binary(Value) ->
 validate_region_params(Var, Value) ->
     throw({error, {invalid_region_param_not_binary, Var, Value}}).
 
+purge_pocs(Ledger) ->
+    blockchain_ledger_v1:purge_pocs(Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

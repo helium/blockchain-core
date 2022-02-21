@@ -17,7 +17,7 @@
 %% @private An a-synchronous client with a queue-like interface.
 %% A gen_server is started for each stream, this keeps track
 %% of the status of the http2 stream and it buffers responses in a queue.
--module(grpc_client_stream_custom).
+-module(grpc_client_stream_test).
 
 -behaviour(gen_server).
 
