@@ -46,7 +46,8 @@
              | blockchain_txn_transfer_validator_stake_v1:txn_transfer_validator_stake()
              | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
              | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat()
-             | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2().
+             | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2()
+             | blockchain_txn_poc_receipts_v2:txn_poc_receipts_v2().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -137,7 +138,8 @@
     {blockchain_txn_validator_heartbeat_v1, 33},
     {blockchain_txn_gen_price_oracle_v1, 34},
     {blockchain_txn_consensus_group_failure_v1, 35},
-    {blockchain_txn_transfer_hotspot_v2, 36}
+    {blockchain_txn_transfer_hotspot_v2, 36},
+    {blockchain_txn_poc_receipts_v2, 37}
 ]).
 
 block_delay() ->
@@ -246,7 +248,10 @@ wrap_txn(#blockchain_txn_validator_heartbeat_v1_pb{} = Txn) ->
 wrap_txn(#blockchain_txn_consensus_group_failure_v1_pb{} = Txn) ->
     #blockchain_txn_pb{txn={consensus_group_failure, Txn}};
 wrap_txn(#blockchain_txn_transfer_hotspot_v2_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={transfer_hotspot_v2, Txn}}.
+    #blockchain_txn_pb{txn={transfer_hotspot_v2, Txn}};
+wrap_txn(#blockchain_txn_poc_receipts_v2_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={poc_receipts_v2, Txn}}.
+
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -299,6 +304,8 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
         blockchain_txn_poc_request_v1 when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         blockchain_txn_poc_receipts_v1 when PType == undefined orelse PType == Type ->
+            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
+        blockchain_txn_poc_receipts_v2 when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             Start = erlang:monotonic_time(millisecond),
@@ -533,10 +540,12 @@ absorb_block(Block, Rescue, Chain) ->
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
     Height = blockchain_block:height(Block),
+    Hash = blockchain_block:hash_block(Block),
     case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
+            ok = blockchain_ledger_v1:process_poc_keys(Block, Height, Hash, Ledger),
             {ok, Chain};
         Error ->
             Error
@@ -694,7 +703,9 @@ type(#blockchain_txn_transfer_validator_stake_v1_pb{}) ->
 type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
     blockchain_txn_validator_heartbeat_v1;
 type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
-    blockchain_txn_transfer_hotspot_v2.
+    blockchain_txn_transfer_hotspot_v2;
+type(#blockchain_txn_poc_receipts_v2_pb{}) ->
+    blockchain_txn_poc_receipts_v2.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
@@ -910,8 +921,10 @@ absorb_aux(Block0, Chain0) ->
 plain_absorb_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, _} ->
-            %% Hash = blockchain_block:hash_block(Block),
+            Hash = blockchain_block:hash_block(Block),
+            Height = blockchain_block:height(Block),
             Ledger0 = blockchain:ledger(Chain0),
+            ok = blockchain_ledger_v1:process_poc_keys(Block, Height, Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger0),
@@ -1004,6 +1017,9 @@ actor(Txn) ->
             blockchain_txn_state_channel_close_v1:state_channel_owner(Txn);
         blockchain_txn_assert_location_v2 ->
             blockchain_txn_assert_location_v2:gateway(Txn);
+        blockchain_txn_poc_receipts_v2 ->
+            blockchain_txn_poc_receipts_v2:challenger(Txn);
+
         _ ->
             <<>>
     end.

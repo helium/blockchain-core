@@ -135,8 +135,23 @@
 %% Number of blocks to wait before a hotspot can submit a poc challenge request
 -define(poc_challenge_interval, poc_challenge_interval).
 
+%% Number of challenges per block: integer
+-define(poc_challenge_rate, poc_challenge_rate).
+
+%% Actor type of the challenger: not set or 'validator'
+-define(poc_challenger_type, poc_challenger_type).
+
 %% Allow to switch POC version
 -define(poc_version, poc_version).
+
+%% Number of blocks after a POC is started at which point it will timeout/expire: integer
+-define(poc_timeout, poc_timeout).
+
+%% Number of blocks after poc_timeout at which point the poc public data will be deleted from the ledger: integer
+%% NOTE: the public poc data is required as part of the receipt_v2 txn validations
+%%       and so this value must be sufficient as to give time for absorb to occur
+-define(poc_receipts_absorb_timeout, poc_receipts_absorb_timeout).
+
 
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an

@@ -278,7 +278,8 @@ make_block(Blockchain, ConsensusMembers, STxs, BlockParamsOverride) ->
             election_epoch => 1,
             epoch_start => 0,
             seen_votes => [],
-            bba_completion => <<>>
+            bba_completion => <<>>,
+            poc_keys => []
         },
     BlockParams = maps:merge(BlockParamsDefault, BlockParamsOverride),
     Block0 = blockchain_block_v1:new(BlockParams),
