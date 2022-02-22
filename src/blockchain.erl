@@ -1994,6 +1994,7 @@ save_bin_snapshot(DestFilename, BinSnap) when is_binary(BinSnap); is_list(BinSna
     %% can be a binary or an iolist if it was generated locally
     %% and we can avoid constructing a large binary by just dumping the
     %% iolist to disk
+    ok = filelib:ensure_dir(DestFilename),
     file:write_file(DestFilename, BinSnap).
 
 -spec hash_bin_snapshot(blockchain_ledger_snapshot:snapshot()) -> {ok, binary()} | {error, term()}.
