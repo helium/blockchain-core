@@ -1346,6 +1346,7 @@ get_blessed_snapshot_height_and_hash() ->
             {undefined, undefined}
     end.
 
+-spec get_quick_sync_height_and_hash(atom()) -> undefined | {non_neg_integer(), non_neg_integer()}.
 get_quick_sync_height_and_hash(Mode) ->
 
     HashHeight =
@@ -1353,7 +1354,8 @@ get_quick_sync_height_and_hash(Mode) ->
             assumed_valid ->
                 get_assumed_valid_height_and_hash();
             blessed_snapshot ->
-                fetch_and_parse_latest_snapshot(undefined)
+                #snapshot_info{hash=BlessedHash, height=BlessedHeight} = fetch_and_parse_latest_snapshot(undefined),
+                {BlessedHash, BlessedHeight}
         end,
 
     case HashHeight of
