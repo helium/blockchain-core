@@ -1346,7 +1346,7 @@ get_blessed_snapshot_height_and_hash() ->
             {undefined, undefined}
     end.
 
--spec get_quick_sync_height_and_hash(atom()) -> undefined | {non_neg_integer(), non_neg_integer()}.
+-spec get_quick_sync_height_and_hash(assumed_valid | blessed_snapshot) -> undefined | {blockchain_block:hash(),pos_integer()}.
 get_quick_sync_height_and_hash(Mode) ->
 
     HashHeight =
