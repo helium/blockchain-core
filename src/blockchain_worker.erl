@@ -628,6 +628,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, normal},
     %% Schedule a sync "as usual" in "normal" mode
     lager:info("snapshot process completed normally; switching to normal sync mode."),
     {noreply, schedule_sync(State#state{mode=normal,
+                       sync_pid = undefined,
                        snapshot_info = SnapInfo#snapshot_info{
                                          download_attempts = 0,
                                          last_success = erlang:system_time(seconds) }})};
@@ -645,7 +646,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
             #state{sync_ref = SyncRef, mode = snapshot,
                    snapshot_info = #snapshot_info{ download_attempts = Attempts } = SnapInfo} = State) when Attempts >= ?MAX_ATTEMPTS ->
     lager:warning("Snapshot attempt ~p exited with: ~p; will retry again in a while...", [Attempts, Reason]),
-    {noreply, schedule_sync(State#state{mode = normal, snapshot_info=SnapInfo#snapshot_info{ download_attempts = 0 }})};
+    {noreply, schedule_sync(State#state{mode = normal, sync_pid = undefined, snapshot_info=SnapInfo#snapshot_info{ download_attempts = 0 }})};
 
 %% "normal" sync mode handling...
 handle_info({'DOWN', SyncRef, process, _SyncPid, Reason},
