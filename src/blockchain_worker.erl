@@ -92,6 +92,8 @@
           etag = undefined :: undefined | string(),
           file_hash = undefined :: undefined | binary(),
           file_size = undefined :: undefined | pos_integer(),
+          compressed_size = undefined :: undefined | pos_integer(),
+          compressed_hash = undefined :: undefined | binary(),
           last_success = 0 :: non_neg_integer(), %% posix time of last successful download
           download_attempts = 0 :: non_neg_integer()
          }).
@@ -1131,7 +1133,7 @@ fetch_and_parse_latest_snapshot(SnapInfo0) ->
     end.
 
 get_latest_snap_data(URL, SnapInfo) ->
-    ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
+    ReqHeaders0 = [{"user-agent", "snapjson-3"}],
     Etag = case SnapInfo of
                #snapshot_info{etag=undefined} -> undefined;
                #snapshot_info{etag=Etag0} -> Etag0;
@@ -1158,10 +1160,21 @@ get_latest_snap_data(URL, SnapInfo) ->
                                 undefined -> undefined;
                                 Sz -> Sz
                             end,
+            MaybeCompressedSize = case maps:get(<<"compressed_size">>, Data, undefined) of
+                                      undefined -> undefined;
+                                      CSz -> CSz
+                                  end,
+            MaybeCompressedHash = case maps:get(<<"compressed_hash">>, Data, undefined) of
+                                      undefined -> undefined;
+                                      B64CHash -> base64url:decode(B64CHash)
+                                  end,
             NewEtag = get_etag(RespHeaders),
-            lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, new etag: ~p",
-                        [Etag, Height, B64Hash, MaybeFileHash, MaybeFileSize, NewEtag]),
-            SnapInfo#snapshot_info{height=Height, hash=Hash, file_hash=MaybeFileHash, file_size=MaybeFileSize, etag=NewEtag};
+            lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, compressed size: ~p, compressed hash: ~p, new etag: ~p",
+                        [Etag, Height, B64Hash, MaybeFileHash, MaybeFileSize, MaybeCompressedSize, MaybeCompressedHash, NewEtag]),
+            SnapInfo#snapshot_info{height=Height, hash=Hash,
+                                   file_hash=MaybeFileHash, file_size=MaybeFileSize,
+                                   compressed_size=MaybeCompressedSize, compressed_hash=MaybeCompressedHash,
+                                   etag=NewEtag};
         {ok, {{_HTTPVer, 304, _Msg}, _RespHeaders, _Body}} ->
             lager:debug("Got 304 from ~p; latest-snap.json has not been modified", [URL]),
             SnapInfo;
@@ -1184,14 +1197,29 @@ build_filename(Height) ->
 build_url(BaseUrl, Filename) ->
     BaseUrl ++ "/" ++ Filename.
 
-attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height=Height, file_size = Size,
-                                                           file_hash = Hash}) ->
+%% if the compressed keys are not set, use the uncompressed
+%% filenames and data
+set_filename_hash_size(#snapshot_info{compressed_hash = undefined,
+                                      height = Height,
+                                      file_hash = Hash,
+                                      file_size = Size}) ->
+    F = build_filename(Height),
+    {F, F ++ ".hash", Hash, Size};
+set_filename_hash_size(#snapshot_info{compressed_hash = Hash,
+                                      height = Height,
+                                      compressed_size = Size}) ->
+    F = build_filename(Height) ++ ".gz",
+    {F, F ++ ".hash", Hash, Size}.
+
+
+attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height = Height} = SnapInfo) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
+    {Filename, HashFilename, Hash, Size} = set_filename_hash_size(SnapInfo),
     BaseDir = application:get_env(blockchain, base_dir, "data"),
-    Filename = build_filename(Height),
     Filepath = filename:join([BaseDir, "snap", Filename]),
-    HashStateFile = filename:join([BaseDir, "snap", Filename ++ ".hash"]),
     ok = filelib:ensure_dir(Filepath),
+
+    HashStateFile = filename:join([BaseDir, "snap", HashFilename]),
 
     %% clean_dir will remove files older than 1 week (help prevent
     %% filling up the SSD card with old files/snapshots)
@@ -1264,16 +1292,12 @@ do_snap_source_download(Url, Filepath) ->
     ScratchFile = Filepath ++ ".scratch",
     ok = filelib:ensure_dir(ScratchFile),
 
-    %% make sure our scratch directory is empty if there are any
-    %% old partial failure nuggets hanging out
-    ok = delete_dir(ScratchFile),
-
     Headers = [
-               {"user-agent", "blockchain-worker-2"}
+               {"user-agent", "snapdownload-3"}
               ],
     HTTPOptions = [
-                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
-                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
+                   {timeout, 1800*1000}, % milliseconds, 1800 secs (30 min) overall request timeout
+                   {connect_timeout, 120*1000} % milliseconds, 120 second connection timeout
                   ],
     Options = [
                {body_format, binary}, % return body as a binary
@@ -1449,14 +1473,6 @@ get_sync_mode(State) ->
             %% full sync only ever syncs blocks, so just sync blocks
             {normal, undefined}
     end.
-
-delete_dir(Filename) ->
-    Dir = case filelib:is_dir(Filename) of
-              true -> Filename;
-              false -> filename:dirname(Filename)
-          end,
-
-    do_clean_dir(get_files_to_delete(Dir), fun(_) -> true end).
 
 get_files_to_delete(Dir) ->
     case file:list_dir(Dir) of

@@ -436,7 +436,7 @@ deserialize(BinOrFile) ->
     | {error, bad_snapshot_hash}
     | {error, bad_snapshot_binary}.
 deserialize(DigestOpt, {file, Filename}) ->
-    {ok, FD} = file:open(Filename, [raw, read, binary]),
+    {ok, FD} = file:open(Filename, [raw, read, binary, compressed]),
     {ok, <<Vsn:8/integer, Siz:32/little-unsigned-integer>>} = file:read(FD, 5),
     case Vsn of
         V when V < 6 ->
