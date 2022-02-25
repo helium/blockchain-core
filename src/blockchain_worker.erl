@@ -1131,7 +1131,7 @@ fetch_and_parse_latest_snapshot(SnapInfo0) ->
     end.
 
 get_latest_snap_data(URL, SnapInfo) ->
-    ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
+    ReqHeaders0 = [{<<"user-agent">>, <<"blockchain-worker-3">>}],
     Etag = case SnapInfo of
                #snapshot_info{etag=undefined} -> undefined;
                #snapshot_info{etag=Etag0} -> Etag0;
@@ -1139,14 +1139,14 @@ get_latest_snap_data(URL, SnapInfo) ->
            end,
     ReqHeaders = case Etag of
                   undefined -> ReqHeaders0;
-                  _ -> [ {"if-none-match", "\"" ++ Etag ++ "\""} | ReqHeaders0 ]
+                  _ -> [ {<<"if-none-match">>, list_to_binary("\"" ++ Etag ++ "\"")} | ReqHeaders0 ]
                end,
     %% shorter timeouts here because we're hitting S3 usually...
-    HTTPOptions = [{timeout, 30000}, % milliseconds, 30 sec overall request timeout
-                   {connect_timeout, 10000}], % milliseconds, 10 second connection timeout
-    Options = [{body_format, binary}], % return body as a binary
-    case httpc:request(get, {URL ++ "/latest-snap.json", ReqHeaders}, HTTPOptions, Options) of
-        {ok, {{_HTTPVer, 200, _Msg}, RespHeaders, Body}} ->
+    Options = [{recv_timeout, 30000}, % milliseconds, 30 sec overall request timeout
+               {connect_timeout, 10000}, % milliseconds, 10 second connection timeout
+               with_body], 
+    case hackney:request(get, URL ++ "/latest-snap.json", ReqHeaders, <<>>, Options) of
+        {ok, 200, RespHeaders, Body} ->
             Data = #{<<"height">> := Height,
               <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
             Hash = base64url:decode(B64Hash),
@@ -1162,12 +1162,12 @@ get_latest_snap_data(URL, SnapInfo) ->
             lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, new etag: ~p",
                         [Etag, Height, B64Hash, MaybeFileHash, MaybeFileSize, NewEtag]),
             SnapInfo#snapshot_info{height=Height, hash=Hash, file_hash=MaybeFileHash, file_size=MaybeFileSize, etag=NewEtag};
-        {ok, {{_HTTPVer, 304, _Msg}, _RespHeaders, _Body}} ->
+        {ok, 304, _RespHeaders, _Body} ->
             lager:debug("Got 304 from ~p; latest-snap.json has not been modified", [URL]),
             SnapInfo;
-        {ok, {{_HTTPVer, 403, _Msg}, _RespHeaders, _Body}} -> throw({error, url_forbidden});
-        {ok, {{_HTTPVer, 404, _Msg}, _RespHeaders, _Body}} -> throw({error, url_not_found});
-        {ok, {{_HTTPVer, Status, _Msg}, _RespHeaders, Body}} -> throw({error, {Status, Body}});
+        {ok, 403, _RespHeaders, _Body} -> throw({error, url_forbidden});
+        {ok, 404, _RespHeaders, _Body} -> throw({error, url_not_found});
+        {ok, Status, _RespHeaders, Body} -> throw({error, {Status, Body}});
         Other -> throw(Other)
     end.
 
@@ -1212,19 +1212,22 @@ attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height=Height, file_s
                     lager:info("Already have snapshot file for height ~p with hash ~p", [Height, Hash]),
                     {ok, Filepath};
                 false ->
-                    case has_same_file_size(Filepath, Size)
-                            andalso is_file_hash_valid(Filepath, Hash) of
-                        true ->
+                    case {has_same_file_size(Filepath, Size),
+                          is_file_hash_valid(Filepath, Hash)} of
+                        {true, true} ->
                             lager:info("Already have snapshot file for height ~p with hash ~p", [Height, Hash]),
                             ok = file:write_file(HashStateFile, Hash),
                             {ok, Filepath};
-                        false ->
-                            ok = safe_delete(Filename),
+                        {smaller, _} ->
+                            %% see if this is a a resumable download
+                            do_snap_source_download(build_url(BaseUrl, Filename), Filepath);
+                        _ ->
+                            %% file is bigger than it should be, or the hash is wrong, scrap it
+                            safe_delete(Filename),
                             do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
                     end
             end;
         false ->
-            ok = safe_delete(Filename),
             do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
     end.
 
@@ -1238,7 +1241,8 @@ has_same_file_size(_Filepath, undefined) -> false;
 has_same_file_size(Filepath, Size) ->
     case file:read_file_info(Filepath, [raw, {time, posix}]) of
         {ok, #file_info{ size = Size }} -> true;
-        _ -> false
+        {ok, #file_info{ size = FSize }} when FSize < Size  -> smaller;
+        {ok, #file_info{ size = FSize }} when FSize > Size  -> larger
     end.
 
 is_file_hash_valid(_Filepath, undefined) -> false;
@@ -1269,29 +1273,53 @@ do_snap_source_download(Url, Filepath) ->
     ok = delete_dir(ScratchFile),
 
     Headers = [
-               {"user-agent", "blockchain-worker-2"}
+               {<<"user-agent">>, <<"blockchain-worker-2">>}
               ],
-    HTTPOptions = [
-                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
-                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
-                  ],
     Options = [
-               {body_format, binary}, % return body as a binary
-               {stream, ScratchFile}, % write data into file
-               {full_result, false} % do not return the "full result" response as defined in httpc docs
-              ],
-
+                   {recv_timeout, 900000}, % milliseconds, 900 sec overall request timeout
+                   {connect_timeout, 60000}, % milliseconds, 60 second connection timeout,
+                   async
+                  ],
     lager:info("Attempting snapshot download from ~p, writing to scratch file ~p",
                [Url, ScratchFile]),
-    case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
-        {ok, saved_to_file} ->
-            lager:info("snap written to scratch file ~p", [ScratchFile]),
-            %% prof assures me rename is atomic :)
-            ok = file:rename(ScratchFile, Filepath),
-            {ok, Filepath};
-        {ok, {403, _Response}} -> throw({error, url_forbidden});
-        {ok, {404, _Response}} -> throw({error, url_not_found});
-        {ok, {Status, Response}} -> throw({error, {Status, Response}});
+
+    %% check if we have a partial download
+    Start = case file:read_file_info(ScratchFile) of
+                {ok, #file_info{size=Size}} ->
+                    lager:info("resuming snapshot download at byte ~p", [Size]),
+                    Size;
+                _ ->
+                    0
+            end,
+    {ok, FD} = file:open(ScratchFile, [raw, write, append]),
+    ReceiveSnapshotLoop = fun Loop(Ref) ->
+                                  receive
+                                      {hackney_response, Ref, {status, 200, _}} ->
+                                          Loop(Ref);
+                                      {hackney_response, Ref, {status, 206, _}} ->
+                                          Loop(Ref);
+                                      {hackney_response, Ref, {status, 403, _}} ->
+                                          throw({error, url_forbidden});
+                                      {hackney_response, Ref, {status, 403, _}} ->
+                                          throw({error, url_not_found});
+                                      {hackney_response, Ref, {status, Status, Response}} ->
+                                          throw({error, {Status, Response}});
+                                      {hackney_response, Ref, {headers, _Headers}} ->
+                                          Loop(Ref);
+                                      {hackney_response, Ref, done} ->
+                                          file:close(FD),
+                                          lager:info("snap written to scratch file ~p", [ScratchFile]),
+                                          %% prof assures me rename is atomic :)
+                                          ok = file:rename(ScratchFile, Filepath),
+                                          {ok, Filepath};
+                                      {hackney_response, Ref, Bin} ->
+                                          file:write(FD, Bin),
+                                          Loop(Ref)
+                                  end
+                          end,
+    case hackney:request(get, Url, Headers ++ [{<<"range">>, list_to_binary("bytes=" ++ integer_to_list(Start) ++ "-")}], <<>>, Options) of
+        {ok, ClientRef} ->
+            ReceiveSnapshotLoop(ClientRef);
         Other -> throw(Other)
     end.
 
@@ -1458,7 +1486,7 @@ delete_dir(Filename) ->
               false -> filename:dirname(Filename)
           end,
 
-    do_clean_dir(get_files_to_delete(Dir), fun(_) -> true end).
+    do_clean_dir(get_files_to_delete(Dir), fun(F) -> F /= Filename end).
 
 get_files_to_delete(Dir) ->
     case file:list_dir(Dir) of
@@ -1470,15 +1498,11 @@ get_files_to_delete(Dir) ->
 clean_dir(Dir) ->
     WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
     FilterFun = fun(F) ->
-                        case filename:extension(F) of
-                            ".scratch" -> true;
-                            _ ->
-                                case file:read_file_info(F, [raw, {time, posix}]) of
-                                    {error, _} -> false;
-                                    {ok, FI} ->
-                                        FI#file_info.type == regular
-                                        andalso FI#file_info.mtime =< WeekOld
-                                end
+                        case file:read_file_info(F, [raw, {time, posix}]) of
+                            {error, _} -> false;
+                            {ok, FI} ->
+                                FI#file_info.type == regular
+                                andalso FI#file_info.mtime =< WeekOld
                         end
                 end,
 
