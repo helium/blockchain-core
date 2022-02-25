@@ -868,7 +868,7 @@ setup(Config)->
     ?assertEqual(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx, Chain)),
 
     {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedPayerAssertLocationTx]),
-    ok = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
+    ok = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:tid()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 11} =:= blockchain:height(Chain) end),
 
     %%
@@ -882,7 +882,7 @@ setup(Config)->
     PoCReqTxn0 = blockchain_txn_poc_request_v1:new(FullGateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(BurnBlock), 1),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, FullGatewaySigFun),
     {ok, POCReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
-    _ = blockchain_gossip_handler:add_block(POCReqBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(POCReqBlock, Chain, self(), blockchain_swarm:tid()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 12} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),

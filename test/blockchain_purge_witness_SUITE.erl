@@ -376,7 +376,7 @@ purge_witness_test(Config) ->
     ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPOC1ReqTxn0, Chain)),
 
     {ok, POC1ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC1ReqTxn0]),
-    _ = blockchain_gossip_handler:add_block(POC1ReqBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(POC1ReqBlock, Chain, self(), blockchain_swarm:tid()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 10} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
@@ -511,7 +511,7 @@ purge_witness_test(Config) ->
     ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedPOC2ReqTxn0, Chain)),
 
     {ok, POC2ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedPOC2ReqTxn0]),
-    _ = blockchain_gossip_handler:add_block(POC2ReqBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(POC2ReqBlock, Chain, self(), blockchain_swarm:tid()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, CurHeight + 43} =:= blockchain:height(Chain) end),
 
     %%

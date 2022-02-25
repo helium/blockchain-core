@@ -444,13 +444,13 @@ run_test(Witnesses, Config) ->
     %% Construct a block for the poc receipt txn WITHOUT validation
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [Txn], #{}, false),
     ct:pal("Block2: ~p", [Block2]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     %% Empty block
     {ok, Block3} = test_utils:create_block(ConsensusMembers, []),
     ct:pal("Block3: ~p", [Block3]),
-    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     %% Calculate rewards by hand

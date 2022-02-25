@@ -131,7 +131,7 @@ enable_htlc_receipt_test(Config) ->
     ?assertMatch({_, []}, blockchain_txn:validate([SignedHTLC1, SignedTx], Chain)),
 
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedHTLC1, SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
@@ -140,7 +140,7 @@ enable_htlc_receipt_test(Config) ->
     RedeemTx1 = blockchain_txn_redeem_htlc_v1:fee(RedeemTx0, RedeemFee),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx1, RedeemSigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     %% Check that there is a htlc receipt
@@ -206,7 +206,7 @@ disabled_htlc_receipt_test(Config) ->
     ?assertMatch({_, []}, blockchain_txn:validate([SignedHTLC1, SignedTx], Chain)),
 
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedHTLC1, SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
@@ -215,7 +215,7 @@ disabled_htlc_receipt_test(Config) ->
     RedeemTx1 = blockchain_txn_redeem_htlc_v1:fee(RedeemTx0, RedeemFee),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx1, RedeemSigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     %% Check that there is NO htlc receipt

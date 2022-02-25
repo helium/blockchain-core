@@ -665,7 +665,7 @@ run_challengees_test(Constructor,
     %% Construct a block for the poc request txn
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [RTxn], #{}, false),
     ct:pal("Block2: ~p", [Block2]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     Txn0 = blockchain_txn_poc_receipts_v1:new(
@@ -681,13 +681,13 @@ run_challengees_test(Constructor,
     %% Construct a block for the poc receipt txn WITHOUT validation
     {ok, Block3} = test_utils:create_block(ConsensusMembers, [Txn], #{}, false),
     ct:pal("Block3: ~p", [Block3]),
-    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     %% Empty block
     {ok, Block4} = test_utils:create_block(ConsensusMembers, []),
     ct:pal("Block4: ~p", [Block4]),
-    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     %% Calculate rewards by hand
@@ -851,7 +851,7 @@ run_vars_test(Witnesses, Config) ->
     %% Construct a block for the poc request txn
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [RTxn], #{}, false),
     ct:pal("Block2: ~p", [Block2]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     %% Construct poc receipt txn
@@ -876,13 +876,13 @@ run_vars_test(Witnesses, Config) ->
     %% Construct a block for the poc receipt txn WITHOUT validation
     {ok, Block3} = test_utils:create_block(ConsensusMembers, [Txn], #{}, false),
     ct:pal("Block3: ~p", [Block3]),
-    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     %% Empty block
     {ok, Block4} = test_utils:create_block(ConsensusMembers, []),
     ct:pal("Block4: ~p", [Block4]),
-    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     %% Calculate rewards by hand
@@ -1189,25 +1189,25 @@ run_beacon_test(Challenger0,
     %% Construct a block for the first poc request txn
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedFirstRequestTxn], #{}, false),
     ct:pal("Block2: ~p", [Block2]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     %% Construct a block for the first poc receipt txn
     {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedFirstPocTxn], #{}, false),
     ct:pal("Block3: ~p", [Block3]),
-    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     %% Construct a block for the second poc request txn
     {ok, Block4} = test_utils:create_block(ConsensusMembers, [SignedSecondRequestTxn], #{}, false),
     ct:pal("Block4: ~p", [Block4]),
-    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     %% Construct a block for the second poc receipt txn
     {ok, Block5} = test_utils:create_block(ConsensusMembers, [SignedSecondPocTxn]),
     ct:pal("Block5: ~p", [Block5]),
-    _ = blockchain_gossip_handler:add_block(Block5, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block5, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, 5}, blockchain:height(Chain)),
 
     %% Calculate rewards by hand

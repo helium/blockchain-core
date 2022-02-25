@@ -124,7 +124,7 @@ basic_test(Config) ->
 
     %% Check that the transaction propogates properly
     {ok, Block} = test_utils:create_block(ConsensusMembers, [STxn1]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
@@ -265,7 +265,7 @@ same_loc_diff_gain_test(Config) ->
 
     %% Check that the transaction propogates properly
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SameLocDiffGainSTxn1]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
@@ -334,7 +334,7 @@ same_loc_diff_elevation_test(Config) ->
 
     %% Check that the transaction propogates properly
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SameLocDiffElevationSTxn1]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
