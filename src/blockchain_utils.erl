@@ -42,6 +42,7 @@
     fold_condition_checks/1,
     get_boolean_os_env_var/2,
     streaming_file_hash/1,
+    streaming_transform_iolist/2,
 
     %% exports for simulations
     free_space_path_loss/4,
@@ -635,7 +636,7 @@ is_truthy(_) -> true.
 streaming_file_hash(File) ->
     case file:open(File, [read, raw, binary]) of
         {ok, FD} ->
-            RetVal = case do_hash(FD, 0, crypto:hash_init(sha256)) of
+            RetVal = case do_hash(FD, crypto:hash_init(sha256)) of
                          {error, _E} = Err -> Err;
                          {ok, HashState} -> {ok, crypto:hash_final(HashState)}
                      end,
@@ -644,12 +645,22 @@ streaming_file_hash(File) ->
         {error, _E} = Err -> Err
     end.
 
-do_hash(FD, Pos, HashState) ->
-    case file:pread(FD, Pos, ?BLOCK_READ_SIZE) of
+do_hash(FD, HashState) ->
+    case file:read(FD, ?BLOCK_READ_SIZE) of
         eof -> {ok, HashState};
-        {ok, Data} -> do_hash(FD, Pos + ?BLOCK_READ_SIZE, crypto:hash_update(HashState, Data));
+        {ok, Data} -> do_hash(FD, crypto:hash_update(HashState, Data));
         {error, _E} = Err -> Err
     end.
+
+streaming_transform_iolist(L, Fun) when is_list(L) ->
+    do_transform_iolist(L, 1, length(L)+1, Fun).
+
+do_transform_iolist(_L, Pos, End, Fun) when Pos >= End ->
+    Fun(eof),
+    ok;
+do_transform_iolist(L, Pos, End, Fun) ->
+    Fun(lists:sublist(L, Pos, 32000)),
+    do_transform_iolist(L, Pos+32000, End, Fun).
 
 majority(N) ->
     (N div 2) + 1.

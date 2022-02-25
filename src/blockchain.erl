@@ -67,6 +67,7 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
     save_bin_snapshot/2,  hash_bin_snapshot/1, size_bin_snapshot/1,
+    save_compressed_bin_snapshot/2, maybe_get_compressed_snapdata/1,
 
     add_implicit_burn/3,
     get_implicit_burn/2,
@@ -135,6 +136,8 @@
                           fun upgrade_gateways_score/1,
                           fun upgrade_nonce_rescue/1,
                           fun blockchain_ledger_v1:upgrade_pocs/1]).
+
+-define(BLOCK_READ_SIZE, 4096*8). % 32K
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -1979,7 +1982,7 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
             {error, Why}
     end.
 
--spec save_bin_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) -> 
+-spec save_bin_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) ->
     ok | {error, term()}.
 save_bin_snapshot(DestFilename, {file, Filename}) ->
     ok = filelib:ensure_dir(DestFilename),
@@ -1997,6 +2000,59 @@ save_bin_snapshot(DestFilename, BinSnap) when is_binary(BinSnap); is_list(BinSna
     ok = filelib:ensure_dir(DestFilename),
     file:write_file(DestFilename, BinSnap).
 
+-spec save_compressed_bin_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) ->
+   ok | {error, Error :: term()}.
+save_compressed_bin_snapshot(DestFilename, {file, Filename}) ->
+   ok = filelib:ensure_dir(DestFilename),
+   CompressedFile = DestFilename ++ ".gz",
+   Z = zlib:open(),
+   ok = zlib:deflateInit(Z, best_compression, deflated, 16 + 15, 8, default),
+   {ok, In} = file:open(Filename, [raw, read, binary, compressed]),
+   {ok, Out} = file:open(CompressedFile, [raw, write, binary]),
+   RetVal = case do_compress(In, Out, Z) of
+               ok -> ok;
+               {error, _E} = Err -> Err
+            end,
+   file:close(In),
+   file:close(Out),
+   RetVal;
+save_compressed_bin_snapshot(DestFilename, BinSnap) ->
+   ok = filelib:ensure_dir(DestFilename),
+   CompressedFile = DestFilename ++ ".gz",
+   Z = zlib:open(),
+   ok = zlib:deflateInit(Z, best_compression, deflated, 16 + 15, 8, default),
+   {ok, Out} = file:open(CompressedFile, [raw, write, binary]),
+   Fun = fun(eof) ->
+               CData = zlib:deflate(Z, <<>>, finish),
+               file:write(Out, CData),
+               zlib:deflateEnd(Z);
+            (Data) ->
+               CData = zlib:deflate(Z, Data),
+               file:write(Out, CData)
+         end,
+   RetVal = blockchain_utils:streaming_transform_iolist(BinSnap, Fun),
+   file:close(Out),
+   RetVal.
+
+do_compress(In, Out, Z) ->
+   case file:read(In, ?BLOCK_READ_SIZE) of
+      eof ->
+         CData = zlib:deflate(Z, <<>>, finish),
+         file:write(Out, CData),
+         zlib:deflateEnd(Z),
+         ok;
+      {ok, Data} ->
+         CData = zlib:deflate(Z, Data),
+         file:write(Out, CData),
+         do_compress(In, Out, Z);
+      {error, Error} ->
+         lager:error("While compressing got ~p", [Error]),
+         zlib:deflate(Z, <<>>, finish),
+         zlib:deflateEnd(Z),
+         {error, Error}
+   end.
+
+
 -spec hash_bin_snapshot(blockchain_ledger_snapshot:snapshot()) -> {ok, binary()} | {error, term()}.
 hash_bin_snapshot({file, Filename}) ->
     blockchain_utils:streaming_file_hash(Filename);
@@ -2008,6 +2064,22 @@ size_bin_snapshot({file, Filename}) ->
     filelib:file_size(Filename);
 size_bin_snapshot(BinSnap) when is_binary(BinSnap); is_list(BinSnap) ->
     byte_size(BinSnap).
+
+-spec maybe_get_compressed_snapdata(file:filename_all()) -> undefined | {ok, Size :: pos_integer(), Hash :: binary()}.
+maybe_get_compressed_snapdata(File) ->
+   CompressedFile = File ++ ".gz",
+   case filelib:is_regular(CompressedFile) of
+      true ->
+         case file:read_file_info(CompressedFile, [{time, posix}]) of
+            {error, _Err} -> undefined;
+            {ok, FI} ->
+               case blockchain_utils:streaming_file_hash(CompressedFile) of
+                  {ok, Hash} -> {ok, FI#file_info.size, Hash};
+                  _Other -> undefined
+               end
+         end;
+      false -> undefined
+   end.
 
 rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     {ok, Height} = blockchain:height(Blockchain),

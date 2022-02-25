@@ -92,6 +92,7 @@
           etag = undefined :: undefined | string(),
           file_hash = undefined :: undefined | binary(),
           file_size = undefined :: undefined | pos_integer(),
+          is_compressed = false :: boolean(),
           last_success = 0 :: non_neg_integer(), %% posix time of last successful download
           download_attempts = 0 :: non_neg_integer()
          }).
@@ -1130,8 +1131,9 @@ fetch_and_parse_latest_snapshot(SnapInfo0) ->
             SnapInfo
     end.
 
+-spec get_latest_snap_data( URL :: string(), snapshot_info() ) -> no_return().
 get_latest_snap_data(URL, SnapInfo) ->
-    ReqHeaders0 = [{"user-agent", "blockchain-worker-3"}],
+    ReqHeaders0 = [{"user-agent", "snapjson-3"}],
     Etag = case SnapInfo of
                #snapshot_info{etag=undefined} -> undefined;
                #snapshot_info{etag=Etag0} -> Etag0;
@@ -1139,14 +1141,14 @@ get_latest_snap_data(URL, SnapInfo) ->
            end,
     ReqHeaders = case Etag of
                   undefined -> ReqHeaders0;
-                  _ -> [ {"if-none-match", "\"" ++ Etag ++ "\""} | ReqHeaders0 ]
+                  _ -> [ {<<"if-none-match">>, list_to_binary("\"" ++ Etag ++ "\"")} | ReqHeaders0 ]
                end,
     %% shorter timeouts here because we're hitting S3 usually...
-    HTTPOptions = [{timeout, 30000}, % milliseconds, 30 sec overall request timeout
-                   {connect_timeout, 10000}], % milliseconds, 10 second connection timeout
-    Options = [{body_format, binary}], % return body as a binary
-    case httpc:request(get, {URL ++ "/latest-snap.json", ReqHeaders}, HTTPOptions, Options) of
-        {ok, {{_HTTPVer, 200, _Msg}, RespHeaders, Body}} ->
+    Options = [{recv_timeout, 30000}, % milliseconds, 30 sec overall request timeout
+               {connect_timeout, 10000}, % milliseconds, 10 second connection timeout
+               with_body],
+    case hackney:request(get, URL ++ "/latest-snap.json", ReqHeaders, <<>>, Options) of
+        {ok, 200, RespHeaders, Body} ->
             Data = #{<<"height">> := Height,
               <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
             Hash = base64url:decode(B64Hash),
@@ -1158,16 +1160,31 @@ get_latest_snap_data(URL, SnapInfo) ->
                                 undefined -> undefined;
                                 Sz -> Sz
                             end,
+            MaybeCompressedSize = case maps:get(<<"compressed_size">>, Data, undefined) of
+                                      undefined -> undefined;
+                                      CSz -> CSz
+                                  end,
+            MaybeCompressedHash = case maps:get(<<"compressed_hash">>, Data, undefined) of
+                                      undefined -> undefined;
+                                      B64CHash -> base64url:decode(B64CHash)
+                                  end,
             NewEtag = get_etag(RespHeaders),
-            lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, new etag: ~p",
-                        [Etag, Height, B64Hash, MaybeFileHash, MaybeFileSize, NewEtag]),
-            SnapInfo#snapshot_info{height=Height, hash=Hash, file_hash=MaybeFileHash, file_size=MaybeFileSize, etag=NewEtag};
-        {ok, {{_HTTPVer, 304, _Msg}, _RespHeaders, _Body}} ->
+            lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, compressed size: ~p, compressed hash: ~p, new etag: ~p",
+                        [Etag, Height, B64Hash, MaybeFileHash, MaybeFileSize,
+                         MaybeCompressedSize, MaybeCompressedHash, NewEtag]),
+            {IsCompressed, FHash, FSz} = case MaybeCompressedHash of
+                               undefined -> {false, MaybeFileHash, MaybeFileSize};
+                               _ -> {true, MaybeCompressedHash, MaybeCompressedSize}
+                           end,
+            SnapInfo#snapshot_info{height=Height, hash=Hash,
+                                   file_hash=FHash, file_size=FSz,
+                                   is_compressed=IsCompressed, etag=NewEtag};
+        {ok, 304, _RespHeaders, _Body} ->
             lager:debug("Got 304 from ~p; latest-snap.json has not been modified", [URL]),
             SnapInfo;
-        {ok, {{_HTTPVer, 403, _Msg}, _RespHeaders, _Body}} -> throw({error, url_forbidden});
-        {ok, {{_HTTPVer, 404, _Msg}, _RespHeaders, _Body}} -> throw({error, url_not_found});
-        {ok, {{_HTTPVer, Status, _Msg}, _RespHeaders, Body}} -> throw({error, {Status, Body}});
+        {ok, 403, _RespHeaders, _Body} -> throw({error, url_forbidden});
+        {ok, 404, _RespHeaders, _Body} -> throw({error, url_not_found});
+        {ok, Status, _RespHeaders, Body} -> throw({error, {Status, Body}});
         Other -> throw(Other)
     end.
 
@@ -1184,14 +1201,21 @@ build_filename(Height) ->
 build_url(BaseUrl, Filename) ->
     BaseUrl ++ "/" ++ Filename.
 
-attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height=Height, file_size = Size,
-                                                           file_hash = Hash}) ->
+set_filename(BaseFilename, true) ->
+    BaseFilename ++ ".gz";
+set_filename(BaseFilename, false) ->
+    BaseFilename.
+
+attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height = Height, file_hash = Hash,
+                                                           file_size = Size, is_compressed = IsCompressed}) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
+    Filename = set_filename(build_filename(Height), IsCompressed),
+    HashFilename = Filename ++ ".hash",
     BaseDir = application:get_env(blockchain, base_dir, "data"),
-    Filename = build_filename(Height),
     Filepath = filename:join([BaseDir, "snap", Filename]),
-    HashStateFile = filename:join([BaseDir, "snap", Filename ++ ".hash"]),
     ok = filelib:ensure_dir(Filepath),
+
+    HashStateFile = filename:join([BaseDir, "snap", HashFilename]),
 
     %% clean_dir will remove files older than 1 week (help prevent
     %% filling up the SSD card with old files/snapshots)
@@ -1212,20 +1236,23 @@ attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height=Height, file_s
                     lager:info("Already have snapshot file for height ~p with hash ~p", [Height, Hash]),
                     {ok, Filepath};
                 false ->
-                    case has_same_file_size(Filepath, Size)
-                            andalso is_file_hash_valid(Filepath, Hash) of
-                        true ->
+                    case {has_same_file_size(Filepath, Size),
+                          is_file_hash_valid(Filepath, Hash)} of
+                        {true, true} ->
                             lager:info("Already have snapshot file for height ~p with hash ~p", [Height, Hash]),
                             ok = file:write_file(HashStateFile, Hash),
                             {ok, Filepath};
-                        false ->
-                            ok = safe_delete(Filename),
-                            do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
+                        {smaller, _} ->
+                            %% see if this is a a resumable download
+                            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath);
+                        _ ->
+                            %% file is bigger than it should be, or the hash is wrong, scrap it
+                            safe_delete(Filename),
+                            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
                     end
             end;
         false ->
-            ok = safe_delete(Filename),
-            do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
+            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
     end.
 
 same_stored_hash(File, Hash) ->
@@ -1238,7 +1265,8 @@ has_same_file_size(_Filepath, undefined) -> false;
 has_same_file_size(Filepath, Size) ->
     case file:read_file_info(Filepath, [raw, {time, posix}]) of
         {ok, #file_info{ size = Size }} -> true;
-        _ -> false
+        {ok, #file_info{ size = FSize }} when FSize < Size  -> smaller;
+        {ok, #file_info{ size = FSize }} when FSize > Size  -> larger
     end.
 
 is_file_hash_valid(_Filepath, undefined) -> false;
@@ -1260,38 +1288,59 @@ safe_delete(File) ->
         Other -> Other
     end.
 
+-spec do_snap_source_download(URL :: string(), Filepath :: file:filename_all()) -> no_return().
 do_snap_source_download(Url, Filepath) ->
     ScratchFile = Filepath ++ ".scratch",
     ok = filelib:ensure_dir(ScratchFile),
 
-    %% make sure our scratch directory is empty if there are any
-    %% old partial failure nuggets hanging out
-    ok = delete_dir(ScratchFile),
-
     Headers = [
-               {"user-agent", "blockchain-worker-2"}
+               {"user-agent", "snapdownload-3"}
               ],
-    HTTPOptions = [
-                   {timeout, 900000}, % milliseconds, 900 sec overall request timeout
-                   {connect_timeout, 60000} % milliseconds, 60 second connection timeout
-                  ],
     Options = [
-               {body_format, binary}, % return body as a binary
-               {stream, ScratchFile}, % write data into file
-               {full_result, false} % do not return the "full result" response as defined in httpc docs
-              ],
-
+                   {recv_timeout, 900000}, % milliseconds, 900 sec overall request timeout
+                   {connect_timeout, 60000}, % milliseconds, 60 second connection timeout,
+                   async
+                  ],
     lager:info("Attempting snapshot download from ~p, writing to scratch file ~p",
                [Url, ScratchFile]),
-    case httpc:request(get, {Url, Headers}, HTTPOptions, Options) of
-        {ok, saved_to_file} ->
-            lager:info("snap written to scratch file ~p", [ScratchFile]),
-            %% prof assures me rename is atomic :)
-            ok = file:rename(ScratchFile, Filepath),
-            {ok, Filepath};
-        {ok, {403, _Response}} -> throw({error, url_forbidden});
-        {ok, {404, _Response}} -> throw({error, url_not_found});
-        {ok, {Status, Response}} -> throw({error, {Status, Response}});
+
+    %% check if we have a partial download
+    Start = case file:read_file_info(ScratchFile) of
+                {ok, #file_info{size=Size}} ->
+                    lager:info("resuming snapshot download at byte ~p", [Size]),
+                    Size;
+                _ ->
+                    0
+            end,
+    {ok, FD} = file:open(ScratchFile, [raw, write, append]),
+    ReceiveSnapshotLoop = fun Loop(Ref) ->
+                                  receive
+                                      {hackney_response, Ref, {status, 200, _}} ->
+                                          Loop(Ref);
+                                      {hackney_response, Ref, {status, 206, _}} ->
+                                          Loop(Ref);
+                                      {hackney_response, Ref, {status, 403, _}} ->
+                                          throw({error, url_forbidden});
+                                      {hackney_response, Ref, {status, 403, _}} ->
+                                          throw({error, url_not_found});
+                                      {hackney_response, Ref, {status, Status, Response}} ->
+                                          throw({error, {Status, Response}});
+                                      {hackney_response, Ref, {headers, _Headers}} ->
+                                          Loop(Ref);
+                                      {hackney_response, Ref, done} ->
+                                          file:close(FD),
+                                          lager:info("snap written to scratch file ~p", [ScratchFile]),
+                                          %% prof assures me rename is atomic :)
+                                          ok = file:rename(ScratchFile, Filepath),
+                                          {ok, Filepath};
+                                      {hackney_response, Ref, Bin} ->
+                                          file:write(FD, Bin),
+                                          Loop(Ref)
+                                  end
+                          end,
+    case hackney:request(get, Url, Headers ++ [{<<"range">>, list_to_binary("bytes=" ++ integer_to_list(Start) ++ "-")}], <<>>, Options) of
+        {ok, ClientRef} ->
+            ReceiveSnapshotLoop(ClientRef);
         Other -> throw(Other)
     end.
 
@@ -1452,14 +1501,6 @@ get_sync_mode(State) ->
             {normal, undefined}
     end.
 
-delete_dir(Filename) ->
-    Dir = case filelib:is_dir(Filename) of
-              true -> Filename;
-              false -> filename:dirname(Filename)
-          end,
-
-    do_clean_dir(get_files_to_delete(Dir), fun(_) -> true end).
-
 get_files_to_delete(Dir) ->
     case file:list_dir(Dir) of
         {error, enoent} -> [];
@@ -1470,15 +1511,11 @@ get_files_to_delete(Dir) ->
 clean_dir(Dir) ->
     WeekOld = erlang:system_time(seconds) - ?WEEK_OLD_SECONDS,
     FilterFun = fun(F) ->
-                        case filename:extension(F) of
-                            ".scratch" -> true;
-                            _ ->
-                                case file:read_file_info(F, [raw, {time, posix}]) of
-                                    {error, _} -> false;
-                                    {ok, FI} ->
-                                        FI#file_info.type == regular
-                                        andalso FI#file_info.mtime =< WeekOld
-                                end
+                        case file:read_file_info(F, [raw, {time, posix}]) of
+                            {error, _} -> false;
+                            {ok, FI} ->
+                                FI#file_info.type == regular
+                                andalso FI#file_info.mtime =< WeekOld
                         end
                 end,
 
