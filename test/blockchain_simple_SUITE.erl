@@ -3049,7 +3049,7 @@ replay_oui_test(Config) ->
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
 
     {ok, Block22} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Block22, Chain, self(), Swarm),
+    _ = blockchain_gossip_handler:add_block(Block22, Chain, self(), blockchain_swarm:tid()),
     ok = test_utils:wait_until(fun() -> {ok, 22} == blockchain:height(Chain) end),
 
     %% construct oui txn
@@ -3060,7 +3060,7 @@ replay_oui_test(Config) ->
 
     %% mine the oui txn
     {ok, Block23} = test_utils:create_block(ConsensusMembers, [SignedOUITxn1]),
-    _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), Swarm),
+    _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), blockchain_swarm:tid()),
 
     %% wait 5 blocks, no good reason
     ok = lists:foreach(
@@ -3078,13 +3078,13 @@ replay_oui_test(Config) ->
 
     %% mine second oui txn
     {ok, Block29} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
-    _ = blockchain_gossip_handler:add_block(Block29, Chain, self(), Swarm),
+    _ = blockchain_gossip_handler:add_block(Block29, Chain, self(), blockchain_swarm:tid()),
 
     %% wait 5 blocks, no good reason
     ok = lists:foreach(
            fun(_) ->
                    {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid())
            end,
            lists:seq(1, 5)
           ),
@@ -3098,13 +3098,13 @@ replay_oui_test(Config) ->
 
     %% mine third oui txn
     {ok, Block35} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
-    _ = blockchain_gossip_handler:add_block(Block35, Chain, self(), Swarm),
+    _ = blockchain_gossip_handler:add_block(Block35, Chain, self(), blockchain_swarm:tid()),
 
     %% wait 5 blocks, no good reason
     ok = lists:foreach(
            fun(_) ->
                    {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid())
            end,
            lists:seq(1, 5)
           ),
@@ -3136,7 +3136,7 @@ replay_oui_test(Config) ->
 
     %% mine fourth and fifth oui txn
     {ok, Block40} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4, SignedOUITxn5]),
-    _ = blockchain_gossip_handler:add_block(Block40, Chain, self(), Swarm),
+    _ = blockchain_gossip_handler:add_block(Block40, Chain, self(), blockchain_swarm:tid()),
 
     ?assertEqual({ok, 5}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
 
