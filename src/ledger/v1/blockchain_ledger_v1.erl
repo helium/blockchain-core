@@ -4489,6 +4489,8 @@ maybe_gc_h3dex(Ledger) ->
             %% hexes the *challengee* is in.
             {ok, Height} = current_height(Ledger),
             {ok, Block} = get_block(Height, Ledger),
+            {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
+            RandState = blockchain_utils:rand_from_hash(BlockHash),
             RequestFilter = fun(T) ->
                                     blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
                             end,
@@ -4498,6 +4500,7 @@ maybe_gc_h3dex(Ledger) ->
                     ok;
                 Txns ->
                     %% take the first `Width` receipts and GC the parent hexes of the challengees
+                    {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
                     lists:foreach(fun(T) ->
                                           Path = blockchain_txn_poc_receipts_v1:path(T),
                                           Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
@@ -4507,7 +4510,7 @@ maybe_gc_h3dex(Ledger) ->
                                               _ ->
                                                   ok
                                           end
-                                  end, lists:sublist(Txns, Width))
+                                  end, Selected)
             end;
         _ ->
             ok
