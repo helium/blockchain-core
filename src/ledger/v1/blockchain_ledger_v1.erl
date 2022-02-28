@@ -4514,8 +4514,9 @@ maybe_gc_h3dex(Ledger) ->
     end.
 
 gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger) ->
-    HexMap = lookup_gateways_from_hex(Location, Ledger),
     {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+    {ok, GCRes} = blockchain:config(?poc_target_hex_collection_res, Ledger),
+    HexMap = lookup_gateways_from_hex(h3:parent(Location, GCRes), Ledger),
     %% no maps:foreach in otp 22
     maps:fold(fun(H3, Gateways, _Acc) ->
                       lists:foreach(fun(GW) ->

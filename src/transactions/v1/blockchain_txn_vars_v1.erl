@@ -1003,6 +1003,8 @@ validate_var(?poc_typo_fixes, Value) ->
     end;
 validate_var(?poc_target_hex_parent_res, Value) ->
     validate_int(Value, "poc_target_hex_parent_res", 3, 7, false);
+validate_var(?poc_target_hex_collection_res, Value) ->
+    validate_int(Value, "poc_target_hex_collection_res", 7, 12, false);
 validate_var(?poc_good_bucket_low, Value) ->
     validate_int(Value, "poc_good_bucket_low", -150, -90, false);
 validate_var(?poc_good_bucket_high, Value) ->
