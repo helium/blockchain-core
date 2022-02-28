@@ -607,7 +607,13 @@ print(Txn, Verbose) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn(), blockchain:blockchain()) ->
+    ok | {error, Reason} when
+    Reason
+        :: txn_too_late
+        |  {txn_too_early, Delta :: pos_integer()}
+        |  any() % TODO Spec other errors explicitly.
+        .
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
@@ -621,11 +627,9 @@ is_valid(Txn, Chain) ->
                             {ok, yes} ->
                                 Type:is_valid(Txn, Chain);
                             {ok, no} ->
-                                {error, txn_too_late_or_too_early};
-                            {ok, {not_yet, _Delta}} ->
-                                % TODO Bound delta?
-                                % TODO Anything more interesting that can be done here?
-                                {error, txn_too_early};
+                                {error, txn_too_late};
+                            {ok, {not_yet, Delta}} ->
+                                {error, {txn_too_early, Delta}};
                             {error, _}=Err ->
                                 Err
                         end
