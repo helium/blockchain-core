@@ -16,6 +16,7 @@
 
 -export([
          new/3,
+         new/4,
          hash/1,
          address/1,
          height/1,
@@ -23,6 +24,7 @@
          version/1,
          fee/1,
          fee_payer/2,
+         poc_key_proposals/1,
          sign/2,
          is_valid/2,
          absorb/2,
@@ -39,12 +41,18 @@
 -export_type([txn_validator_heartbeat/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
-          txn_validator_heartbeat().
+    txn_validator_heartbeat().
 new(Address, Height, Version) ->
+    new(Address, Height, Version, []).
+
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), [binary()]) ->
+          txn_validator_heartbeat().
+new(Address, Height, Version, POCKeyProposals) ->
     #blockchain_txn_validator_heartbeat_v1_pb{
        address = Address,
        height = Height,
-       version = Version
+       version = Version,
+       poc_key_proposals = POCKeyProposals
     }.
 
 -spec hash(txn_validator_heartbeat()) -> blockchain_txn:hash().
@@ -64,6 +72,10 @@ height(Txn) ->
 -spec version(txn_validator_heartbeat()) -> pos_integer().
 version(Txn) ->
     Txn#blockchain_txn_validator_heartbeat_v1_pb.version.
+
+-spec poc_key_proposals(txn_validator_heartbeat()) -> [binary()].
+poc_key_proposals(Txn) ->
+    Txn#blockchain_txn_validator_heartbeat_v1_pb.poc_key_proposals.
 
 -spec signature(txn_validator_heartbeat()) -> binary().
 signature(Txn) ->
@@ -146,11 +158,23 @@ absorb(Txn, Chain) ->
     Validator = address(Txn),
     Version = version(Txn),
     TxnHeight = height(Txn),
-
+    POCKeyProposals = poc_key_proposals(Txn),
     case blockchain_ledger_v1:get_validator(Validator, Ledger) of
         {ok, V} ->
             V1 = blockchain_ledger_validator_v1:last_heartbeat(TxnHeight, V),
             V2 = blockchain_ledger_validator_v1:version(Version, V1),
+            {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
+            case lists:member(Validator, ConsensusAddrs) of
+                true ->
+                    ok;
+                false ->
+                    case application:get_env(blockchain, poc_mgr_mod) of
+                        {ok, POCMgrMod} ->
+                            POCMgrMod:save_poc_key_proposals(Validator, POCKeyProposals, TxnHeight);
+                        _ ->
+                            ok
+                    end
+            end,
             blockchain_ledger_v1:update_validator(Validator, V2, Ledger);
         Err -> Err
     end.

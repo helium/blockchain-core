@@ -446,13 +446,13 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
--spec wrap_poc_key({integer(), binary()}) -> #blockchain_poc_key_pb{}.
-wrap_poc_key({PosInCG, Key}) ->
-    #blockchain_poc_key_pb{pos = PosInCG, key = Key}.
+-spec wrap_poc_key({libp2p_crypto:pub_key_bin(), binary()}) -> #blockchain_poc_key_pb{}.
+wrap_poc_key({Address, Key}) ->
+    #blockchain_poc_key_pb{address = Address, key = Key}.
 
--spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {integer(), binary()}.
-unwrap_poc_key(#blockchain_poc_key_pb{pos = PosInCG, key = Key}) ->
-    {PosInCG, Key}.
+-spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {libp2p_crypto:pub_key_bin(), binary()}.
+unwrap_poc_key(#blockchain_poc_key_pb{address = Address, key = Key}) ->
+    {Address, Key}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

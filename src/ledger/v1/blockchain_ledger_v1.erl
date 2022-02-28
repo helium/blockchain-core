@@ -2086,6 +2086,8 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     BlockHash :: binary(),
     Ledger :: ledger()
 ) -> ok.
+process_poc_keys(_Block, 1, _BlockHash, _Ledger) ->
+    ok;
 process_poc_keys(Block, BlockHeight, BlockHash, Ledger) ->
     %% we need to update the ledger with public poc data
     %% based on the blocks poc ephemeral keys
@@ -2093,11 +2095,9 @@ process_poc_keys(Block, BlockHeight, BlockHash, Ledger) ->
     case blockchain:config(?poc_challenger_type, Ledger) of
         {ok, validator} ->
             BlockPocEphemeralKeys = blockchain_block_v1:poc_keys(Block),
-            {ok, CGMembers} = blockchain_ledger_v1:consensus_members(Ledger),
             lists:foreach(
-                fun({CGPos, OnionKeyHash}) ->
+                fun({ChallengerAddr, OnionKeyHash}) ->
                     %% the published poc key is a hash of the public key, aka the onion key hash
-                    ChallengerAddr = lists:nth(CGPos, CGMembers),
                     lager:info("saving public poc data for poc key ~p and challenger ~p at blockheight ~p", [OnionKeyHash, ChallengerAddr, BlockHeight]),
                     catch ok = blockchain_ledger_v1:save_public_poc(OnionKeyHash, ChallengerAddr, BlockHash, BlockHeight, Ledger)
                 end,
