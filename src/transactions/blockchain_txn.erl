@@ -1412,7 +1412,7 @@ txn_fees_routing_update_xor_test() ->
     Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
     Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
     Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn00Fee),
+    ?assertEqual(45000, Txn00Fee),
     ?assertEqual(0, Txn00StakingFee),
     ?assertEqual(0, Txn00LegacyStakingFee),
 
@@ -1423,7 +1423,7 @@ txn_fees_routing_update_xor_test() ->
     Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
     Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
     Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn03Fee),
+    ?assertEqual(45000, Txn03Fee),
     ?assertEqual(0, Txn03StakingFee),
     ?assertEqual(0, Txn03LegacyStakingFee),
     ok.
