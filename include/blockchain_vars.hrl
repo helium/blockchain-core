@@ -152,6 +152,10 @@
 %%       and so this value must be sufficient as to give time for absorb to occur
 -define(poc_receipts_absorb_timeout, poc_receipts_absorb_timeout).
 
+%% Number of blocks for which a validator ephemeral key will remain valid : pos_integer
+%% after this period it will be GCed
+%% NOTE the minimum value here should be greater than that of validator_liveness_interval
+-define(poc_validator_ephemeral_key_timeout, poc_validator_ephemeral_key_timeout).
 
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
