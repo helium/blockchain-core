@@ -50,6 +50,9 @@
 %% a round
 -define(election_seen_penalty, election_seen_penalty).
 
+%% flag for bitvector width fix
+-define(election_bitvector_fix, election_bitvector_fix).
+
 %%%
 %%% ledger vars
 %%%

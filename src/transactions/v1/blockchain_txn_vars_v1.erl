@@ -834,6 +834,12 @@ validate_var(?election_bba_penalty, Value) ->
     validate_float(Value, "election_bba_penalty", 0.001, 0.5);
 validate_var(?election_seen_penalty, Value) ->
     validate_float(Value, "election_seen_penalty", 0.001, 0.5);
+validate_var(?election_bitvector_fix, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_bitvector_fix_boolean, Value}})
+    end;
 
 %% ledger vars
 validate_var(?var_gw_inactivity_threshold, Value) ->

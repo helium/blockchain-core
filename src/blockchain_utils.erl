@@ -29,6 +29,7 @@
     icdf_select/2,
     find_txn/2,
     map_to_bitvector/1,
+    map_to_fixedwidth_bitvector/2,
     bitvector_to_map/2,
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
@@ -444,6 +445,20 @@ map_to_bitvector(Map) ->
     BitSz = nearest_byte(Sz),
     <<Int:BitSz/little-unsigned-integer>>.
 
+-spec map_to_fixedwidth_bitvector(pos_integer(), #{pos_integer() => boolean()}) ->
+          binary().
+map_to_fixedwidth_bitvector(Count, Map) ->
+    Int = lists:foldl(
+            fun({ID, true}, Acc) ->
+                    Acc bor (1 bsl (ID - 1));
+               (_, Acc) ->
+                    Acc
+            end,
+            0,
+            maps:to_list(Map)),
+    BitSz = nearest_byte(Count),
+    <<Int:BitSz/little-unsigned-integer>>.
+
 -spec bitvector_to_map(pos_integer(), binary()) -> #{pos_integer() => boolean()}.
 bitvector_to_map(Count, Vector) ->
     Sz = 8 * size(Vector),
@@ -769,6 +784,41 @@ bitvector_roundtrip_test() ->
     ?assertEqual(M3, bitvector_to_map(64, map_to_bitvector(M3))),
     ?assertEqual(M4, bitvector_to_map(122, map_to_bitvector(M4))),
     ok.
+
+fixedwidth_bitvector_roundtrip_test() ->
+    L01 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 16)],
+    L02 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 19)],
+    L03 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 64)],
+    L04 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 122)],
+
+    L1 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L01),
+    L2 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L02),
+    L3 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L03),
+    L4 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L04),
+
+    M1 = maps:from_list(L1),
+    M2 = maps:from_list(L2),
+    M3 = maps:from_list(L3),
+    M4 = maps:from_list(L4),
+
+    ?assert(compare(M1, bitvector_to_map(16, map_to_fixedwidth_bitvector(16, M1)))),
+    ?assert(compare(M2, bitvector_to_map(19, map_to_fixedwidth_bitvector(19, M2)))),
+    ?assert(compare(M3, bitvector_to_map(64, map_to_fixedwidth_bitvector(64, M3)))),
+    ?assert(compare(M4, bitvector_to_map(122, map_to_fixedwidth_bitvector(122, M4)))),
+    ok.
+
+compare(M1, M2) ->
+    maps:fold(
+      fun(_, _, false) ->
+              false;
+         (K, V, true) ->
+              case maps:find(K, M2) of
+                  {ok, V} -> true;
+                  _ -> false
+              end
+      end,
+      true,
+      M1).
 
 oracle_keys_test() ->
     #{ public := RawEccPK } = libp2p_crypto:generate_keys(ecc_compact),
