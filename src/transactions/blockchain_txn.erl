@@ -109,7 +109,8 @@
     validate_fields/1,
     depends_on/2,
     json_type/1,
-    to_json/2
+    to_json/2,
+    is_prompt_nonce/2
 ]).
 
 -ifdef(TEST).
@@ -644,6 +645,17 @@ is_valid(Txn, Chain) ->
         false ->
             lager:warning("txn not in sort order ~p : ~s", [Type, print(Txn)]),
             {error, missing_sort_order}
+    end.
+
+-spec is_prompt_nonce(Given :: non_neg_integer(), Current :: non_neg_integer()) ->
+    is_prompt().
+is_prompt_nonce(NonceGiven, NonceCurrent) ->
+    NonceExpected = NonceCurrent + 1,
+    Delta = NonceGiven - NonceExpected,
+    if
+        Delta   < 0 -> no;
+        Delta =:= 0 -> yes;
+        Delta   > 0 -> {not_yet, Delta}
     end.
 
 %%--------------------------------------------------------------------

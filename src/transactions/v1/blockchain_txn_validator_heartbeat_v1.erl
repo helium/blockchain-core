@@ -157,6 +157,7 @@ is_well_formed(#?T{}=T) ->
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
 is_prompt(#?T{}, _) ->
+    %% TODO Height checks seem to belong here - move them.
     {ok, yes}.
 
 %% oh dialyzer

@@ -109,8 +109,16 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            {ok, no};
+        {error, _}=Error ->
+            Error
+    end.
 
 -spec absorb(txn_genesis_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

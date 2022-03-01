@@ -208,8 +208,20 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
+    BlockHeight = ?MODULE:block_height(T),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    PubKey = ?MODULE:public_key(T),
+    case
+        validate_block_height(PubKey, BlockHeight, LedgerHeight, MaxHeight, Ledger)
+    of
+        false ->
+            {ok, no};
+        true ->
+            {ok, yes}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

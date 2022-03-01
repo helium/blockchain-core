@@ -238,8 +238,15 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    OUI = ?MODULE:oui(T),
+    case validate_oui(OUI, Ledger) of
+        {false, _LedgerOUI} ->
+            {ok, no};
+        true ->
+            {ok, yes}
+    end.
 
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

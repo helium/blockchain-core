@@ -114,8 +114,22 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{transactions=[_, _]=Txs}, Chain) ->
+    %% TODO Maybe something more sophisticated than this brutal all-or-nothing?
+    lists:foldl(
+        fun (_, {error, _}=Err) ->
+                Err;
+            (_, {ok, no}=No) ->
+                No;
+            (_, {ok, {not_yet, _}}) ->
+                {ok, no};
+            (Tx, {ok, yes}) ->
+                TxType = blockchain_txn:type(Tx),
+                TxType:is_prompt(Tx, Chain)
+        end,
+        {ok, yes},
+        Txs
+    ).
 
 -spec print(txn_bundle()) -> iodata().
 print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->

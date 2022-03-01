@@ -202,8 +202,19 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    GatewayAddr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddr, Ledger) of
+        {error, not_found} ->
+            {error, gateway_not_found};
+        {error, _Reason}=Error ->
+            Error;
+        {ok, GatewayInfo} ->
+            Given = nonce(T),
+            Current = blockchain_ledger_gateway_v2:nonce(GatewayInfo),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
 
 -spec absorb(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

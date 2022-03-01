@@ -233,8 +233,68 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        %% no chain, genesis block
+        {ok, 0} ->
+            {ok, yes};
+        {ok, CurrHeight} ->
+            {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+            TxnHeight = ?MODULE:height(T),
+            Delay = ?MODULE:delay(T),
+            case blockchain_ledger_v1:election_height(Ledger) of
+                {error, not_found} ->
+                    {ok, no};
+                {error, _}=Err ->
+                    Err;
+                {ok, BaseHeight} when TxnHeight =< BaseHeight ->
+                    {ok, no};
+                {ok, _} ->
+                    %% either genesis block or election is not too old
+                    {_, LastElectionHeight} =
+                        blockchain_block_v1:election_info(CurrBlock),
+                    {ok, ElectionInterval} =
+                        blockchain:config(?election_interval, Ledger),
+                    %% The next election should be at least ElectionInterval
+                    %% blocks past the last election.
+                    %% This check prevents elections ahead of schedule.
+                    case TxnHeight >= LastElectionHeight + ElectionInterval of
+                        true ->
+                            IntervalRange =
+                                case
+                                    blockchain:config(
+                                        ?election_restart_interval_range,
+                                        Ledger
+                                    )
+                                of
+                                    {ok, IR} -> IR;
+                                    _ -> 1
+                                end,
+                            {ok, RestartInterval} =
+                                blockchain:config(
+                                    ?election_restart_interval,
+                                    Ledger
+                                ),
+                            %% The next election should occur within
+                            %% RestartInterval blocks of when the election
+                            %% started
+                            NextRestart =
+                                LastElectionHeight
+                                + ElectionInterval
+                                + Delay
+                                + (RestartInterval * IntervalRange),
+                            IsCromulent =
+                                case CurrHeight =< NextRestart of
+                                    true -> yes;
+                                    false -> no
+                                end,
+                            {ok, IsCromulent};
+                        false ->
+                            {ok, no}
+                    end
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

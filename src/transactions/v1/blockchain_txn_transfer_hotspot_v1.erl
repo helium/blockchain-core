@@ -222,8 +222,16 @@ is_well_formed(#?T{buyer=B, seller=S}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(buyer(T), Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Given = buyer_nonce(T),
+            Current = blockchain_ledger_entry_v1:nonce(Entry),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
 
 -spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->

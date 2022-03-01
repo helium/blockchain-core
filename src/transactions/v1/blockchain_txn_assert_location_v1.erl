@@ -399,8 +399,22 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Addr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Gateway} ->
+            case owner(T) =:= blockchain_ledger_gateway_v2:owner_address(Gateway) of
+                false ->
+                    {ok, no};
+                true ->
+                    Given = nonce(T),
+                    Current = blockchain_ledger_gateway_v2:nonce(Gateway),
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -172,8 +172,17 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case {nonce(T), blockchain_ledger_v1:find_dc_entry(owner(T), Ledger)} of
+        {1, {error, dc_entry_not_found}} ->
+            {ok, yes};
+        {_, {error, _}=Err} ->
+            Err;
+        {Given, {ok, DCEntry}} ->
+            Current = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
 
 -spec absorb(Txn :: txn_state_channel_open(),
              Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

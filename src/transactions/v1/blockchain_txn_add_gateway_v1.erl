@@ -389,8 +389,18 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = gateway(T),
+    %% Only new gateways allowed:
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {ok, _} ->
+            {ok, no};
+        {error, not_found} ->
+            {ok, yes};
+        {error, _}=Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

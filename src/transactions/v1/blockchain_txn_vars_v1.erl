@@ -398,8 +398,24 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {error, _}=Err ->
+            Err;
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            case blockchain_ledger_v1:vars_nonce(Ledger) of
+                {error, not_found} ->
+                    {error, missing_ledger_nonce};
+                {error, _}=Err ->
+                    Err;
+                {ok, Current} ->
+                    Given = nonce(T),
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+            end
+    end.
 
 -spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 legacy_is_valid(Txn, Chain) ->

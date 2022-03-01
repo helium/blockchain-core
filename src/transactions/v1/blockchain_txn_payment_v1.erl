@@ -214,8 +214,23 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain:config(?deprecate_payment_v1, Ledger) of
+        {ok, true} ->
+            lager:error("payment_v1 deprecated"),
+            {ok, no};
+        _ ->
+            Payer = payer(T),
+            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                {error, _}=Err ->
+                    Err;
+                {ok, Entry} ->
+                    Given = ?MODULE:nonce(T),
+                    Current = blockchain_ledger_entry_v1:nonce(Entry),
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+            end
+    end.
 
 -spec absorb(txn_payment(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->

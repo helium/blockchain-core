@@ -128,8 +128,17 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            {ok, yes};
+        {ok, _} ->
+            lager:error("Coinbase txn cannot be absorbed because chain is not in genesis block."),
+            {ok, no};
+        {error, _}=Err ->
+            Err
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

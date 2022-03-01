@@ -298,8 +298,29 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    SC = ?MODULE:state_channel(T),
+    ExpiresAt = blockchain_state_channel_v1:expire_at_block(SC),
+    SCVersion = confgig_or(Ledger, ?sc_version, 0),
+    SCGrace = confgig_or(Ledger, ?sc_grace_blocks, 0),
+    case SCVersion == 0 orelse
+         (LedgerHeight >= ExpiresAt andalso
+         LedgerHeight =< ExpiresAt + SCGrace) of
+        false ->
+            {ok, no};
+        true ->
+            {ok, yes}
+    end.
+
+confgig_or(Ledger, Key, Default) ->
+    case blockchain:config(Key, Ledger) of
+        {ok, Val} ->
+            Val;
+        _ ->
+            Default
+    end.
 
 check_close_updates(LedgerSC, Txn, Ledger) ->
     %% a close from a participant in the SC, not from the owner

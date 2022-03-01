@@ -340,8 +340,17 @@ is_well_formed_update_xor(_) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}, _) ->
-    {ok, yes}.
+is_prompt(#?T{}=T, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    OUI = ?MODULE:oui(T),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Routing} ->
+            Given = ?MODULE:nonce(T),
+            Current = blockchain_ledger_routing_v1:nonce(Routing),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

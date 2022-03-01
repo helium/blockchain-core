@@ -175,6 +175,8 @@ is_well_formed(#?T{}=T) ->
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
 is_prompt(#?T{}, _) ->
+    %% XXX No nonce in this tx type, so what can we do?
+    %% TODO Perhaps non-zero chain height?
     {ok, yes}.
 
 -spec absorb(txn_rewards_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

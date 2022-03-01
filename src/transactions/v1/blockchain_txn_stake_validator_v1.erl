@@ -217,6 +217,7 @@ is_well_formed(#?T{}=T) ->
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
 is_prompt(#?T{}, _) ->
+    %% TODO What temporal things can be checked?
     {ok, yes}.
 
 -spec absorb(txn_stake_validator(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.

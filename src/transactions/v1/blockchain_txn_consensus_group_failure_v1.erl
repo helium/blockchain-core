@@ -219,6 +219,7 @@ is_well_formed(#?T{}=T) ->
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
 is_prompt(#?T{}, _) ->
+    %% TODO Revisit
     {ok, yes}.
 
 verify_proof(Txn, Hash, OldLedger) ->
