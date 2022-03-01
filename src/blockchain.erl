@@ -81,15 +81,16 @@
     db_handle/1,
     blocks_cf/1,
     heights_cf/1,
-    info_cf/1
+    info_cf/1,
 
+    bootstrap_hexes/1
 ]).
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1, clean/1]).
+-export([can_add_block/2, get_plausible_blocks/1, clean/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
@@ -339,6 +340,7 @@ upgrade_nonce_rescue(Ledger) ->
 get_upgrades(Ledger) ->
     [ Key || Key <- ?BC_UPGRADE_NAMES, blockchain_ledger_v1:check_key(Key, Ledger) ].
 
+%% move this to ledger?
 bootstrap_hexes(Ledger) ->
     %% hardcode this until we have the var update hook.
     Res = 5,
@@ -3027,6 +3029,8 @@ run_gc_hooks(Blockchain, _Hash) ->
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
         ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain, Ledger),
+
+        ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger),
 
         ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger) %,
 

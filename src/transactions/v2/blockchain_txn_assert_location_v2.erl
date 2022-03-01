@@ -466,51 +466,30 @@ maybe_update_neighbors(Gateway, Ledger) ->
                       Location :: h3:index(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_alter_hex(OldGw, Gateway, Location, Ledger) ->
-    %% hex index update code needs to be unconditional and hard-coded
-    %% until we have chain var update hook
-    %% {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-    Res = 5,
+    Res =
+      case blockchain:config(?poc_target_hex_parent_res, Ledger) of
+        {ok, V} -> V;
+        _ -> 5
+      end,
     OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
-    OldHex = case OldLoc of
-                 undefined ->
-                     undefined;
-                 _ ->
-                     h3:parent(OldLoc, Res)
-             end,
 
-    Hex = h3:parent(Location, Res),
-
-    case {OldLoc, Location, Hex} of
-        {undefined, New, H} ->
+    case {OldLoc, Location} of
+        {undefined, New} ->
             %% no previous location
-
             %% add new hex
-            blockchain_ledger_v1:add_to_hex(H, Gateway, Ledger),
-            %% add new location of this gateway to h3dex
-            blockchain_ledger_v1:add_gw_to_hex(New, Gateway, Ledger);
-        {Old, Old, _H} ->
+            blockchain_ledger_v1:add_to_hex(New, Gateway, Res, Ledger);
+        {Old, Old} ->
             %% why even check this, same loc as old loc
             ok;
-        {Old, New, H} when H == OldHex ->
-            %% moved within the same Hex
+        {Old, New} ->
+            %% moving this to the h3dex targeting code means that we can't optimize the same way,
+            %% but in return we get to control what code is actually run via chain var.  if the
+            %% performance of this is terrible wrt syncing old blocks, we can add ledger:move_hex 
 
-            %% remove old location of this gateway from h3dex
-            blockchain_ledger_v1:remove_gw_from_hex(Old, Gateway, Ledger),
-
-            %% add new location of this gateway to h3dex
-            blockchain_ledger_v1:add_gw_to_hex(New, Gateway, Ledger);
-        {Old, New, H} ->
-            %% moved to a different hex
-
-            %% remove this hex
-            blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
-            %% add new hex
-            blockchain_ledger_v1:add_to_hex(H, Gateway, Ledger),
-
-            %% remove old location of this gateway from h3dex
-            blockchain_ledger_v1:remove_gw_from_hex(Old, Gateway, Ledger),
-            %% add new location of this gateway to h3dex
-            blockchain_ledger_v1:add_gw_to_hex(New, Gateway, Ledger)
+            %% remove old location
+            blockchain_ledger_v1:remove_from_hex(Old, Gateway, Res, Ledger),
+            %% add new location
+            blockchain_ledger_v1:add_to_hex(New, Gateway, Res, Ledger)
     end.
 
 -spec print(txn_assert_location()) -> iodata().
