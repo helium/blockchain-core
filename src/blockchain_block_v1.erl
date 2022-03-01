@@ -25,7 +25,7 @@
     set_signatures/2, set_signatures/3,
     new_genesis_block/1,
     is_genesis/1,
-    hash_block/1,
+    hash_block/1, hash_serialized/1,
     rescue_signature/1,
     rescue_signatures/1,
     seen_votes/1,
@@ -252,8 +252,22 @@ is_genesis(Block) ->
 %%--------------------------------------------------------------------
 -spec hash_block(block()) -> blockchain_block:hash().
 hash_block(Block) ->
+    lager:info("hashing block ~p", [stack()]),
     EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>)),
     crypto:hash(sha256, EncodedBlock).
+
+-spec hash_serialized(binary()) -> blockchain_block:hash().
+hash_serialized(EncodedBlock) ->
+    lager:info("hashing serialized block"),
+    crypto:hash(sha256, EncodedBlock).
+
+stack() ->
+    case get(suppress_stack) of
+        true ->
+            ok;
+        _ ->
+            element(2, erlang:process_info(self(), current_stacktrace))
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc The two arities for `verify_signatures` are meant to allow for
@@ -275,7 +289,6 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
             {true, Sigs};
         Else -> Else
     end.
-
 
 -spec verify_signatures(Block::binary() | block(),
                         ConsensusMembers::[libp2p_crypto:pubkey_bin()],

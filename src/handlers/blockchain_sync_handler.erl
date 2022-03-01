@@ -120,41 +120,41 @@ init(server, _Conn, [_, _HandlerModule, [Path, Blockchain]] = _Args) ->
                 path=Path, gossiped_hash= <<>>}}.
 
 handle_data(client, Data0, #state{blockchain=Chain, path=Path, gossiped_hash=GossipedHash, swarm=SwarmTID}=State) ->
-    Data =
-        case Path of
-            ?SYNC_PROTOCOL_V1 -> Data0;
-            ?SYNC_PROTOCOL_V2 -> zlib:uncompress(Data0)
-        end,
-    #blockchain_sync_blocks_pb{blocks=BinBlocks} =
-        blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
+    {Pid, Ref} =
+        spawn_monitor(
+          fun() ->
+                  Data =
+                      case Path of
+                          ?SYNC_PROTOCOL_V1 -> Data0;
+                          ?SYNC_PROTOCOL_V2 -> zlib:uncompress(Data0)
+                      end,
+                  #blockchain_sync_blocks_pb{blocks=BinBlocks} =
+                      blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
 
-    Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
-    lager:info("adding sync blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
+                  %% todo: this was helpful, add it back somehow?
+                  %% lager:info("adding sync blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
 
-    %% store these ASAP as plausible blocks and
-    %% eagerly re-gossip the last plausible block we saw
-    case blockchain:save_plausible_blocks(lists:zip(BinBlocks, Blocks), Chain) of
-        error ->
-            lager:info("no plausible blocks in batch"),
-            %% nothing was plausible, see if it has anything else
+                  %% store these ASAP as plausible blocks and
+                  %% eagerly re-gossip the last plausible block we saw
+                  case blockchain:save_plausible_blocks(BinBlocks, Chain) of
+                      error ->
+                          lager:info("no plausible blocks in batch"),
+                          %% nothing was plausible, see if it has anything else
+                          ok;
+                      HighestPlausible ->
+                          lager:info("Eagerly re-gossiping ~p", [blockchain_block:height(HighestPlausible)]),
+                          blockchain_gossip_handler:regossip_block(HighestPlausible, SwarmTID),
+                          %% this will check any plausible blocks we have and add them to the chain if possible
+                          blockchain:check_plausible_blocks(Chain, GossipedHash)
+                  end
+          end),
+    receive
+        {'DOWN', Ref, process, Pid, normal} ->
             {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
-        HighestPlausible ->
-            lager:info("Eagerly re-gossiping ~p", [blockchain_block:height(HighestPlausible)]),
-            blockchain_gossip_handler:regossip_block(HighestPlausible, SwarmTID),
-            %% do this in a spawn so that the connection dying does not stop adding blocks
-            {Pid, Ref} = spawn_monitor(fun() ->
-                                               %% this will check any plausible blocks we have and add them to the chain if possible
-                                               blockchain:check_plausible_blocks(Chain, GossipedHash)
-                                       end),
-            receive
-                {'DOWN', Ref, process, Pid, normal} ->
-                    {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
-                {'DOWN', Ref, process, Pid, _Error} ->
-                    %% TODO: maybe dial for sync again?
-                    {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
-            end
+        {'DOWN', Ref, process, Pid, _Error} ->
+            %% TODO: maybe dial for sync again?
+            {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
     end;
- 
 handle_data(server, Data, #state{blockchain=Blockchain, batch_size=BatchSize,
                                  batches_sent=Sent, batch_limit=Limit,
                                  path=Path, requested=StRequested}=State) ->

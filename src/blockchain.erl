@@ -22,7 +22,7 @@
     put_block_height/3,
     put_block_info/3, get_block_info/2,
     mk_block_info/2,
-    save_block/2,
+    save_block/2, save_bin_block/3,
     has_block/2,
     find_first_block_after/2,
 
@@ -88,14 +88,30 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
+%% don't like adding this here, but
+-include_lib("helium_proto/include/blockchain_block_v1_pb.hrl").
+
 -ifdef(TEST).
+
 -export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1, clean/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
+-define(save_bin_block(BinBlock, Chain), ?MODULE:save_bin_block(Block, BinBlock, Chain)).
 -include_lib("eunit/include/eunit.hrl").
+
 -else.
+
 -define(save_block(Block, Chain), save_block(Block, Chain)).
+-define(save_bin_block(Block, BinBlock, Chain), save_bin_block(Block, BinBlock, Chain)).
+
 -endif.
+
+-record(block_data,
+        {
+         block :: undefined | blockchain_block:block(),
+         bin :: undefined | binary(),
+         hash :: undefined | blockchain_block:hash()
+        }).
 
 -record(blockchain, {
     dir :: file:filename_all(),
@@ -916,7 +932,7 @@ find_first_block_after(MinHeight, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_blocks([blockchain_block:block()], blockchain()) -> ok | exists | plausible | {error, any()}.
+-spec add_blocks([binary()], blockchain()) -> ok | exists | plausible | {error, any()}.
 add_blocks(Blocks, Chain) ->
     add_blocks(Blocks, <<>>, Chain).
 
@@ -935,23 +951,63 @@ add_blocks(Blocks, GossipedHash, Chain) ->
 
 add_blocks_([], _, _Chain) ->  ok;
 add_blocks_([Block | Blocks], GossipedHash, Chain) ->
-    case ?MODULE:add_block(Block, Chain, GossipedHash /= blockchain_block:hash_block(Block)) of
+    case ?MODULE:add_block(Block, Chain, {unknown, GossipedHash}) of
         Res when Res == ok; Res == plausible; Res == exists ->
             add_blocks_(Blocks, GossipedHash, Chain);
         Error ->
             Error
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> ok | exists | plausible | {error, any()}.
+-spec add_block(binary() | blockchain_block:block(), blockchain()) -> ok | exists | plausible | {error, any()}.
 add_block(Block, Blockchain) ->
     add_block(Block, Blockchain, false).
 
--spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | exists | plausible | {error, any()}.
-add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=DefaultCF} = Blockchain, Syncing) ->
+-spec add_block(binary() | blockchain_block:block() | #block_data{},
+                blockchain(), boolean()) ->
+          ok | exists | plausible | {error, any()}.
+add_block(Block, Blockchain, Syncing0) when is_record(Block, blockchain_block_v1_pb) ->
+    put(suppress_stack, true),
+    BinBlock = blockchain_block:serialize(Block),
+    Type = blockchain_block:type(Block),
+    Hash = blockchain_block:hash_serialized(Type, BinBlock),
+    erase(suppress_stack),
+    BlockData =
+        #block_data{
+           block = Block,
+           bin = BinBlock,
+           hash = Hash
+          },
+    Syncing =
+        case Syncing0 of
+            {unknown, GossipedHash} ->
+                GossipedHash /= Hash;
+            _ ->
+                Syncing0
+        end,
+    add_block(BlockData, Blockchain, Syncing);
+add_block(BinBlock, Blockchain, Syncing0) when is_binary(BinBlock) ->
+    put(suppress_stack, true),
+    Block = blockchain_block:deserialize(BinBlock),
+    Type = blockchain_block:type(Block),
+    Hash = blockchain_block:hash_serialized(Type, BinBlock),
+    erase(suppress_stack),
+    BlockData =
+        #block_data{
+           block = Block,
+           bin = BinBlock,
+           hash = Hash
+          },
+    Syncing =
+        case Syncing0 of
+            {unknown, GossipedHash} ->
+                GossipedHash /= Hash;
+            _ ->
+                Syncing0
+        end,
+    add_block(BlockData, Blockchain, Syncing);
+add_block(#block_data{block = Block, hash = Hash, bin = BinBlock} = BlockData,
+          #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=DefaultCF} = Blockchain, Syncing)
+  when is_record(BlockData, block_data) ->
     blockchain_lock:acquire(),
     try
         PrevHash = blockchain_block:prev_hash(Block),
@@ -959,7 +1015,6 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
             {ok, PrevHash} ->
                 %% this is the block we've been missing
                 Height = blockchain_block:height(Block),
-                Hash = blockchain_block:hash_block(Block),
                 %% check if it fits between the 2 known good blocks
                 case get_block(Height + 1, Blockchain) of
                     {ok, NextBlock} ->
@@ -967,7 +1022,7 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
                             Hash ->
                                 {ok, Batch} = rocksdb:batch(),
                                 %% everything lines up
-                                ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
+                                ok = rocksdb:batch_put(Batch, BlocksCF, Hash, BinBlock),
                                 %% lexiographic ordering works better with big endian
                                 ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
                                 ok = rocksdb:batch_delete(Batch, DefaultCF, ?MISSING_BLOCK),
@@ -981,7 +1036,7 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
             _ ->
                 case persistent_term:get(?ASSUMED_VALID, undefined) of
                     undefined ->
-                        case add_block_(Block, Blockchain, Syncing) of
+                        case add_block_(BlockData, Blockchain, Syncing) of
                             ok ->
                                 check_plausible_blocks(Blockchain),
                                 ok;
@@ -998,8 +1053,21 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
         blockchain_lock:release()
     end.
 
-can_add_block(Block, Blockchain) ->
-    Hash = blockchain_block:hash_block(Block),
+%% this top clause is test-only
+can_add_block(Block, Blockchain)  when is_record(Block, blockchain_block_v1_pb) ->
+    put(suppress_stack, true),
+    BinBlock = blockchain_block:serialize(Block),
+    Type = blockchain_block:type(Block),
+    Hash = blockchain_block:hash_serialized(Type, BinBlock),
+    erase(suppress_stack),
+    BlockData =
+        #block_data{
+           block = Block,
+           bin = BinBlock,
+           hash = Hash
+          },
+    can_add_block(BlockData, Blockchain);
+can_add_block(#block_data{hash = Hash, block = Block}, Blockchain) ->
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
         true when Hash =:= GenesisHash ->
@@ -1116,7 +1184,8 @@ get_key_or_keys(Ledger) ->
             blockchain_ledger_v1:master_key(Ledger)
     end.
 
-add_block_(Block, Blockchain, Syncing) ->
+add_block_(#block_data{hash = Hash, block = Block, bin = BinBlock},
+           Blockchain, Syncing) ->
     %% TODO: we know that swarm calls can block, it would be nice if we had all the pubkey bin and
     %% tid calls threaded through from the top
     Ledger = blockchain:ledger(Blockchain),
@@ -1128,13 +1197,12 @@ add_block_(Block, Blockchain, Syncing) ->
             case can_add_block(Block, Blockchain) of
                 {true, IsRescue} ->
                     Height = blockchain_block:height(Block),
-                    Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
                     MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
-                    BeforeCommit = fun(FChain, FHash) ->
+                    BeforeCommit = fun(FChain) ->
                                            lager:debug("adding block ~p", [Height]),
-                                           ok = ?save_block(Block, Blockchain),
-                                           ok = run_gc_hooks(FChain, FHash)
+                                           ok = ?save_bin_block(BinBlock, Blockchain),
+                                           ok = run_gc_hooks(FChain, Hash)
                                    end,
                     {Signers, _Signatures} = lists:unzip(Sigs),
                     Fun = case lists:member(MyAddress, Signers) orelse FollowMode of
@@ -2971,29 +3039,30 @@ check_plausible_blocks(Chain) ->
 check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
     blockchain_lock:acquire(), %% need the lock and we can get called without holding it
     Blocks = get_plausible_blocks(Chain),
-    SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
+    SortedBlocks = lists:sort(fun(#block_data{block = A},
+                                  #block_data{block = B}) ->
+                                      blockchain_block:height(A) =< blockchain_block:height(B)
+                              end, Blocks),
     {ok, Batch} = rocksdb:batch(),
-    lists:foreach(fun(Block) ->
-                          Hash = blockchain_block:hash_block(Block),
-                          try can_add_block(Block, Chain) of
+    lists:foreach(fun(#block_data{hash = Hash, height = Height, block = Block} = BlockData) ->
+                          try can_add_block(BlockData, Chain) of
                               {true, _IsRescue} ->
-                                  %% TODO try to retain the binary block through here and pass it into add_block to
-                                  %% save on another serialize() call
-                                  add_block_(Block, Chain, GossipedHash /= Hash),
-                                  remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block));
+                                  %% set the sync flag to true as we've already gossiped these blocks on
+                                  add_block_(BlockData, Chain, GossipedHash /= Hash),
+                                  remove_plausible_block(Chain, Batch, Hash, Height);
                               exists ->
                                   case is_block_plausible(Block, Chain) of
                                       true ->
                                           %% still plausible, leave it alone
                                           ok;
                                       false ->
-                                          remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
+                                          remove_plausible_block(Chain, Batch, Hash, Height)
                                   end;
                               _Error ->
-                                  remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
+                                  remove_plausible_block(Chain, Batch, Hash, Height)
                           catch
                               _:_ ->
-                                  remove_plausible_block(Chain, Batch, Hash, blockchain_block:height(Block))
+                                  remove_plausible_block(Chain, Batch, Hash, Height)
                           end
                   end, SortedBlocks),
     rocksdb:write_batch(DB, Batch, [{sync, true}]),
@@ -3002,8 +3071,10 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
 -spec get_plausible_blocks(blockchain()) -> [blockchain_block:block()].
 get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
     {ok, Itr} = rocksdb:iterator(DB, CF, []),
+    put(suppress_stack, true),
     Res = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
     catch rocksdb:iterator_close(Itr),
+    erase(suppress_stack),
     Res.
 
 get_plausible_blocks(_Itr, {error, _}, Acc) ->
@@ -3013,7 +3084,11 @@ get_plausible_blocks(Itr, {ok, <<_Height:64/integer-unsigned-big>>, _BinBlock}, 
 get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
     NewAcc = try blockchain_block:deserialize(BinBlock) of
                  Block ->
-                     [Block|Acc]
+                     Hash = blockchain_block:hash_serialized(blockchain_block:type(Block),
+                                                             BinBlock),
+                     [#block_data{block = Block,
+                                  bin = BinBlock,
+                                  hash = Hash} | Acc]
              catch
                  What:Why ->
                      lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [_Key, What, Why]),
