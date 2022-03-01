@@ -28,7 +28,7 @@
     vars_binary_keys_to_atoms/1,
     icdf_select/2,
     find_txn/2,
-    map_to_bitvector/2,
+    map_to_bitvector/1,
     bitvector_to_map/2,
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
@@ -430,12 +430,10 @@ icdf_select_([{_Node, Weight} | Tail], Rnd) ->
 
 
 
--spec map_to_bitvector(pos_integer(), #{pos_integer() => boolean()}) -> binary().
-map_to_bitvector(Count, Map) ->
+-spec map_to_bitvector(#{pos_integer() => boolean()}) -> binary().
+map_to_bitvector(Map) ->
     %% grab the biggest index
-    Top = lists:max(maps:keys(Map)),
-    %% cap at the size of the group
-    Sz = min(Top, Count),
+    Sz = lists:max(maps:keys(Map)),
     Int = lists:foldl(
             fun({ID, true}, Acc) ->
                     Acc bor (1 bsl (ID - 1));
@@ -766,29 +764,23 @@ bitvector_roundtrip_test() ->
     L2 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L02),
     L3 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L03),
     L4 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L04),
-    L5 = L4 ++ [{30000000, true}],
 
     M1 = maps:from_list(L1),
     M2 = maps:from_list(L2),
     M3 = maps:from_list(L3),
     M4 = maps:from_list(L4),
-    M5 = maps:from_list(L5),
 
-    ?assert(compare(M1, bitvector_to_map(16, map_to_bitvector(16, M1)))),
-    ?assert(compare(M2, bitvector_to_map(19, map_to_bitvector(19, M2)))),
-    ?assert(compare(M3, bitvector_to_map(64, map_to_bitvector(64, M3)))),
-    ?assert(compare(M4, bitvector_to_map(122, map_to_bitvector(122, M4)))),
-    %% note M4 -----V here, since we expect the encoding to truncate at the size indicated
-    ?assert(compare(M4, bitvector_to_map(122, map_to_bitvector(122, M5)))),
+    ?assert(compare(M1, bitvector_to_map(16, map_to_bitvector(M1)))),
+    ?assert(compare(M2, bitvector_to_map(19, map_to_bitvector(M2)))),
+    ?assert(compare(M3, bitvector_to_map(64, map_to_bitvector(M3)))),
+    ?assert(compare(M4, bitvector_to_map(122, map_to_bitvector(M4)))),
 
-    BV1 = map_to_bitvector(32, #{1 => true, 9 => true}),
+    BV1 = map_to_bitvector(#{1 => true, 9 => true}),
     ?assertEqual(2, byte_size(BV1)),
-    BV2 = map_to_bitvector(32, #{1 => true, 9 => true, 17 => true}),
+    BV2 = map_to_bitvector(#{1 => true, 9 => true, 17 => true}),
     ?assertEqual(3, byte_size(BV2)),
-    BV3 = map_to_bitvector(32, #{1 => true, 9 => true, 17 => true, 25 => true}),
+    BV3 = map_to_bitvector(#{1 => true, 9 => true, 17 => true, 25 => true}),
     ?assertEqual(4, byte_size(BV3)),
-    BV4 = map_to_bitvector(32, #{1 => true, 9 => true, 17 => true, 25 => true, 33 => true}),
-    ?assertEqual(4, byte_size(BV4)),
 
     ok.
 
