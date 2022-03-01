@@ -340,7 +340,7 @@ replay_test(Config) ->
 
     %% Put the valid txn in a block and gossip
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [BuyerSignedTxn]),
-    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
@@ -361,7 +361,7 @@ replay_test(Config) ->
 
     %% Put the buyback txn in a block
     {ok, Block3} = test_utils:create_block(ConsensusMembers, [BuyerSignedBackToSellerTxn]),
-    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
     ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),

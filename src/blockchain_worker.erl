@@ -102,7 +102,6 @@
 -record(state,
         {
          blockchain :: undefined | {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
-         swarm :: undefined | pid(),
          swarm_tid :: undefined | ets:tab(),
          sync_timer = make_ref() :: reference(),
          sync_ref = make_ref() :: reference(),
@@ -349,7 +348,6 @@ signed_metadata_fun() ->
 %% ------------------------------------------------------------------
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
-    Swarm = blockchain_swarm:swarm(),
     SwarmTID = blockchain_swarm:tid(),
     %% allows the default interface to be to overridden, for example tests work better running with just 127.0.0.1 rather than running on all interfaces
     ListenInterface = application:get_env(blockchain, listen_interface, "0.0.0.0"),
@@ -386,7 +384,7 @@ init(Args) ->
 
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(SwarmTID, Addr) || Addr <- ListenAddrs ]),
-    NewState = #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
+    NewState = #state{swarm_tid = SwarmTID, blockchain = Blockchain,
                 gossip_ref = Ref},
     {Mode, Info} = get_sync_mode(NewState),
     SnapshotTimerRef = schedule_snapshot_timer(),
@@ -432,7 +430,7 @@ handle_call({install_snapshot_from_file, Filename}, From, State) ->
     Height = blockchain_ledger_snapshot_v1:height(Snapshot),
     handle_call({install_snapshot, Height, Hash, Snapshot, {file, Filename}}, From, State);
 handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
-            #state{blockchain = Chain, mode = Mode, swarm = Swarm} = State) ->
+            #state{blockchain = Chain, mode = Mode, swarm_tid = SwarmTID} = State) ->
     lager:info("installing snapshot ~p", [Hash]),
     %% I don't think that we want to auto-repair right now, do default
     %% this to disabled.  nothing currently will ever set the mode to
@@ -465,10 +463,10 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
                     blockchain:bootstrap_h3dex(NewLedger1),
                     blockchain_ledger_v1:commit_context(NewLedger1)
             end,
-            remove_handlers(Swarm),
+            remove_handlers(SwarmTID),
             NewChain = blockchain:delete_temp_blocks(Chain1),
             notify({new_chain, NewChain}),
-            {ok, GossipRef} = add_handlers(Swarm, NewChain),
+            {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
             {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),
             {ok, ChainHeight} = blockchain:height(NewChain),
             case LedgerHeight >= ChainHeight of
@@ -486,7 +484,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
         end;
 
 handle_call({install_aux_snapshot, Snapshot}, _From,
-            #state{blockchain = Chain, swarm = Swarm} = State) ->
+            #state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
     ok = blockchain_lock:acquire(),
     OldLedger = blockchain:ledger(Chain),
     blockchain_ledger_v1:clean_aux(OldLedger),
@@ -494,8 +492,8 @@ handle_call({install_aux_snapshot, Snapshot}, _From,
     blockchain_ledger_snapshot_v1:load_into_ledger(Snapshot, NewLedger, aux),
     blockchain_ledger_snapshot_v1:load_blocks(blockchain_ledger_v1:mode(aux, NewLedger), Chain, Snapshot),
     NewChain = blockchain:ledger(NewLedger, Chain),
-    remove_handlers(Swarm),
-    {ok, GossipRef} = add_handlers(Swarm, NewChain),
+    remove_handlers(SwarmTID),
+    {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
     notify({new_chain, NewChain}),
     blockchain_lock:release(),
     {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
@@ -547,7 +545,7 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
-    {Blockchain, Ref} = load_chain(State#state.swarm, BaseDir, GenDir),
+    {Blockchain, Ref} = load_chain(State#state.swarm_tid, BaseDir, GenDir),
     {Mode, Info} = get_sync_mode(State#state{blockchain=Blockchain, gossip_ref=Ref}),
     NewState = State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info},
     notify({new_chain, Blockchain}),

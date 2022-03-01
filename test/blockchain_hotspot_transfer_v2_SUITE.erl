@@ -300,7 +300,7 @@ buyback_test(Config) ->
     ok = blockchain_txn:is_valid(STxn1, Chain),
 
     {ok, B1} = test_utils:create_block(ConsensusMembers, [STxn1]),
-    _ = blockchain_gossip_handler:add_block(B1, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(B1, Chain, self(), blockchain_swarm:tid()),
 
     ok = test_utils:wait_until(fun() -> {ok, Ht + 1} =:= blockchain:height(Chain) end),
 
@@ -317,7 +317,7 @@ buyback_test(Config) ->
     ok = blockchain_txn:is_valid(STxn2, Chain),
 
     {ok, B2} = test_utils:create_block(ConsensusMembers, [STxn2]),
-    _ = blockchain_gossip_handler:add_block(B2, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(B2, Chain, self(), blockchain_swarm:tid()),
 
     ok = test_utils:wait_until(fun() -> {ok, Ht + 1 + 1} =:= blockchain:height(Chain) end),
 
@@ -493,7 +493,7 @@ owner_cannot_afford_test(Config) ->
     ok = blockchain_txn:is_valid(SignedPaymentTxn, Chain),
 
     {ok, B1} = test_utils:create_block(ConsensusMembers, [SignedPaymentTxn]),
-    _ = blockchain_gossip_handler:add_block(B1, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(B1, Chain, self(), blockchain_swarm:tid()),
 
     ct:pal("New Balance: ~p", [blockchain_ledger_v1:find_entry(OwnerPubkeyBin, Ledger)]),
 

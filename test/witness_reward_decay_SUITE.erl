@@ -391,10 +391,10 @@ create_req_and_poc_blocks(
     SignedPocTxn = blockchain_txn_poc_receipts_v1:sign(PocTxn, ChallengerSigFun),
 
     {ok, ReqBlock} = test_utils:create_block(ConsensusMembers, [SignedReqTxn], #{}, false),
-    _ = blockchain_gossip_handler:add_block(ReqBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(ReqBlock, Chain, self(), blockchain_swarm:tid()),
 
     {ok, PocBlock} = test_utils:create_block(ConsensusMembers, [SignedPocTxn], #{}, false),
-    _ = blockchain_gossip_handler:add_block(PocBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(PocBlock, Chain, self(), blockchain_swarm:tid()),
 
     ok.
 

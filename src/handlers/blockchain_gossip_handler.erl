@@ -192,14 +192,14 @@ add_block(Block, Chain, Sender, SwarmTID) ->
             end
     end.
 
--spec gossip_data_v1(libp2p_swarm:swarm(), blockchain_block:block()) -> binary().
+-spec gossip_data_v1(ets:tid(), blockchain_block:block()) -> binary().
 gossip_data_v1(SwarmTID, Block) ->
     PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
     BinBlock = blockchain_block:serialize(Block),
     Msg = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
--spec gossip_data_v2(libp2p_swarm:swarm(), binary(), pos_integer()) -> binary().
+-spec gossip_data_v2(ets:tid(), binary(), pos_integer()) -> binary().
 gossip_data_v2(SwarmTID, Hash, Height) ->
     PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
     Msg = #blockchain_gossip_block_pb{from=PubKeyBin, hash=Hash, height=Height},

@@ -130,7 +130,7 @@ enable_implicit_burn_test(Config) ->
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
 
     TxHash = blockchain_txn:hash(SignedTx),
 
@@ -186,7 +186,7 @@ disabled_implicit_burn_test(Config) ->
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
 
     TxHash = blockchain_txn:hash(SignedTx),
 
