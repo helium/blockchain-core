@@ -282,6 +282,9 @@
 %% Hierarchical targeting variables
 %% Create hexes at this resolution for all the hotspots on the network.
 -define(poc_target_hex_parent_res, poc_target_hex_parent_res).
+%% Defines the resolution at which the garbage collection is run, allowing us 
+%% to tune the per-block workload
+-define(poc_target_hex_collection_res, poc_target_hex_collection_res).
 
 %% RSSI Bucketing variables
 %% Weight associated with biasing for RSSI centrality measures
