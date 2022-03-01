@@ -186,7 +186,7 @@ snapshot_info(["snapshot", "info", Filename], [], []) ->
     BlocksContained = case maps:get(blocks, Snap) of 
                           BinData = <<131, _/binary>> -> 
                               binary_to_term(BinData);
-                          {FD={file_descriptor, _, _}, Offset, Size} ->
+                          {FD, Offset, Size} when is_record(FD, file_descriptor) ->
                               file:position(FD, Offset),
                               {ok, BinData} = file:read(FD, Size),
                               binary_to_term(BinData)
