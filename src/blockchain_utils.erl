@@ -28,7 +28,7 @@
     vars_binary_keys_to_atoms/1,
     icdf_select/2,
     find_txn/2,
-    map_to_bitvector/1,
+    map_to_bitvector/2,
     bitvector_to_map/2,
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
@@ -430,9 +430,12 @@ icdf_select_([{_Node, Weight} | Tail], Rnd) ->
 
 
 
--spec map_to_bitvector(#{pos_integer() => boolean()}) -> binary().
-map_to_bitvector(Map) ->
-    Sz = maps:size(Map),
+-spec map_to_bitvector(pos_integer(), #{pos_integer() => boolean()}) -> binary().
+map_to_bitvector(Count, Map) ->
+    %% grab the biggest index
+    Top = lists:max(maps:keys(Map)),
+    %% cap at the size of the group
+    Sz = min(Top, Count),
     Int = lists:foldl(
             fun({ID, true}, Acc) ->
                     Acc bor (1 bsl (ID - 1));
@@ -754,21 +757,53 @@ start_swarm(Name, BaseDir) ->
     libp2p_swarm:start(Name, SwarmOpts).
 
 bitvector_roundtrip_test() ->
-    L1 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 16)],
-    L2 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 19)],
-    L3 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 64)],
-    L4 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 122)],
+    L01 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 16)],
+    L02 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 19)],
+    L03 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 64)],
+    L04 = [begin B = case rand:uniform(3) of 1 -> true; 2 -> false; _ -> remove end, {N,B} end || N <- lists:seq(1, 122)],
+
+    L1 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L01),
+    L2 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L02),
+    L3 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L03),
+    L4 = lists:filter(fun({_, remove}) -> false; (_) -> true end, L04),
+    L5 = L4 ++ [{30000000, true}],
 
     M1 = maps:from_list(L1),
     M2 = maps:from_list(L2),
     M3 = maps:from_list(L3),
     M4 = maps:from_list(L4),
+    M5 = maps:from_list(L5),
 
-    ?assertEqual(M1, bitvector_to_map(16, map_to_bitvector(M1))),
-    ?assertEqual(M2, bitvector_to_map(19, map_to_bitvector(M2))),
-    ?assertEqual(M3, bitvector_to_map(64, map_to_bitvector(M3))),
-    ?assertEqual(M4, bitvector_to_map(122, map_to_bitvector(M4))),
+    ?assert(compare(M1, bitvector_to_map(16, map_to_bitvector(16, M1)))),
+    ?assert(compare(M2, bitvector_to_map(19, map_to_bitvector(19, M2)))),
+    ?assert(compare(M3, bitvector_to_map(64, map_to_bitvector(64, M3)))),
+    ?assert(compare(M4, bitvector_to_map(122, map_to_bitvector(122, M4)))),
+    %% note M4 -----V here, since we expect the encoding to truncate at the size indicated
+    ?assert(compare(M4, bitvector_to_map(122, map_to_bitvector(122, M5)))),
+
+    BV1 = map_to_bitvector(32, #{1 => true, 9 => true}),
+    ?assertEqual(2, byte_size(BV1)),
+    BV2 = map_to_bitvector(32, #{1 => true, 9 => true, 17 => true}),
+    ?assertEqual(3, byte_size(BV2)),
+    BV3 = map_to_bitvector(32, #{1 => true, 9 => true, 17 => true, 25 => true}),
+    ?assertEqual(4, byte_size(BV3)),
+    BV4 = map_to_bitvector(32, #{1 => true, 9 => true, 17 => true, 25 => true, 33 => true}),
+    ?assertEqual(4, byte_size(BV4)),
+
     ok.
+
+compare(M1, M2) ->
+    maps:fold(
+      fun(_, _, false) ->
+              false;
+         (K, V, true) ->
+              case maps:find(K, M2) of
+                  {ok, V} -> true;
+                  _ -> false
+              end
+      end,
+      true,
+      M1).
 
 oracle_keys_test() ->
     #{ public := RawEccPK } = libp2p_crypto:generate_keys(ecc_compact),
