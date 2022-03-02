@@ -433,7 +433,7 @@ icdf_select_([{_Node, Weight} | Tail], Rnd) ->
 -spec map_to_bitvector(#{pos_integer() => boolean()}) -> binary().
 map_to_bitvector(Map) ->
     %% grab the biggest index
-    Sz = lists:max(maps:keys(Map)),
+    Sz = lists:max([0 |maps:keys(Map)]),
     Int = lists:foldl(
             fun({ID, true}, Acc) ->
                     Acc bor (1 bsl (ID - 1));
