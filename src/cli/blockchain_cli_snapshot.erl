@@ -187,14 +187,17 @@ snapshot_info(["snapshot", "info", Filename], [], []) ->
     NumBlocks = length(BlocksContained),
     StartBlockHt = blockchain_block:height(blockchain_block:deserialize(hd(BlocksContained))),
     EndBlockHt = blockchain_block:height(blockchain_block:deserialize(lists:last(BlocksContained))),
-    [clique_status:text(io_lib:format("Height ~p\nNumBlocks ~p\nStartBlockHt ~p\nEndBlockHt ~p\nHash ~p (~p)\n",
-                                      [blockchain_ledger_snapshot_v1:height(Snap),
-                                       NumBlocks,
-                                       StartBlockHt,
-                                       EndBlockHt,
-                                       blockchain_ledger_snapshot_v1:hash(Snap),
-                                       binary_to_hex(blockchain_ledger_snapshot_v1:hash(Snap))]
-                                     ))];
+    RawHash = blockchain_ledger_snapshot_v1:hash(Snap),
+    Out = [ {height, blockchain_ledger_snapshot_v1:height(Snap)},
+            {number_blocks, NumBlocks},
+            {start_block, StartBlockHt},
+            {end_block, EndBlockHt},
+            {raw_hash, io_lib:format("~w", [RawHash])},
+            {hex_hash, binary_to_hex(RawHash)},
+            {b64_hash, base64url:encode(RawHash)} ],
+    R = [ {K, to_list(V)} || {K, V} <- Out ],
+    [clique_status:table([R])];
+
 snapshot_info(_, _, _) ->
     usage.
 
@@ -240,3 +243,8 @@ hexstr_to_bin([X,Y|T], Acc) ->
 hexstr_to_bin([X|T], Acc) ->
     {ok, [V], []} = io_lib:fread("~16u", lists:flatten([X,"0"])),
     hexstr_to_bin(T, [V | Acc]).
+
+to_list(V) when is_list(V) -> V;
+to_list(V) when is_binary(V) -> binary_to_list(V);
+to_list(V) when is_atom(V) -> atom_to_list(V);
+to_list(V) when is_integer(V) -> integer_to_list(V).
