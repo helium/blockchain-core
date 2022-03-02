@@ -183,17 +183,7 @@ snapshot_info_usage() ->
 
 snapshot_info(["snapshot", "info", Filename], [], []) ->
     {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize({file, Filename}),
-    BlocksContained = case maps:get(blocks, Snap) of 
-                          BinData = <<131, _/binary>> -> 
-                              binary_to_term(BinData);
-                          {FD, Offset, Size} when is_record(FD, file_descriptor) ->
-                              file:position(FD, Offset),
-                              {ok, BinData} = file:read(FD, Size),
-                              binary_to_term(BinData)
-                      end,
-    NumBlocks = length(BlocksContained),
-    StartBlockHt = blockchain_block:height(blockchain_block:deserialize(hd(BlocksContained))),
-    EndBlockHt = blockchain_block:height(blockchain_block:deserialize(lists:last(BlocksContained))),
+    {ok, {NumBlocks, StartBlockHt, EndBlockHt}} = blockchain_ledger_snapshot_v1:blocks_info(Snap),
     [clique_status:text(io_lib:format("Height ~p\nNumBlocks ~p\nStartBlockHt ~p\nEndBlockHt ~p\nHash ~p (~p)\n",
                                       [blockchain_ledger_snapshot_v1:height(Snap),
                                        NumBlocks,

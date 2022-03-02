@@ -24,6 +24,7 @@
 
          height/1,
          hash/1,
+         blocks_info/1,
 
          diff/2
         ]).
@@ -1255,6 +1256,21 @@ kv_stream_to_list(Next0) when is_function(Next0) ->
         ok -> [];
         {K, V, Next1} -> [{K, V} | kv_stream_to_list(Next1)]
     end.
+
+-spec blocks_info(snapshot()) -> {ok, {non_neg_integer(), non_neg_integer(), non_neg_integer()}}.
+blocks_info(Snap) ->
+    BlocksContained = case maps:get(blocks, Snap) of 
+                          BinData = <<131, _/binary>> -> 
+                              binary_to_term(BinData);
+                          {FD, Offset, Size} ->
+                              file:position(FD, Offset),
+                              {ok, BinData} = file:read(FD, Size),
+                              binary_to_term(BinData)
+                      end,
+    NumBlocks = length(BlocksContained),
+    StartBlockHt = blockchain_block:height(blockchain_block:deserialize(hd(BlocksContained))),
+    EndBlockHt = blockchain_block:height(blockchain_block:deserialize(lists:last(BlocksContained))),
+    {ok, {NumBlocks, StartBlockHt, EndBlockHt}}.
 
 diff(#{}=A0, #{}=B0) ->
     A = maps:from_list(
