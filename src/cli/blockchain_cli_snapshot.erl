@@ -123,23 +123,31 @@ snapshot_load(Filename) ->
 
 snapshot_grab_usage() ->
     [["snapshot", "grab"],
-     ["blockchain snapshot grab <Height> <Hash> <Filename>\n\n",
+     ["blockchain snapshot grab [--peer <p2p address] <Height> <Hash> <Filename>\n\n",
       "  Grab a snapshot at specified height and hex encoded snapshot hash from a connected peer\n",
       "  Use curl or wget to pull snapshots from a URL\n"]
     ].
 
 snapshot_grab_cmd() ->
     [
-     [["snapshot", "grab", '*', '*', '*' ], [], [], fun snapshot_grab/3]
+     [["snapshot", "grab", '*', '*', '*' ], [], [{peer, [{shortname, "p"}, {longname, "peer"}]}], fun snapshot_grab/3]
     ].
 
-snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], []) ->
+snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
     try
         Height = list_to_integer(HeightStr),
         Hash = hex_to_binary(HashStr),
-        {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash),
-        %% NOTE: grab_snapshot returns a deserialized snapshot
-        file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot))
+        Res = case proplists:get_value(peer, Args, undefined) of
+            undefined -> blockchain_worker:grab_snapshot(Height, Hash);
+            Peer -> blockchain_worker:grab_snapshot(Height, Hash, Peer)
+        end,
+        case Res of
+            {ok, Snapshot} ->
+                %% NOTE: grab_snapshot returns a deserialized snapshot
+                file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot));
+            Error0 ->
+            [clique_status:text(io_lib:format("failed: ~p", [Error0]))]
+        end
     catch
         _Type:Error ->
             [clique_status:text(io_lib:format("failed: ~p", [Error]))]
