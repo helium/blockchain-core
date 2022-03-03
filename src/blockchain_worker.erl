@@ -1383,24 +1383,24 @@ send_txn(Txn, Callback) ->
     ok = blockchain_txn_mgr:submit(Txn, Callback).
 
 get_assumed_valid_height_and_hash() ->
-    {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+    {hash_to_bin(application:get_env(blockchain, assumed_valid_block_hash, undefined)),
      application:get_env(blockchain, assumed_valid_block_height, undefined)}.
 
 get_blessed_snapshot_height_and_hash() ->
     case blockchain_utils:get_boolean_os_env_var("LOAD_SNAPSHOT", true) of
         true ->
-            {blessed_snapshot_block_hash(application:get_env(blockchain, blessed_snapshot_block_hash, undefined)),
+            {hash_to_bin(application:get_env(blockchain, blessed_snapshot_block_hash, undefined)),
              application:get_env(blockchain, blessed_snapshot_block_height, undefined)};
         false ->
             lager:debug("LOAD_SNAPSHOT is false; returning undefined height and hash"),
             {undefined, undefined}
     end.
 
- blessed_snapshot_block_hash(undefined) ->
+ hash_to_bin(undefined) ->
      undefined;
-blessed_snapshot_block_hash(Bin) when is_binary(Bin) ->
+hash_to_bin(Bin) when is_binary(Bin) ->
     Bin;
-blessed_snapshot_block_hash(B64) when is_list(B64) ->
+hash_to_bin(B64) when is_list(B64) ->
     ?B64_TO_BIN(B64).
 
 -spec get_quick_sync_height_and_hash(assumed_valid | blessed_snapshot) -> undefined | {blockchain_block:hash(),pos_integer()}.
