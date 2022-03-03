@@ -165,8 +165,10 @@ snapshot_diff(_, _, _) ->
     usage.
 
 snapshot_diff(AFilename, BFilename) ->
-    {ok, A} = blockchain_ledger_snapshot_v1:deserialize({file, AFilename}),
-    {ok, B} = blockchain_ledger_snapshot_v1:deserialize({file, BFilename}),
+    {ok, ABin} = file:read_file(AFilename),
+    {ok, BBin} = file:read_file(BFilename),
+    {ok, A} = blockchain_ledger_snapshot_v1:deserialize(ABin),
+    {ok, B} = blockchain_ledger_snapshot_v1:deserialize(BBin),
 
     blockchain_ledger_snapshot_v1:diff(A, B).
 
