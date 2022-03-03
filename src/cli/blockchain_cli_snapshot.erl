@@ -12,6 +12,8 @@
 -export([snapshot_take/1,
          snapshot_load/1]).
 
+-include("blockchain_json.hrl").
+
 register_cli() ->
     register_all_usage(),
     register_all_cmds().
@@ -190,7 +192,7 @@ snapshot_info(["snapshot", "info", Filename], [], []) ->
                                        StartBlockHt,
                                        EndBlockHt,
                                        blockchain_ledger_snapshot_v1:hash(Snap),
-                                       binary_to_hex(blockchain_ledger_snapshot_v1:hash(Snap))]
+                                       ?BIN_TO_B64(blockchain_ledger_snapshot_v1:hash(Snap))]
                                      ))];
 snapshot_info(_, _, _) ->
     usage.

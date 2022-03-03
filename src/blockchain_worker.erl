@@ -8,6 +8,7 @@
 -behavior(gen_server).
 
 -include("blockchain_vars.hrl").
+-include("blockchain_json.hrl").
 -include_lib("kernel/include/file.hrl").
 
 %% ------------------------------------------------------------------
@@ -52,6 +53,7 @@
     async_reset/1,
 
     grab_snapshot/2,
+    get_blessed_snapshot_height_and_hash/0,    
 
     add_commit_hook/3, add_commit_hook/4,
     remove_commit_hook/1,
@@ -1387,12 +1389,19 @@ get_assumed_valid_height_and_hash() ->
 get_blessed_snapshot_height_and_hash() ->
     case blockchain_utils:get_boolean_os_env_var("LOAD_SNAPSHOT", true) of
         true ->
-            {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
+            {blessed_snapshot_block_hash(application:get_env(blockchain, blessed_snapshot_block_hash, undefined)),
              application:get_env(blockchain, blessed_snapshot_block_height, undefined)};
         false ->
             lager:debug("LOAD_SNAPSHOT is false; returning undefined height and hash"),
             {undefined, undefined}
     end.
+
+ blessed_snapshot_block_hash(undefined) ->
+     undefined;
+blessed_snapshot_block_hash(Bin) when is_binary(Bin) ->
+    Bin;
+blessed_snapshot_block_hash(B64) when is_list(B64) ->
+    ?B64_TO_BIN(B64).
 
 -spec get_quick_sync_height_and_hash(assumed_valid | blessed_snapshot) -> undefined | {blockchain_block:hash(),pos_integer()}.
 get_quick_sync_height_and_hash(Mode) ->
