@@ -832,7 +832,11 @@ absorb_delayed_async(Block0, Chain0) ->
                                   plain_absorb_(Block0, Chain1),
                                   blockchain_ledger_v1:give_context(DelayedLedger1, Parent),
                                   Parent ! {Ref, {ok, DelayedLedger1}};
-                              {ok, CurrentHeight} ->
+                              {ok, CurrentHeight0} ->
+                                  %% Because absorb is concurrent now, we need to add one
+                                  %% to the ledger height so that the lagging ledger maintains
+                                  %% the correct distance behind the leading one.
+                                  CurrentHeight = CurrentHeight0 + 1,
                                   {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
                                   % Then we absorb if minimum limit is there
                                   case CurrentHeight - DelayedHeight > ?BLOCK_DELAY of
