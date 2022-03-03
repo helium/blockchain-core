@@ -123,7 +123,7 @@ snapshot_load(Filename) ->
 
 snapshot_grab_usage() ->
     [["snapshot", "grab"],
-     ["blockchain snapshot grab [--peer <p2p address] <Height> <Hash> <Filename>\n\n",
+     ["blockchain snapshot grab <Height> <Hash> <Filename> [--peer <p2p address>] \n\n",
       "  Grab a snapshot at specified height and hex encoded snapshot hash from a connected peer\n",
       "  Use curl or wget to pull snapshots from a URL\n"]
     ].
@@ -152,8 +152,8 @@ snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
         _Type:Error ->
             [clique_status:text(io_lib:format("failed: ~p", [Error]))]
     end;
-snapshot_grab([_, _, _, _, _], [], []) ->
-    usage.
+snapshot_grab(Fields, Idk, Flags) ->
+    [clique_status:text(io_lib:format("~p ~p ~p~n", [Fields, Idk, Flags]))].
 
 snapshot_diff_cmd() ->
     [

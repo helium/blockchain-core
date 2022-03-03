@@ -1056,7 +1056,7 @@ grab_snapshot(Height, Hash, Peer) ->
                 {'DOWN', Ref1, process, Stream, Reason} ->
                     lager:info("snapshot sync failed with error ~p", [Reason]),
                     {error, down, Reason}
-            after timer:minutes(1) ->
+            after timer:minutes(15) ->
                       {error, timeout}
             end;
         Error ->
