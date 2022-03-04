@@ -237,6 +237,11 @@ check_is_valid_poc(Txn, Chain) ->
     Secret = ?MODULE:secret(Txn),
 
     case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Challenger, Ledger) of
+        {error, Reason}=Error ->
+            lager:warning([{poc_id, POCID}],
+                "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
+                [POCOnionKeyHash, Reason]),
+            Error;
         {ok, PoC} ->
             case blockchain_ledger_poc_v2:is_valid(PoC, Challenger, Secret) of
                 false ->
