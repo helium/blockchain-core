@@ -136,6 +136,7 @@ snapshot_grab_cmd() ->
 snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
     try
         Height = list_to_integer(HeightStr),
+        Hash = deserialize_hash(HashStr),
         Hash = hex_to_binary(HashStr),
         Res = case proplists:get_value(peer, Args, undefined) of
             undefined -> blockchain_worker:grab_snapshot(Height, Hash);
@@ -144,7 +145,8 @@ snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
         case Res of
             {ok, Snapshot} ->
                 %% NOTE: grab_snapshot returns a deserialized snapshot
-                file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot));
+                ok = file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot));
+                [clique_status:text(io_lib:format("Saved to ~p", [Filename]))]
             Error0 ->
             [clique_status:text(io_lib:format("failed: ~p", [Error0]))]
         end
@@ -173,8 +175,10 @@ snapshot_diff(_, _, _) ->
     usage.
 
 snapshot_diff(AFilename, BFilename) ->
-    {ok, A} = blockchain_ledger_snapshot_v1:deserialize({file, AFilename}),
-    {ok, B} = blockchain_ledger_snapshot_v1:deserialize({file, BFilename}),
+    {ok, ABin} = file:read_file(AFilename),
+    {ok, BBin} = file:read_file(BFilename),
+    {ok, A} = blockchain_ledger_snapshot_v1:deserialize(ABin),
+    {ok, B} = blockchain_ledger_snapshot_v1:deserialize(BBin),
 
     blockchain_ledger_snapshot_v1:diff(A, B).
 
@@ -191,10 +195,7 @@ snapshot_info_usage() ->
 
 snapshot_info(["snapshot", "info", Filename], [], []) ->
     {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize({file, Filename}),
-    BlocksContained = binary_to_term(maps:get(blocks, Snap)),
-    NumBlocks = length(BlocksContained),
-    StartBlockHt = blockchain_block:height(blockchain_block:deserialize(hd(BlocksContained))),
-    EndBlockHt = blockchain_block:height(blockchain_block:deserialize(lists:last(BlocksContained))),
+    {ok, {NumBlocks, StartBlockHt, EndBlockHt}} = blockchain_ledger_snapshot_v1:blocks_info(Snap),
     [clique_status:text(io_lib:format("Height ~p\nNumBlocks ~p\nStartBlockHt ~p\nEndBlockHt ~p\nHash ~p (~p)\n",
                                       [blockchain_ledger_snapshot_v1:height(Snap),
                                        NumBlocks,
@@ -248,3 +249,12 @@ hexstr_to_bin([X,Y|T], Acc) ->
 hexstr_to_bin([X|T], Acc) ->
     {ok, [V], []} = io_lib:fread("~16u", lists:flatten([X,"0"])),
     hexstr_to_bin(T, [V | Acc]).
+
+-spec deserialize_hash(list() | binary()) -> binary().
+% this assumes the original hash is exatly 256 bits
+deserialize_hash(String) when is_list(String) -> deserialize_hash(list_to_binary(string:trim(String)));
+deserialize_hash(Hash = <<_:256>>) -> Hash;
+deserialize_hash(B64 = <<_:344>>) -> base64url:decode(B64);
+deserialize_hash(B64 = <<_:352>>) -> base64:decode(B64);
+deserialize_hash(Hex = <<_:512>>) -> hex_to_binary(binary_to_list(Hex)).
+
