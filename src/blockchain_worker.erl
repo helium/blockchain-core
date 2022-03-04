@@ -1053,8 +1053,8 @@ grab_snapshot(Height, Hash) ->
                     after timer:minutes(1) ->
                             {error, timeout}
                     end;
-                _ ->
-                    ok
+                Other ->
+                    Other 
             end
     end.
 
