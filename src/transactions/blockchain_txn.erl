@@ -623,7 +623,7 @@ is_valid(Txn, Chain) ->
                     {error, _}=Err ->
                         Err;
                     ok ->
-                        case Type:is_prompt() of
+                        case Type:is_prompt(Txn, Chain) of
                             {ok, yes} ->
                                 Type:is_valid(Txn, Chain);
                             {ok, no} ->
