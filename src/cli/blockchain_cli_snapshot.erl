@@ -10,6 +10,7 @@
 -export([register_cli/0]).
 
 -export([snapshot_take/1,
+         deserialize_hash/1,
          snapshot_load/1]).
 
 register_cli() ->
@@ -136,10 +137,11 @@ snapshot_grab_cmd() ->
 snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], []) ->
     try
         Height = list_to_integer(HeightStr),
-        Hash = hex_to_binary(HashStr),
+        Hash = deserialize_hash(HashStr),
         {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash),
         %% NOTE: grab_snapshot returns a deserialized snapshot
-        file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot))
+        file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot)),
+        [clique_status:text(io_lib:format("Saved to ~p", [Filename]))]
     catch
         _Type:Error ->
             [clique_status:text(io_lib:format("failed: ~p", [Error]))]
@@ -239,3 +241,10 @@ hexstr_to_bin([X,Y|T], Acc) ->
 hexstr_to_bin([X|T], Acc) ->
     {ok, [V], []} = io_lib:fread("~16u", lists:flatten([X,"0"])),
     hexstr_to_bin(T, [V | Acc]).
+
+deserialize_hash(String) when is_list(String) -> deserialize_hash(list_to_binary(string:trim(String)));
+deserialize_hash(Hash = <<_:256>>) -> Hash;
+deserialize_hash(B64 = <<_:344>>) -> base64url:decode(B64);
+deserialize_hash(B64 = <<_:352>>) -> base64:decode(B64);
+deserialize_hash(Hex = <<_:512>>) -> hex_to_binary(binary_to_list(Hex)).
+
