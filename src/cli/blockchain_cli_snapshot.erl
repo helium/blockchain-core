@@ -10,7 +10,6 @@
 -export([register_cli/0]).
 
 -export([snapshot_take/1,
-         deserialize_hash/1,
          snapshot_load/1]).
 
 register_cli() ->
@@ -242,6 +241,8 @@ hexstr_to_bin([X|T], Acc) ->
     {ok, [V], []} = io_lib:fread("~16u", lists:flatten([X,"0"])),
     hexstr_to_bin(T, [V | Acc]).
 
+-spec deserialize_hash(list() | binary()) -> binary().
+% this assumes the original hash is exatly 256 bits
 deserialize_hash(String) when is_list(String) -> deserialize_hash(list_to_binary(string:trim(String)));
 deserialize_hash(Hash = <<_:256>>) -> Hash;
 deserialize_hash(B64 = <<_:344>>) -> base64url:decode(B64);
