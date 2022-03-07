@@ -145,7 +145,7 @@ is_valid(_Txn, Chain) ->
 is_well_formed(?T{}) ->
     ok.
 
--spec is_prompt(t(), blockchain:blockchain()) ->
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
 is_prompt(?T{}, _) ->
     {ok, yes}.

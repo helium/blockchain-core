@@ -64,7 +64,7 @@
 
 %% Check the txn has the right causal information (nonce, block height, etc) to
 %% be absorbed.  This should be quick.
--callback is_prompt(txn(), blockchain:blockchain()) ->
+-callback is_prompt(txn(), blockchain_ledger_v1:ledger()) ->
     {ok, is_prompt()} | {error, term()}.
 -type is_prompt() ::
     yes | no | {not_yet, Delta :: pos_integer()}.
@@ -623,7 +623,8 @@ is_valid(Txn, Chain) ->
                     {error, _}=Err ->
                         Err;
                     ok ->
-                        case Type:is_prompt(Txn, Chain) of
+                        Ledger = blockchain:ledger(Chain),
+                        case Type:is_prompt(Txn, Ledger) of
                             {ok, yes} ->
                                 Type:is_valid(Txn, Chain);
                             {ok, no} ->
