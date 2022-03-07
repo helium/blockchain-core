@@ -1334,6 +1334,9 @@ do_snap_source_download(Url, Filepath) ->
                                       {hackney_response, Ref, Bin} ->
                                           file:write(FD, Bin),
                                           Loop(Ref)
+                                  after 900000 ->
+                                            %% hackney doesn't seem to do anything on a timeout in async mode
+                                            throw(timeout)
                                   end
                           end,
     case hackney:request(get, Url, Headers ++ [{<<"range">>, list_to_binary("bytes=" ++ integer_to_list(Start) ++ "-")}], <<>>, Options) of
