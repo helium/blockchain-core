@@ -172,8 +172,7 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}=T, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+is_prompt(#?T{}=T, Ledger) ->
     case {nonce(T), blockchain_ledger_v1:find_dc_entry(owner(T), Ledger)} of
         {1, {error, dc_entry_not_found}} ->
             {ok, yes};

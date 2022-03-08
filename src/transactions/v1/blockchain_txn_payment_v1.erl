@@ -214,8 +214,7 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}=T, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+is_prompt(#?T{}=T, Ledger) ->
     case blockchain:config(?deprecate_payment_v1, Ledger) of
         {ok, true} ->
             lager:error("payment_v1 deprecated"),

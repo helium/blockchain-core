@@ -233,14 +233,13 @@ is_well_formed(#?T{}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}=T, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+is_prompt(#?T{}=T, Ledger) ->
     case blockchain_ledger_v1:current_height(Ledger) of
         %% no chain, genesis block
         {ok, 0} ->
             {ok, yes};
         {ok, CurrHeight} ->
-            {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+            {ok, CurrBlock} = blockchain_ledger_v1:get_block(CurrHeight, Ledger),
             TxnHeight = ?MODULE:height(T),
             Delay = ?MODULE:delay(T),
             case blockchain_ledger_v1:election_height(Ledger) of

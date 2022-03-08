@@ -222,8 +222,7 @@ is_well_formed(#?T{buyer=B, seller=S}=T) ->
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
     {ok, blockchain_txn:is_prompt()} | {error, any()}.
-is_prompt(#?T{}=T, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+is_prompt(#?T{}=T, Ledger) ->
     case blockchain_ledger_v1:find_entry(buyer(T), Ledger) of
         {error, _}=Error ->
             Error;
