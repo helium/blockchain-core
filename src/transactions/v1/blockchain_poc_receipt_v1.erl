@@ -9,10 +9,11 @@
 -include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
+-include_lib("helium_proto/include/blockchain_poc_core_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/5, new/7, new/9,
+    new/5, new/7, new/9, new/10,
     gateway/1,
     timestamp/1,
     signal/1,
@@ -98,7 +99,30 @@ new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency, Channel, DataRate)
         datarate=DataRate,
         signature = <<>>
     }.
-
+-spec new(Address :: libp2p_crypto:pubkey_bin(),
+          Timestamp :: non_neg_integer(),
+          Signal :: integer(),
+          Data :: binary(),
+          Origin :: origin(),
+          SNR :: float(),
+          Frequency :: float(),
+          Channel :: non_neg_integer(),
+          DataRate :: binary(),
+          Attestation :: #attestation_pb{}) -> poc_receipt().
+new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency, Channel, DataRate, Attestation) ->
+    #blockchain_poc_receipt_v1_pb{
+        gateway=Address,
+        timestamp=Timestamp,
+        signal=Signal,
+        data=Data,
+        origin=Origin,
+        snr=SNR,
+        frequency=Frequency,
+        channel=Channel,
+        datarate=DataRate,
+        signature = <<>>,
+        attestation = Attestation
+    }.
 -spec gateway(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
 gateway(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.gateway.
