@@ -145,8 +145,8 @@ snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
         case Res of
             {ok, Snapshot} ->
                 %% NOTE: grab_snapshot returns a deserialized snapshot
-                ok = file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot));
-                [clique_status:text(io_lib:format("Saved to ~p", [Filename]))]
+                ok = file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot)),
+                [clique_status:text(io_lib:format("Saved to ~p", [Filename]))];
             Error0 ->
             [clique_status:text(io_lib:format("failed: ~p", [Error0]))]
         end
