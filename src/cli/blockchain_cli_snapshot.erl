@@ -213,7 +213,7 @@ snapshot_list(["snapshot", "list"], [], []) ->
     Chain = blockchain_worker:blockchain(),
     Snapshots = blockchain:find_last_snapshots(Chain, 5),
     case Snapshots of
-        undefined -> ok;
+        undefined -> [clique_status:text("No snapshot found")];
         _ ->
             [ clique_status:text(io_lib:format("Height ~p\nHash ~p (~p)\nHave ~p\n",
                                                [Height, Hash, binary_to_hex(Hash),
