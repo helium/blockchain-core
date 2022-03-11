@@ -126,15 +126,10 @@ handle_info(_Type, _Msg, State) ->
 %% internal functions
 %% ------------------------------------------------------------------
 
-% convert integer to varint encoding for protocol buffer
-varint(I, Bin) when I =< 127 -> <<Bin/binary, I>>;
-varint(I, Bin) -> varint(I bsr 7, <<Bin/binary, (I band 127 bor 128)>>).
-
-
 -define(FILE_STREAM_BLOCKSIZE, 4096).
 
 % send file bytes in chunks
-mk_file_stream_fun(File) when is_pid(File)->
+mk_file_stream_fun(File) when is_pid(File) or is_record(File, file_descriptor) ->
     case file:read(File, ?FILE_STREAM_BLOCKSIZE) of
         {ok, Data} ->
             fun() ->
@@ -146,8 +141,8 @@ mk_file_stream_fun(File) when is_pid(File)->
     end;
 mk_file_stream_fun(FileName) ->
     {ok, #file_info{size = Bytes}} = file:read_file_info(FileName),
-    {ok, File} = file:open(FileName, [read, binary]),
-    PBSize = varint(Bytes, <<>>),
+    {ok, File} = file:open(FileName, [read, binary, raw]),
+    PBSize = small_ints:encode_varint(Bytes),
     %% 18 introduces a protocol buffers bytes type
     Msg0 = <<18, PBSize/binary>>,
     HdrSize = byte_size(Msg0),
