@@ -275,7 +275,7 @@ get_path(_POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Led
     POCPrivKeyHash = crypto:hash(sha256, PrivKeyBin),
     ZoneRandState = blockchain_utils:rand_state(Entropy),
     InitTargetRandState = blockchain_utils:rand_state(POCPrivKeyHash),
-    {ok, {Target, TargetRandState}} =  blockchain_poc_target_v4:target(Challenger, InitTargetRandState, ZoneRandState, Ledger, Vars),
+    {ok, {Target, TargetRandState}} =  blockchain_poc_target_v5:target(Challenger, InitTargetRandState, ZoneRandState, Ledger, Vars),
     %% Path building phase
     StartB = maybe_log_duration(target, StartT),
     RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
