@@ -1186,7 +1186,16 @@ build_url(BaseUrl, Filename) ->
 set_filename(BaseFilename) ->
     BaseFilename ++ ".gz".
 
-attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height = Height, file_hash = Hash,
+attempt_fetch_snap_source_snapshot(BaseUrl, SnapInfo) ->
+    case validate_snapshot_file(SnapInfo) of
+        {ok, Filename} ->
+            {ok, Filename}
+        {invalid, Filename, Filepath ->
+            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath),
+            validate_snapshot_file(SnapInfo)
+    end.
+
+validate_snapshot_file(#snapshot_info{height = Height, file_hash = Hash,
                                                            file_size = Size}) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
     Filename = set_filename(build_filename(Height)),
@@ -1222,17 +1231,15 @@ attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height = Height, file
                             lager:info("Already have snapshot file for height ~p with hash ~p", [Height, Hash]),
                             ok = file:write_file(HashStateFile, Hash),
                             {ok, Filepath};
-                        {smaller, _} ->
-                            %% see if this is a a resumable download
-                            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath);
                         _ ->
-                            %% file is bigger than it should be, or the hash is wrong, scrap it
+                            %% file size or the hash is wrong, scrap it, 
+                            %% we'll try to resume from the scratch file, if there is one
                             safe_delete(Filename),
-                            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
+                            {invalid, Filename, Filepath}
                     end
             end;
-        false ->
-            _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath)
+        %% no file? same as failed hash
+        false -> {invalid, Filename, Filepath}
     end.
 
 same_stored_hash(File, Hash) ->
