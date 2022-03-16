@@ -614,3 +614,6 @@
 
 %% Block size limit variable (in bytes). Set to 25 * 1024 * 1024.
 -define(block_size_limit, block_size_limit).
+
+%% List of peer routers associating NetID to allocated OUI
+-define(routers_by_netid_to_oui, routers_by_netid_to_oui).

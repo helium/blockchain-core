@@ -31,6 +31,7 @@
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("../grpc/autogen/server/state_channel_pb.hrl").
 
 -define(SERVER, ?MODULE).
 -define(ROUTING_CACHE, sc_client_routing).
@@ -48,7 +49,8 @@
     packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
     waiting = #{} :: waiting(),
     pending_closes = [] :: list(), %% TODO GC these
-    sc_client_transport_handler :: atom()
+    sc_client_transport_handler :: atom(),
+    routers = [] :: list(netid_to_oui())
 }).
 
 -type state() :: #state{}.
@@ -58,6 +60,7 @@
 -type waiting_packet() :: {Packet :: blockchain_helium_packet_v1:packet(), Region :: atom(), ReceivedTime :: non_neg_integer()}.
 -type waiting_key() :: non_neg_integer() | string().
 -type waiting() :: #{waiting_key() => [waiting_packet()]}.
+-type netid_to_oui() :: {pos_integer(), pos_integer()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -153,18 +156,39 @@ handle_cast({banner, Banner, HandlerPid}, #state{sc_client_transport_handler = H
                     {noreply, maybe_send_packets(AddressOrOUI, HandlerPid, State)}
             end
     end;
+handle_cast({packet,
+             #packet_pb{routing = #routing_information_pb{data = {devaddr,DevAddr}}}=Packet,
+             DefaultRouters, Region, ReceivedTime},
+            #state{chain=Chain, routers=RoamingRouters}=State)
+  when is_integer(DevAddr) andalso DevAddr > 0 ->
+    Routers =
+        case lorawan:nwk_addr(DevAddr) of
+            {ok, ExtractedNetID} ->
+                Fn = fun({NetID, OUI}, Accumulator) ->
+                             case ExtractedNetID of
+                                 NetID ->
+                                     Ledger = Chain#blockchain.ledger,
+                                     case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+                                         {ok, Route} -> [Route|Accumulator];
+                                         _ -> Accumulator
+                                     end;
+                                 _ ->
+                                     Accumulator
+                             end
+                     end,
+                case lists:foldl(Fn, [], RoamingRouters) of
+                    [] -> DefaultRouters;
+                    RoamingSubset -> RoamingSubset
+                end;
+            _ ->
+                DefaultRouters
+        end,
+    State2 =
+        handle_packet_routing(Packet, Chain, Routers, Region, ReceivedTime, State),
+    {noreply, State2};
 handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, #state{chain=Chain}=State) ->
     State2 =
-        case find_routing(Packet, Chain) of
-            {error, _Reason} ->
-                lager:notice(
-                    "failed to find router for join packet with routing information ~p:~p, trying default routers",
-                    [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
-                ),
-                handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
-            {ok, Routes} ->
-                handle_packet(Packet, Routes, Region, ReceivedTime, State)
-        end,
+        handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State),
     {noreply, State2};
 handle_cast({reject, Rejection, HandlerPid}, State) ->
     lager:warning("Got rejection: ~p for: ~p, dropping packet", [Rejection, HandlerPid]),
@@ -196,7 +220,13 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            {noreply, State#state{chain=Chain}}
+            Ledger = Chain#blockchain.ledger,
+            Routers =
+                case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+                    {ok, Bin} -> binary_to_term(Bin);
+                    _ -> []
+                end,
+            {noreply, State#state{chain=Chain, routers=Routers}}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{chain=NC}};
@@ -1054,6 +1084,25 @@ debug_multiple_scs(SC, KnownSCs) ->
             ok
     end.
 
+-spec handle_packet_routing(
+        Packet :: blockchain_helium_packet_v1:packet(),
+        Chain :: blockchain:blockchain(),
+        DefaultRouters :: [string()] | [blockchain_ledger_routing_v1:routing()],
+        Region :: atom(),
+        ReceivedTime :: non_neg_integer(),
+        State :: state()
+       ) -> state().
+handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State) ->
+    case find_routing(Packet, Chain) of
+        {error, _Reason} ->
+            lager:notice(
+              "failed to find router for join packet with routing information ~p:~p, trying default routers",
+              [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
+             ),
+            handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
+        {ok, Routes} ->
+            handle_packet(Packet, Routes, Region, ReceivedTime, State)
+    end.
 
 print_routes(RoutesOrAddresses) ->
     lists:map(fun(RouteOrAddress) ->
