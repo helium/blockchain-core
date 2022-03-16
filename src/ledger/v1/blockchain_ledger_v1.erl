@@ -4715,29 +4715,34 @@ maybe_gc_h3dex(Ledger) ->
             %% from the current block (which are sorted by *challenger* and GC the
             %% hexes the *challengee* is in.
             {ok, Height} = current_height(Ledger),
-            {ok, Block} = get_block(Height, Ledger),
-            {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
-            RandState = blockchain_utils:rand_from_hash(BlockHash),
-            RequestFilter = fun(T) ->
-                                    blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
-                            end,
-            case blockchain_utils:find_txn(Block, RequestFilter) of
-                [] ->
-                    %% no receipts, don't do any GC
+            lager:info("*** height : ~p", [Height]),
+            case get_block(Height, Ledger)  of
+                {error, _} ->
                     ok;
-                Txns ->
-                    %% take the first `Width` receipts and GC the parent hexes of the challengees
-                    {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
-                    lists:foreach(fun(T) ->
-                                          Path = blockchain_txn_poc_receipts_v1:path(T),
-                                          Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
-                                          case find_gateway_location(Challengee, Ledger) of
-                                              {ok, Location} ->
-                                                  gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
-                                              _ ->
-                                                  ok
-                                          end
-                                  end, Selected)
+                {ok, Block} ->
+                    {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
+                    RandState = blockchain_utils:rand_from_hash(BlockHash),
+                    RequestFilter = fun(T) ->
+                                            blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
+                                    end,
+                    case blockchain_utils:find_txn(Block, RequestFilter) of
+                        [] ->
+                            %% no receipts, don't do any GC
+                            ok;
+                        Txns ->
+                            %% take the first `Width` receipts and GC the parent hexes of the challengees
+                            {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
+                            lists:foreach(fun(T) ->
+                                                  Path = blockchain_txn_poc_receipts_v1:path(T),
+                                                  Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+                                                  case find_gateway_location(Challengee, Ledger) of
+                                                      {ok, Location} ->
+                                                          gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
+                                                      _ ->
+                                                          ok
+                                                  end
+                                          end, Selected)
+                    end
             end;
         _ ->
             ok
@@ -6230,13 +6235,13 @@ commit_hooks_test() ->
                         [{active_gateways,
                             undefined,
                             fun(Changes) -> Me ! {hook1, Changes} end,
-                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end                            
+                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end
                         },
                         {active_gateways,
                             undefined,
                             fun(Changes, Height) -> Me ! {hook2, Changes, Height} end,
                             fun(_CF, ChangedKeys, Height) -> Me ! {hook2, changes_complete, ChangedKeys, Height} end,
-                            true                            
+                            true
                         }]),
 
     Ledger = new(BaseDir),
@@ -6258,7 +6263,7 @@ commit_hooks_test() ->
     end,
 
     receive
-        {hook2, _, ReceivedHeight1} -> 
+        {hook2, _, ReceivedHeight1} ->
             ?assertMatch(Ledger1Height,
                          ReceivedHeight1)
     after 200 ->

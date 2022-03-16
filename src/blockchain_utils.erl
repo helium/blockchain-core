@@ -57,7 +57,8 @@
     get_vars/2, get_var/2,
     var_cache_stats/0,
     teardown_var_cache/0,
-    init_var_cache/0
+    init_var_cache/0,
+    target_v_to_mod/1
 
 ]).
 
@@ -716,6 +717,14 @@ teardown_var_cache() ->
 init_var_cache() ->
     %% TODO could pull cache settings from app env here
     e2qc:setup(?VAR_CACHE, []).
+
+-spec target_v_to_mod({error, not_found} | {ok, integer()}) -> atom().
+target_v_to_mod({error, not_found}) ->
+    blockchain_poc_target_v5;
+target_v_to_mod({ok, V}) when V =< 5 ->
+    blockchain_poc_target_v5;
+target_v_to_mod({ok, 6}) ->
+    blockchain_poc_target_v6.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
