@@ -839,7 +839,7 @@ absorb_delayed_async(Block0, Chain0) ->
                           Chain1 = blockchain:ledger(DelayedLedger1, Chain0),
                           case blockchain_ledger_v1:current_height(Ledger0) of
                               % This is so it absorbs genesis
-                              {ok, H} when H < 2 ->
+                              {ok, H} when H < 1 ->
                                   plain_absorb_(Block0, Chain1),
                                   blockchain_ledger_v1:give_context(DelayedLedger1, Parent),
                                   Parent ! {Ref, {ok, DelayedLedger1}};
