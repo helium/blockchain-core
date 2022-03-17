@@ -1520,11 +1520,13 @@ validate_var(?discard_zero_freq_witness, Value) ->
 validate_var(?block_size_limit, Value) ->
     validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
 
-validate_var(?routers_by_netid_to_oui, Value) ->
+validate_var(?routers_by_netid_to_oui, Bin) when is_binary(Bin) ->
     %% Even though Rust will need to process the structure too,
     %% gateway-rs fetches this via Validator, which in turn converts
     %% to ProtoBuf.
-    validate_routers_by_netid_to_oui(binary_to_term(Value));
+    validate_routers_by_netid_to_oui(binary_to_term(Bin));
+validate_var(?routers_by_netid_to_oui, _NotBinary) ->
+    throw({error, {invalid_routers_by_netid_to_oui, expect_binary_list_of_pairs}});
 
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
@@ -1654,7 +1656,7 @@ validate_routers_by_netid_to_oui(BadValue) ->
 validate_routers_by_netid_to_oui([{NetID, OUI} | T], Index)
   when is_integer(NetID) andalso is_integer(OUI) andalso
        NetID >= 0 andalso NetID =< 16#FFFFFF andalso
-       OUI >= 0 andalso OUI =< 16#FFFFFFFF ->
+       OUI >= 0 andalso OUI =< 16#FFFFFFFFFFFFFFFF->
     validate_routers_by_netid_to_oui(T, Index + 1);
 validate_routers_by_netid_to_oui([], _) ->
                   true;
