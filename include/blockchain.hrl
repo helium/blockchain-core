@@ -61,18 +61,3 @@
          election_info :: {non_neg_integer(), non_neg_integer()},
          penalties :: {binary(), [{pos_integer(), binary()}]}
         }).
-
--record(blockchain, {
-    dir :: file:filename_all(),
-    db :: rocksdb:db_handle(),
-    default :: rocksdb:cf_handle(),
-    blocks :: rocksdb:cf_handle(),
-    heights :: rocksdb:cf_handle(),
-    info :: rocksdb:cf_handle(),
-    temp_blocks :: rocksdb:cf_handle(),
-    plausible_blocks :: rocksdb:cf_handle(),
-    snapshots :: rocksdb:cf_handle(),
-    implicit_burns :: rocksdb:cf_handle(),
-    htlc_receipts :: rocksdb:cf_handle(),
-    ledger :: blockchain_ledger_v1:ledger()
-}).

@@ -167,7 +167,7 @@ handle_cast({packet,
                 Fn = fun({NetID, OUI}, Accumulator) ->
                              case ExtractedNetID of
                                  NetID ->
-                                     Ledger = Chain#blockchain.ledger,
+                                     Ledger = blockchain:ledger(Chain),
                                      case blockchain_ledger_v1:find_routing(OUI, Ledger) of
                                          {ok, Route} -> [Route|Accumulator];
                                          _ -> Accumulator
@@ -220,7 +220,7 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            Ledger = Chain#blockchain.ledger,
+            Ledger = blockchain:ledger(Chain),
             Routers =
                 case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
                     {ok, Bin} -> binary_to_term(Bin);

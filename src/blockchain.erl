@@ -98,6 +98,21 @@
 -define(save_block(Block, Chain), save_block(Block, Chain)).
 -endif.
 
+-record(blockchain, {
+    dir :: file:filename_all(),
+    db :: rocksdb:db_handle(),
+    default :: rocksdb:cf_handle(),
+    blocks :: rocksdb:cf_handle(),
+    heights :: rocksdb:cf_handle(),
+    info :: rocksdb:cf_handle(),
+    temp_blocks :: rocksdb:cf_handle(),
+    plausible_blocks :: rocksdb:cf_handle(),
+    snapshots :: rocksdb:cf_handle(),
+    implicit_burns :: rocksdb:cf_handle(),
+    htlc_receipts :: rocksdb:cf_handle(),
+    ledger :: blockchain_ledger_v1:ledger()
+}).
+
 -define(GEN_HASH_FILE, "genesis").
 -define(DB_FILE, "blockchain.db").
 -define(HEAD, <<"head">>).
