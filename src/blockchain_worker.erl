@@ -891,7 +891,9 @@ start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
 get_random_peer(SwarmTID) ->
     Peerbook = libp2p_swarm:peerbook(SwarmTID),
     %% limit peers to random connections with public addresses
+    NetID = libp2p_swarm:network_id(SwarmTID),
     F = fun(Peer) ->
+                NetID == libp2p_peer:network_id(Peer) andalso
                 case application:get_env(blockchain, testing, false) of
                     false ->
                         lists:any(fun libp2p_transport_tcp:is_public/1,
