@@ -9,10 +9,11 @@
 -module(blockchain_txn_create_htlc_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
@@ -33,6 +34,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -43,8 +46,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_create_htlc() :: #blockchain_txn_create_htlc_v1_pb{}.
--export_type([txn_create_htlc/0]).
+-define(T, blockchain_txn_create_htlc_v1_pb).
+
+-type t() :: txn_create_htlc().
+
+-type txn_create_htlc() :: #?T{}.
+
+-export_type([t/0, txn_create_htlc/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(),
           non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().
@@ -219,6 +227,32 @@ is_valid(Txn, Chain) ->
         Error ->
             Error
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    HashlockContractV1 = {binary, {exactly, 32}},
+    HashlockContractVX = {binary, {range, 32, 64}},
+    AddressContractV1 = {address, libp2p},
+    AddressContractVX = {binary, {range, 32, 33}},
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {payer    , {address, libp2p}},
+            {payee    , {address, libp2p}},
+            {address  , {exists, [AddressContractV1, AddressContractVX]}},
+            {hashlock , {exists, [HashlockContractV1, HashlockContractVX]}},
+            {timelock , {integer, {min, 0}}}, % 64-bit
+            {amount   , {integer, {min, 0}}}, % 64-bit
+            {fee      , {integer, {min, 0}}}, % 64-bit
+            {signature, {binary, any}}, % TODO Constraints?
+            {nonce    , {integer, {min, 1}}} % TODO Is >0 correct constraint?
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -401,5 +435,47 @@ is_valid_with_extended_validation_test() ->
              meck:unload(blockchain_ledger_v1),
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end,
+    T =
+        #?T{
+            payer     = Addr,
+            payee     = Addr,
+            address   = Addr,
+            hashlock  = list_to_binary(lists:duplicate(32, 0)),
+            timelock  = 0,
+            amount    = 0,
+            fee       = 0,
+            nonce     = 1,
+            signature =  <<>>
+        },
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{payer = undefined})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{payer = <<>>})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{payee = <<>>})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{address = <<>>})
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{nonce = -1})
+        )
+    ].
 
 -endif.

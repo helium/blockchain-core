@@ -6,10 +6,11 @@
 -module(blockchain_txn_validator_heartbeat_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_validator_heartbeat_v1_pb.hrl").
@@ -25,6 +26,8 @@
          fee_payer/2,
          sign/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          absorb/2,
          print/1,
          json_type/0,
@@ -35,8 +38,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_validator_heartbeat() :: #blockchain_txn_validator_heartbeat_v1_pb{}.
--export_type([txn_validator_heartbeat/0]).
+-define(T, blockchain_txn_validator_heartbeat_v1_pb).
+
+-type t() :: txn_validator_heartbeat().
+
+-type txn_validator_heartbeat() :: #?T{}.
+
+-export_type([t/0, txn_validator_heartbeat/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
           txn_validator_heartbeat().
@@ -134,6 +142,23 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {address, {address, libp2p}},
+            {height, {integer, {min, 0}}},
+            {version, {integer, {min, 0}}},
+            {signature, {binary, any}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
+
 %% oh dialyzer
 valid_version(V) when is_integer(V) andalso V > 0 ->
     true;
@@ -189,5 +214,21 @@ to_json_test() ->
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T = #?T{},
+    [
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [
+                {address, invalid_address}
+            ]}}},
+            is_well_formed(T)
+        ),
+        ?_assertMatch(ok, is_well_formed(T#?T{address=Addr}))
+    ].
 
 -endif.

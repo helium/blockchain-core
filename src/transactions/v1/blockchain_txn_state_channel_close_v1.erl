@@ -6,12 +6,13 @@
 -module(blockchain_txn_state_channel_close_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
@@ -30,6 +31,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -40,8 +43,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_state_channel_close() :: #blockchain_txn_state_channel_close_v1_pb{}.
--export_type([txn_state_channel_close/0]).
+-define(T, blockchain_txn_state_channel_close_v1_pb).
+
+-type t() :: txn_state_channel_close().
+
+-type txn_state_channel_close() :: #?T{}.
+
+-export_type([t/0, txn_state_channel_close/0]).
 
 -spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin()) -> txn_state_channel_close().
 new(SC, Closer) ->
@@ -235,6 +243,63 @@ is_valid(Txn, Chain) ->
                     end
             end
     end.
+
+is_well_formed_summary(#blockchain_state_channel_summary_v1_pb{}=S) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(blockchain_state_channel_summary_v1_pb, S),
+        {kvl, [
+            {client_pubkeybin, {address, libp2p}},
+            {num_packets     , {integer, {min, 0}}},
+            {num_dcs         , {integer, {min, 0}}}
+        ]}
+    );
+is_well_formed_summary(_) ->
+    false.
+
+-spec is_well_formed_blockchain_state_channel_v1(term()) -> boolean().
+is_well_formed_blockchain_state_channel_v1(#blockchain_state_channel_v1_pb{}=SC) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(blockchain_state_channel_v1_pb, SC),
+            {kvl, [
+                {id             , {binary, any}},
+                {owner          , {address, libp2p}},
+                {credits        , {integer, {min, 0}}},
+                {nonce          , {integer, {min, 1}}},
+                {summaries      , {list, any, {custom, fun is_well_formed_summary/1, invalid_summary}}},
+                {root_hash      , {binary, any}},
+                {skewed         , {binary, any}},
+                {state          , {either, [{val, open}, {val, closed}, {integer, any}]}},
+                {expire_at_block, {integer, {min, 0}}},
+                {signature      , {binary, any}}
+            ]}
+     );
+is_well_formed_blockchain_state_channel_v1(_) ->
+    false.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    SCContract =
+        {either, [
+            undefined,
+            {custom,
+                fun is_well_formed_blockchain_state_channel_v1/1,
+                invalid_state_channel}
+        ]},
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {state_channel , SCContract},
+            {closer        , {binary, any}},
+            {signature     , {binary, any}},
+            {fee           , {integer, {min, 0}}},
+            {conflicts_with, SCContract}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
 
 check_close_updates(LedgerSC, Txn, Ledger) ->
     %% a close from a participant in the SC, not from the owner
@@ -430,5 +495,22 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, closer, state_channel])).
 
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    SC =
+        #blockchain_state_channel_v1_pb{
+            owner = Addr,
+            nonce = 1
+        },
+    T = #?T{},
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assert(is_well_formed_blockchain_state_channel_v1(SC)),
+        ?_assertMatch(ok, is_well_formed(T#?T{state_channel = SC}))
+    ].
 
 -endif.

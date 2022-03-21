@@ -14,6 +14,7 @@
 
 -include("blockchain.hrl").
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_price_oracle_v1_pb.hrl").
@@ -29,6 +30,8 @@
     fee_payer/2,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -39,8 +42,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_price_oracle() :: #blockchain_txn_price_oracle_v1_pb{}.
--export_type([txn_price_oracle/0]).
+-define(T, blockchain_txn_price_oracle_v1_pb).
+
+-type t() :: txn_price_oracle().
+
+-type txn_price_oracle() :: #?T{}.
+
+-export_type([t/0, txn_price_oracle/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -186,6 +194,23 @@ is_valid(Txn, Chain) ->
             Error
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {public_key, {address, libp2p}},
+            {price, {integer, {min, 1}}},
+            {block_height, {integer, {min, 1}}},
+            {signature, {binary, any}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% When this block is absorbed, price entries are stored in the
@@ -276,5 +301,21 @@ price_test() ->
 block_height_test() ->
     Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(2, block_height(Tx)).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #?T{
+            public_key = Addr,
+            price = 1,
+            block_height = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.

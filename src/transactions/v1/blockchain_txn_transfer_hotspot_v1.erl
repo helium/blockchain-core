@@ -1,8 +1,10 @@
 -module(blockchain_txn_transfer_hotspot_v1).
+
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
@@ -31,6 +33,8 @@
          sign_seller/2,
          sign_buyer/2,
          is_valid/2,
+         is_well_formed/1,
+         is_prompt/2,
          is_valid_seller/1,
          is_valid_buyer/1,
          absorb/2,
@@ -39,8 +43,13 @@
          to_json/2
 ]).
 
--type txn_transfer_hotspot() :: #blockchain_txn_transfer_hotspot_v1_pb{}.
--export_type([txn_transfer_hotspot/0]).
+-define(T, blockchain_txn_transfer_hotspot_v1_pb).
+
+-type t() :: txn_transfer_hotspot().
+
+-type txn_transfer_hotspot() :: #?T{}.
+
+-export_type([t/0, txn_transfer_hotspot/0]).
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Seller :: libp2p_crypto:pubkey_bin(),
@@ -194,6 +203,27 @@ is_valid(#blockchain_txn_transfer_hotspot_v1_pb{seller=Seller,
                   {fun() -> buyer_has_enough_hnt(Txn, Ledger) end,
                                           {error, buyer_insufficient_hnt_balance}}],
     blockchain_utils:fold_condition_checks(Conditions).
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{buyer=B, seller=S}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {gateway         , {address, libp2p}},
+            {seller          , {forall, [{address, libp2p}, {'not', {val, B}}]}},
+            {seller_signature, {binary, any}},
+            {buyer           , {forall, [{address, libp2p}, {'not', {val, S}}]}},
+            {buyer_signature , {binary, any}},
+            {buyer_nonce     , {integer, {min, 1}}},
+            {amount_to_seller, {integer, {min, 0}}},
+            {fee             , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_transfer_hotspot(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -373,5 +403,37 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, seller, buyer, buyer_nonce, amount_to_seller, fee])).
 
+
+is_well_formed_test_() ->
+    Addr =
+        fun() ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Gateway = Addr(),
+    Buyer   = Addr(),
+    Seller  = Addr(),
+    T =
+        #?T{
+            gateway     = Gateway,
+            buyer       = Buyer,
+            seller      = Seller,
+            buyer_nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                buyer = Seller
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                seller = Buyer
+            })
+        )
+    ].
 
 -endif.

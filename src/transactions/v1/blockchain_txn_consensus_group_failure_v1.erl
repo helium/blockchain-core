@@ -6,13 +6,12 @@
 -module(blockchain_txn_consensus_group_failure_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
-
 -include("blockchain.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
-
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_failure_v1_pb.hrl").
 
 -export([
@@ -29,14 +28,21 @@
     verify_signature/3,
     set_signatures/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
     to_json/2
 ]).
 
--type txn_consensus_group_failure() :: #blockchain_txn_consensus_group_failure_v1_pb{}.
--export_type([txn_consensus_group_failure/0]).
+-define(T, blockchain_txn_consensus_group_failure_v1_pb).
+
+-type t() :: txn_consensus_group_failure().
+
+-type txn_consensus_group_failure() :: #?T{}.
+
+-export_type([t/0, txn_consensus_group_failure/0]).
 
 -spec new([libp2p_crypto:pubkey_bin()], pos_integer(), non_neg_integer()) ->
     txn_consensus_group_failure().
@@ -197,6 +203,24 @@ is_valid(Txn, Chain) ->
             {error, E}
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {failed_members, {list, any, {address, libp2p}}},
+            {height        , {integer, {min, 0}}},
+            {delay         , {integer, {min, 0}}},
+            {members       , {list, any, {address, libp2p}}},
+            {signatures    , {list, any, {iodata, any}}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
+
 verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list
     {ok, L} = blockchain:config(?num_consensus_members, OldLedger),
@@ -292,3 +316,41 @@ to_json(Txn, _Opts) ->
         height => height(Txn),
         delay => delay(Txn)
     }.
+
+%% Tests ======================================================================
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+is_well_formed_test_() ->
+    Addr =
+        (fun () ->
+            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end)(),
+    T = new([Addr], 0, 0),
+    [
+        ?_assertEqual(ok, is_well_formed(T)),
+
+        ?_assertMatch({error, _}, is_well_formed(#?T{height = -1})),
+        ?_assertMatch(ok        , is_well_formed(#?T{height =  0})),
+        ?_assertMatch(ok        , is_well_formed(#?T{height =  1})),
+
+        ?_assertMatch({error, _}, is_well_formed(#?T{delay = -1})),
+        ?_assertMatch(ok        , is_well_formed(#?T{delay =  0})),
+        ?_assertMatch(ok        , is_well_formed(#?T{delay =  1})),
+
+        ?_assertMatch(ok        , is_well_formed(#?T{failed_members = [Addr]})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{failed_members = [<<"not addr">>]})),
+
+        ?_assertMatch(ok        , is_well_formed(#?T{members = [Addr]})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{members = [<<"not addr">>]})),
+
+        ?_assertMatch(ok        , is_well_formed(#?T{signatures = ["not iodata"]})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = ['not iodata']})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = 'not list'})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = <<"not list">>})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = "not list of iodata"}))
+    ].
+
+-endif.

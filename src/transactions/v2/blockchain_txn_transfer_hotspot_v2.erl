@@ -1,8 +1,10 @@
 -module(blockchain_txn_transfer_hotspot_v2).
+
 -behavior(blockchain_txn).
 -behavior(blockchain_json).
 
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
@@ -25,6 +27,8 @@
     hash/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     is_valid_owner/1,
     absorb/2,
     print/1,
@@ -32,8 +36,13 @@
     to_json/2
 ]).
 
--type txn_transfer_hotspot_v2() :: #blockchain_txn_transfer_hotspot_v2_pb{}.
--export_type([txn_transfer_hotspot_v2/0]).
+-define(T, blockchain_txn_transfer_hotspot_v2_pb).
+
+-type t() :: txn_transfer_hotspot_v2().
+
+-type txn_transfer_hotspot_v2() :: #?T{}.
+
+-export_type([t/0, txn_transfer_hotspot_v2/0]).
 
 -spec new(
     Gateway :: libp2p_crypto:pubkey_bin(),
@@ -158,6 +167,25 @@ is_valid(Txn, Chain) ->
         _ ->
             {error, transaction_validity_version_not_set}
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{owner=O1, new_owner=O2}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(blockchain_txn_transfer_hotspot_v2_pb, T),
+        {kvl, [
+            {gateway        , {address, libp2p}},
+            {owner          , {forall, [{address, libp2p}, {'not', {val, O2}}]}},
+            {owner_signature, {binary, any}},
+            {new_owner      , {forall, [{address, libp2p}, {'not', {val, O1}}]}},
+            {fee            , {integer, {min, 0}}},
+            {nonce          , {integer, {min, 1}}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    {ok, yes}.
 
 -spec absorb(txn_transfer_hotspot_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -355,5 +383,68 @@ to_json_test() ->
             [type, hash, gateway, owner, new_owner, fee, nonce]
         )
     ).
+
+is_well_formed_test_() ->
+    Addr =
+        fun () ->
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    Gateway = Addr(),
+    Owner = Addr(),
+    NewOwner = Addr(),
+    T =
+        #?T{
+            gateway = Gateway,
+            owner = Owner,
+            new_owner = NewOwner,
+            fee = 0,
+            nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                new_owner = Owner
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                owner = NewOwner
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                nonce = 0
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                gateway = <<"not address">>
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                owner = <<"not address">>
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                new_owner = <<"not address">>
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                fee = -1
+            })
+        )
+    ].
 
 -endif.
