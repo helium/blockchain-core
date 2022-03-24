@@ -2069,18 +2069,21 @@ size_bin_snapshot(BinSnap) when is_binary(BinSnap); is_list(BinSnap) ->
 
 -spec maybe_get_compressed_snapdata(file:filename_all()) -> undefined | {ok, Size :: pos_integer(), Hash :: binary()}.
 maybe_get_compressed_snapdata(File) ->
-   CompressedFile = File ++ ".gz",
-   case filelib:is_regular(CompressedFile) of
-      true ->
-         case file:read_file_info(CompressedFile, [{time, posix}]) of
+   IsCompressed = ".gz" == filename:extension(File),
+   case {IsCompressed, filelib:is_regular(File)} of
+       {_, true} ->
+         case file:read_file_info(File, [{time, posix}]) of
             {error, _Err} -> undefined;
             {ok, FI} ->
-               case blockchain_utils:streaming_file_hash(CompressedFile) of
+               case blockchain_utils:streaming_file_hash(File) of
                   {ok, Hash} -> {ok, FI#file_info.size, Hash};
                   _Other -> undefined
                end
          end;
-      false -> undefined
+       {false, _} -> 
+         maybe_get_compressed_snapdata(File ++ ".gz");
+       {_,_} ->
+         undefined
    end.
 
 rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
