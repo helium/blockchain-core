@@ -1065,6 +1065,8 @@ validate_var(?poc_targeting_version, Value) ->
     case Value of
         3 -> ok;
         4 -> ok;
+        5 -> ok;
+        6 -> ok;
         _ ->
             throw({error, {invalid_poc_targeting_version, Value}})
     end;
