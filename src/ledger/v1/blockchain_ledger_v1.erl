@@ -4565,7 +4565,7 @@ random_targeting_hex(RandState, Ledger) ->
 build_random_hex_targeting_lookup(Resolution, Ledger) ->
     %% we only want to do this if poc version >= 4, which means h3dex targeting
     case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 4 ->
+        {ok, N} when N >= 6 ->
             H3CF = h3dex_cf(Ledger),
             {_, Total} = cache_fold(
                            Ledger, H3CF,
@@ -5538,7 +5538,7 @@ load_hexes(Hexes0, Ledger) ->
 -spec snapshot_h3dex(ledger()) -> [{binary(), binary()}].
 snapshot_h3dex(Ledger) ->
     case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 4 ->
+        {ok, N} when N >= 6 ->
             {_Name, _DB, H3CF} = h3dex_cf(Ledger),
             snapshot_raw(H3CF, Ledger);
         _ ->
@@ -5550,7 +5550,7 @@ snapshot_h3dex(Ledger) ->
 -spec load_h3dex([{binary(), binary()}], ledger()) -> ok.
 load_h3dex(H3DexList, Ledger) ->
     case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 4 ->
+        {ok, N} when N >= 6 ->
             {_Name, _DB, H3CF} = h3dex_cf(Ledger),
             load_raw(H3DexList, H3CF, Ledger);
         _ ->
