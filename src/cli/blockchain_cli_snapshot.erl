@@ -137,7 +137,6 @@ snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
     try
         Height = list_to_integer(HeightStr),
         Hash = deserialize_hash(HashStr),
-        Hash = hex_to_binary(HashStr),
         Res = case proplists:get_value(peer, Args, undefined) of
             undefined -> blockchain_worker:grab_snapshot(Height, Hash);
             Peer -> blockchain_worker:grab_snapshot(Height, Hash, Peer)
