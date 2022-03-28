@@ -162,7 +162,7 @@ handle_cast({packet,
             #state{chain=Chain, routers=RoamingRouters}=State)
   when is_integer(DevAddr) andalso DevAddr > 0 ->
     Routers =
-        case lorawan:nwk_addr(DevAddr) of
+        case lora_subnet:parse_netid(DevAddr) of
             {ok, ExtractedNetID} ->
                 Fn = fun({NetID, OUI}, Accumulator) ->
                              case ExtractedNetID of
@@ -1101,6 +1101,7 @@ handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State
              ),
             handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
         {ok, Routes} ->
+            lager:notice("found routes ~p", [Routes]),
             handle_packet(Packet, Routes, Region, ReceivedTime, State)
     end.
 
