@@ -98,7 +98,7 @@ snapshot_take(Filename) ->
             {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos),
             blockchain_lock:release(),
             BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
-            file:write_file(Filename, BinSnap)
+            blockchain:save_bin_snapshot(Filename, BinSnap)
     end.
 
 snapshot_load_cmd() ->
@@ -123,29 +123,38 @@ snapshot_load(Filename) ->
 
 snapshot_grab_usage() ->
     [["snapshot", "grab"],
-     ["blockchain snapshot grab <Height> <Hash> <Filename>\n\n",
+     ["blockchain snapshot grab <Height> <Hash> <Filename> [--peer <p2p address>] \n\n",
       "  Grab a snapshot at specified height and hex encoded snapshot hash from a connected peer\n",
       "  Use curl or wget to pull snapshots from a URL\n"]
     ].
 
 snapshot_grab_cmd() ->
     [
-     [["snapshot", "grab", '*', '*', '*' ], [], [], fun snapshot_grab/3]
+     [["snapshot", "grab", '*', '*', '*' ], [], [{peer, [{shortname, "p"}, {longname, "peer"}]}], fun snapshot_grab/3]
     ].
 
-snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], []) ->
+snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], Args) ->
     try
         Height = list_to_integer(HeightStr),
-        Hash = hex_to_binary(HashStr),
-        {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash),
-        %% NOTE: grab_snapshot returns a deserialized snapshot
-        file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot))
+        Hash = deserialize_hash(HashStr),
+        Res = case proplists:get_value(peer, Args, undefined) of
+            undefined -> blockchain_worker:grab_snapshot(Height, Hash);
+            Peer -> blockchain_worker:grab_snapshot(Height, Hash, Peer)
+        end,
+        case Res of
+            {ok, Snapshot} ->
+                %% NOTE: grab_snapshot returns a deserialized snapshot
+                ok = blockchain:save_compressed_bin_snapshot(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot)),
+                [clique_status:text(io_lib:format("Saved to ~p", [Filename]))];
+            Error0 ->
+            [clique_status:text(io_lib:format("failed: ~p", [Error0]))]
+        end
     catch
         _Type:Error ->
             [clique_status:text(io_lib:format("failed: ~p", [Error]))]
     end;
-snapshot_grab([_, _, _, _, _], [], []) ->
-    usage.
+snapshot_grab(Fields, Idk, Flags) ->
+    [clique_status:text(io_lib:format("~p ~p ~p~n", [Fields, Idk, Flags]))].
 
 snapshot_diff_cmd() ->
     [
@@ -239,3 +248,12 @@ hexstr_to_bin([X,Y|T], Acc) ->
 hexstr_to_bin([X|T], Acc) ->
     {ok, [V], []} = io_lib:fread("~16u", lists:flatten([X,"0"])),
     hexstr_to_bin(T, [V | Acc]).
+
+-spec deserialize_hash(list() | binary()) -> binary().
+% this assumes the original hash is exatly 256 bits
+deserialize_hash(String) when is_list(String) -> deserialize_hash(list_to_binary(string:trim(String)));
+deserialize_hash(Hash = <<_:256>>) -> Hash;
+deserialize_hash(B64 = <<_:344>>) -> base64url:decode(B64);
+deserialize_hash(B64 = <<_:352>>) -> base64:decode(B64);
+deserialize_hash(Hex = <<_:512>>) -> hex_to_binary(binary_to_list(Hex)).
+
