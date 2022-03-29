@@ -31,7 +31,7 @@
     absorb/2,
     create_secret_hash/2,
     connections/1,
-    deltas/1, deltas/2,
+    deltas/2,
     check_path_continuation/1,
     print/1,
     json_type/0,
@@ -343,24 +343,6 @@ connections(Txn) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec deltas(Txn :: txn_poc_receipts()) -> deltas().
-deltas(Txn) ->
-    Path = blockchain_txn_poc_receipts_v2:path(Txn),
-    Length = length(Path),
-    lists:reverse(element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
-                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                   Receipt = blockchain_poc_path_element_v1:receipt(Element),
-                                   Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-                                   NextElements = lists:sublist(Path, N+1, Length),
-                                   HasContinued = check_path_continuation(NextElements),
-                                   {Val, Continue} = assign_alpha_beta(HasContinued, Receipt, Witnesses),
-                                   {set_deltas(Challengee, Val, Acc), Continue};
-                              (_, Acc) ->
-                                   Acc
-                           end,
-                           {[], true},
-                           lists:zip(lists:seq(1, Length), Path)))).
-
 -spec deltas(Txn :: txn_poc_receipts(),
              Chain :: blockchain:blockchain()) -> deltas().
 deltas(Txn, Chain) ->
@@ -396,14 +378,50 @@ calculate_delta(Txn, Chain) ->
                                                              _ ->
                                                                  {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                                          end,
-
-                                                         {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger),
-                                                         {set_deltas(Challengee, Val, Acc), Continue};
+                                                         Witnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+                                                         {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, Witnesses, Ledger),
+                                                         {set_deltas(Challengee, Val, Witnesses, Acc), Continue};
                                                     (_, Acc) ->
                                                          Acc
                                                  end,
-                                                 {[], true},
+                                                 {[], [], [], true},
                                                  lists:zip(lists:seq(1, Length), Path))))
+    catch
+        _:_ ->
+            []
+    end.
+
+-spec poc_particpants(Txn :: txn_poc_receipts(),
+                      Chain :: blockchain:blockchain()) ->
+    {[libp2p_crypto:pubkey_bin()], [blockchain_poc_witness_v1:poc_witness()]}.
+poc_particpants(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Path = blockchain_txn_poc_receipts_v2:path(Txn),
+    Length = length(Path),
+    try get_channels(Txn, Chain) of
+        {ok, Channels} ->
+            Participants =
+                lists:foldl(
+                    fun
+                        ({ElementPos, Element}, Acc) ->
+                            Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                            {_PreviousElement, _ReceiptChannel, WitnessChannel} =
+                                case ElementPos of
+                                    1 ->
+                                        {undefined, 0, hd(Channels)};
+                                    _ ->
+                                        {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                end,
+                            Witnesses = valid_witness_addrs(Element, WitnessChannel, Ledger),
+                            ElemParticipants = [Challengee | Witnesses],
+                            [ElemParticipants | Acc];
+                        (_, Acc) ->
+                            Acc
+                    end,
+                    [],
+                    lists:zip(lists:seq(1, Length), Path)
+                ),
+            lists:usort(lists:flatten(Participants))
     catch
         _:_ ->
             []
@@ -417,50 +435,49 @@ check_path_continuation(Elements) ->
               end,
               Elements).
 
--spec assign_alpha_beta(HasContinued :: boolean(),
-                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
-                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), 0 | 1}, boolean()}.
-assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
-    case {HasContinued, Receipt, Witnesses} of
-        {true, undefined, _} ->
-            %% path continued, no receipt, don't care about witnesses
-            {{0.8, 0}, true};
-        {true, Receipt, _} when Receipt /= undefined ->
-            %% path continued, receipt, don't care about witnesses
-            {{1, 0}, true};
-        {false, undefined, Wxs} when length(Wxs) > 0 ->
-            %% path broke, no receipt, witnesses
-            {{0.9, 0}, true};
-        {false, Receipt, []} when Receipt /= undefined ->
-            %% path broke, receipt, no witnesses
-            %% likely the next hop broke the path
-            case blockchain_poc_receipt_v1:origin(Receipt) of
-                p2p ->
-                    %% you really did nothing here other than be online
-                    {{0, 0}, false};
-                radio ->
-                    %% not enough information to decide who screwed up
-                    %% but you did receive a packet over the radio, so you
-                    %% get partial credit
-                    {{0.2, 0}, false}
-            end;
-        {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
-            %% path broke, receipt, witnesses
-            {{0.9, 0}, true};
-        {false, _, _} ->
-            %% path broke, you killed it
-            {{0, 1}, false}
-    end.
+%%-spec assign_alpha_beta(HasContinued :: boolean(),
+%%                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
+%%                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), 0 | 1}, boolean()}.
+%%assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
+%%    case {HasContinued, Receipt, Witnesses} of
+%%        {true, undefined, _} ->
+%%            %% path continued, no receipt, don't care about witnesses
+%%            {{0.8, 0}, true};
+%%        {true, Receipt, _} when Receipt /= undefined ->
+%%            %% path continued, receipt, don't care about witnesses
+%%            {{1, 0}, true};
+%%        {false, undefined, Wxs} when length(Wxs) > 0 ->
+%%            %% path broke, no receipt, witnesses
+%%            {{0.9, 0}, true};
+%%        {false, Receipt, []} when Receipt /= undefined ->
+%%            %% path broke, receipt, no witnesses
+%%            %% likely the next hop broke the path
+%%            case blockchain_poc_receipt_v1:origin(Receipt) of
+%%                p2p ->
+%%                    %% you really did nothing here other than be online
+%%                    {{0, 0}, false};
+%%                radio ->
+%%                    %% not enough information to decide who screwed up
+%%                    %% but you did receive a packet over the radio, so you
+%%                    %% get partial credit
+%%                    {{0.2, 0}, false}
+%%            end;
+%%        {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
+%%            %% path broke, receipt, witnesses
+%%            {{0.9, 0}, true};
+%%        {false, _, _} ->
+%%            %% path broke, you killed it
+%%            {{0, 1}, false}
+%%    end.
 
 -spec calculate_alpha_beta(HasContinued :: boolean(),
                            Element :: blockchain_poc_path_element_v1:poc_element(),
                            PreviousElement :: blockchain_poc_path_element_v1:poc_element(),
                            ReceiptChannel :: non_neg_integer(),
-                           WitnessChannel :: non_neg_integer(),
+                           Witnesses :: blockchain_poc_witness_v1:poc_witnesses(),
                            Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
-calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger) ->
+calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, Witnesses, Ledger) ->
     Receipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-    Witnesses = valid_witnesses(Element, WitnessChannel, Ledger),
     allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger).
 
 -spec allocate_alpha_beta(HasContinued :: boolean(),
@@ -529,9 +546,10 @@ calculate_witness_quality(Element, Ledger) ->
 
 -spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
                  {A :: float(), B :: 0 | 1},
+                 [blockchain_poc_witness_v1:poc_witness()],
                  Deltas :: deltas()) -> deltas().
-set_deltas(Challengee, {A, B}, Deltas) ->
-    [{Challengee, {A, B}} | Deltas].
+set_deltas(Challengee, {A, B}, Witnesses, Deltas) ->
+    [{Challengee, {A, B}, Witnesses} | Deltas].
 
 -spec good_quality_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
                              Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v1:poc_witness()].
@@ -645,6 +663,7 @@ absorb(_POCVersion, Txn, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
     BlockHash = ?MODULE:block_hash(Txn),
     Ledger = blockchain:ledger(Chain),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     POCID = ?MODULE:poc_id(Txn),
     try
         %% get these to make sure we're not replaying.
@@ -674,18 +693,11 @@ absorb(_POCVersion, Txn, Chain) ->
                 %%                                       end
                 %%                               end, ok, Txn, Ledger, Chain);
 
-                %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
-                %% as new calculate_delta calls back into check_is_valid_poc
-                case blockchain:config(?election_version, Ledger) of
-                    %% election v4 removed score from consideration
-                    {ok, EV} when EV >= 4 ->
-                        ok;
-                    _ ->
-                        lists:foreach(fun({Gateway, Delta}) ->
-                                              blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
-                                      end,
-                                      ?MODULE:deltas(Txn, Chain))
-                end,
+                %% update the last activity field for all challengees and GWs
+                %% participating in the POC
+                Participants = poc_particpants(Txn, Chain),
+                lager:info("receipt txn poc participants: ~p", [Participants]),
+                [update_participant_gateway(GWAddr, Height, Ledger) || GWAddr <- Participants],
                 ok = blockchain_ledger_v1:delete_public_poc(OnionKeyHash, Ledger)
         end
     catch throw:Reason ->
@@ -694,6 +706,16 @@ absorb(_POCVersion, Txn, Chain) ->
             lager:error([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p",
                         [What, Why, Stacktrace]),
             {error, state_missing}
+    end.
+
+update_participant_gateway(GWAddr, Height, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw0} ->
+            lager:info("updating last challenge with ~p for gateway ~p", [Height, GWAddr]),
+            Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+            ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GWAddr, Ledger)
     end.
 
 %%--------------------------------------------------------------------
@@ -1068,6 +1090,13 @@ valid_witnesses(Element, Channel, Ledger) ->
 valid_witnesses(Element, Channel, RegionVars, Ledger) ->
     TaggedWitnesses = tagged_witnesses(Element, Channel, RegionVars, Ledger),
     [ W || {true, _, W} <- TaggedWitnesses ].
+
+-spec valid_witness_addrs(Element :: blockchain_poc_path_element_v1:poc_element(),
+                      Channel :: non_neg_integer(),
+                      Ledger :: blockchain_ledger_v1:ledger()) -> [libp2p_crypto:pubkey_bin()].
+valid_witness_addrs(Element, Channel, Ledger) ->
+    TaggedWitnesses = tagged_witnesses(Element, Channel, Ledger),
+    [ W#blockchain_poc_witness_v1_pb.gateway || {true, _, W} <- TaggedWitnesses ].
 
 -spec is_too_far(Limit :: any(),
                  SrcLoc :: h3:h3_index(),
@@ -1461,85 +1490,85 @@ ensure_unique_layer_test() ->
     ?assertEqual(10, sets:size(sets:from_list(Members))),
     ok.
 
-delta_test() ->
-    Challenger = <<"challenger">>,
-    Secret = <<"secret">>,
-    OnionKeyHash = <<"onion_key_hash">>,
-    BlockHash = <<"blockhash">>,
+%%delta_test() ->
+%%    Challenger = <<"challenger">>,
+%%    Secret = <<"secret">>,
+%%    OnionKeyHash = <<"onion_key_hash">>,
+%%    BlockHash = <<"blockhash">>,
+%%
+%%    Receipt = blockchain_poc_receipt_v1:new(<<"r">>, 10, 10, <<"data">>, p2p, 1.2, 915.2, 2, <<"dr">>),
+%%
+%%    W1 = blockchain_poc_witness_v1:new(<<"w1">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
+%%    W2 = blockchain_poc_witness_v1:new(<<"w2">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
+%%    Witnesses = [W1, W2],
+%%
+%%    P1 = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, Witnesses),
+%%    P2 = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
+%%    P3 = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+%%    P4 = blockchain_poc_path_element_v1:new(<<"c4">>, undefined, []),
+%%    P5 = blockchain_poc_path_element_v1:new(<<"c5">>, undefined, []),
+%%    Path1 = [P1, P2, P3, P4, P5],
+%%%%    Txn1 = new(Challenger, Secret, OnionKeyHash, Path1, BlockHash),
+%%
+%%%%    Deltas1 = deltas(Txn1),
+%%%%    ?assertEqual(2, length(Deltas1)),
+%%%%    ?assertEqual({0.9, 0}, proplists:get_value(<<"c1">>, Deltas1)),
+%%%%    ?assertEqual({0, 1}, proplists:get_value(<<"c2">>, Deltas1)),
+%%
+%%    P1Prime = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, []),
+%%    P2Prime = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
+%%    P3Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+%%    P4Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+%%    P5Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
+%%    Path2 = [P1Prime, P2Prime, P3Prime, P4Prime, P5Prime],
+%%%%    Txn2 = new(Challenger, Secret, OnionKeyHash, Path2, BlockHash),
+%%
+%%%%    Deltas2 = deltas(Txn2),
+%%%%    ?assertEqual(1, length(Deltas2)),
+%%%%    ?assertEqual({0, 0}, proplists:get_value(<<"c1">>, Deltas2)),
+%%    ok.
 
-    Receipt = blockchain_poc_receipt_v1:new(<<"r">>, 10, 10, <<"data">>, p2p, 1.2, 915.2, 2, <<"dr">>),
+%%duplicate_delta_test() ->
+%%    Txn = {blockchain_txn_poc_receipts_v2_pb,<<"foo">>,
+%%                                   <<"bar">>,
+%%                                   <<"baz">>,
+%%                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
+%%                                                                       {blockchain_poc_receipt_v1_pb,<<"a">>,
+%%                                                                                                     1559953989978238892,0,<<"§Úi½">>,p2p,
+%%                                                                                                     <<"b">>, 10.1, 912.4},
+%%                                                                       []},
+%%                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
+%%                                                                       undefined,
+%%                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
+%%                                                                                                      1559953991034558678,-100,
+%%                                                                                                      <<>>,
+%%                                                                                                      <<>>, 10.1, 912.4},
+%%                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
+%%                                                                                                      1559953991035078007,-72,
+%%                                                                                                      <<>>,
+%%                                                                                                      <<>>, 10.1, 912.4}]},
+%%                                    {blockchain_poc_path_element_v1_pb,<<"third">>,
+%%                                                                       undefined,[]},
+%%                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
+%%                                                                       undefined,
+%%                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
+%%                                                                                                      1559953992074400943,-100,
+%%                                                                                                      <<>>,
+%%                                                                                                      <<>>, 10.1, 912.4},
+%%                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
+%%                                                                                                      1559953992075156868,-84,
+%%                                                                                                      <<>>,
+%%                                                                                                      <<>>, 10.1, 912.4}]}],
+%%                                   0,
+%%                                   <<"gg">>, <<"blockhash">>},
 
-    W1 = blockchain_poc_witness_v1:new(<<"w1">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
-    W2 = blockchain_poc_witness_v1:new(<<"w2">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
-    Witnesses = [W1, W2],
-
-    P1 = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, Witnesses),
-    P2 = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
-    P3 = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-    P4 = blockchain_poc_path_element_v1:new(<<"c4">>, undefined, []),
-    P5 = blockchain_poc_path_element_v1:new(<<"c5">>, undefined, []),
-    Path1 = [P1, P2, P3, P4, P5],
-    Txn1 = new(Challenger, Secret, OnionKeyHash, Path1, BlockHash),
-
-    Deltas1 = deltas(Txn1),
-    ?assertEqual(2, length(Deltas1)),
-    ?assertEqual({0.9, 0}, proplists:get_value(<<"c1">>, Deltas1)),
-    ?assertEqual({0, 1}, proplists:get_value(<<"c2">>, Deltas1)),
-
-    P1Prime = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, []),
-    P2Prime = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
-    P3Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-    P4Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-    P5Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-    Path2 = [P1Prime, P2Prime, P3Prime, P4Prime, P5Prime],
-    Txn2 = new(Challenger, Secret, OnionKeyHash, Path2, BlockHash),
-
-    Deltas2 = deltas(Txn2),
-    ?assertEqual(1, length(Deltas2)),
-    ?assertEqual({0, 0}, proplists:get_value(<<"c1">>, Deltas2)),
-    ok.
-
-duplicate_delta_test() ->
-    Txn = {blockchain_txn_poc_receipts_v2_pb,<<"foo">>,
-                                   <<"bar">>,
-                                   <<"baz">>,
-                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
-                                                                       {blockchain_poc_receipt_v1_pb,<<"a">>,
-                                                                                                     1559953989978238892,0,<<"§Úi½">>,p2p,
-                                                                                                     <<"b">>, 10.1, 912.4},
-                                                                       []},
-                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
-                                                                       undefined,
-                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
-                                                                                                      1559953991034558678,-100,
-                                                                                                      <<>>,
-                                                                                                      <<>>, 10.1, 912.4},
-                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
-                                                                                                      1559953991035078007,-72,
-                                                                                                      <<>>,
-                                                                                                      <<>>, 10.1, 912.4}]},
-                                    {blockchain_poc_path_element_v1_pb,<<"third">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
-                                                                       undefined,
-                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
-                                                                                                      1559953992074400943,-100,
-                                                                                                      <<>>,
-                                                                                                      <<>>, 10.1, 912.4},
-                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
-                                                                                                      1559953992075156868,-84,
-                                                                                                      <<>>,
-                                                                                                      <<>>, 10.1, 912.4}]}],
-                                   0,
-                                   <<"gg">>, <<"blockhash">>},
-
-    Deltas = deltas(Txn),
-    ?assertEqual(4, length(Deltas)),
-    SecondDeltas = proplists:get_all_values(<<"second">>, Deltas),
-    ?assertEqual(2, length(SecondDeltas)),
-    {SecondAlphas, _} = lists:unzip(SecondDeltas),
-    ?assert(lists:sum(SecondAlphas) > 1),
-    ok.
+%%    Deltas = deltas(Txn),
+%%    ?assertEqual(4, length(Deltas)),
+%%    SecondDeltas = proplists:get_all_values(<<"second">>, Deltas),
+%%    ?assertEqual(2, length(SecondDeltas)),
+%%    {SecondAlphas, _} = lists:unzip(SecondDeltas),
+%%    ?assert(lists:sum(SecondAlphas) > 1),
+%%    ok.
 
 to_json_test() ->
     Challenger = <<"challenger">>,
