@@ -62,6 +62,8 @@ init(server, _Conn, [_Path, Blockchain]) ->
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
     case blockchain:config(?sc_version, Ledger) of
+        %% In this case only sc_version=2 is handling banners
+        %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
             ActiveSCs =
                 e2qc:cache(

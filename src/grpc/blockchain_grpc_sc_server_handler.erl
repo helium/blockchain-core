@@ -38,6 +38,8 @@ init(_RPC, StreamState)->
     Ledger = blockchain:ledger(Blockchain),
     Self = self(),
     case blockchain:config(?sc_version, Ledger) of
+        %% In this case only sc_version=2 is handling banners
+        %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
             ActiveSCs =
                 e2qc:cache(
