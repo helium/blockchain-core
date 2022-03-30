@@ -214,21 +214,15 @@ limit_addrs(_Vars, RandState, Witnesses) ->
 is_active(true, Gateway, Height, Vars, Ledger) ->
     case blockchain_ledger_v1:find_gateway_last_challenge(Gateway, Ledger) of
         {ok, undefined} ->
-            %% No activity set, default to active
-            true;
+            %% No activity value set, default to inactive
+            false;
         {ok, C} ->
-            case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
-                true ->
-                    %% Likely disabled for testing
-                    true;
-                false ->
-                    %% Check activity age is recent depending on the set chain var
-                    (Height - C) < challenge_age(Vars)
-            end
+            %% Check activity age is recent depending on the set chain var
+            (Height - C) < max_activity_age(Vars)
     end;
 is_active(_, _Gateway, _Height, _Vars, _Ledger) ->
     true.
 
--spec challenge_age(Vars :: map()) -> pos_integer().
-challenge_age(Vars) ->
+-spec max_activity_age(Vars :: map()) -> pos_integer().
+max_activity_age(Vars) ->
     maps:get(poc_v4_target_challenge_age, Vars).
