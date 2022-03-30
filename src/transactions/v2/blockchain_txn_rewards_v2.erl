@@ -946,7 +946,7 @@ normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
         fun(Challenger, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             Amount = erlang:round(PercentofReward * ChallengersReward),
-            maps:put({gateway, poc_challengers, Challenger}, Amount, Acc)
+            maps:put({validator, poc_challengers, Challenger}, Amount, Acc)
         end,
         #{},
         ChallengerRewards
@@ -1660,9 +1660,9 @@ poc_challengers_rewards_2_test() ->
         poc_version => 5
     },
     Rewards = #{
-        {gateway, poc_challengers, <<"a">>} => 38,
-        {gateway, poc_challengers, <<"b">>} => 38,
-        {gateway, poc_challengers, <<"c">>} => 75
+        {validator, poc_challengers, <<"a">>} => 38,
+        {validator, poc_challengers, <<"b">>} => 38,
+        {validator, poc_challengers, <<"c">>} => 75
     },
     ChallengerShares = lists:foldl(fun(T, Acc) -> poc_challenger_reward(T, Acc, Vars) end, #{}, Txns),
     ?assertEqual(Rewards, normalize_challenger_rewards(ChallengerShares, Vars)).
@@ -2023,7 +2023,7 @@ dc_rewards_v3_spillover_test() ->
     WitnessRewards = normalize_witness_rewards(WitnessShares, Vars),
 
     ChallengersAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengers_percent, Vars)),
-    ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward}, ChallengerRewards), %% entire 15% allocation
+    ?assertEqual(#{{validator,poc_challengers,<<"X">>} =>  ChallengersAward}, ChallengerRewards), %% entire 15% allocation
     ChallengeesAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengees_percent, Vars)),
     ?assertEqual(#{{gateway,poc_challengees,<<"a">>} => trunc(ChallengeesAward * 4/8), %% 4 of 8 shares of 20% allocation
                    {gateway,poc_challengees,<<"b">>} => trunc(ChallengeesAward * 3/8), %% 3 shares
@@ -2047,7 +2047,7 @@ dc_rewards_v3_spillover_test() ->
                                                                                                        maps:get(poc_witnesses_percent, Vars) +
                                                                                                        maps:get(poc_challengers_percent, Vars))))),
 
-    ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward + ChallengerSpilloverAward}, SpilloverChallengerRewards), %% entire 15% allocation
+    ?assertEqual(#{{validator,poc_challengers,<<"X">>} =>  ChallengersAward + ChallengerSpilloverAward}, SpilloverChallengerRewards), %% entire 15% allocation
     ChallengeeSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengees_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
                                                                                                        maps:get(poc_witnesses_percent, Vars) +
                                                                                                        maps:get(poc_challengers_percent, Vars))))),
