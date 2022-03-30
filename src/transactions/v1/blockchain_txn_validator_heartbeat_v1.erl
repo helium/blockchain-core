@@ -189,8 +189,12 @@ absorb(Txn, Chain) ->
                     %% as such it have maybe come back to life
                     %% so update it lasts activity tracking and allow it to be
                     %% reselected for POC
-                    reactivate_gws(ReactivatedGWs, TxnHeight, Ledger)
-
+                    case blockchain:config(poc_activity_filter_enabled, Ledger) of
+                        {ok, true} ->
+                            reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
+                        _ ->
+                            ok
+                    end
             end,
             blockchain_ledger_v1:update_validator(Validator, V2, Ledger);
         Err -> Err
