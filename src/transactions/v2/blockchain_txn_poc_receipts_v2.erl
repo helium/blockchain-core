@@ -695,17 +695,12 @@ absorb(_POCVersion, Txn, Chain) ->
 
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
-                ActivityFilterEnabled =
-                    case blockchain:config(poc_activity_filter_enabled, Ledger) of
-                        {ok, V} -> V;
-                        _ -> false
-                    end,
-                case ActivityFilterEnabled of
-                    true ->
+                case blockchain:config(poc_activity_filter_enabled, Ledger) of
+                    {ok, true} ->
                         Participants = poc_particpants(Txn, Chain),
                         lager:info("receipt txn poc participants: ~p", [Participants]),
                         [update_participant_gateway(GWAddr, Height, Ledger) || GWAddr <- Participants];
-                    false ->
+                    _ ->
                         ok
                 end,
                 ok = blockchain_ledger_v1:delete_public_poc(OnionKeyHash, Ledger)
