@@ -16,7 +16,7 @@
 
 -export([
          new/3,
-         new/4,
+         new/5,
          hash/1,
          address/1,
          height/1,
@@ -25,6 +25,7 @@
          fee/1,
          fee_payer/2,
          poc_key_proposals/1,
+         reactivated_gws/1,
          sign/2,
          is_valid/2,
          absorb/2,
@@ -43,16 +44,17 @@
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
     txn_validator_heartbeat().
 new(Address, Height, Version) ->
-    new(Address, Height, Version, []).
+    new(Address, Height, Version, [], []).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), [binary()]) ->
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), [binary()], [libp2p_crypto:pubkey_bin()]) ->
           txn_validator_heartbeat().
-new(Address, Height, Version, POCKeyProposals) ->
+new(Address, Height, Version, POCKeyProposals, ReactivatedGWs) ->
     #blockchain_txn_validator_heartbeat_v1_pb{
        address = Address,
        height = Height,
        version = Version,
-       poc_key_proposals = POCKeyProposals
+       poc_key_proposals = POCKeyProposals,
+       reactivated_gws = ReactivatedGWs
     }.
 
 -spec hash(txn_validator_heartbeat()) -> blockchain_txn:hash().
@@ -76,6 +78,10 @@ version(Txn) ->
 -spec poc_key_proposals(txn_validator_heartbeat()) -> [binary()].
 poc_key_proposals(Txn) ->
     Txn#blockchain_txn_validator_heartbeat_v1_pb.poc_key_proposals.
+
+-spec reactivated_gws(txn_validator_heartbeat()) -> [libp2p_crypto:pubkey_bin()].
+reactivated_gws(Txn) ->
+    Txn#blockchain_txn_validator_heartbeat_v1_pb.reactivated_gws.
 
 -spec signature(txn_validator_heartbeat()) -> binary().
 signature(Txn) ->
@@ -159,6 +165,7 @@ absorb(Txn, Chain) ->
     Version = version(Txn),
     TxnHeight = height(Txn),
     POCKeyProposals = poc_key_proposals(Txn),
+    ReactivatedGWs = reactivated_gws(Txn),
     case blockchain_ledger_v1:get_validator(Validator, Ledger) of
         {ok, V} ->
             V1 = blockchain_ledger_validator_v1:last_heartbeat(TxnHeight, V),
@@ -173,7 +180,17 @@ absorb(Txn, Chain) ->
                             POCMgrMod:save_poc_key_proposals(Validator, POCKeyProposals, TxnHeight);
                         _ ->
                             ok
-                    end
+                    end,
+                    %% process the reactivated GW list submitted in the heartbeat
+                    %% these are GWs which have fallen outside of the max activity span
+                    %% and thus wont be selected for POC
+                    %% to get on this reactivated list the GW must have connected
+                    %% to a validator over GRPC and subscribed to the poc stream
+                    %% as such it have maybe come back to life
+                    %% so update it lasts activity tracking and allow it to be
+                    %% reselected for POC
+                    reactivate_gws(ReactivatedGWs, TxnHeight, Ledger)
+
             end,
             blockchain_ledger_v1:update_validator(Validator, V2, Ledger);
         Err -> Err
@@ -201,6 +218,19 @@ to_json(Txn, _Opts) ->
       signature => ?BIN_TO_B64(signature(Txn)),
       version => version(Txn)
      }.
+
+reactivate_gws(GWAddrs, Height, Ledger) ->
+    lists:foreach(
+        fun(GW) ->
+            case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
+                {error, _} ->
+                    {error, no_active_gateway};
+                {ok, Gw0} ->
+                    lager:info("reactivating gw at height ~p for gateway ~p", [Height, GW]),
+                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+                    ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
+            end
+        end, GWAddrs).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
