@@ -157,6 +157,10 @@
 %% NOTE the minimum value here should be greater than that of validator_liveness_interval
 -define(poc_validator_ephemeral_key_timeout, poc_validator_ephemeral_key_timeout).
 
+%% Determines whether or not to filter out inactive gateways
+%% from POC targets :: boolean()
+-define(poc_activity_filter_enabled, poc_activity_filter_enabled).
+
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
 %% acceptable height.
