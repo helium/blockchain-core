@@ -743,6 +743,11 @@ get_reward_vars(Start, End, Ledger) ->
             _ -> undefined
         end,
 
+    PocChallengerType =
+        case blockchain:config(?poc_challenger_type, Ledger) of
+            {ok, validator} -> validator;
+            _ -> gateway
+        end,
 
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
@@ -755,6 +760,7 @@ get_reward_vars(Start, End, Ledger) ->
         poc_witnesses_percent => PocWitnessesPercent,
         consensus_percent => ConsensusPercent,
         dc_percent => DCPercent,
+        poc_challenger_type => PocChallengerType,
         sc_grace_blocks => SCGrace,
         sc_version => SCVersion,
         sc_dispute_strategy_version => SCDisputeStrategyVersion,
@@ -938,7 +944,8 @@ poc_challenger_reward(Txn, ChallengerRewards, #{poc_version := Version}) ->
 -spec normalize_challenger_rewards( ChallengerRewards :: rewards_share_map(),
                                     Vars :: reward_vars() ) -> rewards_map().
 normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
-                                        poc_challengers_percent := PocChallengersPercent}=Vars) ->
+                                        poc_challengers_percent := PocChallengersPercent,
+                                        poc_challenger_type := PocChallengerType}=Vars) ->
     TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
     ShareOfDCRemainder = share_of_dc_rewards(poc_challengers_percent, Vars),
     ChallengersReward = (EpochReward * PocChallengersPercent) + ShareOfDCRemainder,
@@ -946,7 +953,7 @@ normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
         fun(Challenger, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             Amount = erlang:round(PercentofReward * ChallengersReward),
-            maps:put({validator, poc_challengers, Challenger}, Amount, Acc)
+            maps:put({PocChallengerType, poc_challengers, Challenger}, Amount, Acc)
         end,
         #{},
         ChallengerRewards
@@ -1657,7 +1664,8 @@ poc_challengers_rewards_2_test() ->
         poc_witnesses_percent => 0.0,
         poc_challengees_percent => 0.0,
         dc_remainder => 0,
-        poc_version => 5
+        poc_version => 5,
+        poc_challenger_type => validator
     },
     Rewards = #{
         {validator, poc_challengers, <<"a">>} => 38,
@@ -1665,7 +1673,15 @@ poc_challengers_rewards_2_test() ->
         {validator, poc_challengers, <<"c">>} => 75
     },
     ChallengerShares = lists:foldl(fun(T, Acc) -> poc_challenger_reward(T, Acc, Vars) end, #{}, Txns),
-    ?assertEqual(Rewards, normalize_challenger_rewards(ChallengerShares, Vars)).
+    ?assertEqual(Rewards, normalize_challenger_rewards(ChallengerShares, Vars)),
+
+    AltVars = Vars#{ poc_challenger_type => gateway },
+    AltRewards = #{
+        {gateway, poc_challengers, <<"a">>} => 38,
+        {gateway, poc_challengers, <<"b">>} => 38,
+        {gateway, poc_challengers, <<"c">>} => 75
+    },
+    ?assertEqual(AltRewards, normalize_challenger_rewards(ChallengerShares, AltVars)).
 
 poc_challengees_rewards_3_test() ->
     BaseDir = test_utils:tmp_dir("poc_challengees_rewards_3_test"),
@@ -1911,6 +1927,7 @@ dc_rewards_v3_spillover_test() ->
         poc_challengers_percent => 0.15,
         poc_witnesses_percent => 0.15,
         securities_percent => 0.35,
+        poc_challenger_type => validator,
         sc_version => 2,
         sc_grace_blocks => 5,
         reward_version => 3,
