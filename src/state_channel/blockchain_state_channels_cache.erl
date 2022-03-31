@@ -23,7 +23,8 @@
 ]).
 
 -define(ETS, blockchain_state_channels_cache_ets).
-%% ets:fun2ms(fun({_, Pid}) when Pid == Self -> true end).
+-define(DIFF_ETS, blockchain_state_channels_diff_ets).
+%% ets:fun2ms(fun({_, Pid}) when Pid == self() -> true end).
 -define(SELECT_DELETE_PID(Pid), [{{'_', '$1'}, [{'==', '$1', {const, Pid}}], [true]}]).
 -define(ACTIVES_KEY, active_scs).
 

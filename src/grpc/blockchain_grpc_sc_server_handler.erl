@@ -31,14 +31,16 @@ close(_HandlerPid)->
 
 -spec init(atom(), grpcbox_stream:t()) -> grpcbox_stream:t().
 init(_RPC, StreamState)->
-    lager:info("initiating grpc state channel server handler with state ~p", [StreamState]),
+    lager:debug("initiating grpc state channel server handler with state ~p", [StreamState]),
     HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
     Blockchain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Blockchain),
     Self = self(),
     case blockchain:config(?sc_version, Ledger) of
-        {ok, N} when N > 1 ->
+        %% In this case only sc_version=2 is handling banners
+        %% version 1 never had them and banner will be removed form future versions
+        {ok, 2} ->
             ActiveSCs =
                 e2qc:cache(
                     ?MODULE,

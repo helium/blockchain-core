@@ -62,7 +62,9 @@ init(server, _Conn, [_Path, Blockchain]) ->
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
     HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
     case blockchain:config(?sc_version, Ledger) of
-        {ok, N} when N > 1 ->
+        %% In this case only sc_version=2 is handling banners
+        %% version 1 never had them and banner will be removed form future versions
+        {ok, 2} ->
             ActiveSCs =
                 e2qc:cache(
                     ?MODULE,
@@ -74,13 +76,11 @@ init(server, _Conn, [_Path, Blockchain]) ->
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:debug("sc_handler, empty banner: ~p", [SCBanner]),
-                    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
                     {ok, HandlerState,
                      blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSCs ->
                     [{SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
                     EncodedSCBanner =
                         e2qc:cache(
                             ?MODULE,
@@ -90,27 +90,27 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     {ok, HandlerState, EncodedSCBanner}
             end;
         _ ->
-            HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
             {ok, HandlerState}
     end.
 
 -spec handle_data(
-        Kind :: libp2p_framed_stream:kind(),
-        Data :: any(),
-        HandlerState :: any()
+    Kind :: libp2p_framed_stream:kind(),
+    Data :: any(),
+    HandlerState :: any()
 ) -> libp2p_framed_stream:handle_data_result().
 handle_data(client, Data, HandlerState) ->
     %% get ledger if we don't yet have one
-    Ledger = case blockchain_state_channel_common:ledger(HandlerState) of
-                 undefined ->
-                     case blockchain_worker:blockchain() of
-                         undefined ->
-                             undefined;
-                         Chain ->
-                             blockchain:ledger(Chain)
-                     end;
-                 L -> L
-             end,
+    Ledger = 
+        case blockchain_state_channel_common:ledger(HandlerState) of
+            undefined ->
+                case blockchain_worker:blockchain() of
+                    undefined ->
+                        undefined;
+                    Chain ->
+                        blockchain:ledger(Chain)
+                end;
+            L -> L
+        end,
     case blockchain_state_channel_message_v1:decode(Data) of
         {banner, Banner} ->
             case blockchain_state_channel_banner_v1:sc(Banner) of

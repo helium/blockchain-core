@@ -2,7 +2,10 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
 -include("blockchain_ct_utils.hrl").
+-include("blockchain.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     groups/0,
@@ -15,6 +18,7 @@
 
 -export([
     full_test/1,
+    diff_test/1,
     overspent_test/1,
     dup_packets_test/1,
     cached_routing_test/1,
@@ -37,9 +41,6 @@
     default_routers_test/1
 ]).
 
--include("blockchain.hrl").
--include("blockchain_utils.hrl").
-
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
@@ -60,6 +61,7 @@ all() ->
 test_cases() ->
     [
         full_test,
+        diff_test,
         overspent_test,
         dup_packets_test,
         cached_routing_test,
@@ -379,6 +381,136 @@ full_test(Config) ->
         ActiveSCs = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, []),
         maps:is_key(ID2, ActiveSCs)
     end, 30, timer:seconds(1)),
+
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
+
+    ok.
+
+diff_test(Config) ->
+    [RouterNode, GatewayNode1, GatewayNode2|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    ct:pal("RouterNode ~p", [RouterNode]),
+    ct:pal("Gateway node1 ~p", [GatewayNode1]),
+
+    %% Check that the meck txn forwarding works
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+
+    %% Create OUI txn
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% Create state channel open txn
+    ID = crypto:strong_rand_bytes(32),
+    ExpireWithin = 11,
+    Nonce = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
+
+    %% Add block with oui and sc open txns
+    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]),
+    ct:pal("Block0: ~p", [Block0]),
+
+    %% Fake gossip block
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
+
+    %% Wait till the block is gossiped
+    ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
+
+    %% Checking that state channel got created properly
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+
+    %% Check that the state channel is in server
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ActiveSCs = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_actives, []),
+        maps:is_key(ID, ActiveSCs)
+    end, 30, timer:seconds(1)),
+
+    %% Check that the state channel is active and running
+    SCWorkerPid = ct_rpc:call(RouterNode, blockchain_state_channels_server, get_active_pid, [ID]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        erlang:is_pid(SCWorkerPid) andalso ct_rpc:call(RouterNode, erlang, is_process_alive, [SCWorkerPid])
+    end, 30, timer:seconds(1)),
+
+    GatewayNode1Swarm = ct_rpc:call(GatewayNode1, blockchain_swarm, swarm, []),
+    {GatewayNode1PubkeyBin, GatewayNode1SigFun} = ct_rpc:call(GatewayNode1, blockchain_utils, get_pubkeybin_sigfun, [GatewayNode1Swarm]),
+
+    %% Sending 1 packet from GW 1
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, crypto:strong_rand_bytes(2), 0.0),
+    OfferMsg1 = blockchain_state_channel_offer_v1:from_packet(Packet1, GatewayNode1PubkeyBin, 'US915', true),
+    Offer1 = blockchain_state_channel_offer_v1:sign(OfferMsg1, GatewayNode1SigFun),
+
+    RouterLedger = ct_rpc:call(RouterNode, blockchain, ledger, []),
+    HandlerState0 = blockchain_state_channel_common:new_handler_state(
+        RouterChain,
+        RouterLedger,
+        #{},
+        [],
+        sc_packet_test_handler,
+        10,
+        false %% We dont encore for simplicity
+    ),
+    {ok, HandlerState1, Msg1} = ct_rpc:call(
+        RouterNode,
+        blockchain_state_channel_common,
+        handle_offer,
+        [Offer1, 1, HandlerState0]
+    ),
+    {purchase, Purchase1} = unwrap_msg(Msg1),
+    %% No diff yet even if we requested because we did not have a SC saved for this handler
+    ?assertEqual(GatewayNode1PubkeyBin, blockchain_state_channel_purchase_v1:hotspot(Purchase1)),
+    ?assertEqual(blockchain_helium_packet_v1:packet_hash(Packet1), blockchain_state_channel_purchase_v1:packet_hash(Purchase1)),
+    ?assertEqual('US915', blockchain_state_channel_purchase_v1:region(Purchase1)),
+    ?assertEqual(undefined, blockchain_state_channel_purchase_v1:sc_diff(Purchase1)),
+    ?assert(blockchain_state_channel_common:state_channel(HandlerState1) =/= undefined),
+
+    %% Checking state channel on server/client
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 1),
+
+    %% Sending 1 packet
+    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, crypto:strong_rand_bytes(2), 0.0),
+    ok = ct_rpc:call(GatewayNode2, blockchain_state_channels_client, packet, [Packet2, [], 'US915']),
+
+    %% Checking state channel on server/client
+    ok = expect_nonce_for_state_channel(RouterNode, ID, 2),
+
+    %% REAL TEST START HERE Sending 1 packet from GW 1
+    Packet3 = blockchain_ct_utils:join_packet(?APPKEY, crypto:strong_rand_bytes(2), 0.0),
+    OfferMsg2 = blockchain_state_channel_offer_v1:from_packet(Packet3, GatewayNode1PubkeyBin, 'US915', true),
+    Offer2 = blockchain_state_channel_offer_v1:sign(OfferMsg2, GatewayNode1SigFun),
+
+    {ok, HandlerState2, Msg2} = ct_rpc:call(
+        RouterNode,
+        blockchain_state_channel_common,
+        handle_offer,
+        [Offer2, 1, HandlerState1]
+    ),
+    %% This time we should get a diff
+    {purchase, Purchase2} = unwrap_msg(Msg2),
+    ?assertEqual(undefined, blockchain_state_channel_purchase_v1:sc(Purchase2)),
+    ?assertEqual(GatewayNode1PubkeyBin, blockchain_state_channel_purchase_v1:hotspot(Purchase2)),
+    ?assertEqual(blockchain_helium_packet_v1:packet_hash(Packet3), blockchain_state_channel_purchase_v1:packet_hash(Purchase2)),
+    ?assertEqual('US915', blockchain_state_channel_purchase_v1:region(Purchase2)),
+    ?assert(blockchain_state_channel_common:state_channel(HandlerState2) =/= undefined),
+
+    SCDiff = blockchain_state_channel_purchase_v1:sc_diff(Purchase2),
+
+    ct:pal("Diff = ~p~n", [SCDiff]),
+    ?assertEqual(ID, SCDiff#blockchain_state_channel_diff_v1_pb.id),
+    ?assertEqual(2, SCDiff#blockchain_state_channel_diff_v1_pb.add_nonce),
+    Diffs = SCDiff#blockchain_state_channel_diff_v1_pb.diffs,
+    ?assertEqual(2, erlang:length(Diffs)),
+    [Diff1, Diff2] = Diffs,
+    AddEntry = {add, #blockchain_state_channel_diff_update_summary_v1_pb{client_index=1, add_packets=1, add_dcs=1}},
+    ?assertEqual(AddEntry, Diff1#blockchain_state_channel_diff_entry_v1_pb.entry),
+    GatewayNode2PubkeyBin = ct_rpc:call(GatewayNode2, blockchain_swarm, pubkey_bin, []),
+    AppendEntry = {append, #blockchain_state_channel_diff_append_summary_v1_pb{client_pubkeybin=GatewayNode2PubkeyBin, num_packets=1, num_dcs=1}},
+    ?assertEqual(AppendEntry, Diff2#blockchain_state_channel_diff_entry_v1_pb.entry),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
@@ -2657,3 +2789,6 @@ get_active_state_channel(RouterNode, SCID) ->
         SCWorkerPid ->
             ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid, 10])
     end.
+
+unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
+    {Type, Msg}.

@@ -6,8 +6,12 @@
 -module(blockchain_state_channel_purchase_v1).
 
 -export([
-    new/4,
-    hotspot/1, packet_hash/1, region/1, sc/1,
+    new/4, new_diff/4,
+    sc/1,
+    hotspot/1,
+    packet_hash/1,
+    region/1,
+    sc_diff/1,
     encode/1, decode/1
 ]).
 
@@ -21,10 +25,12 @@
 -type purchase() :: #blockchain_state_channel_purchase_v1_pb{}.
 -export_type([purchase/0]).
 
--spec new(SC :: blockchain_state_channel_v1:state_channel(),
-          Hotspot :: libp2p_crypto:pubkey_bin(),
-          PacketHash :: binary(),
-          Region :: atom()) -> purchase().
+-spec new(
+    SC :: blockchain_state_channel_v1:state_channel(),
+    Hotspot :: libp2p_crypto:pubkey_bin(),
+    PacketHash :: binary(),
+    Region :: atom()
+) -> purchase().
 new(SC, Hotspot, PacketHash, Region) ->
     #blockchain_state_channel_purchase_v1_pb{
        sc=SC,
@@ -32,6 +38,24 @@ new(SC, Hotspot, PacketHash, Region) ->
        packet_hash=PacketHash,
        region=Region
     }.
+
+-spec new_diff(
+    SCDiff :: blockchain_state_channel_diff_v1:diff(),
+    Hotspot :: libp2p_crypto:pubkey_bin(),
+    PacketHash :: binary(),
+    Region :: atom()
+) -> purchase().
+new_diff(SCDiff, Hotspot, PacketHash, Region) ->
+    #blockchain_state_channel_purchase_v1_pb{
+       hotspot=Hotspot,
+       packet_hash=PacketHash,
+       region=Region,
+       sc_diff=SCDiff
+    }.
+
+-spec sc(purchase()) -> blockchain_state_channel_v1:state_channel().
+sc(#blockchain_state_channel_purchase_v1_pb{sc=SC}) ->
+    SC.
 
 -spec hotspot(purchase()) -> libp2p_crypto:pubkey_bin().
 hotspot(#blockchain_state_channel_purchase_v1_pb{hotspot=Hotspot}) ->
@@ -45,9 +69,9 @@ region(#blockchain_state_channel_purchase_v1_pb{region=Region}) ->
 packet_hash(#blockchain_state_channel_purchase_v1_pb{packet_hash=PacketHash}) ->
     PacketHash.
 
--spec sc(purchase()) -> blockchain_state_channel_v1:state_channel().
-sc(#blockchain_state_channel_purchase_v1_pb{sc=SC}) ->
-    SC.
+-spec sc_diff(purchase()) -> blockchain_state_channel_diff_v1:diff().
+sc_diff(#blockchain_state_channel_purchase_v1_pb{sc_diff=SCDiff}) ->
+    SCDiff.
 
 -spec encode(purchase()) -> binary().
 encode(#blockchain_state_channel_purchase_v1_pb{}=Purchase) ->
