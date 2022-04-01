@@ -3090,10 +3090,7 @@ run_gc_hooks(Blockchain, _Hash) ->
 
         ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain, Ledger),
 
-        case config(?poc_targeting_version, Ledger) of
-            {ok, 6} -> ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger);
-            _ -> ok
-        end,
+        ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger),
 
         ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger) %,
 
