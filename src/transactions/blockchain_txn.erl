@@ -100,7 +100,6 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
--include("blockchain_vars.hrl").
 
 -define(BLOCK_DELAY, 50).
 -define(ORDER, [
@@ -928,10 +927,7 @@ plain_absorb_(Block, Chain0) ->
             ok = blockchain_ledger_v1:process_poc_keys(Block, Height, Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
-            case blockchain:config(?poc_targeting_version, Ledger0) of
-                {ok, 6} -> ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger0);
-                _ -> ok
-            end,
+            ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger0),
             %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
             ok;
