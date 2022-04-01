@@ -146,12 +146,18 @@ target_(
     Height :: non_neg_integer(),
     Vars :: map()
 ) -> [libp2p_crypto:pubkey_bin()].
-filter(AddrList, Ledger, _Height, _Vars) ->
+filter(AddrList, Ledger, Height, Vars) ->
+    ActivityFilterEnabled =
+        case blockchain:config(poc_activity_filter_enabled, Ledger) of
+            {ok, V} -> V;
+            _ -> false
+        end,
     lists:filter(
         fun(A) ->
             {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
             Mode = blockchain_ledger_gateway_v2:mode(Gateway),
-            blockchain_ledger_gateway_v2:is_valid_capability(
+            is_active(ActivityFilterEnabled, A, Height, Vars, Ledger) andalso
+                blockchain_ledger_gateway_v2:is_valid_capability(
                     Mode,
                     ?GW_CAPABILITY_POC_CHALLENGEE,
                     Ledger
@@ -207,3 +213,24 @@ limit_addrs(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses) 
     blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
 limit_addrs(_Vars, RandState, Witnesses) ->
     {RandState, Witnesses}.
+
+-spec is_active(ActivityFilterEnabled :: boolean(),
+                Gateway :: libp2p_crypto:pubkey_bin(),
+                Height :: non_neg_integer(),
+                Vars :: map(),
+                Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_active(true, Gateway, Height, Vars, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_last_challenge(Gateway, Ledger) of
+        {ok, undefined} ->
+            %% No activity value set, default to inactive
+            false;
+        {ok, C} ->
+            %% Check activity age is recent depending on the set chain var
+            (Height - C) < max_activity_age(Vars)
+    end;
+is_active(_, _Gateway, _Height, _Vars, _Ledger) ->
+    true.
+
+-spec max_activity_age(Vars :: map()) -> pos_integer().
+max_activity_age(Vars) ->
+    maps:get(poc_v4_target_challenge_age, Vars).
