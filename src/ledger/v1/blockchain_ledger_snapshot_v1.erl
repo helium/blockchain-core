@@ -608,7 +608,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
         true -> ok;
         _ ->
             case blockchain_ledger_v1:config(?poc_challenger_type, L) of
-                {ok, _validator} ->
+                {ok, validator} ->
                     ok;
                 {error, not_found} ->
                     %% have to do this here, otherwise it'll break block loads

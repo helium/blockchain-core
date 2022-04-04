@@ -175,9 +175,14 @@ absorb(Txn, Chain) ->
                 true ->
                     ok;
                 false ->
-                    case application:get_env(blockchain, poc_mgr_mod) of
-                        {ok, POCMgrMod} ->
-                            POCMgrMod:save_poc_key_proposals(Validator, POCKeyProposals, TxnHeight);
+                    case blockchain:config(poc_challenger_type, Ledger) of
+                        {ok, validator} ->
+                            case application:get_env(blockchain, poc_mgr_mod) of
+                                {ok, POCMgrMod} ->
+                                    POCMgrMod:save_poc_key_proposals(Validator, POCKeyProposals, TxnHeight);
+                                _ ->
+                                    ok
+                            end;
                         _ ->
                             ok
                     end,
@@ -186,7 +191,7 @@ absorb(Txn, Chain) ->
                     %% and thus wont be selected for POC
                     %% to get on this reactivated list the GW must have connected
                     %% to a validator over GRPC and subscribed to the poc stream
-                    %% as such it have maybe come back to life
+                    %% as such it may have maybe come back to life
                     %% so update it lasts activity tracking and allow it to be
                     %% reselected for POC
                     case blockchain:config(poc_activity_filter_enabled, Ledger) of
@@ -220,7 +225,9 @@ to_json(Txn, _Opts) ->
       address => ?BIN_TO_B58(address(Txn)),
       height => height(Txn),
       signature => ?BIN_TO_B64(signature(Txn)),
-      version => version(Txn)
+      version => version(Txn),
+      poc_key_proposals => [?BIN_TO_B64(K) || K <- poc_key_proposals(Txn)],
+      reactivated_gws => [?BIN_TO_B58(GW) || GW <- reactivated_gws(Txn)]
      }.
 
 reactivate_gws(GWAddrs, Height, Ledger) ->
@@ -230,7 +237,7 @@ reactivate_gws(GWAddrs, Height, Ledger) ->
                 {error, _} ->
                     {error, no_active_gateway};
                 {ok, Gw0} ->
-                    lager:info("reactivating gw at height ~p for gateway ~p", [Height, GW]),
+                    lager:debug("reactivating gw at height ~p for gateway ~p", [Height, GW]),
                     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
                     ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
             end
@@ -242,7 +249,7 @@ reactivate_gws(GWAddrs, Height, Ledger) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, 20000, 1),
+    Tx = new(<<"validator_address">>, 20000, 1, [<<"poc_key_proposal">>], [<<"reactivated_gateway_addr1">>]),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).
