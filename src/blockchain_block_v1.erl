@@ -47,6 +47,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type poc_key() :: {libp2p_crypto:pubkey_bin(), binary()}.
+-type poc_keys() :: [poc_key()].
+
 -type block() :: #blockchain_block_v1_pb{}.
 -type block_map() :: #{prev_hash => binary(),
                        height => non_neg_integer(),
@@ -60,10 +63,10 @@
                        seen_votes => [{pos_integer(), binary()}],
                        bba_completion => binary(),
                        snapshot_hash => binary(),
-                       poc_keys => [any()]
+                       poc_keys => poc_keys()
                       }.
 
--export_type([block/0, block_map/0]).
+-export_type([block/0, block_map/0, poc_key/0, poc_keys/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -81,7 +84,7 @@ new(#{prev_hash := PrevHash,
       seen_votes := Votes,
       bba_completion := Completion,
       poc_keys := PocKeys } = Map) ->
-    lager:info("*** new block with poc keys ~p",[PocKeys]),
+    lager:debug("*** new block with poc keys ~p",[PocKeys]),
     #blockchain_block_v1_pb{
        prev_hash = PrevHash,
        height = Height,
@@ -196,7 +199,7 @@ bba_completion(Block) ->
 snapshot_hash(Block) ->
     Block#blockchain_block_v1_pb.snapshot_hash.
 
--spec poc_keys(block()) -> [any()].
+-spec poc_keys(block()) -> poc_keys().
 poc_keys(Block) ->
     [unwrap_poc_key(V) || V <- Block#blockchain_block_v1_pb.poc_keys].
 %%--------------------------------------------------------------------
@@ -446,11 +449,11 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
--spec wrap_poc_key({libp2p_crypto:pub_key_bin(), binary()}) -> #blockchain_poc_key_pb{}.
+-spec wrap_poc_key({libp2p_crypto:pubkey_bin(), binary()}) -> #blockchain_poc_key_pb{}.
 wrap_poc_key({Address, Key}) ->
     #blockchain_poc_key_pb{address = Address, key = Key}.
 
--spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {libp2p_crypto:pub_key_bin(), binary()}.
+-spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {libp2p_crypto:pubkey_bin(), binary()}.
 unwrap_poc_key(#blockchain_poc_key_pb{address = Address, key = Key}) ->
     {Address, Key}.
 

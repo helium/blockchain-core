@@ -719,6 +719,8 @@ init_var_cache() ->
     e2qc:setup(?VAR_CACHE, []).
 
 -spec target_v_to_mod({error, not_found} | {ok, integer()}) -> atom().
+%% note: target_v_to_mod used by validator challenges related
+%% code flows. no need to support version below 5
 target_v_to_mod({error, not_found}) ->
     blockchain_poc_target_v5;
 target_v_to_mod({ok, V}) when V =< 5 ->

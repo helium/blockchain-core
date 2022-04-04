@@ -2,7 +2,7 @@
 %%% @doc blockchain_poc_target_v5 implementation.
 %%%
 %%% The targeting mechanism is based on the following conditions:
-%%% - Deterministically i dentify a target region based on public key
+%%% - Deterministically identify a target hex based on public key
 %%% - Deterministically select a challengee from target region based on private key
 %%%
 %%%-----------------------------------------------------------------------------
@@ -51,15 +51,15 @@ gateways_for_zone(
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% Get a list of gateway pubkeys within this hex
     {ok, AddrList0} = blockchain_ledger_v1:get_hex(Hex, Ledger),
-    lager:info("gateways for hex ~p: ~p", [Hex, AddrList0]),
+    lager:debug("gateways for hex ~p: ~p", [Hex, AddrList0]),
     %% Limit max number of potential targets in the zone
     {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
     case filter(AddrList, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
-            lager:info("*** found gateways for hex ~p: ~p", [Hex, FilteredList]),
+            lager:debug("*** filtered gateways for hex ~p: ~p", [Hex, FilteredList]),
             {ok, FilteredList};
         _ ->
-            lager:info("*** failed to find gateways for zone ~p, trying again", [Hex]),
+            lager:debug("*** failed to find gateways for hex ~p, trying again", [Hex]),
             %% no eligible target in this zone
             %% find a new zone
             case choose_zone(HexRandState, HexList) of
@@ -82,13 +82,11 @@ gateways_for_zone(
 target(ChallengerPubkeyBin, InitTargetRandState, ZoneRandState, Ledger, Vars) ->
     %% Get all hexes once
     HexList = sorted_hex_list(Ledger),
-    lager:info("*** HexList ~p", [HexList]),
     %% Initial zone to begin targeting into
     case choose_zone(ZoneRandState, HexList) of
         {error, _} = ErrorResp ->
             ErrorResp;
         {ok, {InitHex, InitHexRandState}} ->
-            lager:info("*** target got InitHex ~p and InitHexRandState ~p", [InitHex, InitHexRandState]),
             target_(
                 ChallengerPubkeyBin,
                 InitTargetRandState,
@@ -131,10 +129,8 @@ target_(
         #{},
         ZoneGWs
     ),
-    lager:info("*** ProbTargetMap ~p", [ProbTargetMap]),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
     %% make sure that we carry the rand_state through for determinism
-
     {RandVal, TargetRandState} = rand:uniform_s(InitTargetRandState),
     {ok, TargetPubkeybin} = blockchain_utils:icdf_select(
         lists:keysort(1, maps:to_list(ProbTargetMap)),
@@ -193,11 +189,10 @@ choose_zone(RandState, HexList) ->
     {HexVal, HexRandState} = rand:uniform_s(RandState),
     case blockchain_utils:icdf_select(HexList, HexVal) of
         {error, zero_weight} ->
-            lager:info("choose zone error with zero weight, trying again", []),
             %% retry
             choose_zone(HexRandState, HexList);
         {ok, Hex} ->
-            lager:info("choose zone success, found hex ~p", [Hex]),
+            lager:debug("choose zone success, found hex ~p", [Hex]),
             {ok, {Hex, HexRandState}}
     end.
 

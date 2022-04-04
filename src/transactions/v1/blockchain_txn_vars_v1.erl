@@ -718,7 +718,6 @@ var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
 %% we dont care about its value, if its been
 %% updated then we wipe all POCs
 var_hook(?poc_challenger_type, _, Ledger) ->
-    lager:info("poc_challenger_type changed, purging pocs", []),
     purge_pocs(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->
@@ -734,7 +733,6 @@ unset_hook(?poc_hexing_type, Ledger) ->
     blockchain:bootstrap_hexes(Ledger),
     ok;
 unset_hook(?poc_challenger_type, Ledger) ->
-    lager:info("poc_challenger_type unset, purging pocs", []),
     purge_pocs(Ledger),
     ok;
 unset_hook(_Var, _Ledger) ->

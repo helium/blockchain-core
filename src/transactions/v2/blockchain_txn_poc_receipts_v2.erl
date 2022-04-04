@@ -165,7 +165,6 @@ is_valid(Txn, Chain) ->
             %% check the challenger is actually a validator and it exists
             case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
                 {error, _Reason}=Error ->
-                    lager:info("poc_receipts: validator not found for challenger ~p",[Challenger]),
                     Error;
                 {ok, _ChallengerInfo} ->
                     case ?MODULE:path(Txn) =:= [] of
@@ -221,18 +220,6 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                                         false ->
                                             {error, onion_key_hash_mismatch};
                                         _ ->
-                                            %% Note there are 2 block hashes here; one is the block hash encoded into the original
-                                            %% PoC request used to establish a lower bound on when that PoC request was made,
-                                            %% and one is the block hash at which the PoC was absorbed onto the chain.
-                                            %%
-                                            %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
-                                            %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
-                                            %% with the chain.
-                                            %%
-                                            %% The second of these is combined with the PoC secret to produce the combined entropy
-                                            %% from both the chain and from the PoC requester.
-                                            %%
-                                            %% Keeping these distinct and using them for their intended purpose is important.
                                             PrePoCBlockHash = blockchain_ledger_poc_v3:block_hash(PoC),
                                             StartLA = maybe_log_duration(prelude, StartPre),
                                             {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
@@ -392,8 +379,7 @@ calculate_delta(Txn, Chain) ->
     end.
 
 -spec poc_particpants(Txn :: txn_poc_receipts(),
-                      Chain :: blockchain:blockchain()) ->
-    {[libp2p_crypto:pubkey_bin()], [blockchain_poc_witness_v1:poc_witness()]}.
+                      Chain :: blockchain:blockchain()) -> [libp2p_crypto:pubkey_bin()].
 poc_particpants(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Path = blockchain_txn_poc_receipts_v2:path(Txn),
@@ -724,7 +710,7 @@ update_participant_gateway(GWAddr, Height, Ledger) ->
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
-            lager:info("updating last challenge with ~p for gateway ~p", [Height, GWAddr]),
+            lager:debug("updating last activity with ~p for gateway ~p", [Height, GWAddr]),
             Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
             ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GWAddr, Ledger)
     end.
