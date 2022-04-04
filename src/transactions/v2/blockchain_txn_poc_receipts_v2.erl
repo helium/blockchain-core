@@ -413,7 +413,13 @@ poc_particpants(Txn, Chain) ->
                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                 end,
                             Witnesses = valid_witness_addrs(Element, WitnessChannel, Ledger),
-                            ElemParticipants = [Challengee | Witnesses],
+                            %% only include the challengee in the poc participants list
+                            %% if we have received a receipt
+                            ElemParticipants =
+                                case blockchain_poc_path_element_v1:receipt(Element) of
+                                    undefined -> Witnesses;
+                                    _R -> [Challengee | Witnesses]
+                                end,
                             [ElemParticipants | Acc];
                         (_, Acc) ->
                             Acc
