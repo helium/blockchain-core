@@ -797,43 +797,23 @@ get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
             Error
     end.
 
+-spec mk_block_info(blockchain_block:hash(), blockchain_block:block()) -> #block_info_v2{}.
 mk_block_info(Hash, Block) ->
-    %% POCs in the block will either be the poc request txns
-    %% or the poc keys in the block metadata
-    %% which is dependant upon chain var poc_challenger_type
-    %% given mk_block_info is called when loading blocks from a snapshot
-    %% and the ledger at this point seems to be empty, its not
-    %% possible to consult the ledger to get the chain var value
-    %% in this snapshot load scenario
-    %% as such check for the presence of either
-    %% and if the poc request txns are present, go with those
-    %% if not default to poc keys
-    %% TODO: REVIEW THIS APPROACH
-    PoCKeys = blockchain_block_v1:poc_keys(Block),
-    PoCRequests = maps:from_list(
-                    lists:flatmap(
-                        fun(Txn) ->
-                                 case blockchain_txn:type(Txn) of
-                                     blockchain_txn_poc_request_v1 ->
-                                         [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
-                                           blockchain_txn_poc_request_v1:block_hash(Txn)}];
-                                     _ -> []
-                                 end
-                         end,
-                     blockchain_block:transactions(Block))
-                ),
-    PoCs =
-        case PoCRequests of
-            M when map_size(M) == 0 ->
-                PoCKeys;
-            _ ->
-                PoCRequests
-        end,
+    PoCs = lists:flatmap(
+             fun(Txn) ->
+                     case blockchain_txn:type(Txn) of
+                         blockchain_txn_poc_request_v1 ->
+                             [{blockchain_txn_poc_request_v1:onion_key_hash(Txn),
+                               blockchain_txn_poc_request_v1:block_hash(Txn)}];
+                         _ -> []
+                     end
+             end,
+             blockchain_block:transactions(Block)),
 
     #block_info_v2{time = blockchain_block:time(Block),
                    hash = Hash,
                    height = blockchain_block:height(Block),
-                   pocs = PoCs,
+                   pocs = maps:from_list(PoCs),
                    hbbft_round = blockchain_block:hbbft_round(Block),
                    election_info = blockchain_block_v1:election_info(Block),
                    penalties = {blockchain_block_v1:bba_completion(Block), blockchain_block_v1:seen_votes(Block)}}.
