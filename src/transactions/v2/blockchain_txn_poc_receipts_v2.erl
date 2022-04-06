@@ -9,7 +9,6 @@
 
 -include("blockchain.hrl").
 -include("blockchain_json.hrl").
--include("blockchain_caps.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v2_pb.hrl").
@@ -31,7 +30,6 @@
     absorb/2,
     create_secret_hash/2,
     connections/1,
-    deltas/2,
     check_path_continuation/1,
     print/1,
     json_type/0,
@@ -48,7 +46,6 @@
 -endif.
 
 -type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v2_pb{}.
--type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
 -type tagged_witnesses() :: [{IsValid :: boolean(), InvalidReason :: binary(), Witness :: blockchain_poc_witness_v1:witness()}].
 
 -export_type([txn_poc_receipts/0]).
@@ -314,70 +311,6 @@ connections(Txn) ->
                                   end, blockchain_poc_path_element_v1:witnesses(PathElement)) ++ Acc
                 end, [], TaggedPaths).
 
-%%--------------------------------------------------------------------
-%% @doc Return a list of {gateway, {alpha, beta}} two tuples after
-%% looking at a single poc rx txn. Alpha and Beta are the shaping parameters for
-%% the beta distribution curve.
-%%
-%% An increment in alpha implies that we have gained more confidence in a hotspot
-%% being active and has succesffully either been a witness or sent a receipt. The
-%% actual increment values are debatable and have been put here for testing, although
-%% they do seem to behave well.
-%%
-%% An increment in beta implies we gain confidence in a hotspot not doing it's job correctly.
-%% This should be rare and only happen when we are certain that a particular hotspot in the path
-%% has not done it's job.
-%%
-%% @end
-%%--------------------------------------------------------------------
--spec deltas(Txn :: txn_poc_receipts(),
-             Chain :: blockchain:blockchain()) -> deltas().
-deltas(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
-    deltas(POCVersion, Txn, Chain).
-
--spec deltas(POCVersion :: pos_integer(),
-             Txn :: txn_poc_receipts(),
-             Chain :: blockchain:blockchain()) -> deltas().
-deltas(_POCVersion, Txn, Chain) ->
-    calculate_delta(Txn, Chain).
-
--spec calculate_delta(Txn :: txn_poc_receipts(),
-                      Chain :: blockchain:blockchain()) -> deltas().
-calculate_delta(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Path = blockchain_txn_poc_receipts_v2:path(Txn),
-    Length = length(Path),
-
-    try get_channels(Txn, Chain) of
-        {ok, Channels} ->
-
-            lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
-                                                         Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                         NextElements = lists:sublist(Path, ElementPos+1, Length),
-                                                         HasContinued = check_path_continuation(NextElements),
-
-                                                         {PreviousElement, ReceiptChannel, WitnessChannel} =
-                                                         case ElementPos of
-                                                             1 ->
-                                                                 {undefined, 0, hd(Channels)};
-                                                             _ ->
-                                                                 {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-                                                         end,
-                                                         Witnesses = valid_witnesses(Element, WitnessChannel, Ledger),
-                                                         {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, Witnesses, Ledger),
-                                                         {set_deltas(Challengee, Val, Witnesses, Acc), Continue};
-                                                    (_, Acc) ->
-                                                         Acc
-                                                 end,
-                                                 {[], [], [], true},
-                                                 lists:zip(lists:seq(1, Length), Path))))
-    catch
-        _:_ ->
-            []
-    end.
-
 -spec poc_particpants(Txn :: txn_poc_receipts(),
                       Chain :: blockchain:blockchain()) -> [libp2p_crypto:pubkey_bin()].
 poc_particpants(Txn, Chain) ->
@@ -427,121 +360,6 @@ check_path_continuation(Elements) ->
               end,
               Elements).
 
-%%-spec assign_alpha_beta(HasContinued :: boolean(),
-%%                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
-%%                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), 0 | 1}, boolean()}.
-%%assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
-%%    case {HasContinued, Receipt, Witnesses} of
-%%        {true, undefined, _} ->
-%%            %% path continued, no receipt, don't care about witnesses
-%%            {{0.8, 0}, true};
-%%        {true, Receipt, _} when Receipt /= undefined ->
-%%            %% path continued, receipt, don't care about witnesses
-%%            {{1, 0}, true};
-%%        {false, undefined, Wxs} when length(Wxs) > 0 ->
-%%            %% path broke, no receipt, witnesses
-%%            {{0.9, 0}, true};
-%%        {false, Receipt, []} when Receipt /= undefined ->
-%%            %% path broke, receipt, no witnesses
-%%            %% likely the next hop broke the path
-%%            case blockchain_poc_receipt_v1:origin(Receipt) of
-%%                p2p ->
-%%                    %% you really did nothing here other than be online
-%%                    {{0, 0}, false};
-%%                radio ->
-%%                    %% not enough information to decide who screwed up
-%%                    %% but you did receive a packet over the radio, so you
-%%                    %% get partial credit
-%%                    {{0.2, 0}, false}
-%%            end;
-%%        {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
-%%            %% path broke, receipt, witnesses
-%%            {{0.9, 0}, true};
-%%        {false, _, _} ->
-%%            %% path broke, you killed it
-%%            {{0, 1}, false}
-%%    end.
-
--spec calculate_alpha_beta(HasContinued :: boolean(),
-                           Element :: blockchain_poc_path_element_v1:poc_element(),
-                           PreviousElement :: blockchain_poc_path_element_v1:poc_element(),
-                           ReceiptChannel :: non_neg_integer(),
-                           Witnesses :: blockchain_poc_witness_v1:poc_witnesses(),
-                           Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
-calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, Witnesses, Ledger) ->
-    Receipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-    allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger).
-
--spec allocate_alpha_beta(HasContinued :: boolean(),
-                          Element :: blockchain_poc_path_element_v1:poc_element(),
-                          Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
-                          Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
-                          Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
-allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger) ->
-    case {HasContinued, Receipt, Witnesses} of
-        {true, undefined, _} ->
-            %% path continued, no receipt, don't care about witnesses
-            {{0.8, 0}, true};
-        {true, Receipt, _}  when Receipt /= undefined ->
-            %% path continued, receipt, don't care about witnesses
-            {{1, 0}, true};
-        {false, undefined, Wxs} when length(Wxs) > 0 ->
-            %% path broke, no receipt, witnesses
-            {calculate_witness_quality(Element, Ledger), true};
-        {false, Receipt, []} when Receipt /= undefined ->
-            %% path broke, receipt, no witnesses
-            case blockchain_poc_receipt_v1:origin(Receipt) of
-                p2p ->
-                    %% you really did nothing here other than be online
-                    {{0, 0}, false};
-                radio ->
-                    %% not enough information to decide who screwed up
-                    %% but you did receive a packet over the radio, so you
-                    %% get partial credit
-                    {{0.2, 0}, false}
-            end;
-        {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
-            %% path broke, receipt, witnesses
-            {calculate_witness_quality(Element, Ledger), true};
-        {false, _, _} ->
-            %% path broke, you killed it
-            {{0, 1}, false}
-    end.
-
--spec calculate_witness_quality(Element :: blockchain_poc_path_element_v1:poc_element(),
-                                Ledger :: blockchain_ledger_v1:ledger()) -> {float(), 0}.
-calculate_witness_quality(Element, Ledger) ->
-    case blockchain_poc_path_element_v1:receipt(Element) of
-        undefined ->
-            %% no poc receipt
-            case good_quality_witnesses(Element, Ledger) of
-                [] ->
-                    %% Either the witnesses are too close or the RSSIs are too high
-                    %% no alpha bump
-                    {0, 0};
-                _ ->
-                    %% high alpha bump, but not as high as when there is a receipt
-                    {0.7, 0}
-            end;
-        _Receipt ->
-            %% element has a receipt
-            case good_quality_witnesses(Element, Ledger) of
-                [] ->
-                    %% Either the witnesses are too close or the RSSIs are too high
-                    %% no alpha bump
-                    {0, 0};
-                _ ->
-                    %% high alpha bump
-                    {0.9, 0}
-            end
-    end.
-
--spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
-                 {A :: float(), B :: 0 | 1},
-                 [blockchain_poc_witness_v1:poc_witness()],
-                 Deltas :: deltas()) -> deltas().
-set_deltas(Challengee, {A, B}, Witnesses, Deltas) ->
-    [{Challengee, {A, B}, Witnesses} | Deltas].
 
 -spec good_quality_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
                              Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v1:poc_witness()].
@@ -1486,86 +1304,6 @@ ensure_unique_layer_test() ->
     ?assertEqual(10, erlang:length(Members)),
     ?assertEqual(10, sets:size(sets:from_list(Members))),
     ok.
-
-%%delta_test() ->
-%%    Challenger = <<"challenger">>,
-%%    Secret = <<"secret">>,
-%%    OnionKeyHash = <<"onion_key_hash">>,
-%%    BlockHash = <<"blockhash">>,
-%%
-%%    Receipt = blockchain_poc_receipt_v1:new(<<"r">>, 10, 10, <<"data">>, p2p, 1.2, 915.2, 2, <<"dr">>),
-%%
-%%    W1 = blockchain_poc_witness_v1:new(<<"w1">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
-%%    W2 = blockchain_poc_witness_v1:new(<<"w2">>, 10, 10, <<"ph">>, 1.2, 915.2, 2, <<"dr">>),
-%%    Witnesses = [W1, W2],
-%%
-%%    P1 = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, Witnesses),
-%%    P2 = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
-%%    P3 = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-%%    P4 = blockchain_poc_path_element_v1:new(<<"c4">>, undefined, []),
-%%    P5 = blockchain_poc_path_element_v1:new(<<"c5">>, undefined, []),
-%%    Path1 = [P1, P2, P3, P4, P5],
-%%%%    Txn1 = new(Challenger, Secret, OnionKeyHash, Path1, BlockHash),
-%%
-%%%%    Deltas1 = deltas(Txn1),
-%%%%    ?assertEqual(2, length(Deltas1)),
-%%%%    ?assertEqual({0.9, 0}, proplists:get_value(<<"c1">>, Deltas1)),
-%%%%    ?assertEqual({0, 1}, proplists:get_value(<<"c2">>, Deltas1)),
-%%
-%%    P1Prime = blockchain_poc_path_element_v1:new(<<"c1">>, Receipt, []),
-%%    P2Prime = blockchain_poc_path_element_v1:new(<<"c2">>, undefined, []),
-%%    P3Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-%%    P4Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-%%    P5Prime = blockchain_poc_path_element_v1:new(<<"c3">>, undefined, []),
-%%    Path2 = [P1Prime, P2Prime, P3Prime, P4Prime, P5Prime],
-%%%%    Txn2 = new(Challenger, Secret, OnionKeyHash, Path2, BlockHash),
-%%
-%%%%    Deltas2 = deltas(Txn2),
-%%%%    ?assertEqual(1, length(Deltas2)),
-%%%%    ?assertEqual({0, 0}, proplists:get_value(<<"c1">>, Deltas2)),
-%%    ok.
-
-%%duplicate_delta_test() ->
-%%    Txn = {blockchain_txn_poc_receipts_v2_pb,<<"foo">>,
-%%                                   <<"bar">>,
-%%                                   <<"baz">>,
-%%                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
-%%                                                                       {blockchain_poc_receipt_v1_pb,<<"a">>,
-%%                                                                                                     1559953989978238892,0,<<"§Úi½">>,p2p,
-%%                                                                                                     <<"b">>, 10.1, 912.4},
-%%                                                                       []},
-%%                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
-%%                                                                       undefined,
-%%                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
-%%                                                                                                      1559953991034558678,-100,
-%%                                                                                                      <<>>,
-%%                                                                                                      <<>>, 10.1, 912.4},
-%%                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
-%%                                                                                                      1559953991035078007,-72,
-%%                                                                                                      <<>>,
-%%                                                                                                      <<>>, 10.1, 912.4}]},
-%%                                    {blockchain_poc_path_element_v1_pb,<<"third">>,
-%%                                                                       undefined,[]},
-%%                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
-%%                                                                       undefined,
-%%                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
-%%                                                                                                      1559953992074400943,-100,
-%%                                                                                                      <<>>,
-%%                                                                                                      <<>>, 10.1, 912.4},
-%%                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
-%%                                                                                                      1559953992075156868,-84,
-%%                                                                                                      <<>>,
-%%                                                                                                      <<>>, 10.1, 912.4}]}],
-%%                                   0,
-%%                                   <<"gg">>, <<"blockhash">>},
-
-%%    Deltas = deltas(Txn),
-%%    ?assertEqual(4, length(Deltas)),
-%%    SecondDeltas = proplists:get_all_values(<<"second">>, Deltas),
-%%    ?assertEqual(2, length(SecondDeltas)),
-%%    {SecondAlphas, _} = lists:unzip(SecondDeltas),
-%%    ?assert(lists:sum(SecondAlphas) > 1),
-%%    ok.
 
 to_json_test() ->
     Challenger = <<"challenger">>,
