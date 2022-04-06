@@ -205,6 +205,11 @@
 
 %% the number of random hexes to utilize when targeting: integer
 -define(poc_target_pool_size, poc_target_pool_size).
+
+%% The number of subset of proposed POCs to mark as active when absorbing a block
+-define(poc_proposal_processing_count, poc_proposal_processing_count).
+
+
 %%%
 %%% score vars
 %%%
