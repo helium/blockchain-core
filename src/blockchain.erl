@@ -66,6 +66,7 @@
     add_snapshot/2, add_bin_snapshot/4,
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
+    save_snapshot/2,
     save_bin_snapshot/2,  hash_bin_snapshot/1, size_bin_snapshot/1,
     save_compressed_bin_snapshot/2, maybe_get_compressed_snapdata/1,
 
@@ -1972,7 +1973,7 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
         SnapDir = filename:join(Dir, "saved-snaps"),
         SnapFile = list_to_binary(io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)])),
         OhSnap = filename:join(SnapDir, SnapFile),
-        ok = save_bin_snapshot(OhSnap, BinSnap),
+        ok = save_snapshot(OhSnap, BinSnap),
         {ok, Batch} = rocksdb:batch(),
         %% store the snap as a filename
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, <<"file:", SnapFile/binary>>),
@@ -1983,6 +1984,28 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
             lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
     end.
+
+-spec save_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) ->
+    ok | {error, term()}.
+save_snapshot(DestFilename, SnapshotData) ->
+   SaveFuns = case application:get_env(blockchain, snapshot_compression_mode, compressed) of
+                 compressed ->
+                    [ fun save_compressed_bin_snapshot/2 ];
+                 uncompressed ->
+                    [ fun save_bin_snapshot/2 ];
+                 both ->
+                    [ fun save_compressed_bin_snapshot/2, fun save_bin_snapshot/2 ]
+              end,
+
+   Results = lists:map(fun(SaveFunc) -> SaveFunc(DestFilename, SnapshotData) end, SaveFuns),
+
+   case lists:all(
+          fun(ok) -> true;
+             (_) -> false
+          end, Results) of
+      true -> ok;
+      false -> {error, Results}
+   end.
 
 -spec save_bin_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) ->
     ok | {error, term()}.
