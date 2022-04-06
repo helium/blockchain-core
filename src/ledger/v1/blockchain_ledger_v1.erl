@@ -4734,7 +4734,8 @@ maybe_gc_h3dex(Ledger) ->
                             %% take the first `Width` receipts and GC the parent hexes of the challengees
                             {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
                             lists:foreach(fun(T) ->
-                                                  Path = blockchain_txn_poc_receipts_v1:path(T),
+                                                  ReceiptType = blockchain_txn:type(T),
+                                                  Path = ReceiptType:path(T),
                                                   Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
                                                   case find_gateway_location(Challengee, Ledger) of
                                                       {ok, Location} ->
