@@ -31,7 +31,9 @@
          absorb/2,
          print/1,
          json_type/0,
-         to_json/2
+         to_json/2,
+
+         proposal_length/1
         ]).
 
 -ifdef(TEST).
@@ -117,6 +119,7 @@ is_valid(Txn, Chain) ->
     Version = version(Txn),
     TxnHeight = height(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Proposals = poc_key_proposals(Txn),
     case is_valid_sig(Txn) of
         false ->
             {error, bad_signature};
@@ -145,6 +148,18 @@ is_valid(Txn, Chain) ->
                 case valid_version(Version)  of
                     true -> ok;
                     false -> throw({bad_version, Version})
+                end,
+                TargetLen =
+                    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+                        {ok, validator} ->
+                            proposal_length(Ledger);
+                        _ ->
+                            0
+                    end,
+                case length(Proposals) == TargetLen of
+                    true -> ok;
+                    false ->
+                        throw({bad_proposal_length, TargetLen, length(Proposals)})
                 end,
                 ok
             catch throw:Cause ->
@@ -242,6 +257,16 @@ reactivate_gws(GWAddrs, Height, Ledger) ->
                     ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
             end
         end, GWAddrs).
+
+proposal_length(Ledger) ->
+    case blockchain_ledger_v1:validator_count(Ledger) of
+        {ok, NumVals} when NumVals > 0 ->
+            {ok, ChallengeRate} = blockchain_ledger_v1:config(?poc_challenge_rate, Ledger),
+            {ok, HBInterval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
+            round((ChallengeRate / (NumVals * 0.8)) * HBInterval);
+        _ ->
+            0
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
