@@ -717,7 +717,23 @@ var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
 %% we want to clear out the pocs CF
 %% we dont care about its value, if its been
 %% updated then we wipe all POCs
-var_hook(?poc_challenger_type, _, Ledger) ->
+var_hook(?poc_challenger_type, Type, Ledger) ->
+    case Type of
+        validator ->
+            Ct =
+                blockchain_ledger_v1:fold_validators(
+                  fun(Val, Acc) ->
+                          case blockchain_ledger_validator_v1:status(Val) of
+                              staked ->
+                                  Acc + 1;
+                              _ -> Acc
+                          end
+                  end,
+                  0,
+                  Ledger),
+            blockchain_ledger_v1:validator_count(Ct, Ledger);
+        _ -> ok
+    end,
     purge_pocs(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->

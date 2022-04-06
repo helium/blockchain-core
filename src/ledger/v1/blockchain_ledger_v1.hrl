@@ -79,6 +79,7 @@
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
 -define(HNT_BURNED, <<"hnt_burned">>).
 -define(NET_OVERAGE, <<"net_overage">>).
+-define(validator_count, <<"validator_count">>).
 -define(CURRENT_ORACLE_PRICE, <<"current_oracle_price">>). %% stores the current calculated price
 -define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
 -define(hex_list, <<"$hex_list">>).
