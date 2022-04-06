@@ -545,7 +545,7 @@ absorb_block(Block, Rescue, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
-            ok = blockchain_ledger_v1:process_poc_keys(Block, Height, Hash, Ledger),
+            ok = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
             {ok, Chain};
         Error ->
             Error
@@ -924,12 +924,12 @@ plain_absorb_(Block, Chain0) ->
             Hash = blockchain_block:hash_block(Block),
             Height = blockchain_block:height(Block),
             Ledger0 = blockchain:ledger(Chain0),
-            ok = blockchain_ledger_v1:process_poc_keys(Block, Height, Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger0),
             %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
+            ok = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger0),
             ok;
         Error ->
             Ledger = blockchain:ledger(Chain0),
