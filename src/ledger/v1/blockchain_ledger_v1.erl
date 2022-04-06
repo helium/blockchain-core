@@ -4716,35 +4716,32 @@ maybe_gc_h3dex(Ledger) ->
             %% from the current block (which are sorted by *challenger* and GC the
             %% hexes the *challengee* is in.
             {ok, Height} = current_height(Ledger),
-            case get_block(Height, Ledger)  of
-                {error, _} ->
+            %% If we can't get the block, we will just crash here
+            {ok, Block} = get_block(Height, Ledger),
+            {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
+            RandState = blockchain_utils:rand_from_hash(BlockHash),
+            RequestFilter = fun(T) ->
+                                    blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
+                                    orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
+                            end,
+            case blockchain_utils:find_txn(Block, RequestFilter) of
+                [] ->
+                    %% no receipts, don't do any GC
                     ok;
-                {ok, Block} ->
-                    {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
-                    RandState = blockchain_utils:rand_from_hash(BlockHash),
-                    RequestFilter = fun(T) ->
-                                            blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
-                                            orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
-                                    end,
-                    case blockchain_utils:find_txn(Block, RequestFilter) of
-                        [] ->
-                            %% no receipts, don't do any GC
-                            ok;
-                        Txns ->
-                            %% take the first `Width` receipts and GC the parent hexes of the challengees
-                            {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
-                            lists:foreach(fun(T) ->
-                                                  ReceiptType = blockchain_txn:type(T),
-                                                  Path = ReceiptType:path(T),
-                                                  Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
-                                                  case find_gateway_location(Challengee, Ledger) of
-                                                      {ok, Location} ->
-                                                          gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
-                                                      _ ->
-                                                          ok
-                                                  end
-                                          end, Selected)
-                    end
+                Txns ->
+                    %% take the first `Width` receipts and GC the parent hexes of the challengees
+                    {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
+                    lists:foreach(fun(T) ->
+                                          ReceiptType = blockchain_txn:type(T),
+                                          Path = ReceiptType:path(T),
+                                          Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+                                          case find_gateway_location(Challengee, Ledger) of
+                                              {ok, Location} ->
+                                                  gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
+                                              _ ->
+                                                  ok
+                                          end
+                                  end, Selected)
             end;
         _ ->
             ok

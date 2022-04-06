@@ -363,14 +363,9 @@ check_path_continuation(Elements) ->
 
 -spec good_quality_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
                              Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v1:poc_witness()].
-good_quality_witnesses(Element, Ledger) ->
-    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
-    good_quality_witnesses(POCVersion, Element, Ledger).
-
--spec good_quality_witnesses(POCVersion :: pos_integer(),
-                             Element :: blockchain_poc_path_element_v1:poc_element(),
-                             Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v1:poc_witness()].
-good_quality_witnesses(_POCVersion, Element, _Ledger) ->
+good_quality_witnesses(Element, _Ledger) ->
+    %% NOTE: This function is now just a stub and doesn't really do anything
+    %% But it's being used in rewards_v1 and rewards_v2, so keeping it for compatibility.
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
     Witnesses.
 
@@ -428,33 +423,6 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                 Fun(Element, {[{false, <<"regulatory_regions_not_set">>, Witness} || Witness <- Witnesses], undefined}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
     end.
-
-
-%% again this is broken because of the current witness situation
-
-%% Iterate over all poc_path elements and for each path element calls a given
-%% callback function with the valid witnesses and valid receipt.
-%% valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
-%%     Path = ?MODULE:path(Txn),
-%%     try get_channels(Txn, Chain) of
-%%         {ok, Channels} ->
-%%             lists:foldl(fun({ElementPos, Element}, Acc) ->
-%%                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
-%%                                 case ElementPos of
-%%                                     1 ->
-%%                                         {undefined, 0, hd(Channels)};
-%%                                     _ ->
-%%                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-%%                                 end,
-
-%%                                 FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-%%                                 FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
-
-%%                                 Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
-%%                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path))
-%%     catch _:_ ->
-%%               Acc0
-%%     end.
 
 
 %%--------------------------------------------------------------------
