@@ -173,7 +173,7 @@ is_valid(Txn, Chain) ->
                 case length(Reactivated) =< ReactivationLimit of
                     true -> ok;
                     false ->
-                        throw({bad_reactvation_length, ReactivationLimit, length(Reactivated)})
+                        throw({bad_reactivation_length, ReactivationLimit, length(Reactivated)})
                 end,
                 ok
             catch throw:Cause ->
