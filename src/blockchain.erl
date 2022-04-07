@@ -66,7 +66,7 @@
     add_snapshot/2, add_bin_snapshot/4,
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
-    save_snapshot/2,
+    save_bin_snapshots/2,
     save_bin_snapshot/2,  hash_bin_snapshot/1, size_bin_snapshot/1,
     save_compressed_bin_snapshot/2, maybe_get_compressed_snapdata/1,
 
@@ -1973,7 +1973,7 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
         SnapDir = filename:join(Dir, "saved-snaps"),
         SnapFile = list_to_binary(io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)])),
         OhSnap = filename:join(SnapDir, SnapFile),
-        ok = save_snapshot(OhSnap, BinSnap),
+        ok = save_bin_snapshots(OhSnap, BinSnap),
         {ok, Batch} = rocksdb:batch(),
         %% store the snap as a filename
         ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, <<"file:", SnapFile/binary>>),
@@ -1985,9 +1985,20 @@ add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=Sn
             {error, Why}
     end.
 
--spec save_snapshot(file:filename_all(), blockchain_ledger_snapshot:snapshot()) ->
+-spec save_bin_snapshots(file:filename_all(), blockchain_ledger_snapshot:snapshot()) ->
     ok | {error, term()}.
-save_snapshot(DestFilename, SnapshotData) ->
+%% @doc This function saves a binary snapshot, compressing the image based on
+%% the setting of the erlang environment variable `snapshot_compression_mode'
+%% valid values of which may be `compressed' (default), `uncompressed' or `both'.
+%%
+%% Compressed snapshots will be saved to the destination with a ".gz" extension
+%% automatically appended.
+%%
+%% The return error tuple return value contains a list, the values of which may
+%% or may not themselves also be error tuples.
+%%
+%% This is the preferred function to store snapshots to disk.
+save_bin_snapshots(DestFilename, SnapshotData) ->
    SaveFuns = case application:get_env(blockchain, snapshot_compression_mode, compressed) of
                  compressed ->
                     [ fun save_compressed_bin_snapshot/2 ];
@@ -1997,7 +2008,13 @@ save_snapshot(DestFilename, SnapshotData) ->
                     [ fun save_compressed_bin_snapshot/2, fun save_bin_snapshot/2 ]
               end,
 
-   Results = lists:map(fun(SaveFunc) -> SaveFunc(DestFilename, SnapshotData) end, SaveFuns),
+   Results = lists:map(fun(SaveFunc) ->
+                             try
+                                 SaveFunc(DestFilename, SnapshotData)
+                             catch _Class:Error ->
+                                 {error, Error}
+                             end
+                       end, SaveFuns),
 
    case lists:all(
           fun(ok) -> true;
