@@ -120,6 +120,7 @@ is_valid(Txn, Chain) ->
     TxnHeight = height(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Proposals = poc_key_proposals(Txn),
+    Reactivated = reactivated_gws(Txn),
     case is_valid_sig(Txn) of
         false ->
             {error, bad_signature};
@@ -160,6 +161,19 @@ is_valid(Txn, Chain) ->
                     true -> ok;
                     false ->
                         throw({bad_proposal_length, TargetLen, length(Proposals)})
+                end,
+                ReactivationLimit =
+                    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+                        {ok, validator} ->
+                            {ok, RL} = blockchain_ledger_v1:config(?validator_hb_reactivation_limit, Ledger),
+                            RL;
+                        _ ->
+                            0
+                    end,
+                case length(Reactivated) =< ReactivationLimit of
+                    true -> ok;
+                    false ->
+                        throw({bad_reactvation_length, ReactivationLimit, length(Reactivated)})
                 end,
                 ok
             catch throw:Cause ->

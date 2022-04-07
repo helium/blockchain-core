@@ -1416,6 +1416,8 @@ validate_var(?validator_liveness_interval, Value) ->
     validate_int(Value, "validator_liveness_interval", 5, 2000, false);
 validate_var(?validator_liveness_grace_period, Value) ->
     validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
+validate_var(?validator_hb_reactivation_limit, Value) ->
+    validate_int(Value, "validator_hb_reactivation_limit", 5, 100, false);
 validate_var(?validator_key_check, Value) ->
     case Value of
         true -> ok;
