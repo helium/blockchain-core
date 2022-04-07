@@ -150,26 +150,20 @@ is_valid(Txn, Chain) ->
                     true -> ok;
                     false -> throw({bad_version, Version})
                 end,
-                TargetLen =
+                {TargetLen, ReactivationLimit} =
                     case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
                         {ok, validator} ->
-                            proposal_length(Ledger);
+                            {ok, RL} = blockchain_ledger_v1:config(?validator_hb_reactivation_limit, Ledger),
+                            PL = proposal_length(Ledger),
+                            {PL, RL};
                         _ ->
-                            0
+                            {0, 0}
                     end,
                 case length(Proposals) == TargetLen of
                     true -> ok;
                     false ->
                         throw({bad_proposal_length, TargetLen, length(Proposals)})
                 end,
-                ReactivationLimit =
-                    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
-                        {ok, validator} ->
-                            {ok, RL} = blockchain_ledger_v1:config(?validator_hb_reactivation_limit, Ledger),
-                            RL;
-                        _ ->
-                            0
-                    end,
                 case length(Reactivated) =< ReactivationLimit of
                     true -> ok;
                     false ->
