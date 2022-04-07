@@ -98,7 +98,7 @@ snapshot_take(Filename) ->
             {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos),
             blockchain_lock:release(),
             BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
-            file:write_file(Filename, BinSnap)
+            blockchain:save_bin_snapshots(Filename, BinSnap)
     end.
 
 snapshot_load_cmd() ->
@@ -139,7 +139,7 @@ snapshot_grab(["snapshot", "grab", HeightStr, HashStr, Filename], [], []) ->
         Hash = hex_to_binary(HashStr),
         {ok, Snapshot} = blockchain_worker:grab_snapshot(Height, Hash),
         %% NOTE: grab_snapshot returns a deserialized snapshot
-        file:write_file(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot))
+        blockchain:save_bin_snapshots(Filename, blockchain_ledger_snapshot_v1:serialize(Snapshot))
     catch
         _Type:Error ->
             [clique_status:text(io_lib:format("failed: ~p", [Error]))]
