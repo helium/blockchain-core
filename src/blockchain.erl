@@ -2542,6 +2542,8 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
     Info = mk_block_info(Hash, Block),
     Ledger = ?MODULE:ledger(Chain),
+    %% TODO: confirm if this is the best place for generating the key proposals
+    %% and sending the associated event
     BlockPOCs = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
     ok = blockchain_worker:notify({poc_keys, Height, Hash, false, BlockPOCs}),
     ok = rocksdb:batch_put(Batch, InfoCF, <<Height:64/integer-unsigned-big>>, term_to_binary(Info)).
