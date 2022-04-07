@@ -2274,7 +2274,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
             POCsCF = pocs_cf(Ledger),
             {ok, POCTimeout} = get_config(?poc_timeout, Ledger, 10),
             {ok, POCReceiptsAbsorbTimeout} = get_config(?poc_receipts_absorb_timeout, Ledger, 50),
-
+            {ok, POCValKeyProposalTimeout} = get_config(?poc_validator_ephemeral_key_timeout, Ledger, 200),
             %% allow for the possibility there may be a mix of POC versions in the POC CF
             %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
             %% or the reverse
@@ -2288,11 +2288,19 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                       V3PoC = blockchain_ledger_poc_v3:deserialize(PoCBin),
                       POCStartHeight = blockchain_ledger_poc_v3:start_height(V3PoC),
                       OnionKeyHash = blockchain_ledger_poc_v3:onion_key_hash(V3PoC),
-                      %% the public poc data is required by the receipts v2 txn absorb
+                      POCStatus = blockchain_ledger_poc_v3:status(V3PoC),
+                      %% for a selected/active poc,
+                      %% the public poc data for a poc is required by the receipts v2 txn absorb
                       %% the public poc will be GCed as part of that absorb
                       %% but in case that fails we will GC it here after giving
                       %% the txn N blocks to be absorbed
-                      case (CurHeight - POCStartHeight) > (POCTimeout + POCReceiptsAbsorbTimeout)  of
+                      %% any non selected public poc will be GCed after a period
+                      %% if it remains unselected
+                      case
+                          ((POCStatus == active) andalso (CurHeight - POCStartHeight) >
+                              (POCTimeout + POCReceiptsAbsorbTimeout))
+                              orelse
+                          ((POCStatus /= active) andalso (CurHeight - POCStartHeight) > POCValKeyProposalTimeout) of
                         true ->
                           %% the lifespan of the POC for this key has passed, we can GC
                           ok = delete_public_poc(OnionKeyHash, Ledger);
