@@ -450,20 +450,6 @@ absorb(_POCVersion, Txn, Chain) ->
             false ->
                 {error, invalid_poc};
             true ->
-                %% get rid of this for the time being, we will need to restore it later when
-                %% the clean witness restore thing lands
-
-                %% %% Add filtered witnesses with poc-v9
-                %% ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
-                %%                                       Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                %%                                       case FilteredReceipt of
-                %%                                           undefined ->
-                %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                %%                                           FR ->
-                %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                %%                                       end
-                %%                               end, ok, Txn, Ledger, Chain);
-
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
                 case blockchain:config(poc_activity_filter_enabled, Ledger) of
