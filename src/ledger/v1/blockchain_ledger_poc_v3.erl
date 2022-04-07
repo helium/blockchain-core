@@ -71,8 +71,8 @@ block_hash(PoC) ->
     PoC#poc_v3.block_hash.
 
 -spec block_hash(binary(), poc()) -> poc().
-block_hash(Challenger, PoC) ->
-    PoC#poc_v3{block_hash=Challenger}.
+block_hash(Hash, PoC) ->
+    PoC#poc_v3{block_hash=Hash}.
 
 -spec start_height(poc()) -> pos_integer().
 start_height(PoC) ->
@@ -98,8 +98,8 @@ deserialize(<<3, Bin/binary>>) ->
 status(PoC) ->
     PoC#poc_v3.status.
 
--spec status(poc(), proposed | active) -> poc().
-status(PoC, Status) ->
+-spec status(proposed | active, poc()) -> poc().
+status(Status, PoC) ->
     PoC#poc_v3{status = Status}.
 
 %%--------------------------------------------------------------------

@@ -2086,9 +2086,9 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     BlockHeight :: pos_integer(),
     BlockHash :: binary(),
     Ledger :: ledger()
-) -> ok.
+) -> [blockchain_ledger_poc_v3:pocs()].
 process_poc_proposals(1, _BlockHash, _Ledger) ->
-    ok;
+    [];
 process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     %% we need to update the ledger with public poc data
     %% based on the blocks poc ephemeral keys
@@ -2102,24 +2102,27 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
 
             %% Do a deterministic subset based on the hash of the block
             %% Mark the selected POCs as active on ledger
-            case blockchain:config(?poc_proposal_processing_count, Ledger) of
+            case blockchain:config(?poc_challenge_rate, Ledger) of
                 {ok, K} ->
-                    RandState = blockchain_util:rand_state(BlockHash),
-                    {_, POCSubset} = blockchain_utils:deterministic_subset(K, RandState, ProposedPOCs),
-                    lists:foreach(fun({_Proposal, POC}) ->
-                                          %% TODO: Do something with the proposal...?
-
-                                          ActivePOC = blockchain_ledger_poc_v3:status(POC, active),
-                                          OnionKeyHash = blockchain_ledger_poc_v3:onion_key_hash(ActivePOC),
-                                          Challenger = blockchain_ledger_poc_v3:challenger(ActivePOC),
-                                          save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger)
-                                  end, POCSubset);
-                _ -> ok
+                    RandState = blockchain_utils:rand_state(BlockHash),
+                    {_, POCSubset0} = blockchain_utils:deterministic_subset(K, RandState, ProposedPOCs),
+                    POCSubset = lists:flatten(POCSubset0),
+                    L1 = ?MODULE:new_context(Ledger),
+                    lists:foreach(
+                        fun({_Key, POC}) ->
+                            ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
+                            ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
+                            ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
+                            update_public_poc(ActivePOC2, L1)
+                        end, POCSubset),
+                    ?MODULE:commit_context(L1),
+                    POCSubset;
+                _ ->
+                    []
             end;
         _ ->
-            ok
-    end,
-    ok.
+            []
+    end.
 
 -spec save_public_poc_proposals(Proposals :: [binary()],
                                 Challenger :: libp2p_crypto:pubkey_bin(),
@@ -2159,7 +2162,6 @@ save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
-
 
 -spec find_public_poc_proposals(ledger()) -> [{binary(), blockchain_ledger_poc_v3:poc()}].
 find_public_poc_proposals(Ledger) ->
