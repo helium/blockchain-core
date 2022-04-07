@@ -26,6 +26,7 @@
 
 % Misc
 -define(EVT_MGR, blockchain_event_mgr).
+-define(POC_EVT_MGR, blockchain_poc_event_mgr).
 
 -define(BC_UPGRADE_NAMES, [
     <<"gateway_v2">>,
