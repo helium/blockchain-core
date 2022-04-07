@@ -141,6 +141,9 @@
 %% Actor type of the challenger: not set or 'validator'
 -define(poc_challenger_type, poc_challenger_type).
 
+%% scale the number of validators in the heartbeat proposals to ensure there are enough keys waiting
+-define(poc_validator_ct_scale, poc_validator_ct_scale).
+
 %% Allow to switch POC version
 -define(poc_version, poc_version).
 

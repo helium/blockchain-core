@@ -258,12 +258,19 @@ reactivate_gws(GWAddrs, Height, Ledger) ->
             end
         end, GWAddrs).
 
+-spec proposal_length(blockchain:ledger()) -> non_neg_integer().
 proposal_length(Ledger) ->
+    %% generate the size for a set of ephemeral keys for POC usage. the count is based on the num of
+    %% active validators and the target challenge rate. we also have to consider that key proposals
+    %% are submitted by validators as part of their heartbeats which are only submitted periodically
+    %% so we need to ensure we have sufficient count of key proposals submitted per HB. to help with
+    %% this we reduce the number of val count by 20% so that we have surplus keys being submitted
     case blockchain_ledger_v1:validator_count(Ledger) of
         {ok, NumVals} when NumVals > 0 ->
             {ok, ChallengeRate} = blockchain_ledger_v1:config(?poc_challenge_rate, Ledger),
+            {ok, ValCtScale} = blockchain_ledger_v1:config(?poc_validator_ct_scale, Ledger),
             {ok, HBInterval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
-            round((ChallengeRate / (NumVals * 0.8)) * HBInterval);
+            round((ChallengeRate / (NumVals * ValCtScale)) * HBInterval);
         _ ->
             0
     end.

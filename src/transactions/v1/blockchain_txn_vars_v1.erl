@@ -1102,6 +1102,8 @@ validate_var(?poc_hexing_type, Value) ->
     _ ->
       throw({error, {poc_hexing_type, Value}})
   end;
+validate_var(?poc_validator_ct_scale, Value) ->
+    validate_float(Value, "poc_validator_ct_scale", 0.1, 1.0);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
