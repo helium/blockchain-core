@@ -12,6 +12,7 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_records_meta.hrl").
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
@@ -33,6 +34,8 @@
     is_valid_owner/1,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -44,8 +47,16 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_oui() :: #blockchain_txn_oui_v1_pb{}.
--export_type([txn_oui/0]).
+-define(SUBNET_MIN, 8).
+-define(SUBNET_MAX, 65536).
+
+-define(T, blockchain_txn_oui_v1_pb).
+
+-type t() :: txn_oui().
+
+-type txn_oui() :: #?T{}.
+
+-export_type([t/0, txn_oui/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -196,6 +207,46 @@ is_valid(Txn, Chain) ->
             do_oui_validation_checks(Txn, Chain)
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {owner          , blockchain_txn_contract:addr()},
+            {addresses      , {ordset, {max, 3}, blockchain_txn_contract:addr()}},
+            {staking_fee    , {integer, {min, 0}}},
+            {fee            , {integer, {min, 0}}},
+            {owner_signature, blockchain_txn_contract:sig()},
+            {payer_signature, blockchain_txn_contract:sig()},
+            {oui            , {integer, {min, 0}}},
+            {filter,
+                {forall, [
+                    {binary, any},
+                    {custom, fun validate_filter/1, invalid_filter}]}},
+            {requested_subnet_size,
+                {forall, [
+                    %% subnet size should be between 8 and 65536 as a power of two
+                    {integer, {range, ?SUBNET_MIN, ?SUBNET_MAX}},
+                    {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
+            {payer,
+                {either, [
+                          blockchain_txn_contract:addr(),
+                    {binary, {exactly, 0}}]}}
+                    %% TODO Allow undefined? It is permitted by is_valid_payer
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}=T, Ledger) ->
+    OUI = ?MODULE:oui(T),
+    case validate_oui(OUI, Ledger) of
+        {false, _LedgerOUI} ->
+            {ok, no};
+        true ->
+            {ok, yes}
+    end.
+
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -314,10 +365,17 @@ to_json(Txn, _Opts) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+is_power_of_2(N) ->
+    Res = math:log2(N),
+    %% check there's no floating point components of the number
+    %% Erlang will coerce between floats and ints when you use ==
+    trunc(Res) == Res.
+
 -spec validate_addresses([binary()]) -> boolean().
 validate_addresses([]) ->
     true;
 validate_addresses(Addresses) ->
+    %% TODO Use contracts. See orig validations PR - I may have already done it. -- siraaj
     case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
         {L, L} when L =< 3 ->
             ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
@@ -514,6 +572,73 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size, oui])).
+
+-define(TSET(T, K, V), T#?T{K = V}).
+
+validation_test_() ->
+    Gen =
+        fun () ->
+            #{public := P, secret := S} = libp2p_crypto:generate_keys(ecc_compact),
+            {libp2p_crypto:pubkey_to_bin(P), libp2p_crypto:mk_sig_fun(S)}
+        end,
+    {OwnerAddr, OwnerSigFun} = Gen(),
+    {Addr1, _} = Gen(),
+    {Addr2, _} = Gen(),
+    {Addr3, _} = Gen(),
+    {Addr4, _} = Gen(),
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    T0 =
+        #blockchain_txn_oui_v1_pb{
+            oui                   = 1,
+            owner                 = OwnerAddr,
+            addresses             = [Addr1],
+            filter                = Filter,
+            requested_subnet_size = 8,
+            payer                 = <<>>,
+            staking_fee           = 0,
+            fee                   = 0,
+            owner_signature       = <<>>,
+            payer_signature       = <<>>
+        },
+    T = sign(T0, OwnerSigFun),
+    [
+        ?_assert(is_valid_owner(T)),
+        ?_assert(is_valid_payer(T)),
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, filter, <<>>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, staking_fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, fee, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, oui, -1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, owner, <<"foo">>))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, payer, Addr1))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, payer, <<"foo">>))),
+
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, <<"foo">>))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN - 1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN * 2))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MIN + 1))),
+        ?_assertMatch(ok        , is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MAX))),
+        ?_assertMatch({error, _}, is_well_formed(?TSET(T, requested_subnet_size, ?SUBNET_MAX + 1))),
+
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, []))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1]))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2]))),
+        ?_assertMatch(ok, is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3]))),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_wrong_size, 4, {max, 3}}}]}}},
+            is_well_formed(?TSET(T, addresses, [Addr1, Addr2, Addr3, Addr4]))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_contains_duplicate_elements, [_]}}]}}},
+            is_well_formed(?TSET(T, addresses, [Addr1, Addr1]))
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, {invalid_kvl_pairs, [{addresses, {list_contains_invalid_elements, [_]}}]}}},
+            is_well_formed(?TSET(T, addresses, [<<"foo">>]))
+        )
+
+    ].
 
 
 -endif.

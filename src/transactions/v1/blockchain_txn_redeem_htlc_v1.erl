@@ -6,9 +6,10 @@
 -module(blockchain_txn_redeem_htlc_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -26,6 +27,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -36,8 +39,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
--export_type([txn_redeem_htlc/0]).
+-define(T, blockchain_txn_redeem_htlc_v1_pb).
+
+-type t() :: txn_redeem_htlc().
+
+-type txn_redeem_htlc() :: #?T{}.
+
+-export_type([t/0, txn_redeem_htlc/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage) ->
@@ -133,6 +141,7 @@ is_valid(Txn, Chain) ->
                                {{preimage, ?MODULE:preimage(Txn)}, {binary, 1, 32}},
                                {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
                       end,
+    %% TODO Switch to contracts
     case blockchain_txn:validate_fields(FieldValidation) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
@@ -192,6 +201,27 @@ is_valid(Txn, Chain) ->
         Error ->
             Error
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {payee    , blockchain_txn_contract:addr()},
+            {address  , {any_of, [blockchain_txn_contract:addr(), {binary, {range, 32, 33}}]}},
+            {preimage , {binary, {range, 1, 32}}},
+            {fee      , {integer, {min, 0}}},
+            {signature, blockchain_txn_contract:sig()}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    %% TODO What can be done/move-to here?
+    %% - Maybe the Timelock >= (Height+1),
+    %%   which implies an additional HTLC lookup - is that acceptable? Expensive?
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -327,5 +357,51 @@ is_valid_with_extended_validation_test_() ->
              meck:unload(blockchain_ledger_v1),
              test_utils:cleanup_tmp_dir(BaseDir)
      end}.
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #?T{
+            address = Addr,
+            payee = Addr,
+            preimage = <<"x">>
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                address = iolist_to_binary(lists:duplicate(31, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#?T{
+                address = iolist_to_binary(lists:duplicate(32, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#?T{
+                address = iolist_to_binary(lists:duplicate(33, 0))
+            })
+        ),
+        ?_assertMatch(
+            ok,
+            is_well_formed(T#?T{
+                address = iolist_to_binary(lists:duplicate(33, 0))
+            })
+        ),
+        ?_assertMatch(
+            {error, {contract_breach, _}},
+            is_well_formed(T#?T{
+                preimage = <<>>
+            })
+        )
+    ].
 
 -endif.

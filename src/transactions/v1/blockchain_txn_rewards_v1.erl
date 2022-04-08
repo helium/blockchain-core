@@ -6,10 +6,10 @@
 -module(blockchain_txn_rewards_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
--include("blockchain_json.hrl").
 
+-include("blockchain_json.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v1_pb.hrl").
 
@@ -23,6 +23,8 @@
     fee/1,
     fee_payer/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_rewards/3,
     print/1,
@@ -43,8 +45,13 @@
 % poc_witnesses_percent   0.02 + 0.03
 % consensus_percent       0.10
 
--type txn_rewards() :: #blockchain_txn_rewards_v1_pb{}.
--export_type([txn_rewards/0]).
+-define(T, blockchain_txn_rewards_v1_pb).
+
+-type t() :: txn_rewards().
+
+-type txn_rewards() :: #?T{}.
+
+-export_type([t/0, txn_rewards/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -128,6 +135,48 @@ is_valid(Txn, Chain) ->
                 true -> ok
             end
     end.
+
+-spec is_well_formed_reward(term()) -> boolean().
+is_well_formed_reward(#blockchain_txn_reward_v1_pb{}=T) ->
+    data_contract:is_satisfied(
+        ?RECORD_TO_KVL(blockchain_txn_reward_v1_pb, T),
+        {kvl, [
+            {account, blockchain_txn_contract:addr()},
+            {gateway, blockchain_txn_contract:addr()},
+            {amount , {integer, {min, 0}}},
+            {type   ,
+                {either, [
+                    {val, securities},
+                    {val, data_credits},
+                    {val, poc_challengees},
+                    {val, poc_challengers},
+                    {val, poc_witnesses},
+                    {val, consensus},
+                    {integer, any}
+                ]}}
+        ]}
+    );
+is_well_formed_reward(_) ->
+    false.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    Start = ?MODULE:start_epoch(T),
+    End = ?MODULE:end_epoch(T),
+    data_contract:check(
+        ?RECORD_TO_KVL(blockchain_txn_rewards_v1_pb, T),
+        {kvl, [
+            {start_epoch, {integer, {range, 0, End}}},
+            {end_epoch, {integer, {min, Start}}},
+            {rewards, {list, any, {custom, fun is_well_formed_reward/1, invalid_reward}}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    %% TODO Anything else can be done/moved-to here?
+    {ok, yes}.
 
 %%--------------------------------------------------------------------
 %% @doc Absorb rewards in main ledger and/or aux ledger (if enabled)
@@ -1913,5 +1962,20 @@ common_poc_vars() ->
         ?poc_v4_target_score_curve => 5,
         ?poc_v5_target_prob_randomness_wt => 0.0
     }.
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    R =
+        #blockchain_txn_reward_v1_pb{
+            account = Addr,
+            gateway = Addr
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(#?T{rewards = [R]}))
+    ].
 
 -endif.

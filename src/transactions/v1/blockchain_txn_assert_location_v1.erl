@@ -6,11 +6,12 @@
 -module(blockchain_txn_assert_location_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 
@@ -36,6 +37,8 @@
     is_valid_location/2,
     is_valid_payer/1,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
@@ -44,12 +47,16 @@
 ]).
 
 -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
+-export([gen_new_valid/0]).
 -endif.
 
+-define(T, blockchain_txn_assert_location_v1_pb).
+
 -type location() :: h3:h3index().
--type txn_assert_location() :: #blockchain_txn_assert_location_v1_pb{}.
--export_type([txn_assert_location/0]).
+-type txn_assert_location() :: #?T{}.
+-type t() :: txn_assert_location().
+
+-export_type([t/0, txn_assert_location/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -371,6 +378,42 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {owner            , blockchain_txn_contract:addr()},
+            {gateway          , blockchain_txn_contract:addr()},
+            {payer            , {either, [{binary, {exactly, 0}}, blockchain_txn_contract:addr()]}},
+            {owner_signature  , blockchain_txn_contract:sig()},
+            {gateway_signature, blockchain_txn_contract:sig()},
+            {payer_signature  , blockchain_txn_contract:sig()},
+            {nonce            , {integer, {min, 1}}},
+            {staking_fee      , {integer, {min, 0}}},
+            {fee              , {integer, {min, 0}}},
+            {location         , blockchain_txn_contract:h3_string()}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}=T, Ledger) ->
+    Addr = gateway(T),
+    case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Gateway} ->
+            case owner(T) =:= blockchain_ledger_gateway_v2:owner_address(Gateway) of
+                false ->
+                    {ok, no};
+                true ->
+                    Given = nonce(T),
+                    Current = blockchain_ledger_gateway_v2:nonce(Gateway),
+                    {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -495,7 +538,33 @@ staking_fee_for_gw_mode(_, Ledger)->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -define(TEST_LOCATION, 631210968840687103).
+
+gen_new_valid() ->
+    Addr =
+        (fun() ->
+            #{public := PK, secret := _} =
+                libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(PK)
+        end),
+    Addr1 = Addr(),
+    Addr2 = Addr(),
+    Addr3 = Addr(),
+    Loc = ?TEST_LOCATION,
+    #blockchain_txn_assert_location_v1_pb{
+        gateway           = Addr1,
+        gateway_signature = <<>>,
+        owner             = Addr2,
+        owner_signature   = <<>>,
+        payer             = Addr3,
+        payer_signature   = <<>>,
+        location          = h3:to_string(Loc),
+        nonce             = 1,
+        staking_fee       = ?LEGACY_STAKING_FEE,
+        fee               = ?LEGACY_TXN_FEE
+    }.
 
 new() ->
     #blockchain_txn_assert_location_v1_pb{
@@ -629,5 +698,58 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, location, nonce, staking_fee, fee])).
+
+is_well_formed_test_() ->
+    %% All that is_well_formed cares about is syntactic validity of
+    %% _independent_ fields. No semantic nuances or field interdependencies are
+    %% expected to be checked, so we _could_ just use the same user for all
+    %% fields.
+    Owner = t_user:new(ed25519),
+    Payer = t_user:new(ecc_compact),
+    Gateway = t_user:new(ecc_compact),
+    GatewayAddr = t_user:addr(Gateway),
+    Loc = ?TEST_LOCATION,
+    T =
+        #?T{
+            gateway           = GatewayAddr,
+            gateway_signature = <<>>,
+            owner             = t_user:addr(Owner),
+            owner_signature   = <<>>,
+            payer             = t_user:addr(Payer),
+            payer_signature   = <<>>,
+            location          = h3:to_string(Loc),
+            nonce             = 1,
+            staking_fee       = ?LEGACY_STAKING_FEE,
+            fee               = ?LEGACY_TXN_FEE
+        },
+    [
+        {"Unsigned OK", ?_assertEqual(ok, is_well_formed(T))},
+        {"sign OK", ?_assertEqual(ok, is_well_formed(sign(T, t_user:sig_fun(Owner))))},
+        {"sign_payer OK", ?_assertEqual(ok, is_well_formed(sign_payer(T, t_user:sig_fun(Payer))))},
+        {"sign_request OK", ?_assertEqual(ok, is_well_formed(sign_request(T, t_user:sig_fun(Gateway))))},
+        {"sign_request then sign OK", ?_assertEqual(ok, is_well_formed(sign(sign_request(T, t_user:sig_fun(Gateway)), t_user:sig_fun(Owner))))},
+        {"sign then sign_request OK", ?_assertEqual(ok, is_well_formed(sign_request(sign(T, t_user:sig_fun(Owner)), t_user:sig_fun(Gateway))))},
+        {"Empty payer is OK", ?_assertEqual(ok, is_well_formed(T#?T{payer = <<>>}))},
+        {"All same addresses is OK", ?_assertEqual(ok, is_well_formed(T#?T{gateway = GatewayAddr, owner = GatewayAddr, payer = GatewayAddr}))},
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{gateway, _}]}}}, is_well_formed(T#?T{gateway = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{owner, _}]}}}, is_well_formed(T#?T{owner = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{payer, _}]}}}, is_well_formed(T#?T{payer = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{gateway_signature, _}]}}}, is_well_formed(T#?T{gateway_signature = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{owner_signature, _}]}}}, is_well_formed(T#?T{owner_signature = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{payer_signature, _}]}}}, is_well_formed(T#?T{payer_signature = undefined})),
+        ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{staking_fee, _}]}}}, is_well_formed(T#?T{staking_fee = undefined})),
+
+        ?_assertMatch({error, _}, is_well_formed(T#?T{staking_fee = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{fee         = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{fee         = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{owner       = <<"not-addr">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{gateway     = <<"not-addr">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{payer       = <<"not-addr">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = <<>>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = <<"foo">>})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{location    = "foo"})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{nonce       = -1}))
+    ].
 
 -endif.

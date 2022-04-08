@@ -6,10 +6,11 @@
 -module(blockchain_txn_state_channel_open_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
@@ -29,6 +30,8 @@
     signature/1,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -39,9 +42,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_state_channel_open() :: #blockchain_txn_state_channel_open_v1_pb{}.
+-define(T, blockchain_txn_state_channel_open_v1_pb).
+
+-type t() :: txn_state_channel_open().
+
+-type txn_state_channel_open() :: #?T{}.
+
 -type id() :: binary().
--export_type([id/0, txn_state_channel_open/0]).
+
+-export_type([id/0, t/0, txn_state_channel_open/0]).
 
 -spec new(ID :: id(),
           Owner :: libp2p_crypto:pubkey_bin(),
@@ -143,6 +152,35 @@ is_valid(Txn, Chain) ->
             {error, bad_signature};
         true ->
             do_is_valid_checks(Txn, Chain)
+    end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {id           , {binary, any}},
+            {owner        , blockchain_txn_contract:addr()},
+            {amount       , {integer, {min, 0}}},
+            {expire_within, {integer, {min, 0}}},
+            {oui          , {integer, {min, 0}}},
+            {nonce        , {integer, {min, 1}}},
+            {signature    , {binary, any}},
+            {fee          , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}=T, Ledger) ->
+    case {nonce(T), blockchain_ledger_v1:find_dc_entry(owner(T), Ledger)} of
+        {1, {error, dc_entry_not_found}} ->
+            {ok, yes};
+        {_, {error, _}=Err} ->
+            Err;
+        {Given, {ok, DCEntry}} ->
+            Current = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry),
+            {ok, blockchain_txn:is_prompt_nonce(Given, Current)}
     end.
 
 -spec absorb(Txn :: txn_state_channel_open(),
@@ -373,5 +411,20 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
+
+is_well_formed_test_() ->
+    Addr =
+        begin
+            #{public := P, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
+            libp2p_crypto:pubkey_to_bin(P)
+        end,
+    T =
+        #?T{
+            owner = Addr,
+            nonce = 1
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T))
+    ].
 
 -endif.

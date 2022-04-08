@@ -6,12 +6,12 @@
 -module(blockchain_txn_poc_request_v1).
 
 -behavior(blockchain_txn).
-
 -behavior(blockchain_json).
+
 -include("blockchain_caps.hrl").
 -include("blockchain_json.hrl").
-
 -include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
+-include("blockchain_records_meta.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 
@@ -29,6 +29,8 @@
     fee_payer/2,
     sign/2,
     is_valid/2,
+    is_well_formed/1,
+    is_prompt/2,
     absorb/2,
     print/1,
     json_type/0,
@@ -39,8 +41,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
--export_type([txn_poc_request/0]).
+-define(T, blockchain_txn_poc_request_v1_pb).
+
+-define(HASH_SIZE, 32).
+
+-type t() :: txn_poc_request().
+
+-type txn_poc_request() :: #?T{}.
+
+-export_type([t/0, txn_poc_request/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -213,6 +222,28 @@ is_valid(Txn, Chain) ->
             end;
         Error -> Error
     end.
+
+-spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
+is_well_formed(#?T{}=T) ->
+    data_contract:check(
+        ?RECORD_TO_KVL(?T, T),
+        {kvl, [
+            {challenger    , {binary, any}},
+            {secret_hash   , {binary, {exactly, ?HASH_SIZE}}},
+            {onion_key_hash, {binary, {exactly, ?HASH_SIZE}}},
+            {block_hash    , {binary, {exactly, ?HASH_SIZE}}},
+            {fee           , {integer, {min, 0}}},
+            {signature     , blockchain_txn_contract:sig()},
+            {version       , {integer, {min, 0}}}
+        ]}
+    ).
+
+-spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_txn:is_prompt()} | {error, any()}.
+is_prompt(#?T{}, _) ->
+    %% TODO No nonce in this tx. What else can be done/moved here?
+    {ok, yes}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -333,5 +364,38 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, challenger, secret_hash, onion_key_hash, block_hash, version, fee])).
 
+
+
+is_well_formed_test_() ->
+    GenBin = fun (N) -> list_to_binary(lists:duplicate(N, 0)) end,
+    HashGood         = GenBin(?HASH_SIZE),
+    HashBadTooSmall  = GenBin(?HASH_SIZE - 1),
+    HashBadTooBig    = GenBin(?HASH_SIZE + 1),
+    T =
+        #?T{
+            challenger     = <<"fake_gateway">>,
+            secret_hash    = HashGood,
+            onion_key_hash = HashGood,
+            block_hash     = HashGood,
+            fee            = 0,
+            signature      = <<>>,
+            version        = 0
+        },
+    [
+        ?_assertMatch(ok, is_well_formed(T)),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{version        = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{fee            = -1})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{challenger     = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{secret_hash    = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{secret_hash    = HashBadTooSmall})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{secret_hash    = HashBadTooBig})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{onion_key_hash = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{onion_key_hash = HashBadTooSmall})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{onion_key_hash = HashBadTooBig})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{block_hash     = undefined})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{block_hash     = HashBadTooSmall})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{block_hash     = HashBadTooBig})),
+        ?_assertMatch({error, _}, is_well_formed(T#?T{signature      = undefined}))
+    ].
 
 -endif.

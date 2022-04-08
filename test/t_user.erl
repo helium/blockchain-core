@@ -6,6 +6,7 @@
 
 -export([
     new/0,
+    new/1,
     n_new/1,
     addr/1,
     sig_fun/1,
