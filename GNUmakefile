@@ -13,6 +13,9 @@ clean:
 test: compile
 	$(REBAR) as test do eunit, ct,xref && $(REBAR) dialyzer
 
+test_eunit_txns:
+	$(REBAR) as test do eunit --module=$(shell find src/transactions/{v1,v2} -name 'blockchain_txn*.erl' -exec grep -l '-behavior(blockchain_txn)' '{}' \; -print0 | xargs -0 -I% basename -s .erl % | xargs | sed 's/\s\+/,/g')
+
 typecheck:
 	$(REBAR) dialyzer
 
