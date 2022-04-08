@@ -717,7 +717,23 @@ var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
 %% we want to clear out the pocs CF
 %% we dont care about its value, if its been
 %% updated then we wipe all POCs
-var_hook(?poc_challenger_type, _, Ledger) ->
+var_hook(?poc_challenger_type, Type, Ledger) ->
+    case Type of
+        validator ->
+            Ct =
+                blockchain_ledger_v1:fold_validators(
+                  fun(Val, Acc) ->
+                          case blockchain_ledger_validator_v1:status(Val) of
+                              staked ->
+                                  Acc + 1;
+                              _ -> Acc
+                          end
+                  end,
+                  0,
+                  Ledger),
+            blockchain_ledger_v1:validator_count(Ct, Ledger);
+        _ -> ok
+    end,
     purge_pocs(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->
@@ -1086,6 +1102,8 @@ validate_var(?poc_hexing_type, Value) ->
     _ ->
       throw({error, {poc_hexing_type, Value}})
   end;
+validate_var(?poc_validator_ct_scale, Value) ->
+    validate_float(Value, "poc_validator_ct_scale", 0.1, 1.0);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
@@ -1398,6 +1416,8 @@ validate_var(?validator_liveness_interval, Value) ->
     validate_int(Value, "validator_liveness_interval", 5, 2000, false);
 validate_var(?validator_liveness_grace_period, Value) ->
     validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
+validate_var(?validator_hb_reactivation_limit, Value) ->
+    validate_int(Value, "validator_hb_reactivation_limit", 5, 100, false);
 validate_var(?validator_key_check, Value) ->
     case Value of
         true -> ok;

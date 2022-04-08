@@ -187,6 +187,7 @@
     deactivate_validator/3,
     update_validator/3,
     fold_validators/3,
+    validator_count/1, validator_count/2,
 
     cooldown_stake/5,
     get_cooldown_stake/2,
@@ -4810,7 +4811,9 @@ add_validator(Address,
             {error, validator_already_added};
         _ ->
             Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Stake),
-            update_validator(Address, Val, Ledger)
+            ok = update_validator(Address, Val, Ledger),
+            {ok, Count} = validator_count(Ledger),
+            ok = validator_count(Count + 1, Ledger)
     end.
 
 -spec update_validator(Addr :: libp2p_crypto:pubkey_bin(),
@@ -4848,7 +4851,9 @@ deactivate_validator(Address, StakeReleaseHeight, Ledger) ->
             Val2 = blockchain_ledger_validator_v1:release_height(StakeReleaseHeight, Val1),
             %% put the stake HNT into cooldown
             ok = cooldown_stake(Owner, Address, Stake, StakeReleaseHeight, Ledger),
-            update_validator(Address, Val2, Ledger);
+            ok = update_validator(Address, Val2, Ledger),
+            {ok, Count} = validator_count(Ledger),
+            ok = validator_count(Count - 1, Ledger);
         Error -> Error
     end.
 
@@ -4941,6 +4946,23 @@ fold_validators(Fun, InitAcc, Ledger) ->
       end,
       InitAcc
      ).
+
+-spec validator_count(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+validator_count(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?validator_count, []) of
+        {ok, <<Count:64/integer-unsigned-native>>} ->
+            {ok, Count};
+        not_found ->
+            {ok, 0};
+        Error ->
+            Error
+    end.
+
+-spec validator_count(non_neg_integer(), ledger()) -> ok.
+validator_count(Count, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?validator_count, <<Count:64/integer-unsigned-native>>).
 
 query_hnt_by_status(Status, Ledger) ->
     fold_validators(fun(Val, Acc) ->

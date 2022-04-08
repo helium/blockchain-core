@@ -141,6 +141,9 @@
 %% Actor type of the challenger: not set or 'validator'
 -define(poc_challenger_type, poc_challenger_type).
 
+%% scale the number of validators in the heartbeat proposals to ensure there are enough keys waiting
+-define(poc_validator_ct_scale, poc_validator_ct_scale).
+
 %% Allow to switch POC version
 -define(poc_version, poc_version).
 
@@ -526,6 +529,7 @@
 -define(validator_minimum_stake, validator_minimum_stake).  % bones
 -define(validator_liveness_interval, validator_liveness_interval).  % blocks
 -define(validator_liveness_grace_period, validator_liveness_grace_period).  % blocks
+-define(validator_hb_reactivation_limit, validator_hb_reactivation_limit). % addresses
 -define(validator_penalty_filter, validator_penalty_filter). % float
 -define(validator_key_check, validator_key_check). % boolean
 -define(stake_withdrawal_cooldown, stake_withdrawal_cooldown). % blocks

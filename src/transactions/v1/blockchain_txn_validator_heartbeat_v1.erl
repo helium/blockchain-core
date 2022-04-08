@@ -31,7 +31,9 @@
          absorb/2,
          print/1,
          json_type/0,
-         to_json/2
+         to_json/2,
+
+         proposal_length/1
         ]).
 
 -ifdef(TEST).
@@ -117,6 +119,8 @@ is_valid(Txn, Chain) ->
     Version = version(Txn),
     TxnHeight = height(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Proposals = poc_key_proposals(Txn),
+    Reactivated = reactivated_gws(Txn),
     case is_valid_sig(Txn) of
         false ->
             {error, bad_signature};
@@ -145,6 +149,25 @@ is_valid(Txn, Chain) ->
                 case valid_version(Version)  of
                     true -> ok;
                     false -> throw({bad_version, Version})
+                end,
+                {TargetLen, ReactivationLimit} =
+                    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+                        {ok, validator} ->
+                            {ok, RL} = blockchain_ledger_v1:config(?validator_hb_reactivation_limit, Ledger),
+                            PL = proposal_length(Ledger),
+                            {PL, RL};
+                        _ ->
+                            {0, 0}
+                    end,
+                case length(Proposals) == TargetLen of
+                    true -> ok;
+                    false ->
+                        throw({bad_proposal_length, TargetLen, length(Proposals)})
+                end,
+                case length(Reactivated) =< ReactivationLimit of
+                    true -> ok;
+                    false ->
+                        throw({bad_reactivation_length, ReactivationLimit, length(Reactivated)})
                 end,
                 ok
             catch throw:Cause ->
@@ -242,6 +265,23 @@ reactivate_gws(GWAddrs, Height, Ledger) ->
                     ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
             end
         end, GWAddrs).
+
+-spec proposal_length(blockchain:ledger()) -> non_neg_integer().
+proposal_length(Ledger) ->
+    %% generate the size for a set of ephemeral keys for POC usage. the count is based on the num of
+    %% active validators and the target challenge rate. we also have to consider that key proposals
+    %% are submitted by validators as part of their heartbeats which are only submitted periodically
+    %% so we need to ensure we have sufficient count of key proposals submitted per HB. to help with
+    %% this we reduce the number of val count by 20% so that we have surplus keys being submitted
+    case blockchain_ledger_v1:validator_count(Ledger) of
+        {ok, NumVals} when NumVals > 0 ->
+            {ok, ChallengeRate} = blockchain_ledger_v1:config(?poc_challenge_rate, Ledger),
+            {ok, ValCtScale} = blockchain_ledger_v1:config(?poc_validator_ct_scale, Ledger),
+            {ok, HBInterval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
+            round((ChallengeRate / (NumVals * ValCtScale)) * HBInterval);
+        _ ->
+            0
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
