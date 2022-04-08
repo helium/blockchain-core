@@ -705,17 +705,15 @@ load_blocks(Ledger0, Chain, Snapshot) ->
               Ht = blockchain_block:height(Block),
               %% since hash and block are written at the same time, just getting the
               %% hash from the height is an acceptable presence check, and much cheaper
-              _BlockHash =
-                case blockchain:get_block_hash(Ht, Chain, false) of
-                  {ok, Hash} ->
+              case blockchain:get_block_hash(Ht, Chain, false) of
+                  {ok, _Hash} ->
                       lager:info("skipping block ~p", [Ht]),
                       %% already have it, don't need to store it again.
-                      Hash;
+                      ok;
                   _ ->
                       lager:info("saving block ~p", [Ht]),
-                      ok = blockchain:save_block(Block, Chain),
-                      blockchain_block_v1:hash_block(Block)
-                end,
+                      ok = blockchain:save_block(Block, Chain)
+              end,
               print_memory(),
               case Ht > Curr2 of
                   %% we need some blocks before for history, only absorb if they're
@@ -726,7 +724,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       Chain1 = blockchain:ledger(Ledger2, Chain),
                       Rescue = blockchain_block:is_rescue_block(Block),
                       {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-%%                      ok = blockchain_ledger_v1:process_poc_proposals(Ht, BlockHash, Ledger2),
                       ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
                       ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
                       %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),

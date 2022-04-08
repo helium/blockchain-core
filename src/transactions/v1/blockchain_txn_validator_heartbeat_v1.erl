@@ -205,7 +205,6 @@ absorb(Txn, Chain) ->
                 false ->
                     case blockchain:config(poc_challenger_type, Ledger) of
                         {ok, validator} ->
-                            %% POCKeyProposals = [{onion_key_hash, ledger_poc_v3}, {}...]
                             blockchain_ledger_v1:save_public_poc_proposals(POCKeyProposals, Validator, LedgerHash, LedgerHt, Ledger);
                         _ ->
                             ok
