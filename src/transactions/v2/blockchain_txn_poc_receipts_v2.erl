@@ -210,43 +210,36 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                                           [PrePocBlockHeight, Reason]),
                             Error;
                         {ok, #block_info_v2{height = BlockHeight,
-                                         time = BlockTime,
-                                         pocs = BlockPoCs}} ->
-                                    %% check the onion key is in the block
-                                    case lists:keyfind(POCOnionKeyHash, 2, BlockPoCs) of
-                                        false ->
-                                            {error, onion_key_hash_mismatch};
-                                        _ ->
-                                            PrePoCBlockHash = blockchain_ledger_poc_v3:block_hash(PoC),
-                                            StartLA = maybe_log_duration(prelude, StartPre),
-                                            {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
-                                            StartFT = maybe_log_duration(ledger_at, StartLA),
-                                            Vars = vars(OldLedger),
-                                            Keys = libp2p_crypto:keys_from_bin(Secret),
-                                            Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
-                                            {Path, StartP} = get_path(POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
-                                            N = erlang:length(Path),
-                                            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
-                                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                            {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
-                                                                   {ok, true} ->
-                                                                       blockchain_poc_packet_v2:build(Keys, IV, OnionList);
-                                                                   _ ->
-                                                                       blockchain_poc_packet_v2:build(Keys, IV, OnionList)
-                                                               end,
-                                            %% no witness will exist with the first layer hash
-                                            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                            StartV = maybe_log_duration(packet_construction, StartP),
-                                            Channels = get_channels_(POCVersion, OldLedger, Path, LayerData, no_prefetch),
-                                            %% %% run validations
-                                            Ret = validate(POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger),
-                                            maybe_log_duration(receipt_validation, StartV),
-                                            case Ret of
-                                                ok ->
-                                                    {ok, Channels};
-                                                {error, _}=E -> E
-                                            end
-                                    end
+                                         time = BlockTime}} ->
+                            PrePoCBlockHash = blockchain_ledger_poc_v3:block_hash(PoC),
+                            StartLA = maybe_log_duration(prelude, StartPre),
+                            {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
+                            StartFT = maybe_log_duration(ledger_at, StartLA),
+                            Vars = vars(OldLedger),
+                            Keys = libp2p_crypto:keys_from_bin(Secret),
+                            Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
+                            {Path, StartP} = get_path(POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
+                            N = erlang:length(Path),
+                            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
+                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+                            {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                                   {ok, true} ->
+                                                       blockchain_poc_packet_v2:build(Keys, IV, OnionList);
+                                                   _ ->
+                                                       blockchain_poc_packet_v2:build(Keys, IV, OnionList)
+                                               end,
+                            %% no witness will exist with the first layer hash
+                            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                            StartV = maybe_log_duration(packet_construction, StartP),
+                            Channels = get_channels_(POCVersion, OldLedger, Path, LayerData, no_prefetch),
+                            %% %% run validations
+                            Ret = validate(POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger),
+                            maybe_log_duration(receipt_validation, StartV),
+                            case Ret of
+                                ok ->
+                                    {ok, Channels};
+                                {error, _}=E -> E
+                            end
                     end
             end
     end.
@@ -457,20 +450,6 @@ absorb(_POCVersion, Txn, Chain) ->
             false ->
                 {error, invalid_poc};
             true ->
-                %% get rid of this for the time being, we will need to restore it later when
-                %% the clean witness restore thing lands
-
-                %% %% Add filtered witnesses with poc-v9
-                %% ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
-                %%                                       Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                %%                                       case FilteredReceipt of
-                %%                                           undefined ->
-                %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                %%                                           FR ->
-                %%                                               ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                %%                                       end
-                %%                               end, ok, Txn, Ledger, Chain);
-
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
                 case blockchain:config(poc_activity_filter_enabled, Ledger) of

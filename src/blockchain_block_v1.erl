@@ -31,7 +31,6 @@
     seen_votes/1,
     bba_completion/1,
     snapshot_hash/1,
-    poc_keys/1,
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1,
     is_election_block/1,
@@ -47,8 +46,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type poc_key() :: {libp2p_crypto:pubkey_bin(), binary()}.
--type poc_keys() :: [poc_key()].
 
 -type block() :: #blockchain_block_v1_pb{}.
 -type block_map() :: #{prev_hash => binary(),
@@ -62,11 +59,10 @@
                        rescue_signature => binary(),
                        seen_votes => [{pos_integer(), binary()}],
                        bba_completion => binary(),
-                       snapshot_hash => binary(),
-                       poc_keys => poc_keys()
+                       snapshot_hash => binary()
                       }.
 
--export_type([block/0, block_map/0, poc_key/0, poc_keys/0]).
+-export_type([block/0, block_map/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -82,9 +78,7 @@ new(#{prev_hash := PrevHash,
       election_epoch := ElectionEpoch,
       epoch_start := EpochStart,
       seen_votes := Votes,
-      bba_completion := Completion,
-      poc_keys := PocKeys } = Map) ->
-    lager:debug("*** new block with poc keys ~p",[PocKeys]),
+      bba_completion := Completion} = Map) ->
     #blockchain_block_v1_pb{
        prev_hash = PrevHash,
        height = Height,
@@ -96,9 +90,7 @@ new(#{prev_hash := PrevHash,
        epoch_start = EpochStart,
        seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
        bba_completion = Completion,
-       snapshot_hash = maps:get(snapshot_hash, Map, <<>>),
-       poc_keys = [wrap_poc_key(V) || V <- lists:sort(PocKeys)]
-      }.
+       snapshot_hash = maps:get(snapshot_hash, Map, <<>>)}.
 
 -spec rescue(block_map())-> block().
 rescue(#{prev_hash := PrevHash,
@@ -199,21 +191,10 @@ bba_completion(Block) ->
 snapshot_hash(Block) ->
     Block#blockchain_block_v1_pb.snapshot_hash.
 
--spec poc_keys(block()) -> poc_keys().
-poc_keys(Block) ->
-    [unwrap_poc_key(V) || V <- Block#blockchain_block_v1_pb.poc_keys].
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hbbft_round(block()) -> non_neg_integer().
 hbbft_round(Block) ->
     Block#blockchain_block_v1_pb.hbbft_round.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec set_signatures(block(), [blockchain_block:signature()]) -> block().
 set_signatures(Block, Signatures) ->
     Block#blockchain_block_v1_pb{signatures=[wrap_signature(S) || S <- Signatures]}.
@@ -229,10 +210,6 @@ set_signatures(Block, Signatures, Rescue) ->
                                                || S <- Signatures],
                                  rescue_signature = Rescue}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new_genesis_block(blockchain_txn:txns()) -> block().
 new_genesis_block(Transactions) ->
     ?MODULE:new(#{prev_hash => <<0:256>>,
@@ -244,13 +221,8 @@ new_genesis_block(Transactions) ->
                   election_epoch => 1,
                   epoch_start => 0,
                   seen_votes => [],
-                  poc_keys => [],
                   bba_completion => <<>>}).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec is_genesis(block()) -> boolean().
 is_genesis(Block) ->
     case prev_hash(Block) == <<0:256>> andalso height(Block) == 1 of
@@ -449,14 +421,6 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
--spec wrap_poc_key({libp2p_crypto:pubkey_bin(), binary()}) -> #blockchain_poc_key_pb{}.
-wrap_poc_key({Address, Key}) ->
-    #blockchain_poc_key_pb{address = Address, key = Key}.
-
--spec unwrap_poc_key(#blockchain_poc_key_pb{}) -> {libp2p_crypto:pubkey_bin(), binary()}.
-unwrap_poc_key(#blockchain_poc_key_pb{address = Address, key = Key}) ->
-    {Address, Key}.
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -473,9 +437,7 @@ new_merge(Overrides) ->
              election_epoch => 0,
              epoch_start => 0,
              seen_votes => [],
-             bba_completion => <<>>,
-             poc_keys => []
-           },
+             bba_completion => <<>>},
           Overrides)).
 
 new_test() ->
@@ -591,8 +553,7 @@ remove_var_txns_test() ->
                 election_epoch => 0,
                 epoch_start    => 0,
                 seen_votes     => [],
-                bba_completion => <<>>,
-                poc_keys       => []
+                bba_completion => <<>>
              }
         ),
     ?assertMatch(

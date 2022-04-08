@@ -189,6 +189,11 @@ absorb(Txn, Chain) ->
     TxnHeight = height(Txn),
     POCKeyProposals = poc_key_proposals(Txn),
     ReactivatedGWs = reactivated_gws(Txn),
+
+    %% Get ledger current height and block hash to submit poc proposal
+    {ok, LedgerHt} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, LedgerHash} = blockchain:get_block_hash(LedgerHt, Chain),
+
     case blockchain_ledger_v1:get_validator(Validator, Ledger) of
         {ok, V} ->
             V1 = blockchain_ledger_validator_v1:last_heartbeat(TxnHeight, V),
@@ -200,12 +205,7 @@ absorb(Txn, Chain) ->
                 false ->
                     case blockchain:config(poc_challenger_type, Ledger) of
                         {ok, validator} ->
-                            case application:get_env(blockchain, poc_mgr_mod) of
-                                {ok, POCMgrMod} ->
-                                    POCMgrMod:save_poc_key_proposals(Validator, POCKeyProposals, TxnHeight);
-                                _ ->
-                                    ok
-                            end;
+                            blockchain_ledger_v1:save_public_poc_proposals(POCKeyProposals, Validator, LedgerHash, LedgerHt, Ledger);
                         _ ->
                             ok
                     end,

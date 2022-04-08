@@ -13,20 +13,21 @@
     start_height/1, start_height/2,
     verify/3,
     serialize/1, deserialize/1,
-    rxtx/0, rx/0, tx/0, fail/0
+    rxtx/0, rx/0, tx/0, fail/0,
+    status/1, status/2
 ]).
 
--include("blockchain.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
 -record(poc_v3, {
     onion_key_hash :: binary(),
     challenger :: libp2p_crypto:pubkey_bin(),
     block_hash :: binary(),
     start_height :: pos_integer(),
-    unused = 3 :: 3
+    status = proposed :: proposed | active
 }).
 
 -define(RXTX, rxtx).
@@ -70,8 +71,8 @@ block_hash(PoC) ->
     PoC#poc_v3.block_hash.
 
 -spec block_hash(binary(), poc()) -> poc().
-block_hash(Challenger, PoC) ->
-    PoC#poc_v3{block_hash=Challenger}.
+block_hash(Hash, PoC) ->
+    PoC#poc_v3{block_hash=Hash}.
 
 -spec start_height(poc()) -> pos_integer().
 start_height(PoC) ->
@@ -92,6 +93,14 @@ serialize(PoC) ->
 
 deserialize(<<3, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+-spec status(poc()) -> proposed | active.
+status(PoC) ->
+    PoC#poc_v3.status.
+
+-spec status(proposed | active, poc()) -> poc().
+status(Status, PoC) ->
+    PoC#poc_v3{status = Status}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -136,7 +145,7 @@ new_test() ->
         challenger = <<"address">>,
         block_hash = <<"block_hash">>,
         start_height = 120000,
-        unused = 3
+        status = proposed
     },
     ?assertEqual(PoC, new(<<"some key bin">>, <<"address">>, <<"block_hash">>, 120000)).
 

@@ -208,6 +208,7 @@
 
 %% the number of random hexes to utilize when targeting: integer
 -define(poc_target_pool_size, poc_target_pool_size).
+
 %%%
 %%% score vars
 %%%

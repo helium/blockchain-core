@@ -259,6 +259,8 @@ peer_height(Height, Head, Sender) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec notify(any()) -> ok.
+notify({poc_keys, _Payload}=Msg) ->
+    ok = gen_event:sync_notify(?POC_EVT_MGR, Msg);
 notify(Msg) ->
     ok = gen_event:sync_notify(?EVT_MGR, Msg).
 

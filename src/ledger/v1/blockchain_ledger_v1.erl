@@ -82,7 +82,8 @@
     find_pocs/2,
     find_poc/3,
     request_poc/6,
-    process_poc_keys/4,
+    process_poc_proposals/3,
+    save_public_poc_proposals/5,
     save_public_poc/5,
     find_public_poc/2,
     delete_public_poc/2,
@@ -2081,32 +2082,61 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>).
 
--spec process_poc_keys(
-    Block :: blockchain_block:block(),
+-spec process_poc_proposals(
     BlockHeight :: pos_integer(),
     BlockHash :: binary(),
     Ledger :: ledger()
-) -> ok.
-process_poc_keys(_Block, 1, _BlockHash, _Ledger) ->
-    ok;
-process_poc_keys(Block, BlockHeight, BlockHash, Ledger) ->
+) -> [blockchain_ledger_poc_v3:pocs()].
+process_poc_proposals(1, _BlockHash, _Ledger) ->
+    [];
+process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     %% we need to update the ledger with public poc data
     %% based on the blocks poc ephemeral keys
     %% these will be a prop with tuples: {ChallengerAddr :: binary(), PocKeyHash :: binary()}
     case blockchain:config(?poc_challenger_type, Ledger) of
         {ok, validator} ->
-            BlockPocEphemeralKeys = blockchain_block_v1:poc_keys(Block),
-            lists:foreach(
-                fun({ChallengerAddr, OnionKeyHash}) ->
-                    %% the published poc key is a hash of the public key, aka the onion key hash
-                    lager:debug("saving public poc data for poc key ~p and challenger ~p at blockheight ~p", [OnionKeyHash, ChallengerAddr, BlockHeight]),
-                    catch ok = blockchain_ledger_v1:save_public_poc(OnionKeyHash, ChallengerAddr, BlockHash, BlockHeight, Ledger)
-                end,
-                BlockPocEphemeralKeys);
+
+            %% Get only the proposed POCs from ledger
+            %% TODO: This will likely be slow AF
+            ProposedPOCs = find_public_poc_proposals(Ledger),
+
+            %% Do a deterministic subset based on the hash of the block
+            %% Mark the selected POCs as active on ledger
+            case blockchain:config(?poc_challenge_rate, Ledger) of
+                {ok, K} ->
+                    RandState = blockchain_utils:rand_state(BlockHash),
+                    {_, POCSubset0} = blockchain_utils:deterministic_subset(K, RandState, ProposedPOCs),
+                    POCSubset = lists:flatten(POCSubset0),
+                    L1 = ?MODULE:new_context(Ledger),
+                    lists:foreach(
+                        fun({_Key, POC}) ->
+                            ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
+                            ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
+                            ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
+                            update_public_poc(ActivePOC2, L1)
+                        end, POCSubset),
+                    ?MODULE:commit_context(L1),
+                    POCSubset;
+                _ ->
+                    []
+            end;
         _ ->
-            ok
-    end,
-    ok.
+            []
+    end.
+
+-spec save_public_poc_proposals(Proposals :: [binary()],
+                                Challenger :: libp2p_crypto:pubkey_bin(),
+                                BlockHash :: blockchain_block:hash(),
+                                BlockHeight :: pos_integer(),
+                                Ledger :: ledger()) -> ok.
+save_public_poc_proposals(Proposals,
+                          Challenger,
+                          BlockHash,
+                          BlockHeight,
+                          Ledger) ->
+    lists:foreach(fun(Proposal) ->
+                          save_public_poc(Proposal, Challenger, BlockHash, BlockHeight, Ledger)
+                  end, Proposals).
 
 -spec save_public_poc(  OnionKeyHash :: binary(),
                         Challenger :: libp2p_crypto:pubkey_bin(),
@@ -2132,6 +2162,23 @@ save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
+
+-spec find_public_poc_proposals(ledger()) -> [{binary(), blockchain_ledger_poc_v3:poc()}].
+find_public_poc_proposals(Ledger) ->
+    POCsCF = pocs_cf(Ledger),
+    cache_fold(
+        Ledger,
+        POCsCF,
+        fun({Proposal, Binary}, Acc) ->
+            POC = blockchain_ledger_poc_v3:deserialize(Binary),
+            case blockchain_ledger_poc_v3:status(POC) of
+                proposed -> [{Proposal, POC} | Acc];
+                _ -> Acc
+            end
+        end,
+        []
+    ).
+
 
 -spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
 find_public_poc(OnionKeyHash, Ledger) ->
@@ -2227,7 +2274,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
             POCsCF = pocs_cf(Ledger),
             {ok, POCTimeout} = get_config(?poc_timeout, Ledger, 10),
             {ok, POCReceiptsAbsorbTimeout} = get_config(?poc_receipts_absorb_timeout, Ledger, 50),
-
+            {ok, POCValKeyProposalTimeout} = get_config(?poc_validator_ephemeral_key_timeout, Ledger, 200),
             %% allow for the possibility there may be a mix of POC versions in the POC CF
             %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
             %% or the reverse
@@ -2241,11 +2288,19 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                       V3PoC = blockchain_ledger_poc_v3:deserialize(PoCBin),
                       POCStartHeight = blockchain_ledger_poc_v3:start_height(V3PoC),
                       OnionKeyHash = blockchain_ledger_poc_v3:onion_key_hash(V3PoC),
-                      %% the public poc data is required by the receipts v2 txn absorb
+                      POCStatus = blockchain_ledger_poc_v3:status(V3PoC),
+                      %% for a selected/active poc,
+                      %% the public poc data for a poc is required by the receipts v2 txn absorb
                       %% the public poc will be GCed as part of that absorb
                       %% but in case that fails we will GC it here after giving
                       %% the txn N blocks to be absorbed
-                      case (CurHeight - POCStartHeight) > (POCTimeout + POCReceiptsAbsorbTimeout)  of
+                      %% any non selected public poc will be GCed after a period
+                      %% if it remains unselected
+                      case
+                          ((POCStatus == active) andalso (CurHeight - POCStartHeight) >
+                              (POCTimeout + POCReceiptsAbsorbTimeout))
+                              orelse
+                          ((POCStatus /= active) andalso (CurHeight - POCStartHeight) > POCValKeyProposalTimeout) of
                         true ->
                           %% the lifespan of the POC for this key has passed, we can GC
                           ok = delete_public_poc(OnionKeyHash, Ledger);
@@ -2683,6 +2738,7 @@ hnt_to_dc(HNTAmount, Ledger)->
         {ok, OracleHNTPrice} ->
             hnt_to_dc(HNTAmount, OracleHNTPrice)
     end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
