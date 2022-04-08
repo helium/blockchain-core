@@ -380,20 +380,19 @@ is_valid(Txn, Chain) ->
 
 -spec is_well_formed(t()) -> ok | {error, {contract_breach, any()}}.
 is_well_formed(#?T{}=T) ->
-    %% TODO Are sig size specs correct?
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {owner            , {address, libp2p}},
-            {gateway          , {address, libp2p}},
-            {payer            , {either, [{binary, {exactly, 0}}, {address, libp2p}]}},
-            {owner_signature  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
-            {gateway_signature, {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
-            {payer_signature  , {either, [{binary, {exactly, 0}}, {binary, {exactly, 512}}]}},
+            {owner            , blockchain_txn_contract:addr()},
+            {gateway          , blockchain_txn_contract:addr()},
+            {payer            , {either, [{binary, {exactly, 0}}, blockchain_txn_contract:addr()]}},
+            {owner_signature  , blockchain_txn_contract:sig()},
+            {gateway_signature, blockchain_txn_contract:sig()},
+            {payer_signature  , blockchain_txn_contract:sig()},
             {nonce            , {integer, {min, 1}}},
             {staking_fee      , {integer, {min, 0}}},
             {fee              , {integer, {min, 0}}},
-            {location         , h3_string}
+            {location         , blockchain_txn_contract:h3_string()}
         ]}
     ).
 
@@ -703,24 +702,20 @@ to_json_test() ->
 is_well_formed_test_() ->
     %% All that is_well_formed cares about is syntactic validity of
     %% _independent_ fields. No semantic nuances or field interdependencies are
-    %% expected to be checked.
-    Addr =
-        (fun() ->
-            #{public := PK, secret := _} =
-                libp2p_crypto:generate_keys(ecc_compact),
-            libp2p_crypto:pubkey_to_bin(PK)
-        end),
-    Addr1 = Addr(),
-    Addr2 = Addr(),
-    Addr3 = Addr(),
+    %% expected to be checked, so we _could_ just use the same user for all
+    %% fields.
+    Owner = t_user:new(ed25519),
+    Payer = t_user:new(ecc_compact),
+    Gateway = t_user:new(ecc_compact),
+    GatewayAddr = t_user:addr(Gateway),
     Loc = ?TEST_LOCATION,
     T =
         #?T{
-            gateway           = Addr1,
+            gateway           = GatewayAddr,
             gateway_signature = <<>>,
-            owner             = Addr2,
+            owner             = t_user:addr(Owner),
             owner_signature   = <<>>,
-            payer             = Addr3,
+            payer             = t_user:addr(Payer),
             payer_signature   = <<>>,
             location          = h3:to_string(Loc),
             nonce             = 1,
@@ -728,9 +723,14 @@ is_well_formed_test_() ->
             fee               = ?LEGACY_TXN_FEE
         },
     [
-        {"Baseline all ok", ?_assertEqual(ok, is_well_formed(T))},
+        {"Unsigned OK", ?_assertEqual(ok, is_well_formed(T))},
+        {"sign OK", ?_assertEqual(ok, is_well_formed(sign(T, t_user:sig_fun(Owner))))},
+        {"sign_payer OK", ?_assertEqual(ok, is_well_formed(sign_payer(T, t_user:sig_fun(Payer))))},
+        {"sign_request OK", ?_assertEqual(ok, is_well_formed(sign_request(T, t_user:sig_fun(Gateway))))},
+        {"sign_request then sign OK", ?_assertEqual(ok, is_well_formed(sign(sign_request(T, t_user:sig_fun(Gateway)), t_user:sig_fun(Owner))))},
+        {"sign then sign_request OK", ?_assertEqual(ok, is_well_formed(sign_request(sign(T, t_user:sig_fun(Owner)), t_user:sig_fun(Gateway))))},
         {"Empty payer is OK", ?_assertEqual(ok, is_well_formed(T#?T{payer = <<>>}))},
-        {"All same addresses is OK", ?_assertEqual(ok, is_well_formed(T#?T{gateway = Addr1, owner = Addr1, payer = Addr1}))},
+        {"All same addresses is OK", ?_assertEqual(ok, is_well_formed(T#?T{gateway = GatewayAddr, owner = GatewayAddr, payer = GatewayAddr}))},
         ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{gateway, _}]}}}, is_well_formed(T#?T{gateway = undefined})),
         ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{owner, _}]}}}, is_well_formed(T#?T{owner = undefined})),
         ?_assertMatch({error, {contract_breach, {invalid_kvl_pairs, [{payer, _}]}}}, is_well_formed(T#?T{payer = undefined})),

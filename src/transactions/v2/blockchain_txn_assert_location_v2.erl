@@ -338,12 +338,12 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {gateway        , {address, libp2p}},
-            {owner          , {address, libp2p}},
-            {owner_signature, {binary, any}},
-            {payer          , {any_of, [{address, libp2p}, {binary, {exactly, 0}}]}},
-            {payer_signature, {binary, any}},
-            {location       , h3_string},
+            {gateway        , blockchain_txn_contract:addr()},
+            {owner          , blockchain_txn_contract:addr()},
+            {owner_signature, blockchain_txn_contract:sig()},
+            {payer          , {any_of, [blockchain_txn_contract:addr(), {binary, {exactly, 0}}]}},
+            {payer_signature, blockchain_txn_contract:sig()},
+            {location       , blockchain_txn_contract:h3_string()},
             {nonce          , {integer, {min, 1}}},
             {gain           , {integer, any}},
             {elevation      , {integer, {min, ?ELEVATION_MIN}}},

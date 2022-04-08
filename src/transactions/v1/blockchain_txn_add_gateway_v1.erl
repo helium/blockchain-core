@@ -376,12 +376,12 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {owner            , {address, libp2p}},
-            {owner_signature  , {binary, any}},
-            {gateway          , {address, libp2p}},
-            {gateway_signature, {binary, any}},
-            {payer            , {either, [{address, libp2p}, {binary, {exactly, 0}}]}},
-            {payer_signature  , {binary, any}},
+            {owner            , blockchain_txn_contract:addr()},
+            {gateway          , blockchain_txn_contract:addr()},
+            {payer            , {either, [blockchain_txn_contract:addr(), {binary, {exactly, 0}}]}},
+            {owner_signature  , blockchain_txn_contract:sig()},
+            {gateway_signature, blockchain_txn_contract:sig()},
+            {payer_signature  , blockchain_txn_contract:sig()},
             {staking_fee      , {integer, {min, 0}}}, % TODO Max 64 bit?
             {fee              , {integer, {min, 0}}}  % TODO Max 64 bit?
         ]}
@@ -595,26 +595,30 @@ to_json_test() ->
 
 
 is_well_formed_test_() ->
+    AddrGood = t_user:addr(t_user:new()),
+    AddrBad1 = <<"terrible address">>,
+    AddrBad2 = <<"address of doom">>,
+    SigFake = list_to_binary(lists:seq(1, 64)), % Min sig size.
+
+    %% All that is_well_formed cares about is syntactic validity of
+    %% _independent_ fields. No semantic nuances or field
+    %% interdependencies are expected to be checked.
+    T = new(AddrGood, AddrGood),
+
     [
         ?_assertEqual(
             {error, {contract_breach, {invalid_kvl_pairs, [
-                {owner, invalid_address},
-                {gateway, invalid_address}
+                {owner  , {invalid_address, AddrBad1}},
+                {gateway, {invalid_address, AddrBad2}}
             ]}}},
-            is_well_formed(new(<<"owner_address">>, <<"gateway_address">>))
+            is_well_formed(new(AddrBad1, AddrBad2))
         ),
-        ?_assertEqual(
-            ok,
-            (fun() ->
-                #{public := PubKey, secret := _} =
-                    libp2p_crypto:generate_keys(ecc_compact),
-                Addr = libp2p_crypto:pubkey_to_bin(PubKey),
-                %% All that is_well_formed cares about is syntactic validity of
-                %% _independent_ fields. No semantic nuances or field
-                %% interdependencies are expected to be checked.
-                is_well_formed(new(Addr, Addr))
-            end)()
-        )
+
+        %% Unsigned:
+        ?_assertEqual(ok, is_well_formed(T)),
+
+        %% Signed:
+        ?_assertEqual(ok, is_well_formed(sign(T, fun (_) -> SigFake end)))
     ].
 
 -endif.

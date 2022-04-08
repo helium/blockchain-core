@@ -212,12 +212,12 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {owner          , {address, libp2p}},
-            {addresses      , {ordset, {max, 3}, {address, libp2p}}},
+            {owner          , blockchain_txn_contract:addr()},
+            {addresses      , {ordset, {max, 3}, blockchain_txn_contract:addr()}},
             {staking_fee    , {integer, {min, 0}}},
             {fee            , {integer, {min, 0}}},
-            {owner_signature, {binary, any}},
-            {payer_signature, {binary, any}},
+            {owner_signature, blockchain_txn_contract:sig()},
+            {payer_signature, blockchain_txn_contract:sig()},
             {oui            , {integer, {min, 0}}},
             {filter,
                 {forall, [
@@ -230,7 +230,7 @@ is_well_formed(#?T{}=T) ->
                     {custom, fun is_power_of_2/1, not_a_power_of_2}]}},
             {payer,
                 {either, [
-                    {address, libp2p},
+                          blockchain_txn_contract:addr(),
                     {binary, {exactly, 0}}]}}
                     %% TODO Allow undefined? It is permitted by is_valid_payer
         ]}
@@ -375,6 +375,7 @@ is_power_of_2(N) ->
 validate_addresses([]) ->
     true;
 validate_addresses(Addresses) ->
+    %% TODO Use contracts. See orig validations PR - I may have already done it. -- siraaj
     case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
         {L, L} when L =< 3 ->
             ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);

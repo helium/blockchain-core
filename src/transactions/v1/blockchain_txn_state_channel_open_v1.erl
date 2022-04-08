@@ -160,7 +160,7 @@ is_well_formed(#?T{}=T) ->
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
             {id           , {binary, any}},
-            {owner        , {address, libp2p}},
+            {owner        , blockchain_txn_contract:addr()},
             {amount       , {integer, {min, 0}}},
             {expire_within, {integer, {min, 0}}},
             {oui          , {integer, {min, 0}}},

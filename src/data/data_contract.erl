@@ -8,7 +8,6 @@
     val/0,
     measure/0,
     measure/1,
-    txn_type/0,
     quantifier/0,
     forall/0,
     exists/0,
@@ -17,7 +16,6 @@
     failure_bin/0,
     failure_int/0,
     failure_list/0,
-    failure_txn/0,
     result/0,
 
     t/0
@@ -41,9 +39,6 @@
 
 -type measure() ::
     measure(integer()).
-
--type txn_type() ::
-    any | {type, atom()}.
 
 %% TODO Pick one of the alternative keyword sets:
 -type forall() :: forall | '∀'  | all_of | 'and'.  % ALL contracts must be satisfied
@@ -87,6 +82,7 @@
     | {number, measure(float() | integer())}
     | {float, measure(float())}
     | {integer, measure(integer())}
+    % TODO int32, int64
     % TODO Design integration of finer refinements, like is_power_of_2, etc.
     %       {integer, measure(), [refinement()]} ?
     %       {integer, measure(), [t()]} ? where refinement is a t variant
@@ -94,15 +90,15 @@
     % Use-case in blockchain_txn_oui_v1.erl
 
     | {member, [any()]}
-    | {address, libp2p}
-    %% TODO Custom test fun should return result:empty/1 instead of boolean, so we can propagate the error.
-    | {custom, fun((val()) -> boolean()), Label :: term()} % TODO Maybe rename "custom" to "test"
-    | h3_string
-    | {txn, txn_type()}
+
+    %% TODO Custom test fun should return result:empty(Label :: term())
+    %%      instead of boolean, so we can propagate the error.
+    %% TODO Unwrap the custom fun from {custom, F} to just F.
+    | {custom, fun((val()) -> boolean()), Label :: term()}
+
     | {val, val()}  % A concrete, given value.
     .
     %% TODO More contracts:
-    %%  - [x] txn
     %%  - [x] tuple
     %%  - [ ] records as tuple with given head?
     %%      Can we automate mapping field names to positions?
@@ -151,27 +147,18 @@
     | {kvl_keys_missing_a_value, [key()]}
     .
 
--type failure_txn() ::
-      {not_a_txn, val()}
-    | {txn_wrong_type, Actual :: atom(), Required :: atom()}
-    | {txn_malformed, val()}
-    .
-
 -type failure_either() ::
       {zero_contracts_satisfied, [failure()]}
     | {multiple_contracts_satisfied, [t()]}
     .
 
 -type failure() ::
-      invalid_address
-    | invalid_h3_string
-    | negation_failed
+      negation_failed
     | {unexpected_val, given, val(), expected, val()}
     | {not_a_member_of, [val()]}
     | defined
     | undefined
     | failure_iodata()
-    | failure_txn()
     | failure_bin()
     | failure_int()
     | failure_float()
@@ -231,9 +218,6 @@ test(V, {integer, Measure})          -> test_int(V, Measure);
 test(V, {float, Measure})            -> test_float(V, Measure);
 test(V, {number, Measure})           -> test_number(V, Measure);
 test(V, {member, Vs})                -> test_membership(V, Vs);
-test(V, {address, libp2p})           -> test_address_libp2p(V);
-test(V, h3_string)                   -> test_h3_string(V);
-test(V, {txn, TxnType})              -> test_txn(V, TxnType);
 test(V, {Q, Contracts}) when Q =:= forall; Q =:= '∀' ; Q =:= 'all_of'; Q =:= 'and' ->
     test_forall(V, Contracts);
 test(V, {Q, Contracts}) when Q =:= exists; Q =:= '∃' ; Q =:= 'any_of'; Q =:= 'or'  ->
@@ -515,48 +499,6 @@ is_in_range(X, {range, Min, Max}) ->
 test_membership(V, Vs) ->
     res_of_bool(lists:member(V, Vs), {not_a_member_of, Vs}).
 
--spec test_address_libp2p(val()) -> test_result().
-test_address_libp2p(V) ->
-    try libp2p_crypto:bin_to_pubkey(V) of
-        _ -> ok
-    catch
-        _:_ -> {error, invalid_address}
-    end.
-
--spec test_h3_string(val()) -> test_result().
-test_h3_string(V) ->
-    try h3:from_string(V) of
-        _ -> ok
-    catch
-        _:_ -> {error, invalid_h3_string}
-    end.
-
--spec test_txn(val(), txn_type()) -> test_result().
-test_txn(V, TxnType) ->
-    case blockchain_txn:type_check(V) of
-        {error, not_a_known_txn_value} ->
-            {error, {not_a_txn, V}};
-        {ok, TypeActual} ->
-            TypeRequired =
-                case TxnType of
-                    any ->
-                        TypeActual;
-                    {type, Type} ->
-                        Type
-                end,
-            case TypeActual =:= TypeRequired of
-                true ->
-                    case TypeActual:is_well_formed(V) of
-                        ok ->
-                            ok;
-                        {error, _} ->
-                            {error, {txn_malformed, V}}
-                    end;
-                false ->
-                    {error, {txn_wrong_type, TypeActual, TypeRequired}}
-            end
-    end.
-
 -spec res_of_bool(boolean(), failure()) -> test_result().
 res_of_bool(true, _) -> ok;
 res_of_bool(false, Failure) -> {error, Failure}.
@@ -729,29 +671,6 @@ list_test_() ->
         )
     ].
 
-address_test_() ->
-    Addr = addr_gen(),
-    [
-        ?_assertEqual(ok, test(Addr, {address, libp2p})),
-        ?_assertEqual(
-            {error, invalid_address},
-            test(<<"eggplant", Addr/binary>>, {address, libp2p})
-        ),
-        ?_assertEqual(
-            ok,
-            test(
-                Addr,
-                {forall, [
-                    defined,
-                    {binary, any},
-                    {binary, {range, 0, 1024}},
-                    {binary, {exactly, 33}},
-                    {address, libp2p}
-                ]}
-            )
-        )
-    ].
-
 iodata_test_() ->
     CharMin = 0,
     CharMax = 255,
@@ -795,25 +714,6 @@ string_test_() ->
         ?_assertEqual(
             {error, {invalid_string, {list_contains_invalid_elements, [{integer_out_of_range, ?CHAR_MAX + 1, {range, 0, 255}}]}}},
             test("foo" ++ [?CHAR_MAX + 1], {string, any})
-        )
-    ].
-
-txn_test_() ->
-    Addr = addr_gen(),
-    Type = blockchain_txn_add_gateway_v1,
-    Txn  = Type:new(Addr, Addr),
-    TxnMalformed = Type:new(<<"not addr">>, Addr),
-    [
-        ?_assertEqual({error, {not_a_txn, trust_me_im_a_txn}}, test(trust_me_im_a_txn, {txn, any})),
-        ?_assertEqual(ok, test(Txn, {txn, any})),
-        ?_assertEqual(ok, test(Txn, {txn, {type, Type}})),
-        ?_assertEqual(
-            {error, {txn_wrong_type, Type, not_a_txn_type}},
-            test(Txn, {txn, {type, not_a_txn_type}})
-        ),
-        ?_assertEqual(
-            {error, {txn_malformed, TxnMalformed}},
-            test(TxnMalformed, {txn, any})
         )
     ].
 
@@ -864,6 +764,10 @@ kvl_test_() ->
             test([{a, 1}], {kvl, [{a, defined}]})
         ),
         ?_assertMatch(
+            {error, {invalid_kvl_pairs, [{a, {not_y, x}}]}},
+            test([{a, x}], {kvl, [{a, {custom, fun(Y) -> Y =:= y end, not_y}}]})
+        ),
+        ?_assertMatch(
            {error, {kvl_keys_missing_a_contract, [a]}},
             test([{a, 1}], {kvl, [{b, defined}]})
         ),
@@ -886,13 +790,5 @@ tuple_test_() ->
             test({a, b}, {tuple, [{val, a}, {integer, {min, 0}}]})
         )
     ].
-
-%% Test helpers ===============================================================
-
--spec addr_gen() -> binary().
-addr_gen() ->
-    #{public := PK, secret := _} =
-        libp2p_crypto:generate_keys(ecc_compact),
-    libp2p_crypto:pubkey_to_bin(PK).
 
 -endif.

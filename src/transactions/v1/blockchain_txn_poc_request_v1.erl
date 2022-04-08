@@ -233,7 +233,7 @@ is_well_formed(#?T{}=T) ->
             {onion_key_hash, {binary, {exactly, ?HASH_SIZE}}},
             {block_hash    , {binary, {exactly, ?HASH_SIZE}}},
             {fee           , {integer, {min, 0}}},
-            {signature     , {binary, any}},
+            {signature     , blockchain_txn_contract:sig()},
             {version       , {integer, {min, 0}}}
         ]}
     ).

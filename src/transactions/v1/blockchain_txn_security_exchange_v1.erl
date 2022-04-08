@@ -232,8 +232,8 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {payer, {address, libp2p}},
-            {payee, {address, libp2p}},
+            {payer, blockchain_txn_contract:addr()},
+            {payee, blockchain_txn_contract:addr()},
             {amount, {integer, {min, 0}}},
             {fee, {integer, {min, 0}}},
             {nonce, {integer, {min, 1}}},
@@ -345,8 +345,8 @@ is_well_formed_test_() ->
         {"Defaults are invalid",
             ?_assertMatch(
                 {error, {contract_breach, {invalid_kvl_pairs, [
-                    {payer, invalid_address},
-                    {payee, invalid_address},
+                    {payer, {invalid_address, <<>>}},
+                    {payee, {invalid_address, <<>>}},
                     {nonce, {integer_out_of_range, 0, {min, 1}}}
                 ]}}},
                 is_well_formed(#?T{})

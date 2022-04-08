@@ -155,6 +155,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_token_burn_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_token_burn_v1_pb:encode_msg(BaseTxn),
+    %% TODO Switch to contracts
     case blockchain_txn:validate_fields([{{payee, ?MODULE:payee(Txn)}, {address, libp2p}}]) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
@@ -204,11 +205,11 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {payer, {address, libp2p}},
-            {payee, {address, libp2p}},
+            {payer, blockchain_txn_contract:addr()},
+            {payee, blockchain_txn_contract:addr()},
             {amount, {integer, {min, 0}}},
             {nonce, {integer, {min, 1}}},
-            {signature, {binary, any}},
+            {signature, blockchain_txn_contract:sig()},
             {fee, {integer, {min, 0}}},
             {memo, {integer, {min, 0}}}
         ]}
@@ -355,8 +356,8 @@ is_well_formed_test_() ->
         {"Defaults are invalid",
             ?_assertMatch(
                 {error, {contract_breach, {invalid_kvl_pairs, [
-                    {payer, invalid_address},
-                    {payee, invalid_address},
+                    {payer, {invalid_address, <<>>}},
+                    {payee, {invalid_address, <<>>}},
                     {nonce, {integer_out_of_range, 0, {min, 1}}}
                 ]}}},
                 is_well_formed(#?T{})

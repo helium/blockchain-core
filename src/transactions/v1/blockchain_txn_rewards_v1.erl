@@ -141,8 +141,8 @@ is_well_formed_reward(#blockchain_txn_reward_v1_pb{}=T) ->
     data_contract:is_satisfied(
         ?RECORD_TO_KVL(blockchain_txn_reward_v1_pb, T),
         {kvl, [
-            {account, {address, libp2p}},
-            {gateway, {address, libp2p}},
+            {account, blockchain_txn_contract:addr()},
+            {gateway, blockchain_txn_contract:addr()},
             {amount , {integer, {min, 0}}},
             {type   ,
                 {either, [

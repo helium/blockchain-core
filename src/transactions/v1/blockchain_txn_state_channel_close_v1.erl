@@ -248,7 +248,7 @@ is_well_formed_summary(#blockchain_state_channel_summary_v1_pb{}=S) ->
     data_contract:is_satisfied(
         ?RECORD_TO_KVL(blockchain_state_channel_summary_v1_pb, S),
         {kvl, [
-            {client_pubkeybin, {address, libp2p}},
+            {client_pubkeybin, blockchain_txn_contract:addr()},
             {num_packets     , {integer, {min, 0}}},
             {num_dcs         , {integer, {min, 0}}}
         ]}
@@ -262,7 +262,7 @@ is_well_formed_blockchain_state_channel_v1(#blockchain_state_channel_v1_pb{}=SC)
         ?RECORD_TO_KVL(blockchain_state_channel_v1_pb, SC),
             {kvl, [
                 {id             , {binary, any}},
-                {owner          , {address, libp2p}},
+                {owner          , blockchain_txn_contract:addr()},
                 {credits        , {integer, {min, 0}}},
                 {nonce          , {integer, {min, 1}}},
                 {summaries      , {list, any, {custom, fun is_well_formed_summary/1, invalid_summary}}},

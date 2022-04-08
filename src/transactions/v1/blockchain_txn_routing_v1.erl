@@ -269,7 +269,7 @@ is_well_formed(#?T{}=T) ->
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
             {oui        , {integer, {min, 0}}},
-            {owner      , {address, libp2p}},
+            {owner      , blockchain_txn_contract:addr()},
             {fee        , {integer, {min, 0}}},
             {staking_fee, {integer, {min, 0}}},
             {nonce      , {integer, {min, 1}}},
@@ -300,7 +300,7 @@ is_well_formed_update_routers(#update_routers_pb{}=UR) ->
     data_contract:is_satisfied(
         ?RECORD_TO_KVL(update_routers_pb, UR),
         {kvl, [
-            {router_addresses, {list, any, {binary, any}}} % TODO Stricter contract. {address, libp2p}?
+            {router_addresses, {list, any, blockchain_txn_contract:addr()}}
         ]}
     );
 is_well_formed_update_routers(_) ->
@@ -450,6 +450,7 @@ validate_addresses([]) ->
 validate_addresses(Addresses) ->
     case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
         {L, L} when L =< 3 ->
+            %% TODO Switch to contracts
             ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
         _ ->
             false
@@ -686,7 +687,7 @@ is_well_formed_test_() ->
         },
     UR =
         #update_routers_pb{
-            router_addresses = [<<"fake_router_addr">>]
+            router_addresses = [t_user:addr(t_user:new())]
         },
     [
         ?_assertMatch(ok, is_well_formed(T)),

@@ -141,6 +141,7 @@ is_valid(Txn, Chain) ->
                                {{preimage, ?MODULE:preimage(Txn)}, {binary, 1, 32}},
                                {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
                       end,
+    %% TODO Switch to contracts
     case blockchain_txn:validate_fields(FieldValidation) of
         ok ->
             case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
@@ -206,11 +207,11 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {payee    , {address, libp2p}},
-            {address  , {any_of, [{address, libp2p}, {binary, {range, 32, 33}}]}},
+            {payee    , blockchain_txn_contract:addr()},
+            {address  , {any_of, [blockchain_txn_contract:addr(), {binary, {range, 32, 33}}]}},
             {preimage , {binary, {range, 1, 32}}},
             {fee      , {integer, {min, 0}}},
-            {signature, {binary, any}}
+            {signature, blockchain_txn_contract:sig()}
         ]}
     ).
 

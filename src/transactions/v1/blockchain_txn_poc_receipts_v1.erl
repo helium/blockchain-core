@@ -328,7 +328,7 @@ is_well_formed(#?T{}=T) ->
             {onion_key_hash    , {binary, any}},
             {path              , {list, any, {custom, fun is_well_formed_blockchain_poc_path_element_v1_pb/1, invalid_path_element}}},
             {fee               , {integer, {min, 0}}},
-            {signature         , {binary, any}},
+            {signature         , blockchain_txn_contract:sig()},
             {request_block_hash, {binary, any}}
         ]}
     ).

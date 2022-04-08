@@ -175,6 +175,7 @@ is_valid(Txn, Chain) ->
                                {{address, ?MODULE:address(Txn)}, {binary, 32, 33}}]
                       end,
 
+    %% TODO Switch from validate_fields to contracts.
     case blockchain_txn:validate_fields(FieldValidation) of
         ok ->
             case blockchain_ledger_v1:find_htlc(?MODULE:address(Txn), Ledger) of
@@ -232,19 +233,19 @@ is_valid(Txn, Chain) ->
 is_well_formed(#?T{}=T) ->
     HashlockContractV1 = {binary, {exactly, 32}},
     HashlockContractVX = {binary, {range, 32, 64}},
-    AddressContractV1 = {address, libp2p},
+    AddressContractV1 = blockchain_txn_contract:addr(),
     AddressContractVX = {binary, {range, 32, 33}},
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {payer    , {address, libp2p}},
-            {payee    , {address, libp2p}},
+            {payer    , AddressContractV1},
+            {payee    , AddressContractV1},
             {address  , {exists, [AddressContractV1, AddressContractVX]}},
             {hashlock , {exists, [HashlockContractV1, HashlockContractVX]}},
             {timelock , {integer, {min, 0}}}, % 64-bit
             {amount   , {integer, {min, 0}}}, % 64-bit
             {fee      , {integer, {min, 0}}}, % 64-bit
-            {signature, {binary, any}}, % TODO Constraints?
+            {signature, blockchain_txn_contract:sig()},
             {nonce    , {integer, {min, 1}}} % TODO Is >0 correct constraint?
         ]}
     ).
@@ -445,16 +446,14 @@ is_valid_with_extended_validation_test() ->
      end}.
 
 is_well_formed_test_() ->
-    Addr =
-        begin
-            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
-            libp2p_crypto:pubkey_to_bin(PK)
-        end,
+    Payer   = t_user:new(),
+    Payee   = t_user:new(),
+    Address = t_user:new(),
     T =
         #?T{
-            payer     = Addr,
-            payee     = Addr,
-            address   = Addr,
+            payer     = t_user:addr(Payer),
+            payee     = t_user:addr(Payee),
+            address   = t_user:addr(Address),
             hashlock  = list_to_binary(lists:duplicate(32, 0)),
             timelock  = 0,
             amount    = 0,

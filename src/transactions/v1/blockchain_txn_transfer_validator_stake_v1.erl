@@ -293,12 +293,12 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {old_address        , {address, libp2p}},
-            {new_address        , {address, libp2p}},
-            {old_owner          , {address, libp2p}},
-            {new_owner          , {address, libp2p}},
-            {old_owner_signature, {binary, any}},
-            {new_owner_signature, {binary, any}},
+            {old_address        , blockchain_txn_contract:addr()},
+            {new_address        , blockchain_txn_contract:addr()},
+            {old_owner          , blockchain_txn_contract:addr()},
+            {new_owner          , blockchain_txn_contract:addr()},
+            {old_owner_signature, blockchain_txn_contract:sig()},
+            {new_owner_signature, blockchain_txn_contract:sig()},
             {fee                , {integer, {min, 0}}},
             {stake_amount       , {integer, {min, 0}}},
             {payment_amount     , {integer, {min, 0}}}
@@ -406,11 +406,7 @@ to_json_test() ->
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_transfer_validator_stake_v1_pb))).
 
 is_well_formed_test_() ->
-    Addr =
-        begin
-            #{public := PK, secret := _} = libp2p_crypto:generate_keys(ecc_compact),
-            libp2p_crypto:pubkey_to_bin(PK)
-        end,
+    Addr = t_user:addr(t_user:new()),
     T =
         #blockchain_txn_transfer_validator_stake_v1_pb{
             old_address = Addr,
@@ -425,10 +421,10 @@ is_well_formed_test_() ->
         %% Defaults for addresses are empty bins:
         ?_assertMatch(
             {error, {contract_breach, {invalid_kvl_pairs, [
-                {old_address, invalid_address},
-                {new_address, invalid_address},
-                {old_owner  , invalid_address},
-                {new_owner  , invalid_address}
+                {old_address, {invalid_address, <<>>}},
+                {new_address, {invalid_address, <<>>}},
+                {old_owner  , {invalid_address, <<>>}},
+                {new_owner  , {invalid_address, <<>>}}
             ]}}},
             is_well_formed(#blockchain_txn_transfer_validator_stake_v1_pb{})
         )

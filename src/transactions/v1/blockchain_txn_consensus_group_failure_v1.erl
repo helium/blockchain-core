@@ -208,11 +208,11 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {failed_members, {list, any, {address, libp2p}}},
+            {failed_members, {list, any, blockchain_txn_contract:addr()}},
             {height        , {integer, {min, 0}}},
             {delay         , {integer, {min, 0}}},
-            {members       , {list, any, {address, libp2p}}},
-            {signatures    , {list, any, {iodata, any}}}
+            {members       , {list, any, blockchain_txn_contract:addr()}},
+            {signatures    , {list, any, blockchain_txn_contract:sig()}}
         ]}
     ).
 
@@ -330,6 +330,7 @@ is_well_formed_test_() ->
             libp2p_crypto:pubkey_to_bin(PK)
         end)(),
     T = new([Addr], 0, 0),
+    SigMin = 64, % bytes
     [
         ?_assertEqual(ok, is_well_formed(T)),
 
@@ -347,11 +348,20 @@ is_well_formed_test_() ->
         ?_assertMatch(ok        , is_well_formed(#?T{members = [Addr]})),
         ?_assertMatch({error, _}, is_well_formed(#?T{members = [<<"not addr">>]})),
 
-        ?_assertMatch(ok        , is_well_formed(#?T{signatures = ["not iodata"]})),
-        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = ['not iodata']})),
+        %% XXX We only expect for sig type and size to be checked.
+        ?_assertMatch(ok        , is_well_formed(#?T{signatures = [rand_bin(SigMin + 1)]})),
+        ?_assertMatch(ok        , is_well_formed(#?T{signatures = [rand_bin(SigMin * 100)]})),
+        ?_assertMatch(ok        , is_well_formed(#?T{signatures = [rand_bin(SigMin)]})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = [rand_bin(SigMin - 1)]})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = ["not binary"]})),
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = ['not binary']})),
         ?_assertMatch({error, _}, is_well_formed(#?T{signatures = 'not list'})),
         ?_assertMatch({error, _}, is_well_formed(#?T{signatures = <<"not list">>})),
-        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = "not list of iodata"}))
+        ?_assertMatch({error, _}, is_well_formed(#?T{signatures = "not list of binaries"}))
     ].
+
+-spec rand_bin(non_neg_integer()) -> binary().
+rand_bin(N) ->
+    list_to_binary([rand:uniform(255) || _ <- lists:duplicate(N, 0)]).
 
 -endif.

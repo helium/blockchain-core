@@ -147,7 +147,7 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {address, {address, libp2p}},
+            {address, blockchain_txn_contract:addr()},
             {height, {integer, {min, 0}}},
             {version, {integer, {min, 0}}},
             {signature, {binary, any}}
@@ -225,7 +225,7 @@ is_well_formed_test_() ->
     [
         ?_assertMatch(
             {error, {contract_breach, {invalid_kvl_pairs, [
-                {address, invalid_address}
+                {address, {invalid_address, <<>>}}
             ]}}},
             is_well_formed(T)
         ),

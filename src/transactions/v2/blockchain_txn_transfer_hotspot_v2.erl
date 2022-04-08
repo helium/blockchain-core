@@ -173,10 +173,10 @@ is_well_formed(#?T{owner=O1, new_owner=O2}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(blockchain_txn_transfer_hotspot_v2_pb, T),
         {kvl, [
-            {gateway        , {address, libp2p}},
-            {owner          , {forall, [{address, libp2p}, {'not', {val, O2}}]}},
-            {owner_signature, {binary, any}},
-            {new_owner      , {forall, [{address, libp2p}, {'not', {val, O1}}]}},
+            {gateway        , blockchain_txn_contract:addr()},
+            {owner          , {forall, [blockchain_txn_contract:addr(), {'not', {val, O2}}]}},
+            {owner_signature, blockchain_txn_contract:sig()},
+            {new_owner      , {forall, [blockchain_txn_contract:addr(), {'not', {val, O1}}]}},
             {fee            , {integer, {min, 0}}},
             {nonce          , {integer, {min, 1}}}
         ]}

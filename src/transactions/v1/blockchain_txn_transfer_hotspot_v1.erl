@@ -209,10 +209,10 @@ is_well_formed(#?T{buyer=B, seller=S}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {gateway         , {address, libp2p}},
-            {seller          , {forall, [{address, libp2p}, {'not', {val, B}}]}},
+            {gateway         , blockchain_txn_contract:addr()},
+            {seller          , {forall, [blockchain_txn_contract:addr(), {'not', {val, B}}]}},
             {seller_signature, {binary, any}},
-            {buyer           , {forall, [{address, libp2p}, {'not', {val, S}}]}},
+            {buyer           , {forall, [blockchain_txn_contract:addr(), {'not', {val, S}}]}},
             {buyer_signature , {binary, any}},
             {buyer_nonce     , {integer, {min, 1}}},
             {amount_to_seller, {integer, {min, 0}}},

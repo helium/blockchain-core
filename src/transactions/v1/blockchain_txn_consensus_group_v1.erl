@@ -224,7 +224,7 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {members, {list, {min, 1}, {address, libp2p}}},
+            {members, {list, {min, 1}, blockchain_txn_contract:addr()}},
             {proof  , {binary , {range, ?PROOF_MIN, ?PROOF_MAX}}},
             {height , {integer, {range, ?HEIGHT_MIN, ?HEIGHT_MAX}}},
             {delay  , {integer, {range, ?DELAY_MIN, ?DELAY_MAX}}}

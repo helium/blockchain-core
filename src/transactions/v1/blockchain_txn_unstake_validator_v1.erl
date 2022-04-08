@@ -199,9 +199,9 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {address                 , {address, libp2p}},
-            {owner                   , {address, libp2p}},
-            {owner_signature         , {binary, any}},
+            {address                 , blockchain_txn_contract:addr()},
+            {owner                   , blockchain_txn_contract:addr()},
+            {owner_signature         , blockchain_txn_contract:sig()},
             {fee                     , {integer, {min, 0}}},
             {stake_amount            , {integer, {min, 0}}},
             {stake_release_height    , {integer, {min, 0}}}

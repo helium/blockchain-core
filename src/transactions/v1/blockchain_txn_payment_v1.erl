@@ -203,12 +203,18 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {payer     , {forall, [{address, libp2p}, {'not', {val, payee(T)}}]}},
-            {payee     , {forall, [{binary, any}, {'not', {val, payer(T)}}]}},
+            {payer, {forall, [
+                blockchain_txn_contract:addr(),
+                {'not', {val, payee(T)}}
+            ]}},
+            {payee, {forall, [
+                {binary, any},  % TODO Why not an address contract?
+                {'not', {val, payer(T)}}
+            ]}},
             {amount    , {integer, {min, 0}}},  % TODO Limit to 64bit?
             {fee       , {integer, {min, 0}}},  % TODO Limit to 64bit?
             {nonce     , {integer, {min, 1}}},  % TODO Limit to 64bit?
-            {signature , {binary, any}}         % TODO Size constraint?
+            {signature , blockchain_txn_contract:sig()}
         ]}
     ).
 

@@ -109,7 +109,7 @@ is_well_formed(#?T{}=T) ->
     %% lookup the current max in a chain var, for which we need the chain param.
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
-        {kvl, [{transactions, {list, {min, 2}, {txn, any}}}]}
+        {kvl, [{transactions, {list, {min, 2}, blockchain_txn_contract:txn()}}]}
     ).
 
 -spec is_prompt(t(), blockchain_ledger_v1:ledger()) ->
@@ -211,12 +211,12 @@ is_well_formed_test_() ->
             })
         ),
         ?_assertEqual(
-            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [{not_a_txn, trust_me_im_a_txn}]}}]}}},
+            {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [{txn_invalid_or_wrong_type, trust_me_im_a_txn}]}}]}}},
             is_well_formed(#?T{transactions = [Tx, Tx, trust_me_im_a_txn]})
         ),
         ?_assertMatch(
             {error, {contract_breach, {invalid_kvl_pairs, [{transactions, {list_contains_invalid_elements, [
-                {txn_malformed, #blockchain_txn_assert_location_v1_pb{}}
+                {txn_invalid_or_wrong_type, #blockchain_txn_assert_location_v1_pb{}}
             ]}}]}}},
             is_well_formed(#?T{transactions = [
                 Tx,

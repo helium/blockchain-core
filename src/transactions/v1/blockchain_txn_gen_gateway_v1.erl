@@ -147,10 +147,14 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {gateway , {address, libp2p}},
-            {owner   , {address, libp2p}},
-            {location, {either, [undefined, {string, {exactly, 0}}, h3_string]}},
-            {nonce   , {integer, {min, 1}}}
+            {gateway , blockchain_txn_contract:addr()},
+            {owner   , blockchain_txn_contract:addr()},
+            {nonce   , {integer, {min, 1}}},
+            {location, {either, [
+                undefined,
+                {string, {exactly, 0}},
+                blockchain_txn_contract:h3_string()
+            ]}}
         ]}
     ).
 

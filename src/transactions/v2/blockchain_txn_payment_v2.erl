@@ -137,6 +137,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
+            %% TODO Switch to contracts
             case blockchain_txn:validate_fields([{{payee, P}, {address, libp2p}} || P <- ?MODULE:payees(Txn)]) of
                 ok ->
                     do_is_valid_checks(Txn, Chain, M);
@@ -151,7 +152,7 @@ is_well_formed_payment(#payment_pb{}=P, Payer) ->
     data_contract:is_satisfied(
         ?RECORD_TO_KVL(payment_pb, P),
         {kvl, [
-            {payee , {forall, [{address, libp2p}, {'not', {val, Payer}}]}},
+            {payee , {forall, [blockchain_txn_contract:addr(), {'not', {val, Payer}}]}},
             {amount, {integer, {min, 0}}},
             {memo  , {integer, {min, 0}}}  % TODO better validity test?
         ]}
@@ -166,10 +167,10 @@ is_well_formed(#?T{payer=Payer}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(blockchain_txn_payment_v2_pb, T),
         {kvl, [
-            {payer    , {address, libp2p}},
+            {payer    , blockchain_txn_contract:addr()},
             {fee      , {integer, {min, 0}}},
             {nonce    , {integer, {min, 1}}},
-            {signature, {binary, any}},
+            {signature, blockchain_txn_contract:sig()},
             {payments,
                 {ordset,
                     {min, 1},

@@ -101,8 +101,8 @@ is_well_formed(#?T{}=T) ->
     data_contract:check(
         ?RECORD_TO_KVL(?T, T),
         {kvl, [
-            {address, {address, libp2p}},
-            {owner  , {address, libp2p}},
+            {address, blockchain_txn_contract:addr()},
+            {owner  , blockchain_txn_contract:addr()},
             {stake  , {integer, {min, 0}}}
         ]}
     ).
