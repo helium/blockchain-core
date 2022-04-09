@@ -2106,15 +2106,16 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
                 {ok, K} ->
                     RandState = blockchain_utils:rand_state(BlockHash),
                     {_, POCSubset0} = blockchain_utils:deterministic_subset(K, RandState, ProposedPOCs),
-                    POCSubset = lists:flatten(POCSubset0),
+                    POCSubset0 = lists:flatten(POCSubset0),
                     L1 = ?MODULE:new_context(Ledger),
-                    lists:foreach(
-                        fun({_Key, POC}) ->
+                    POCSubset = lists:foldl(
+                        fun({_Key, POC}, Acc) ->
                             ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
                             ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
                             ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-                            update_public_poc(ActivePOC2, L1)
-                        end, POCSubset),
+                            update_public_poc(ActivePOC2, L1),
+                            [ActivePOC2 | Acc]
+                        end, [], POCSubset0),
                     ?MODULE:commit_context(L1),
                     POCSubset;
                 _ ->
