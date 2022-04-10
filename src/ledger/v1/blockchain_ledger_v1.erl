@@ -2092,21 +2092,17 @@ process_poc_proposals(1, _BlockHash, _Ledger) ->
 process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     %% we need to update the ledger with public poc data
     %% based on the blocks poc ephemeral keys
-    %% these will be a prop with tuples: {ChallengerAddr :: binary(), PocKeyHash :: binary()}
     case blockchain:config(?poc_challenger_type, Ledger) of
         {ok, validator} ->
-
             %% Get only the proposed POCs from ledger
             %% TODO: This will likely be slow AF
             ProposedPOCs = find_public_poc_proposals(Ledger),
-
             %% Do a deterministic subset based on the hash of the block
             %% Mark the selected POCs as active on ledger
             case blockchain:config(?poc_challenge_rate, Ledger) of
                 {ok, K} ->
                     RandState = blockchain_utils:rand_state(BlockHash),
                     {_, POCSubset0} = blockchain_utils:deterministic_subset(K, RandState, ProposedPOCs),
-                    POCSubset0 = lists:flatten(POCSubset0),
                     L1 = ?MODULE:new_context(Ledger),
                     POCSubset = lists:foldl(
                         fun({_Key, POC}, Acc) ->
@@ -2117,6 +2113,7 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
                             [ActivePOC2 | Acc]
                         end, [], POCSubset0),
                     ?MODULE:commit_context(L1),
+                    lager:info("Selected POCs ~p", [POCSubset]),
                     POCSubset;
                 _ ->
                     []

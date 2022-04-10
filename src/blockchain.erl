@@ -650,8 +650,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                       case blockchain_txn:absorb_block(Block, ChainAcc) of
                           {ok, Chain1} ->
                               {ok, H} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain1)),
-                              Hash = blockchain_block:hash_block(Block),
-                              ok = run_gc_hooks(ChainAcc, Hash),
+                              ok = run_gc_hooks(ChainAcc, Block),
 
                               case ForceRecalc of
                                   false ->
@@ -1133,10 +1132,10 @@ add_block_(Block, Blockchain, Syncing) ->
                     Hash = blockchain_block:hash_block(Block),
                     Sigs = blockchain_block:signatures(Block),
                     MyAddress = try blockchain_swarm:pubkey_bin() catch _:_ -> nomatch end,
-                    BeforeCommit = fun(FChain, FHash) ->
+                    BeforeCommit = fun(FChain, _FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
-                                           ok = run_gc_hooks(FChain, FHash)
+                                           ok = run_gc_hooks(FChain, Block)
                                    end,
                     {Signers, _Signatures} = lists:unzip(Sigs),
                     Fun = case lists:member(MyAddress, Signers) orelse FollowMode of
@@ -1263,7 +1262,7 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
                         _ -> absorb_and_commit
                     end,
               case blockchain_txn:Fun(B, Chain,
-                                      fun(FChain, FHash) -> ok = run_gc_hooks(FChain, FHash) end,
+                                      fun(FChain, _FHash) -> ok = run_gc_hooks(FChain, B) end,
                                       blockchain_block:is_rescue_block(B)) of
                   ok ->
                       run_absorb_block_hooks(Syncing, Hash, Chain);
@@ -1355,10 +1354,10 @@ absorb_temp_blocks_fun_([BlockHash|Chain], Blockchain, Syncing) ->
     {ok, Block} = get_temp_block(BlockHash, Blockchain),
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
-    BeforeCommit = fun(FChain, FHash) ->
+    BeforeCommit = fun(FChain, _FHash) ->
                            lager:info("adding block ~p", [Height]),
                            ok = ?save_block(Block, Blockchain),
-                           ok = run_gc_hooks(FChain, FHash)
+                           ok = run_gc_hooks(FChain, Block)
                    end,
     case blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block)) of
         {error, Reason}=Error ->
@@ -1610,8 +1609,8 @@ reset_ledger(Height,
                               {ok, BinBlock} = rocksdb:get(DB, BlocksCF, Hash, []),
                               Block = blockchain_block:deserialize(BinBlock),
                               lager:info("absorbing block ~p ?= ~p", [H, blockchain_block:height(Block)]),
-                              BeforeCommit = fun(FChain, FHash) ->
-                                                     ok = run_gc_hooks(FChain, FHash)
+                              BeforeCommit = fun(FChain, _FHash) ->
+                                                     ok = run_gc_hooks(FChain, Block)
                                              end,
                               case Revalidate of
                                   false ->
@@ -2422,14 +2421,14 @@ add_gateway_txn(OwnerB58, PayerB58, Fee0, StakingFee0) ->
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     Txn0 = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer),
-    StakingFee = case StakingFee0 of 
-        undefined -> 
+    StakingFee = case StakingFee0 of
+        undefined ->
             blockchain_txn_add_gateway_v1:calculate_staking_fee(Txn0, blockchain_worker:blockchain());
         _ -> StakingFee0
     end,
     Txn1 = blockchain_txn_add_gateway_v1:staking_fee(Txn0, StakingFee),
     Fee = case Fee0 of
-        undefined -> 
+        undefined ->
             blockchain_txn_add_gateway_v1:calculate_fee(Txn1, blockchain_worker:blockchain());
         _ ->
             Fee0
@@ -2828,8 +2827,8 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                     try
                         lists:foreach(fun(Hash) ->
                                               {ok, Block} = get_block(Hash, Blockchain),
-                                              BeforeCommit = fun(FChain, FHash) ->
-                                                                     ok = run_gc_hooks(FChain, FHash)
+                                              BeforeCommit = fun(FChain, _FHash) ->
+                                                                     ok = run_gc_hooks(FChain, Block)
                                                              end,
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               case application:get_env(blockchain, force_resync_validation, false) of
@@ -3063,8 +3062,11 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
              end,
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
-run_gc_hooks(Blockchain, _Hash) ->
+run_gc_hooks(Blockchain, Block) ->
     Ledger = blockchain:ledger(Blockchain),
+    Hash = blockchain_block:hash_block(Block),
+    Height = blockchain_block:height(Block),
+
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
@@ -3072,7 +3074,10 @@ run_gc_hooks(Blockchain, _Hash) ->
 
         ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger),
 
-        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger) %,
+        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
+
+        BlockPOCs = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
+        ok = blockchain_worker:notify({poc_keys, {Height, Hash, false, BlockPOCs}})
 
         %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
     catch What:Why:Stack ->
