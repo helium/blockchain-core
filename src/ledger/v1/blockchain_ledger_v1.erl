@@ -2192,15 +2192,8 @@ find_public_poc(OnionKeyHash, Ledger) ->
 
 -spec delete_public_poc(binary(), ledger()) -> ok | {error, any()}.
 delete_public_poc(OnionKeyHash, Ledger) ->
-    case ?MODULE:find_public_poc(OnionKeyHash, Ledger) of
-        {error, not_found} ->
-            ok;
-        {error, _}=Error ->
-            Error;
-        {ok, _PoC} ->
-          PoCsCF = pocs_cf(Ledger),
-          cache_delete(Ledger, PoCsCF, OnionKeyHash)
-    end.
+    PoCsCF = pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
 -spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
                      Ledger :: ledger()) -> ok | {error, _}.

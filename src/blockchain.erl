@@ -3064,9 +3064,6 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
 
 run_gc_hooks(Blockchain, _Block) ->
     Ledger = blockchain:ledger(Blockchain),
-%%    Hash = blockchain_block:hash_block(Block),
-%%    Height = blockchain_block:height(Block),
-
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
 
@@ -3075,9 +3072,6 @@ run_gc_hooks(Blockchain, _Block) ->
         ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger),
 
         ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger)
-
-%%        BlockPOCs = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
-%%        ok = blockchain_worker:notify({poc_keys, {Height, Hash, false, BlockPOCs}})
 
         %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
     catch What:Why:Stack ->
