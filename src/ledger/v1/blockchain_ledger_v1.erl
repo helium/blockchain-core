@@ -2242,17 +2242,22 @@ active_public_pocs(Ledger) ->
       []
      ).
 
--spec purge_pocs(ledger()) -> ok | {error, any()}.
+-spec purge_pocs(ledger()) -> ok.
 purge_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    _ = cache_fold(
-          Ledger,
-          PoCsCF,
-          fun({KeyHash, _}, _Acc) ->
-              cache_delete(Ledger, PoCsCF, KeyHash)
-          end,
-          []
-    ).
+    ProposedPoCsCF = proposed_pocs_cf(Ledger),
+    PurgeFun = fun(CF) ->
+                       cache_fold(
+                         Ledger,
+                         PoCsCF,
+                         fun({KeyHash, _}, _Acc) ->
+                                 cache_delete(Ledger, CF, KeyHash)
+                         end,
+                         []
+                        )
+               end,
+    blockchain_utils:pmap(PurgeFun, [PoCsCF, ProposedPoCsCF]),
+    ok.
 
 maybe_gc_pocs(Chain, Ledger) ->
     case blockchain:config(?poc_challenger_type, Ledger) of
