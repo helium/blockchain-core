@@ -277,6 +277,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
         Validators = blockchain_ledger_v1:snapshot_validators(Ledger),
         DelayedHNT = blockchain_ledger_v1:snapshot_delayed_hnt(Ledger),
         PoCs = blockchain_ledger_v1:snapshot_raw_pocs(Ledger),
+        PPoCs = blockchain_ledger_v1:snapshot_proposed_pocs(Ledger),
         Accounts = blockchain_ledger_v1:snapshot_raw_accounts(Ledger),
         DCAccounts = blockchain_ledger_v1:snapshot_raw_dc_accounts(Ledger),
         SecurityAccounts = blockchain_ledger_v1:snapshot_raw_security_accounts(Ledger),
@@ -318,6 +319,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
                 {validators       , Validators},
                 {delayed_hnt      , DelayedHNT},
                 {pocs             , PoCs},
+                {proposed_pocs    , PPoCs},
                 {accounts         , Accounts},
                 {dc_accounts      , DCAccounts},
                 {security_accounts, SecurityAccounts},
@@ -598,6 +600,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
                       [{delayed_hnt, load_delayed_hnt} || maps:is_key(delayed_hnt, Snapshot)] ++
                       [{upgrades, blockchain, mark_upgrades} || maps:is_key(upgrades, Snapshot)] ++
                       [net_overage || maps:is_key(net_overage, Snapshot)] ++
+                      [{proposed_pocs, load_proposed_pocs} || maps:is_key(proposed_pocs, Snapshot)] ++
                       [begin
                            ok = blockchain_ledger_v1:clear_hnt_burned(L),
                            {hnt_burned, add_hnt_burned}
@@ -617,7 +620,6 @@ load_into_ledger(Snapshot, L0, Mode) ->
             end
     end,
     blockchain_ledger_v1:commit_context(L).
-
 
 load_into_ledger_([], _, _) ->
     ok;

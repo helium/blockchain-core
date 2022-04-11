@@ -200,7 +200,9 @@
     %% snapshot save/restore stuff
     snapshot_vars/1,
     load_vars/2,
+    snapshot_proposed_pocs/1,
     snapshot_pocs/1,
+    load_proposed_pocs/2,
     load_pocs/2,
     snapshot_accounts/1,
     load_accounts/2,
@@ -5446,6 +5448,15 @@ snapshot_raw_pocs(Ledger) ->
 load_raw_pocs(PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     load_raw(PoCs, PoCsCF, Ledger).
+
+-spec snapshot_proposed_pocs(ledger()) -> [{binary(), binary()}].
+snapshot_proposed_pocs(Ledger) ->
+    PPoCsCF = proposed_pocs_cf(Ledger),
+    snapshot_raw(PPoCsCF, Ledger).
+
+load_proposed_pocs(PPoCs, Ledger) ->
+    PPoCsCF = proposed_pocs_cf(Ledger),
+    load_raw(PPoCs, PPoCsCF, Ledger).
 
 -spec snapshot_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_accounts(Ledger) ->
