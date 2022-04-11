@@ -1004,7 +1004,7 @@ raw_fingerprint(Ledger, Extended) ->
                        <<"securities_fingerprint">> => SecuritiesHash,
                        <<"routings_fingerprint">> => RoutingsHash,
                        <<"poc_fingerprint">> => PoCsHash,
-                       <<"potential_poc_fingerprint">> => ProposedPoCsHash,
+                       <<"proposed_poc_fingerprint">> => ProposedPoCsHash,
                        <<"state_channels_fingerprint">> => StateChannelsHash,
                        <<"subnets_fingerprint">> => SubnetsHash
                       }}
