@@ -32,6 +32,7 @@
     dc_entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
     pocs :: rocksdb:cf_handle(),
+    proposed_pocs :: rocksdb:cf_handle(),
     securities :: rocksdb:cf_handle(),
     routing :: rocksdb:cf_handle(),
     subnets :: rocksdb:cf_handle(),

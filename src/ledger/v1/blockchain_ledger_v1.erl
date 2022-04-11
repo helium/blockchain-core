@@ -336,12 +336,13 @@ new(Dir, ReadOnly, Options) ->
     blockchain_utils:teardown_var_cache(),
     {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly, Options),
 
-    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, ProposedPoCsCF,
+     SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
-     DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
-     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF,
-     DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
+     DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedProposedPoCsCF,
+     DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF,
+     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
     Ledger =
     #ledger_v1{
         dir=Dir,
@@ -356,6 +357,7 @@ new(Dir, ReadOnly, Options) ->
             dc_entries=DCEntriesCF,
             htlcs=HTLCsCF,
             pocs=PoCsCF,
+            proposed_pocs=ProposedPoCsCF,
             securities=SecuritiesCF,
             routing=RoutingCF,
             subnets=SubnetsCF,
@@ -371,6 +373,7 @@ new(Dir, ReadOnly, Options) ->
             dc_entries=DelayedDCEntriesCF,
             htlcs=DelayedHTLCsCF,
             pocs=DelayedPoCsCF,
+            proposed_pocs=DelayedProposedPoCsCF,
             securities=DelayedSecuritiesCF,
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
@@ -887,6 +890,7 @@ atom_to_cf(Atom, Ledger) ->
             dc_entries -> SL#sub_ledger_v1.dc_entries;
             htlcs -> SL#sub_ledger_v1.htlcs;
             pocs -> SL#sub_ledger_v1.pocs;
+            proposed_pocs -> SL#sub_ledger_v1.proposed_pocs;
             securities -> SL#sub_ledger_v1.securities;
             routing -> SL#sub_ledger_v1.routing;
             subnets -> SL#sub_ledger_v1.subnets;
@@ -972,6 +976,7 @@ raw_fingerprint(Ledger, Extended) ->
                                            _ ->
                                                blockchain_ledger_poc_v2
                                        end},
+                     {proposed_pocs_cf(Ledger), blockchain_ledger_poc_v3},
                      {securities_cf(Ledger), blockchain_ledger_security_entry_v1},
                      {routing_cf(Ledger), blockchain_ledger_routing_v1},
                      {state_channels_cf(Ledger), state_channel},
@@ -988,7 +993,8 @@ raw_fingerprint(Ledger, Extended) ->
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash}};
             _ ->
                 [_, GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
-                 PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash] = L,
+                 PoCsHash, ProposedPoCsHash, SecuritiesHash, RoutingsHash,
+                 StateChannelsHash, SubnetsHash] = L,
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash,
                        <<"gateways_fingerprint">> => GWsHash,
                        <<"core_fingerprint">> => DefaultHash,
@@ -998,6 +1004,7 @@ raw_fingerprint(Ledger, Extended) ->
                        <<"securities_fingerprint">> => SecuritiesHash,
                        <<"routings_fingerprint">> => RoutingsHash,
                        <<"poc_fingerprint">> => PoCsHash,
+                       <<"potential_poc_fingerprint">> => ProposedPoCsHash,
                        <<"state_channels_fingerprint">> => StateChannelsHash,
                        <<"subnets_fingerprint">> => SubnetsHash
                       }}
@@ -2086,7 +2093,7 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     BlockHeight :: pos_integer(),
     BlockHash :: binary(),
     Ledger :: ledger()
-) -> [blockchain_ledger_poc_v3:pocs()].
+) -> blockchain_ledger_poc_v3:pocs().
 process_poc_proposals(1, _BlockHash, _Ledger) ->
     [];
 process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
@@ -2094,24 +2101,16 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     %% based on the blocks poc ephemeral keys
     case blockchain:config(?poc_challenger_type, Ledger) of
         {ok, validator} ->
-            %% Get only the proposed POCs from ledger
-            %% TODO: This will likely be slow AF
-            ProposedPOCs = find_public_poc_proposals(Ledger),
             %% Do a deterministic subset based on the hash of the block
             %% Mark the selected POCs as active on ledger
             case blockchain:config(?poc_challenge_rate, Ledger) of
                 {ok, K} ->
                     RandState = blockchain_utils:rand_state(BlockHash),
-                    {_, POCSubset0} = blockchain_utils:deterministic_subset(K, RandState, ProposedPOCs),
                     L1 = ?MODULE:new_context(Ledger),
-                    POCSubset = lists:foldl(
-                        fun({_Key, POC}, Acc) ->
-                            ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
-                            ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
-                            ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-                            update_public_poc(ActivePOC2, L1),
-                            [ActivePOC2 | Acc]
-                        end, [], POCSubset0),
+                    DB = db(Ledger),
+                    CF = proposed_pocs_cf(Ledger),
+                    {ok, Itr} = rocksdb:iterator(DB, CF, []),
+                    POCSubset = promote_proposals(K, BlockHash, BlockHeight, RandState, L1 , Itr, []),
                     ?MODULE:commit_context(L1),
                     lager:info("Selected POCs ~p", [POCSubset]),
                     POCSubset;
@@ -2121,6 +2120,31 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
         _ ->
             []
     end.
+
+-spec promote_proposals(non_neg_integer(), binary(), pos_integer(), rand:state(), ledger(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
+promote_proposals(0, _Hash, _Height, _RandState, _Ledger, Iter, Acc) ->
+    catch rocksdb:iterator_close(Iter),
+    Acc;
+promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
+    {RandVal, NewRandState} = rand:uniform_s(RandState),
+    RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
+    rocksdb:iterator_move(Iter, {seek, <<3, RandHash/binary>>}),
+    NewAcc = case rocksdb:iterator_move(Iter, next) of
+        {ok, _Key, Binary} ->
+            POC = blockchain_ledger_poc_v3:deserialize(Binary),
+            ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
+            ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
+            ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
+            promote_public_poc(ActivePOC2, Ledger),
+            [ActivePOC2 | Acc];
+        {error, _} ->
+            %% we probably fell off the end. Simply drop this as we may not have enough
+            %% proposals to make the cut (or we can somehow retry some fixed number of times)
+            %% TODO check the iterator doesn't die here
+            Acc
+    end,
+    promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Iter, NewAcc).
+
 
 -spec save_public_poc_proposals(Proposals :: [binary()],
                                 Challenger :: libp2p_crypto:pubkey_bin(),
@@ -2161,23 +2185,6 @@ save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
 
--spec find_public_poc_proposals(ledger()) -> [{binary(), blockchain_ledger_poc_v3:poc()}].
-find_public_poc_proposals(Ledger) ->
-    POCsCF = pocs_cf(Ledger),
-    cache_fold(
-        Ledger,
-        POCsCF,
-        fun({Proposal, Binary}, Acc) ->
-            POC = blockchain_ledger_poc_v3:deserialize(Binary),
-            case blockchain_ledger_poc_v3:status(POC) of
-                proposed -> [{Proposal, POC} | Acc];
-                _ -> Acc
-            end
-        end,
-        []
-    ).
-
-
 -spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
 find_public_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
@@ -2194,6 +2201,15 @@ find_public_poc(OnionKeyHash, Ledger) ->
 delete_public_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+delete_proposed_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = proposed_pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+promote_public_poc(POC, Ledger) ->
+    POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
+    delete_proposed_poc(POCAddr, Ledger),
+    update_public_poc(POC, Ledger).
 
 -spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
                      Ledger :: ledger()) -> ok | {error, _}.
@@ -2262,7 +2278,8 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
     %%  set GC point off by one so it doesnt align with so many other gc processes
     case CurHeight rem 101 == 0 of
         true ->
-            POCsCF = pocs_cf(Ledger),
+            PoCsCF = pocs_cf(Ledger),
+            ProposedPoCsCF = proposed_pocs_cf(Ledger),
             {ok, POCTimeout} = get_config(?poc_timeout, Ledger, 10),
             {ok, POCReceiptsAbsorbTimeout} = get_config(?poc_receipts_absorb_timeout, Ledger, 50),
             {ok, POCValKeyProposalTimeout} = get_config(?poc_validator_ephemeral_key_timeout, Ledger, 200),
@@ -2271,11 +2288,11 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
             %% or the reverse
             %% anything other than V3s we will want to GC no matter what
             %% V3s we will GC if lifespan is up
-            cache_fold(
-              Ledger,
-              POCsCF,
-              fun
-                  ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
+            GCFun = fun(CF) -> cache_fold(
+                                 Ledger,
+                                 CF,
+                                 fun
+                                     ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
                       V3PoC = blockchain_ledger_poc_v3:deserialize(PoCBin),
                       POCStartHeight = blockchain_ledger_poc_v3:start_height(V3PoC),
                       OnionKeyHash = blockchain_ledger_poc_v3:onion_key_hash(V3PoC),
@@ -2289,24 +2306,26 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                       %% if it remains unselected
                       case
                           ((POCStatus == active) andalso (CurHeight - POCStartHeight) >
-                              (POCTimeout + POCReceiptsAbsorbTimeout))
-                              orelse
+                           (POCTimeout + POCReceiptsAbsorbTimeout))
+                          orelse
                           ((POCStatus /= active) andalso (CurHeight - POCStartHeight) > POCValKeyProposalTimeout) of
-                        true ->
-                          %% the lifespan of the POC for this key has passed, we can GC
-                          ok = delete_public_poc(OnionKeyHash, Ledger);
-                        _ ->
-                          ok
+                          true ->
+                              %% the lifespan of the POC for this key has passed, we can GC
+                              ok = delete_public_poc(OnionKeyHash, Ledger);
+                          _ ->
+                              ok
                       end,
                       Acc;
 
                   ({KeyHash, _NonV3PoCBin} = _PoC, Acc) ->
                       lager:debug("non v3 poc, deleting: ~p", [_PoC]),
-                      cache_delete(Ledger, POCsCF, KeyHash),
+                      cache_delete(Ledger, CF, KeyHash),
                       Acc
-              end,
-              []
-             ),
+                                 end,
+                                 []
+                                )
+                    end,
+            blockchain_utils:pmap(GCFun, [PoCsCF, ProposedPoCsCF]),
             ok;
         _ ->
           ok
@@ -4018,6 +4037,11 @@ htlcs_cf(Ledger) ->
 pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
+
+-spec proposed_pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+proposed_pocs_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {pocs, db(Ledger), SL#sub_ledger_v1.proposed_pocs}.
 
 -spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 securities_cf(Ledger) ->
