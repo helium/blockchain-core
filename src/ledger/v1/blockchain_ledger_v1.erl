@@ -2206,6 +2206,7 @@ delete_proposed_poc(OnionKeyHash, Ledger) ->
     PoCsCF = proposed_pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
+-spec promote_public_poc(POC :: blockchain_ledger_poc_v3:poc(), Ledger :: ledger()) -> ok.
 promote_public_poc(POC, Ledger) ->
     POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
     delete_proposed_poc(POCAddr, Ledger),
