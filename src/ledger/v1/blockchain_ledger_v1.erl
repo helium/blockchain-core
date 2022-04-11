@@ -2202,6 +2202,7 @@ delete_public_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
+-spec delete_proposed_poc(OnionKeyHash :: binary(), Ledger :: ledger()) -> ok.
 delete_proposed_poc(OnionKeyHash, Ledger) ->
     PoCsCF = proposed_pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
