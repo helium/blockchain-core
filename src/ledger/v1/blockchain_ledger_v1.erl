@@ -2130,8 +2130,7 @@ promote_proposals(0, _Hash, _Height, _RandState, _Ledger, Iter, Acc) ->
 promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
     {RandVal, NewRandState} = rand:uniform_s(RandState),
     RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
-    rocksdb:iterator_move(Iter, {seek, <<3, RandHash/binary>>}),
-    NewAcc = case rocksdb:iterator_move(Iter, next) of
+    NewAcc = case rocksdb:iterator_move(Iter, {seek, RandHash}) of
         {ok, _Key, Binary} ->
             POC = blockchain_ledger_poc_v3:deserialize(Binary),
             ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
@@ -2142,7 +2141,6 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
         {error, _} ->
             %% we probably fell off the end. Simply drop this as we may not have enough
             %% proposals to make the cut (or we can somehow retry some fixed number of times)
-            %% TODO check the iterator doesn't die here
             Acc
     end,
     promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Iter, NewAcc).
