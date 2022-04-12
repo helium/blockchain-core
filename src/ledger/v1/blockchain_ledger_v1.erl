@@ -4364,8 +4364,8 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
 -spec default_cfs() -> list().
 default_cfs() ->
     ["default", "active_gateways", "entries", "dc_entries", "htlcs",
-     "pocs", "securities", "routing", "subnets", "state_channels",
-     "h3dex", "gw_denorm", "validators"].
+     "pocs", "proposed_pocs", "securities", "routing", "subnets",
+     "state_channels", "h3dex", "gw_denorm", "validators"].
 
 -spec delayed_cfs() -> list().
 delayed_cfs() ->
