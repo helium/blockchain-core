@@ -2139,7 +2139,8 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
             ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
             promote_to_public_poc(ActivePOC2, Ledger),
             [ActivePOC2 | Acc];
-        {error, _} ->
+        {error, _Reason} ->
+            lager:debug("iterator failed ~[", [_Reason]),
             %% we probably fell off the end. Simply drop this as we may not have enough
             %% proposals to make the cut (or we can somehow retry some fixed number of times)
             Acc
@@ -2181,6 +2182,7 @@ save_poc_proposal(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     end.
 
 save_poc_proposal_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+    lager:debug("saving poc proposal with onionkeyhash ~p and height ~p", [OnionKeyHash, BlockHeight]),
     PoC = blockchain_ledger_poc_v3:new(OnionKeyHash, Challenger, BlockHash, BlockHeight),
     PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
     PoCsCF = proposed_pocs_cf(Ledger),
@@ -3924,6 +3926,7 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
                                   dc_entries=DCEntries,
                                   htlcs=HTLCs,
                                   pocs=PoCs,
+                                  proposed_pocs = ProposedPoCs,
                                   securities=Securities,
                                   routing=Routing}) ->
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
@@ -3932,6 +3935,7 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, DCEntries, undefined, undefined, []),
     rocksdb:compact_range(DB, HTLCs, undefined, undefined, []),
     rocksdb:compact_range(DB, PoCs, undefined, undefined, []),
+    rocksdb:compact_range(DB, ProposedPoCs, undefined, undefined, []),
     rocksdb:compact_range(DB, Securities, undefined, undefined, []),
     rocksdb:compact_range(DB, Routing, undefined, undefined, []),
     ok.
@@ -4065,7 +4069,7 @@ pocs_cf(Ledger) ->
 -spec proposed_pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 proposed_pocs_cf(Ledger) ->
     SL = subledger(Ledger),
-    {pocs, db(Ledger), SL#sub_ledger_v1.proposed_pocs}.
+    {proposed_pocs, db(Ledger), SL#sub_ledger_v1.proposed_pocs}.
 
 -spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 securities_cf(Ledger) ->
