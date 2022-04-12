@@ -2109,8 +2109,7 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
                 {ok, K} ->
                     RandState = blockchain_utils:rand_state(BlockHash),
                     L1 = ?MODULE:new_context(Ledger),
-                    DB = db(Ledger),
-                    CF = proposed_pocs_cf(Ledger),
+                    {_, DB, CF} = proposed_pocs_cf(Ledger),
                     {ok, Itr} = rocksdb:iterator(DB, CF, []),
                     POCSubset = promote_proposals(K, BlockHash, BlockHeight, RandState, L1 , Itr, []),
                     ?MODULE:commit_context(L1),
