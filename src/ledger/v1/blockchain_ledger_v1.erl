@@ -2351,7 +2351,9 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                                  []
                                 )
                     end,
-            blockchain_utils:pmap(GCFun, [PoCsCF, ProposedPoCsCF]),
+            GCFun(PoCsCF),
+            GCFun(ProposedPoCsCF),
+%%            blockchain_utils:pmap(GCFun, [PoCsCF, ProposedPoCsCF]),
             ok;
         _ ->
           ok
