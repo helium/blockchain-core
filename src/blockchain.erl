@@ -1970,12 +1970,13 @@ add_bin_snapshot(_BinSnap, _Height, none, _Chain) -> {error, no_snapshot_hash};
 add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, dir=Dir, snapshots=SnapshotsCF}) when is_binary(Hash) ->
     try
         SnapDir = filename:join(Dir, "saved-snaps"),
-        SnapFile = list_to_binary(io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)])),
+        SnapFile = io_lib:format("snap-~s", [blockchain_utils:bin_to_hex(Hash)]),
         OhSnap = filename:join(SnapDir, SnapFile),
         ok = save_bin_snapshots(OhSnap, BinSnap),
         {ok, Batch} = rocksdb:batch(),
-        %% store the snap as a filename
-        ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, <<"file:", SnapFile/binary>>),
+        %% store the snap as a filename, which might be wrong if compressed
+        ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash,
+                               <<"file:", (iolist_to_binary(SnapFile))/binary>>),
         %% lexiographic ordering works better with big endian
         ok = rocksdb:batch_put(Batch, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
         ok = rocksdb:write_batch(DB, Batch, [])
@@ -2008,11 +2009,7 @@ save_bin_snapshots(DestFilename, SnapshotData) ->
               end,
 
    Results = lists:map(fun(SaveFunc) ->
-                             try
-                                 SaveFunc(DestFilename, SnapshotData)
-                             catch _Class:Error ->
-                                 {error, Error}
-                             end
+                               SaveFunc(DestFilename, SnapshotData)
                        end, SaveFuns),
 
    case lists:all(
