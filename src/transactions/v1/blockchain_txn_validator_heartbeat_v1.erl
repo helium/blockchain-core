@@ -187,8 +187,6 @@ absorb(Txn, Chain) ->
     Validator = address(Txn),
     Version = version(Txn),
     TxnHeight = height(Txn),
-    POCKeyProposals = poc_key_proposals(Txn),
-    ReactivatedGWs = reactivated_gws(Txn),
 
     %% Get ledger current height and block hash to submit poc proposal
     {ok, LedgerHt} = blockchain_ledger_v1:current_height(Ledger),
@@ -205,6 +203,7 @@ absorb(Txn, Chain) ->
                 false ->
                     case blockchain:config(poc_challenger_type, Ledger) of
                         {ok, validator} ->
+                            POCKeyProposals = poc_key_proposals(Txn),
                             blockchain_ledger_v1:save_poc_proposals(POCKeyProposals, Validator, LedgerHash, LedgerHt, Ledger);
                         _ ->
                             ok
@@ -219,6 +218,7 @@ absorb(Txn, Chain) ->
                     %% reselected for POC
                     case blockchain:config(poc_activity_filter_enabled, Ledger) of
                         {ok, true} ->
+                            ReactivatedGWs = reactivated_gws(Txn),
                             reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
                         _ ->
                             ok
@@ -261,7 +261,7 @@ reactivate_gws(GWAddrs, Height, Ledger) ->
                     {error, no_active_gateway};
                 {ok, Gw0} ->
                     lager:debug("reactivating gw at height ~p for gateway ~p", [Height, GW]),
-                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height, Gw0),
                     ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
             end
         end, GWAddrs).
