@@ -83,12 +83,14 @@
     find_poc/3,
     request_poc/6,
     process_poc_proposals/3,
-    save_public_poc_proposals/5,
-    save_public_poc/5,
+    save_poc_proposals/5,
+    save_poc_proposal/5,
+    find_poc_proposal/2,
+    delete_poc_proposal/2,
     find_public_poc/2,
     delete_public_poc/2,
     update_public_poc/2,
-    active_public_pocs/1,
+    pocs/2,
     delete_poc/3,
     purge_pocs/1,
     maybe_gc_pocs/2,
@@ -2135,7 +2137,7 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
             ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
             ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
             ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-            promote_public_poc(ActivePOC2, Ledger),
+            promote_to_public_poc(ActivePOC2, Ledger),
             [ActivePOC2 | Acc];
         {error, _} ->
             %% we probably fell off the end. Simply drop this as we may not have enough
@@ -2145,44 +2147,61 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
     promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Iter, NewAcc).
 
 
--spec save_public_poc_proposals(Proposals :: [binary()],
-                                Challenger :: libp2p_crypto:pubkey_bin(),
-                                BlockHash :: blockchain_block:hash(),
-                                BlockHeight :: pos_integer(),
-                                Ledger :: ledger()) -> ok.
-save_public_poc_proposals(Proposals,
-                          Challenger,
-                          BlockHash,
-                          BlockHeight,
-                          Ledger) ->
+-spec save_poc_proposals(Proposals :: [binary()],
+                         Challenger :: libp2p_crypto:pubkey_bin(),
+                         BlockHash :: blockchain_block:hash(),
+                         BlockHeight :: pos_integer(),
+                         Ledger :: ledger()) -> ok.
+save_poc_proposals(Proposals,
+                   Challenger,
+                   BlockHash,
+                   BlockHeight,
+                   Ledger) ->
     lists:foreach(fun(Proposal) ->
-                          save_public_poc(Proposal, Challenger, BlockHash, BlockHeight, Ledger)
+                    save_poc_proposal(Proposal, Challenger, BlockHash, BlockHeight, Ledger)
                   end, Proposals).
 
--spec save_public_poc(  OnionKeyHash :: binary(),
+-spec save_poc_proposal(  OnionKeyHash :: binary(),
                         Challenger :: libp2p_crypto:pubkey_bin(),
                         BlockHash :: binary(),
                         BlockHeight :: pos_integer(),
                         Ledger :: ledger()) -> ok | {error, any()}.
-save_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+save_poc_proposal(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
         {error, _Reason}=Error ->
-            lager:warning("failed to save poc for key ~p, validator not found for challenger ~p",[Challenger]),
+            lager:warning("failed to save proposal for key ~p, validator not found for challenger ~p",[Challenger]),
             Error;
         {ok, _ChallengerInfo} ->
-            case ?MODULE:find_public_poc(OnionKeyHash, Ledger) of
+            case ?MODULE:find_poc_proposal(OnionKeyHash, Ledger) of
                 {error, not_found} ->
-                    save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger);
+                    save_poc_proposal_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger);
                 {error, _Reason} = Error ->
                     Error
             end
     end.
 
-save_public_poc_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+save_poc_proposal_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     PoC = blockchain_ledger_poc_v3:new(OnionKeyHash, Challenger, BlockHash, BlockHeight),
     PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
-    PoCsCF = pocs_cf(Ledger),
+    PoCsCF = proposed_pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
+
+-spec find_poc_proposal(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
+find_poc_proposal(OnionKeyHash, Ledger) ->
+    PoCsCF = proposed_pocs_cf(Ledger),
+    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
+        {ok, BinPoC} ->
+            {ok, blockchain_ledger_poc_v3:deserialize(BinPoC)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec delete_poc_proposal(OnionKeyHash :: binary(), Ledger :: ledger()) -> ok.
+delete_poc_proposal(OnionKeyHash, Ledger) ->
+    PoCsCF = proposed_pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
 -spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
 find_public_poc(OnionKeyHash, Ledger) ->
@@ -2201,15 +2220,10 @@ delete_public_poc(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
--spec delete_proposed_poc(OnionKeyHash :: binary(), Ledger :: ledger()) -> ok.
-delete_proposed_poc(OnionKeyHash, Ledger) ->
-    PoCsCF = proposed_pocs_cf(Ledger),
-    cache_delete(Ledger, PoCsCF, OnionKeyHash).
-
--spec promote_public_poc(POC :: blockchain_ledger_poc_v3:poc(), Ledger :: ledger()) -> ok.
-promote_public_poc(POC, Ledger) ->
+-spec promote_to_public_poc(POC :: blockchain_ledger_poc_v3:poc(), Ledger :: ledger()) -> ok.
+promote_to_public_poc(POC, Ledger) ->
     POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
-    delete_proposed_poc(POCAddr, Ledger),
+    delete_poc_proposal(POCAddr, Ledger),
     update_public_poc(POC, Ledger).
 
 -spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
@@ -2220,24 +2234,28 @@ update_public_poc(POC, Ledger) ->
     POCsCF = pocs_cf(Ledger),
     cache_put(Ledger, POCsCF, POCAddr, Bin).
 
+-spec pocs(proposed | active, ledger()) -> [blockchain_ledger_poc_v3:poc()].
+pocs(proposed, Ledger) ->
+    pocs_(proposed_pocs_cf(Ledger), Ledger);
+pocs(active, Ledger) ->
+    pocs_(pocs_cf(Ledger), Ledger).
 
--spec active_public_pocs(ledger()) -> [blockchain_ledger_poc_v3:poc()].
-active_public_pocs(Ledger) ->
-    POCsCF = pocs_cf(Ledger),
+-spec pocs_(rocksdb:cf_handle(), ledger()) -> [blockchain_ledger_poc_v3:poc()].
+pocs_(CF, Ledger) ->
     cache_fold(
       Ledger,
-      POCsCF,
+      CF,
       fun
           ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
               try
                   POC = blockchain_ledger_poc_v3:deserialize(PoCBin),
                     [POC | Acc]
               catch _:_ ->
-                  lager:debug("could not decode poc, possible wrong version, ignoring: ~p", [PoCBin]),
+                  lager:debug("could not decode pocv3, possible wrong version, ignoring: ~p", [PoCBin]),
                   Acc
               end;
           ({_KeyHash, _NonV3PoCBin}, Acc) ->
-              lager:warning("could not decode poc, possible wrong version, ignoring: ~p", [_NonV3PoCBin]),
+              lager:warning("could not decode pocv3, possible wrong version, ignoring: ~p", [_NonV3PoCBin]),
               Acc
       end,
       []
