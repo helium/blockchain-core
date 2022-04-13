@@ -1192,7 +1192,7 @@ attempt_fetch_snap_source_snapshot(BaseUrl, SnapInfo) ->
             {ok, Filename}
         {invalid, Filename, Filepath} ->
             _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath),
-            {ok, _} = validate_snapshot_file(SnapInfo)
+            validate_snapshot_file(SnapInfo)
     end.
 
 validate_snapshot_file(#snapshot_info{height = Height, file_hash = Hash,
