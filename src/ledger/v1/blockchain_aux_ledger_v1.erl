@@ -5,6 +5,8 @@
     bootstrap/2,
 
     set_vars/2,
+    diff_vars/2,
+
     get_rewards_at/2,
     set_rewards/4,
     get_rewards/1,
@@ -159,6 +161,22 @@ set_vars(AuxVars, #ledger_v1{mode = aux} = AuxLedger) ->
     ok;
 set_vars(_ExtraVars, _Ledger) ->
     error(cannot_set_vars_not_aux_ledger).
+
+-spec diff_vars(Vars :: [term()], Ledger :: blockchain_ledger_v1:ledger()) ->
+    #{Var :: term() => {{active, LedgerVarValue :: term()}, {aux, AuxLedgerVarValue :: term()}}}.
+diff_vars(Vars, Ledger) ->
+    AL = blockchain_ledger_v1:mode(aux, Ledger),
+    lists:foldl(
+        fun(Var, Acc) ->
+            LedgerVarValue = blockchain_ledger_v1:config(Var, Ledger),
+            AuxLedgerVarValue = blockchain_ledger_v1:config(Var, AL),
+            %% NOTE: It may happen that we've set an aux var for testing
+            %% but not an active ledger var, so just returning an ok | error tagged value
+            maps:put(Var, {{active, LedgerVarValue}, {aux, AuxLedgerVarValue}}, Acc)
+        end,
+        #{},
+        Vars
+    ).
 
 -spec get_rewards_at(Height :: non_neg_integer(), Ledger :: ledger()) ->
     {ok, blockchain_txn_reward_v1:rewards() | blockchain_txn_rewards_v2:rewards(),
@@ -405,8 +423,10 @@ get_rewards_md_diff_at(Height, Ledger) ->
                 {ok, BinRes} ->
                     %% NOTE: This should return #{mdsum : MDSum, overall : OverallMDSum}
                     {ok, binary_to_term(BinRes)};
-                not_found -> {error, not_found};
-                Error -> Error
+                not_found ->
+                    {error, not_found};
+                Error ->
+                    Error
             end
     end.
 
@@ -752,9 +772,9 @@ overall_diff_rewards_md_sums_({ok, Key, BinRes}, Default) ->
     catch
         What:Why ->
             lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [
-                                                                                        Key,
-                                                                                        What,
-                                                                                        Why
-                                                                                       ]),
+                Key,
+                What,
+                Why
+            ]),
             Default
     end.
