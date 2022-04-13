@@ -57,7 +57,8 @@
     get_vars/2, get_var/2,
     var_cache_stats/0,
     teardown_var_cache/0,
-    init_var_cache/0
+    init_var_cache/0,
+    target_v_to_mod/1
 
 ]).
 
@@ -196,7 +197,7 @@ pfind(F, ToDos, Timeout) ->
             Parent = self(),
             Workers = lists:foldl(
                 fun(Args, Acc) ->
-                    {Pid, _Ref} = 
+                    {Pid, _Ref} =
                         erlang:spawn_opt(
                             fun() ->
                                 Result = erlang:apply(F, Args),
@@ -221,7 +222,7 @@ pfind(F, ToDos, Timeout) ->
     after Timeout ->
         false
     end.
- 
+
 pfind_rcv(_Ref, Result, 0) ->
     Result;
 pfind_rcv(Ref, Result, Left) ->
@@ -716,6 +717,16 @@ teardown_var_cache() ->
 init_var_cache() ->
     %% TODO could pull cache settings from app env here
     e2qc:setup(?VAR_CACHE, []).
+
+-spec target_v_to_mod({error, not_found} | {ok, integer()}) -> atom().
+%% note: target_v_to_mod used by validator challenges related
+%% code flows. no need to support version below 5
+target_v_to_mod({error, not_found}) ->
+    blockchain_poc_target_v5;
+target_v_to_mod({ok, V}) when V =< 5 ->
+    blockchain_poc_target_v5;
+target_v_to_mod({ok, 6}) ->
+    blockchain_poc_target_v6.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

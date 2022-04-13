@@ -124,7 +124,8 @@ init(Args) ->
         [
          ?WORKER(blockchain_lock, []),
          ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
-         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts])]
+         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
+         ?WORKER(?POC_EVT_MGR, blockchain_poc_event, [BEventOpts])]
         ++
         [?WORKER(blockchain_score_cache, []),
          ?WORKER(blockchain_worker, [BWorkerOpts]),

@@ -82,7 +82,17 @@
     find_pocs/2,
     find_poc/3,
     request_poc/6,
+    process_poc_proposals/3,
+    save_poc_proposals/5,
+    save_poc_proposal/5,
+    find_poc_proposal/2,
+    delete_poc_proposal/2,
+    find_public_poc/2,
+    delete_public_poc/2,
+    update_public_poc/2,
+    pocs/2,
     delete_poc/3,
+    purge_pocs/1,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
     maybe_gc_h3dex/1,
@@ -180,6 +190,7 @@
     deactivate_validator/3,
     update_validator/3,
     fold_validators/3,
+    validator_count/1, validator_count/2,
 
     cooldown_stake/5,
     get_cooldown_stake/2,
@@ -191,7 +202,9 @@
     %% snapshot save/restore stuff
     snapshot_vars/1,
     load_vars/2,
+    snapshot_proposed_pocs/1,
     snapshot_pocs/1,
+    load_proposed_pocs/2,
     load_pocs/2,
     snapshot_accounts/1,
     load_accounts/2,
@@ -327,12 +340,13 @@ new(Dir, ReadOnly, Options) ->
     blockchain_utils:teardown_var_cache(),
     {ok, DB, CFs} = open_db(active, Dir, true, ReadOnly, Options),
 
-    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, ProposedPoCsCF,
+     SecuritiesCF, RoutingCF,
      SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
-     DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
-     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedH3DexCF,
-     DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
+     DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedProposedPoCsCF,
+     DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF,
+     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
     Ledger =
     #ledger_v1{
         dir=Dir,
@@ -347,6 +361,7 @@ new(Dir, ReadOnly, Options) ->
             dc_entries=DCEntriesCF,
             htlcs=HTLCsCF,
             pocs=PoCsCF,
+            proposed_pocs=ProposedPoCsCF,
             securities=SecuritiesCF,
             routing=RoutingCF,
             subnets=SubnetsCF,
@@ -362,6 +377,7 @@ new(Dir, ReadOnly, Options) ->
             dc_entries=DelayedDCEntriesCF,
             htlcs=DelayedHTLCsCF,
             pocs=DelayedPoCsCF,
+            proposed_pocs=DelayedProposedPoCsCF,
             securities=DelayedSecuritiesCF,
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
@@ -878,6 +894,7 @@ atom_to_cf(Atom, Ledger) ->
             dc_entries -> SL#sub_ledger_v1.dc_entries;
             htlcs -> SL#sub_ledger_v1.htlcs;
             pocs -> SL#sub_ledger_v1.pocs;
+            proposed_pocs -> SL#sub_ledger_v1.proposed_pocs;
             securities -> SL#sub_ledger_v1.securities;
             routing -> SL#sub_ledger_v1.routing;
             subnets -> SL#sub_ledger_v1.subnets;
@@ -957,7 +974,13 @@ raw_fingerprint(Ledger, Extended) ->
                      {entries_cf(Ledger), blockchain_ledger_entry_v1},
                      {dc_entries_cf(Ledger), blockchain_ledger_data_credits_entry_v1},
                      {htlcs_cf(Ledger), blockchain_ledger_htlc_v1},
-                     {pocs_cf(Ledger), blockchain_ledger_poc_v2},
+                     {pocs_cf(Ledger), case config(?poc_challenger_type, Ledger) of
+                                           {ok, validator} ->
+                                               blockchain_ledger_poc_v3;
+                                           _ ->
+                                               blockchain_ledger_poc_v2
+                                       end},
+                     {proposed_pocs_cf(Ledger), blockchain_ledger_poc_v3},
                      {securities_cf(Ledger), blockchain_ledger_security_entry_v1},
                      {routing_cf(Ledger), blockchain_ledger_routing_v1},
                      {state_channels_cf(Ledger), state_channel},
@@ -974,7 +997,8 @@ raw_fingerprint(Ledger, Extended) ->
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash}};
             _ ->
                 [_, GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
-                 PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash] = L,
+                 PoCsHash, ProposedPoCsHash, SecuritiesHash, RoutingsHash,
+                 StateChannelsHash, SubnetsHash] = L,
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash,
                        <<"gateways_fingerprint">> => GWsHash,
                        <<"core_fingerprint">> => DefaultHash,
@@ -984,6 +1008,7 @@ raw_fingerprint(Ledger, Extended) ->
                        <<"securities_fingerprint">> => SecuritiesHash,
                        <<"routings_fingerprint">> => RoutingsHash,
                        <<"poc_fingerprint">> => PoCsHash,
+                       <<"proposed_poc_fingerprint">> => ProposedPoCsHash,
                        <<"state_channels_fingerprint">> => StateChannelsHash,
                        <<"subnets_fingerprint">> => SubnetsHash
                       }}
@@ -2068,7 +2093,272 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, <<OnionKeyHash/binary, Challenger/binary>>).
 
+-spec process_poc_proposals(
+    BlockHeight :: pos_integer(),
+    BlockHash :: binary(),
+    Ledger :: ledger()
+) -> blockchain_ledger_poc_v3:pocs().
+process_poc_proposals(1, _BlockHash, _Ledger) ->
+    [];
+process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
+    %% we need to update the ledger with public poc data
+    %% based on the blocks poc ephemeral keys
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, validator} ->
+            %% Do a deterministic subset based on the hash of the block
+            %% Mark the selected POCs as active on ledger
+            case blockchain:config(?poc_challenge_rate, Ledger) of
+                {ok, K} ->
+                    RandState = blockchain_utils:rand_state(BlockHash),
+                    L1 = ?MODULE:new_context(Ledger),
+                    {_, DB, CF} = proposed_pocs_cf(Ledger),
+                    {ok, Itr} = rocksdb:iterator(DB, CF, []),
+                    POCSubset = promote_proposals(K, BlockHash, BlockHeight, RandState, L1 , Itr, []),
+                    ?MODULE:commit_context(L1),
+                    lager:info("Selected POCs ~p", [POCSubset]),
+                    POCSubset;
+                _ ->
+                    []
+            end;
+        _ ->
+            []
+    end.
+
+-spec promote_proposals(non_neg_integer(), binary(), pos_integer(), rand:state(), ledger(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
+promote_proposals(0, _Hash, _Height, _RandState, _Ledger, Iter, Acc) ->
+    catch rocksdb:iterator_close(Iter),
+    Acc;
+promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
+    {RandVal, NewRandState} = rand:uniform_s(RandState),
+    RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
+    NewAcc = case rocksdb:iterator_move(Iter, {seek, RandHash}) of
+        {ok, _Key, Binary} ->
+            POC = blockchain_ledger_poc_v3:deserialize(Binary),
+            ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
+            ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
+            ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
+            promote_to_public_poc(ActivePOC2, Ledger),
+            [ActivePOC2 | Acc];
+        {error, _Reason} ->
+            lager:debug("iterator failed ~[", [_Reason]),
+            %% we probably fell off the end. Simply drop this as we may not have enough
+            %% proposals to make the cut (or we can somehow retry some fixed number of times)
+            Acc
+    end,
+    promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Iter, NewAcc).
+
+
+-spec save_poc_proposals(Proposals :: [binary()],
+                         Challenger :: libp2p_crypto:pubkey_bin(),
+                         BlockHash :: blockchain_block:hash(),
+                         BlockHeight :: pos_integer(),
+                         Ledger :: ledger()) -> ok.
+save_poc_proposals(Proposals,
+                   Challenger,
+                   BlockHash,
+                   BlockHeight,
+                   Ledger) ->
+    lists:foreach(fun(Proposal) ->
+                    save_poc_proposal(Proposal, Challenger, BlockHash, BlockHeight, Ledger)
+                  end, Proposals).
+
+-spec save_poc_proposal(  OnionKeyHash :: binary(),
+                        Challenger :: libp2p_crypto:pubkey_bin(),
+                        BlockHash :: binary(),
+                        BlockHeight :: pos_integer(),
+                        Ledger :: ledger()) -> ok | {error, any()}.
+save_poc_proposal(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+    case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
+        {error, _Reason}=Error ->
+            lager:warning("failed to save proposal for key ~p, validator not found for challenger ~p",[Challenger]),
+            Error;
+        {ok, _ChallengerInfo} ->
+            case ?MODULE:find_poc_proposal(OnionKeyHash, Ledger) of
+                {error, not_found} ->
+                    save_poc_proposal_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger);
+                {error, _Reason} = Error ->
+                    Error
+            end
+    end.
+
+save_poc_proposal_(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
+    lager:debug("saving poc proposal with onionkeyhash ~p and height ~p", [OnionKeyHash, BlockHeight]),
+    PoC = blockchain_ledger_poc_v3:new(OnionKeyHash, Challenger, BlockHash, BlockHeight),
+    PoCBin = blockchain_ledger_poc_v3:serialize(PoC),
+    PoCsCF = proposed_pocs_cf(Ledger),
+    cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin).
+
+-spec find_poc_proposal(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
+find_poc_proposal(OnionKeyHash, Ledger) ->
+    PoCsCF = proposed_pocs_cf(Ledger),
+    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
+        {ok, BinPoC} ->
+            {ok, blockchain_ledger_poc_v3:deserialize(BinPoC)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec delete_poc_proposal(OnionKeyHash :: binary(), Ledger :: ledger()) -> ok.
+delete_poc_proposal(OnionKeyHash, Ledger) ->
+    PoCsCF = proposed_pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+-spec find_public_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v3:poc()} | {error, any()}.
+find_public_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
+        {ok, BinPoC} ->
+            {ok, blockchain_ledger_poc_v3:deserialize(BinPoC)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec delete_public_poc(binary(), ledger()) -> ok | {error, any()}.
+delete_public_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+-spec promote_to_public_poc(POC :: blockchain_ledger_poc_v3:poc(), Ledger :: ledger()) -> ok.
+promote_to_public_poc(POC, Ledger) ->
+    POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
+    delete_poc_proposal(POCAddr, Ledger),
+    update_public_poc(POC, Ledger).
+
+-spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
+                     Ledger :: ledger()) -> ok | {error, _}.
+update_public_poc(POC, Ledger) ->
+    POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
+    Bin = blockchain_ledger_poc_v3:serialize(POC),
+    POCsCF = pocs_cf(Ledger),
+    cache_put(Ledger, POCsCF, POCAddr, Bin).
+
+-spec pocs(proposed | active, ledger()) -> [blockchain_ledger_poc_v3:poc()].
+pocs(proposed, Ledger) ->
+    pocs_(proposed_pocs_cf(Ledger), Ledger);
+pocs(active, Ledger) ->
+    pocs_(pocs_cf(Ledger), Ledger).
+
+-spec pocs_(rocksdb:cf_handle(), ledger()) -> [blockchain_ledger_poc_v3:poc()].
+pocs_(CF, Ledger) ->
+    cache_fold(
+      Ledger,
+      CF,
+      fun
+          ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
+              try
+                  POC = blockchain_ledger_poc_v3:deserialize(PoCBin),
+                    [POC | Acc]
+              catch _:_ ->
+                  lager:debug("could not decode pocv3, possible wrong version, ignoring: ~p", [PoCBin]),
+                  Acc
+              end;
+          ({_KeyHash, _NonV3PoCBin}, Acc) ->
+              lager:warning("could not decode pocv3, possible wrong version, ignoring: ~p", [_NonV3PoCBin]),
+              Acc
+      end,
+      []
+     ).
+
+-spec purge_pocs(ledger()) -> ok.
+purge_pocs(Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    ProposedPoCsCF = proposed_pocs_cf(Ledger),
+    PurgeFun = fun(CF) ->
+                       cache_fold(
+                         Ledger,
+                         PoCsCF,
+                         fun({KeyHash, _}, _Acc) ->
+                                 cache_delete(Ledger, CF, KeyHash)
+                         end,
+                         []
+                        )
+               end,
+    blockchain_utils:pmap(PurgeFun, [PoCsCF, ProposedPoCsCF]),
+    ok.
+
 maybe_gc_pocs(Chain, Ledger) ->
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, validator} ->
+            maybe_gc_pocs(Chain, Ledger, validator);
+        _ ->
+            maybe_gc_pocs(Chain, Ledger, undefined)
+    end.
+
+maybe_gc_pocs(_Chain, Ledger, validator) ->
+    %% iterate over the public POCs,
+    %% delete any which are beyond the lifespan
+    %% of when the active POC would have ended
+    %% and any receipts txn would have been
+    %% 'expected' to be absorbed
+    %% a public poc is a representation of the data
+    %% included in a block as part of poc metadata
+    %% we need to keep it available on the ledger
+    %% until after the associated receipt v2 txn has
+    %% has been absorbed or would have been expected
+    %% to be absorbed
+    {ok, CurHeight} = current_height(Ledger),
+    %%  set GC point off by one so it doesnt align with so many other gc processes
+    case CurHeight rem 101 == 0 of
+        true ->
+            PoCsCF = pocs_cf(Ledger),
+            ProposedPoCsCF = proposed_pocs_cf(Ledger),
+            {ok, POCTimeout} = get_config(?poc_timeout, Ledger, 10),
+            {ok, POCReceiptsAbsorbTimeout} = get_config(?poc_receipts_absorb_timeout, Ledger, 50),
+            {ok, POCValKeyProposalTimeout} = get_config(?poc_validator_ephemeral_key_timeout, Ledger, 200),
+            %% allow for the possibility there may be a mix of POC versions in the POC CF
+            %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
+            %% or the reverse
+            %% anything other than V3s we will want to GC no matter what
+            %% V3s we will GC if lifespan is up
+            GCFun = fun(CF) -> cache_fold(
+                                 Ledger,
+                                 CF,
+                                 fun
+                                     ({_KeyHash, <<3, _Bin/binary>> = PoCBin}, Acc) ->
+                      V3PoC = blockchain_ledger_poc_v3:deserialize(PoCBin),
+                      POCStartHeight = blockchain_ledger_poc_v3:start_height(V3PoC),
+                      OnionKeyHash = blockchain_ledger_poc_v3:onion_key_hash(V3PoC),
+                      POCStatus = blockchain_ledger_poc_v3:status(V3PoC),
+                      %% for a selected/active poc,
+                      %% the public poc data for a poc is required by the receipts v2 txn absorb
+                      %% the public poc will be GCed as part of that absorb
+                      %% but in case that fails we will GC it here after giving
+                      %% the txn N blocks to be absorbed
+                      %% any non selected public poc will be GCed after a period
+                      %% if it remains unselected
+                      case
+                          ((POCStatus == active) andalso (CurHeight - POCStartHeight) >
+                           (POCTimeout + POCReceiptsAbsorbTimeout))
+                          orelse
+                          ((POCStatus /= active) andalso (CurHeight - POCStartHeight) > POCValKeyProposalTimeout) of
+                          true ->
+                              %% the lifespan of the POC for this key has passed, we can GC
+                              ok = delete_public_poc(OnionKeyHash, Ledger);
+                          _ ->
+                              ok
+                      end,
+                      Acc;
+
+                  ({KeyHash, _NonV3PoCBin} = _PoC, Acc) ->
+                      lager:debug("non v3 poc, deleting: ~p", [_PoC]),
+                      cache_delete(Ledger, CF, KeyHash),
+                      Acc
+                                 end,
+                                 []
+                                )
+                    end,
+            GCFun(PoCsCF),
+            GCFun(ProposedPoCsCF),
+%%            blockchain_utils:pmap(GCFun, [PoCsCF, ProposedPoCsCF]),
+            ok;
+        _ ->
+          ok
+    end;
+maybe_gc_pocs(Chain, Ledger, _) ->
     {ok, Height} = current_height(Ledger),
     Version = case ?MODULE:config(?poc_version, Ledger) of
                   {ok, V} -> V;
@@ -2094,43 +2384,56 @@ maybe_gc_pocs(Chain, Ledger) ->
                                   Acc
                           end
                   end, #{}, lists:seq(Height - ((PoCInterval * 2) + 1), Height)),
+
+            %% allow for the possibility there may be a mix of POC versions in the POC CF
+            %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
+            %% or the reverse
+            %% anything other than V2s we will want to GC no matter what
+            %% V2s we will GC if lifespan is up
             cache_fold(
-                Ledger,
-                PoCsCF,
-                fun({KeyHash, BinPoC}, Acc) ->
-                        %% this CF contains all the poc request state that needs to be retained
-                        %% between request and receipt validation.  however, it's possible that
-                        %% both requests stop and a receipt never comes, which leads to stale (and
-                        %% in some cases differing) data in the ledger.  here, we pull that data
-                        %% out and delete anything that's too old, as determined by being older
-                        %% than twice the request interval, which controls receipt validity.
-                        PoC = blockchain_ledger_poc_v2:deserialize(BinPoC),
-                        H = blockchain_ledger_poc_v2:block_hash(PoC),
-                        case H of
-                            <<>> ->
-                                %% pre-upgrade pocs are ancient
-                                cache_delete(Ledger, PoCsCF, KeyHash);
-                            _ ->
-                                case maps:find(H, Hashes) of
-                                    {ok, BH} ->
-                                        %% not sure this is even needed, it might
-                                        %% always be true? but just in case
-                                        case (Height - BH) < PoCInterval * 2 of
-                                            false ->
-                                                cache_delete(Ledger, PoCsCF, KeyHash);
-                                            true ->
-                                                ok
-                                        end;
-                                    error ->
-                                        %% if it's not in the hashes map, it's too
-                                        %% old by construction
-                                        cache_delete(Ledger, PoCsCF, KeyHash)
-                                end
-                        end,
-                        Acc
-                end,
-                []
-                ),
+              Ledger,
+              PoCsCF,
+              fun
+                  ({KeyHash, <<3, _Rest/binary>>}, Acc) ->
+                      %% we have a v3 POC, must be some contagion from a revert from validator generated POCs
+                      %% to hotspot generated POCs
+                      %% can be deleted
+                      ok = delete_public_poc(KeyHash, Ledger),
+                      Acc;
+                  ({KeyHash, BinPoC}, Acc) ->
+                      %% this CF contains all the poc request state that needs to be retained
+                      %% between request and receipt validation.  however, it's possible that
+                      %% both requests stop and a receipt never comes, which leads to stale (and
+                      %% in some cases differing) data in the ledger.  here, we pull that data
+                      %% out and delete anything that's too old, as determined by being older
+                      %% than twice the request interval, which controls receipt validity.
+                      PoC = blockchain_ledger_poc_v2:deserialize(BinPoC),
+                      H = blockchain_ledger_poc_v2:block_hash(PoC),
+                      case H of
+                          <<>> ->
+                              %% pre-upgrade pocs are ancient
+                              cache_delete(Ledger, PoCsCF, KeyHash);
+                          _ ->
+                              case maps:find(H, Hashes) of
+                                  {ok, BH} ->
+                                      %% not sure this is even needed, it might
+                                      %% always be true? but just in case
+                                      case (Height - BH) < PoCInterval * 2 of
+                                          false ->
+                                              cache_delete(Ledger, PoCsCF, KeyHash);
+                                          true ->
+                                              ok
+                                      end;
+                                  error ->
+                                      %% if it's not in the hashes map, it's too
+                                      %% old by construction
+                                      cache_delete(Ledger, PoCsCF, KeyHash)
+                              end
+                      end,
+                      Acc
+              end,
+              []
+             ),
             ok;
         _ ->
             ok
@@ -2138,23 +2441,29 @@ maybe_gc_pocs(Chain, Ledger) ->
 
 upgrade_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    ToStore = cache_fold(
-      Ledger,
-      PoCsCF,
-      fun({KeyHash, BinPoCs}, Acc) ->
-              SPoCs = erlang:binary_to_term(BinPoCs),
-              cache_delete(Ledger, PoCsCF, KeyHash),
-              lists:foldl(
-                fun(SPoC, A) ->
-                        PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
-                        Challenger = blockchain_ledger_poc_v2:challenger(PoC),
-                        [{<<KeyHash/binary, Challenger/binary>>, SPoC} | A]
-                end, Acc, SPoCs)
-      end, []),
-    lists:foreach(fun({K, V}) ->
-                          cache_put(Ledger, PoCsCF, K, V)
-                  end, ToStore),
-    ok.
+    %% don't need to do this in the validator challenge world
+    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+        {ok, validator} ->
+            ok;
+        {error, not_found} ->
+            ToStore = cache_fold(
+                        Ledger,
+                        PoCsCF,
+                        fun({KeyHash, BinPoCs}, Acc) ->
+                                SPoCs = erlang:binary_to_term(BinPoCs),
+                                cache_delete(Ledger, PoCsCF, KeyHash),
+                                lists:foldl(
+                                  fun(SPoC, A) ->
+                                          PoC = blockchain_ledger_poc_v2:deserialize(SPoC),
+                                          Challenger = blockchain_ledger_poc_v2:challenger(PoC),
+                                          [{<<KeyHash/binary, Challenger/binary>>, SPoC} | A]
+                                  end, Acc, SPoCs)
+                        end, []),
+            lists:foreach(fun({K, V}) ->
+                                  cache_put(Ledger, PoCsCF, K, V)
+                          end, ToStore),
+            ok
+    end.
 
 -spec zone_list_to_pubkey_bins(ZoneList :: [h3:h3_index()],
                                Ledger :: ledger()) -> [libp2p_crypto:pubkey_bin()].
@@ -2467,6 +2776,7 @@ hnt_to_dc(HNTAmount, Ledger)->
         {ok, OracleHNTPrice} ->
             hnt_to_dc(HNTAmount, OracleHNTPrice)
     end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -3618,6 +3928,7 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
                                   dc_entries=DCEntries,
                                   htlcs=HTLCs,
                                   pocs=PoCs,
+                                  proposed_pocs = ProposedPoCs,
                                   securities=Securities,
                                   routing=Routing}) ->
     rocksdb:compact_range(DB, Default, undefined, undefined, []),
@@ -3626,6 +3937,7 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, DCEntries, undefined, undefined, []),
     rocksdb:compact_range(DB, HTLCs, undefined, undefined, []),
     rocksdb:compact_range(DB, PoCs, undefined, undefined, []),
+    rocksdb:compact_range(DB, ProposedPoCs, undefined, undefined, []),
     rocksdb:compact_range(DB, Securities, undefined, undefined, []),
     rocksdb:compact_range(DB, Routing, undefined, undefined, []),
     ok.
@@ -3755,6 +4067,11 @@ htlcs_cf(Ledger) ->
 pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
+
+-spec proposed_pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+proposed_pocs_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {proposed_pocs, db(Ledger), SL#sub_ledger_v1.proposed_pocs}.
 
 -spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 securities_cf(Ledger) ->
@@ -4070,8 +4387,8 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
 -spec default_cfs() -> list().
 default_cfs() ->
     ["default", "active_gateways", "entries", "dc_entries", "htlcs",
-     "pocs", "securities", "routing", "subnets", "state_channels",
-     "h3dex", "gw_denorm", "validators"].
+     "pocs", "proposed_pocs", "securities", "routing", "subnets",
+     "state_channels", "h3dex", "gw_denorm", "validators"].
 
 -spec delayed_cfs() -> list().
 delayed_cfs() ->
@@ -4351,7 +4668,7 @@ random_targeting_hex(RandState, Ledger) ->
 build_random_hex_targeting_lookup(Resolution, Ledger) ->
     %% we only want to do this if poc version >= 4, which means h3dex targeting
     case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 4 ->
+        {ok, N} when N >= 6 ->
             H3CF = h3dex_cf(Ledger),
             {_, Total} = cache_fold(
                            Ledger, H3CF,
@@ -4501,11 +4818,13 @@ maybe_gc_h3dex(Ledger) ->
             %% from the current block (which are sorted by *challenger* and GC the
             %% hexes the *challengee* is in.
             {ok, Height} = current_height(Ledger),
+            %% If we can't get the block, we will just crash here
             {ok, Block} = get_block(Height, Ledger),
             {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
             RandState = blockchain_utils:rand_from_hash(BlockHash),
             RequestFilter = fun(T) ->
                                     blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
+                                    orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
                             end,
             case blockchain_utils:find_txn(Block, RequestFilter) of
                 [] ->
@@ -4515,7 +4834,8 @@ maybe_gc_h3dex(Ledger) ->
                     %% take the first `Width` receipts and GC the parent hexes of the challengees
                     {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
                     lists:foreach(fun(T) ->
-                                          Path = blockchain_txn_poc_receipts_v1:path(T),
+                                          ReceiptType = blockchain_txn:type(T),
+                                          Path = ReceiptType:path(T),
                                           Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
                                           case find_gateway_location(Challengee, Ledger) of
                                               {ok, Location} ->
@@ -4592,7 +4912,9 @@ add_validator(Address,
             {error, validator_already_added};
         _ ->
             Val = blockchain_ledger_validator_v1:new(Address, OwnerAddr, Stake),
-            update_validator(Address, Val, Ledger)
+            ok = update_validator(Address, Val, Ledger),
+            {ok, Count} = validator_count(Ledger),
+            ok = validator_count(Count + 1, Ledger)
     end.
 
 -spec update_validator(Addr :: libp2p_crypto:pubkey_bin(),
@@ -4630,7 +4952,9 @@ deactivate_validator(Address, StakeReleaseHeight, Ledger) ->
             Val2 = blockchain_ledger_validator_v1:release_height(StakeReleaseHeight, Val1),
             %% put the stake HNT into cooldown
             ok = cooldown_stake(Owner, Address, Stake, StakeReleaseHeight, Ledger),
-            update_validator(Address, Val2, Ledger);
+            ok = update_validator(Address, Val2, Ledger),
+            {ok, Count} = validator_count(Ledger),
+            ok = validator_count(Count - 1, Ledger);
         Error -> Error
     end.
 
@@ -4723,6 +5047,23 @@ fold_validators(Fun, InitAcc, Ledger) ->
       end,
       InitAcc
      ).
+
+-spec validator_count(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+validator_count(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?validator_count, []) of
+        {ok, <<Count:64/integer-unsigned-native>>} ->
+            {ok, Count};
+        not_found ->
+            {ok, 0};
+        Error ->
+            Error
+    end.
+
+-spec validator_count(non_neg_integer(), ledger()) -> ok.
+validator_count(Count, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?validator_count, <<Count:64/integer-unsigned-native>>).
 
 query_hnt_by_status(Status, Ledger) ->
     fold_validators(fun(Val, Acc) ->
@@ -5020,6 +5361,27 @@ load_threshold_txns(Txns, Ledger) ->
 
 -spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, Type} ->
+            snapshot_pocs(Type, Ledger);
+        _ ->
+            snapshot_pocs(undefined, Ledger)
+    end.
+
+-spec snapshot_pocs(atom(), ledger()) -> [{binary(), binary()}].
+snapshot_pocs(validator, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, PoCsCF,
+          fun({OnionKeyHash, BValue}, Acc) ->
+                  PoC = binary_to_term(BValue),
+                  Value = blockchain_ledger_poc_v3:deserialize(PoC),
+                  maps:put(OnionKeyHash, Value, Acc)
+          end, #{},
+          [])));
+snapshot_pocs(_, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     lists:sort(
       maps:to_list(
@@ -5033,6 +5395,23 @@ snapshot_pocs(Ledger) ->
           []))).
 
 load_pocs(PoCs, Ledger) ->
+    case blockchain:config(?poc_challenger_type, Ledger) of
+        {ok, Type} ->
+            load_pocs(Type, PoCs, Ledger);
+        _ ->
+            load_pocs(undefined, PoCs, Ledger)
+    end.
+
+load_pocs(validator, PoCs, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    maps:map(
+      fun(OnionHash, P) ->
+              BPoC = term_to_binary(blockchain_ledger_poc_v3:serialize(P)),
+              cache_put(Ledger, PoCsCF, OnionHash, BPoC)
+      end,
+      maps:from_list(PoCs)),
+    ok;
+load_pocs(_, PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     maps:map(
       fun(OnionHash, P) ->
@@ -5090,6 +5469,15 @@ snapshot_raw_pocs(Ledger) ->
 load_raw_pocs(PoCs, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     load_raw(PoCs, PoCsCF, Ledger).
+
+-spec snapshot_proposed_pocs(ledger()) -> [{binary(), binary()}].
+snapshot_proposed_pocs(Ledger) ->
+    PPoCsCF = proposed_pocs_cf(Ledger),
+    snapshot_raw(PPoCsCF, Ledger).
+
+load_proposed_pocs(PPoCs, Ledger) ->
+    PPoCsCF = proposed_pocs_cf(Ledger),
+    load_raw(PPoCs, PPoCsCF, Ledger).
 
 -spec snapshot_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_accounts(Ledger) ->
@@ -5281,7 +5669,7 @@ load_hexes(Hexes0, Ledger) ->
 -spec snapshot_h3dex(ledger()) -> [{binary(), binary()}].
 snapshot_h3dex(Ledger) ->
     case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 4 ->
+        {ok, N} when N >= 6 ->
             {_Name, _DB, H3CF} = h3dex_cf(Ledger),
             snapshot_raw(H3CF, Ledger);
         _ ->
@@ -5293,7 +5681,7 @@ snapshot_h3dex(Ledger) ->
 -spec load_h3dex([{binary(), binary()}], ledger()) -> ok.
 load_h3dex(H3DexList, Ledger) ->
     case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 4 ->
+        {ok, N} when N >= 6 ->
             {_Name, _DB, H3CF} = h3dex_cf(Ledger),
             load_raw(H3DexList, H3CF, Ledger);
         _ ->
@@ -5333,6 +5721,11 @@ get_sc_mod(Channel, Ledger) ->
         _ -> blockchain_ledger_state_channel_v1
     end.
 
+get_config(Var, Ledger, Default) ->
+    case blockchain:config(Var, Ledger) of
+        {ok, V} -> {ok, V};
+        _ -> {ok, Default}
+    end.
 %%--------------------------------------------------------------------
 %% @doc
 %% This function allows us to get a lower sc_max_actors for testing
@@ -5973,13 +6366,13 @@ commit_hooks_test() ->
                         [{active_gateways,
                             undefined,
                             fun(Changes) -> Me ! {hook1, Changes} end,
-                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end                            
+                            fun(_CF, ChangedKeys) -> Me ! {hook1, changes_complete, ChangedKeys} end
                         },
                         {active_gateways,
                             undefined,
                             fun(Changes, Height) -> Me ! {hook2, Changes, Height} end,
                             fun(_CF, ChangedKeys, Height) -> Me ! {hook2, changes_complete, ChangedKeys, Height} end,
-                            true                            
+                            true
                         }]),
 
     Ledger = new(BaseDir),
@@ -6001,7 +6394,7 @@ commit_hooks_test() ->
     end,
 
     receive
-        {hook2, _, ReceivedHeight1} -> 
+        {hook2, _, ReceivedHeight1} ->
             ?assertMatch(Ledger1Height,
                          ReceivedHeight1)
     after 200 ->

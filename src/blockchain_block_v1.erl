@@ -46,6 +46,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+
 -type block() :: #blockchain_block_v1_pb{}.
 -type block_map() :: #{prev_hash => binary(),
                        height => non_neg_integer(),
@@ -89,8 +90,7 @@ new(#{prev_hash := PrevHash,
        epoch_start = EpochStart,
        seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
        bba_completion = Completion,
-       snapshot_hash = maps:get(snapshot_hash, Map, <<>>)
-      }.
+       snapshot_hash = maps:get(snapshot_hash, Map, <<>>)}.
 
 -spec rescue(block_map())-> block().
 rescue(#{prev_hash := PrevHash,
@@ -191,18 +191,10 @@ bba_completion(Block) ->
 snapshot_hash(Block) ->
     Block#blockchain_block_v1_pb.snapshot_hash.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hbbft_round(block()) -> non_neg_integer().
 hbbft_round(Block) ->
     Block#blockchain_block_v1_pb.hbbft_round.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec set_signatures(block(), [blockchain_block:signature()]) -> block().
 set_signatures(Block, Signatures) ->
     Block#blockchain_block_v1_pb{signatures=[wrap_signature(S) || S <- Signatures]}.
@@ -218,10 +210,6 @@ set_signatures(Block, Signatures, Rescue) ->
                                                || S <- Signatures],
                                  rescue_signature = Rescue}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new_genesis_block(blockchain_txn:txns()) -> block().
 new_genesis_block(Transactions) ->
     ?MODULE:new(#{prev_hash => <<0:256>>,
@@ -235,10 +223,6 @@ new_genesis_block(Transactions) ->
                   seen_votes => [],
                   bba_completion => <<>>}).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec is_genesis(block()) -> boolean().
 is_genesis(Block) ->
     case prev_hash(Block) == <<0:256>> andalso height(Block) == 1 of
@@ -388,8 +372,8 @@ to_json(Block, _Opts) ->
       hash => ?BIN_TO_B64(hash_block(Block)),
       prev_hash => ?BIN_TO_B64(prev_hash(Block)),
       transactions => [
-        #{ 
-            hash => ?BIN_TO_B64(blockchain_txn:hash(T)), 
+        #{
+            hash => ?BIN_TO_B64(blockchain_txn:hash(T)),
             type => blockchain_txn:json_type(T)
         } || T <- transactions(Block)]
      }.
@@ -437,7 +421,6 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -454,8 +437,7 @@ new_merge(Overrides) ->
              election_epoch => 0,
              epoch_start => 0,
              seen_votes => [],
-             bba_completion => <<>>
-           },
+             bba_completion => <<>>},
           Overrides)).
 
 new_test() ->

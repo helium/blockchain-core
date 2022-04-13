@@ -16,6 +16,7 @@
 
 -export([
          new/3,
+         new/5,
          hash/1,
          address/1,
          height/1,
@@ -23,12 +24,16 @@
          version/1,
          fee/1,
          fee_payer/2,
+         poc_key_proposals/1,
+         reactivated_gws/1,
          sign/2,
          is_valid/2,
          absorb/2,
          print/1,
          json_type/0,
-         to_json/2
+         to_json/2,
+
+         proposal_length/1
         ]).
 
 -ifdef(TEST).
@@ -39,12 +44,19 @@
 -export_type([txn_validator_heartbeat/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) ->
-          txn_validator_heartbeat().
+    txn_validator_heartbeat().
 new(Address, Height, Version) ->
+    new(Address, Height, Version, [], []).
+
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), [binary()], [libp2p_crypto:pubkey_bin()]) ->
+          txn_validator_heartbeat().
+new(Address, Height, Version, POCKeyProposals, ReactivatedGWs) ->
     #blockchain_txn_validator_heartbeat_v1_pb{
        address = Address,
        height = Height,
-       version = Version
+       version = Version,
+       poc_key_proposals = POCKeyProposals,
+       reactivated_gws = ReactivatedGWs
     }.
 
 -spec hash(txn_validator_heartbeat()) -> blockchain_txn:hash().
@@ -64,6 +76,14 @@ height(Txn) ->
 -spec version(txn_validator_heartbeat()) -> pos_integer().
 version(Txn) ->
     Txn#blockchain_txn_validator_heartbeat_v1_pb.version.
+
+-spec poc_key_proposals(txn_validator_heartbeat()) -> [binary()].
+poc_key_proposals(Txn) ->
+    Txn#blockchain_txn_validator_heartbeat_v1_pb.poc_key_proposals.
+
+-spec reactivated_gws(txn_validator_heartbeat()) -> [libp2p_crypto:pubkey_bin()].
+reactivated_gws(Txn) ->
+    Txn#blockchain_txn_validator_heartbeat_v1_pb.reactivated_gws.
 
 -spec signature(txn_validator_heartbeat()) -> binary().
 signature(Txn) ->
@@ -99,6 +119,8 @@ is_valid(Txn, Chain) ->
     Version = version(Txn),
     TxnHeight = height(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Proposals = poc_key_proposals(Txn),
+    Reactivated = reactivated_gws(Txn),
     case is_valid_sig(Txn) of
         false ->
             {error, bad_signature};
@@ -128,6 +150,25 @@ is_valid(Txn, Chain) ->
                     true -> ok;
                     false -> throw({bad_version, Version})
                 end,
+                {TargetLen, ReactivationLimit} =
+                    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+                        {ok, validator} ->
+                            {ok, RL} = blockchain_ledger_v1:config(?validator_hb_reactivation_limit, Ledger),
+                            PL = proposal_length(Ledger),
+                            {PL, RL};
+                        _ ->
+                            {0, 0}
+                    end,
+                case length(Proposals) == TargetLen of
+                    true -> ok;
+                    false ->
+                        throw({bad_proposal_length, TargetLen, length(Proposals)})
+                end,
+                case length(Reactivated) =< ReactivationLimit of
+                    true -> ok;
+                    false ->
+                        throw({bad_reactivation_length, ReactivationLimit, length(Reactivated)})
+                end,
                 ok
             catch throw:Cause ->
                     {error, Cause}
@@ -147,10 +188,42 @@ absorb(Txn, Chain) ->
     Version = version(Txn),
     TxnHeight = height(Txn),
 
+    %% Get ledger current height and block hash to submit poc proposal
+    {ok, LedgerHt} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, LedgerHash} = blockchain:get_block_hash(LedgerHt, Chain),
+
     case blockchain_ledger_v1:get_validator(Validator, Ledger) of
         {ok, V} ->
             V1 = blockchain_ledger_validator_v1:last_heartbeat(TxnHeight, V),
             V2 = blockchain_ledger_validator_v1:version(Version, V1),
+            {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
+            case lists:member(Validator, ConsensusAddrs) of
+                true ->
+                    ok;
+                false ->
+                    case blockchain:config(poc_challenger_type, Ledger) of
+                        {ok, validator} ->
+                            POCKeyProposals = poc_key_proposals(Txn),
+                            blockchain_ledger_v1:save_poc_proposals(POCKeyProposals, Validator, LedgerHash, LedgerHt, Ledger);
+                        _ ->
+                            ok
+                    end,
+                    %% process the reactivated GW list submitted in the heartbeat
+                    %% these are GWs which have fallen outside of the max activity span
+                    %% and thus wont be selected for POC
+                    %% to get on this reactivated list the GW must have connected
+                    %% to a validator over GRPC and subscribed to the poc stream
+                    %% as such it may have maybe come back to life
+                    %% so update it lasts activity tracking and allow it to be
+                    %% reselected for POC
+                    case blockchain:config(poc_activity_filter_enabled, Ledger) of
+                        {ok, true} ->
+                            ReactivatedGWs = reactivated_gws(Txn),
+                            reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
+                        _ ->
+                            ok
+                    end
+            end,
             blockchain_ledger_v1:update_validator(Validator, V2, Ledger);
         Err -> Err
     end.
@@ -175,8 +248,40 @@ to_json(Txn, _Opts) ->
       address => ?BIN_TO_B58(address(Txn)),
       height => height(Txn),
       signature => ?BIN_TO_B64(signature(Txn)),
-      version => version(Txn)
+      version => version(Txn),
+      poc_key_proposals => [?BIN_TO_B64(K) || K <- poc_key_proposals(Txn)],
+      reactivated_gws => [?BIN_TO_B58(GW) || GW <- reactivated_gws(Txn)]
      }.
+
+reactivate_gws(GWAddrs, Height, Ledger) ->
+    lists:foreach(
+        fun(GW) ->
+            case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
+                {error, _} ->
+                    {error, no_active_gateway};
+                {ok, Gw0} ->
+                    lager:debug("reactivating gw at height ~p for gateway ~p", [Height, GW]),
+                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height, Gw0),
+                    ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
+            end
+        end, GWAddrs).
+
+-spec proposal_length(blockchain:ledger()) -> non_neg_integer().
+proposal_length(Ledger) ->
+    %% generate the size for a set of ephemeral keys for POC usage. the count is based on the num of
+    %% active validators and the target challenge rate. we also have to consider that key proposals
+    %% are submitted by validators as part of their heartbeats which are only submitted periodically
+    %% so we need to ensure we have sufficient count of key proposals submitted per HB. to help with
+    %% this we reduce the number of val count by 20% so that we have surplus keys being submitted
+    case blockchain_ledger_v1:validator_count(Ledger) of
+        {ok, NumVals} when NumVals > 0 ->
+            {ok, ChallengeRate} = blockchain_ledger_v1:config(?poc_challenge_rate, Ledger),
+            {ok, ValCtScale} = blockchain_ledger_v1:config(?poc_validator_ct_scale, Ledger),
+            {ok, HBInterval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
+            round((ChallengeRate / (NumVals * ValCtScale)) * HBInterval);
+        _ ->
+            0
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -184,7 +289,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 to_json_test() ->
-    Tx = new(<<"validator_address">>, 20000, 1),
+    Tx = new(<<"validator_address">>, 20000, 1, [<<"poc_key_proposal">>], [<<"reactivated_gateway_addr1">>]),
     Json = to_json(Tx, []),
     ?assertEqual(lists:sort(maps:keys(Json)),
                  lists:sort([type, hash] ++ record_info(fields, blockchain_txn_validator_heartbeat_v1_pb))).

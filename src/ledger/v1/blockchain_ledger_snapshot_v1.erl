@@ -277,6 +277,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
         Validators = blockchain_ledger_v1:snapshot_validators(Ledger),
         DelayedHNT = blockchain_ledger_v1:snapshot_delayed_hnt(Ledger),
         PoCs = blockchain_ledger_v1:snapshot_raw_pocs(Ledger),
+        PPoCs = blockchain_ledger_v1:snapshot_proposed_pocs(Ledger),
         Accounts = blockchain_ledger_v1:snapshot_raw_accounts(Ledger),
         DCAccounts = blockchain_ledger_v1:snapshot_raw_dc_accounts(Ledger),
         SecurityAccounts = blockchain_ledger_v1:snapshot_raw_security_accounts(Ledger),
@@ -318,6 +319,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
                 {validators       , Validators},
                 {delayed_hnt      , DelayedHNT},
                 {pocs             , PoCs},
+                {proposed_pocs    , PPoCs},
                 {accounts         , Accounts},
                 {dc_accounts      , DCAccounts},
                 {security_accounts, SecurityAccounts},
@@ -598,6 +600,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
                       [{delayed_hnt, load_delayed_hnt} || maps:is_key(delayed_hnt, Snapshot)] ++
                       [{upgrades, blockchain, mark_upgrades} || maps:is_key(upgrades, Snapshot)] ++
                       [net_overage || maps:is_key(net_overage, Snapshot)] ++
+                      [{proposed_pocs, load_proposed_pocs} || maps:is_key(proposed_pocs, Snapshot)] ++
                       [begin
                            ok = blockchain_ledger_v1:clear_hnt_burned(L),
                            {hnt_burned, add_hnt_burned}
@@ -607,12 +610,16 @@ load_into_ledger(Snapshot, L0, Mode) ->
     case blockchain_ledger_v1:check_key(<<"poc_upgrade">>, L) of
         true -> ok;
         _ ->
-            %% have to do this here, otherwise it'll break block loads
-            blockchain_ledger_v1:upgrade_pocs(L),
-            blockchain_ledger_v1:mark_key(<<"poc_upgrade">>, L)
+            case blockchain_ledger_v1:config(?poc_challenger_type, L) of
+                {ok, validator} ->
+                    ok;
+                {error, not_found} ->
+                    %% have to do this here, otherwise it'll break block loads
+                    blockchain_ledger_v1:upgrade_pocs(L),
+                    blockchain_ledger_v1:mark_key(<<"poc_upgrade">>, L)
+            end
     end,
     blockchain_ledger_v1:commit_context(L).
-
 
 load_into_ledger_([], _, _) ->
     ok;
@@ -719,7 +726,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       Chain1 = blockchain:ledger(Ledger2, Chain),
                       Rescue = blockchain_block:is_rescue_block(Block),
                       {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                      %% Hash = blockchain_block:hash_block(Block),
                       ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
                       ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
                       %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),

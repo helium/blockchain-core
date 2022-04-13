@@ -26,6 +26,7 @@
 
 % Misc
 -define(EVT_MGR, blockchain_event_mgr).
+-define(POC_EVT_MGR, blockchain_poc_event_mgr).
 
 -define(BC_UPGRADE_NAMES, [
     <<"gateway_v2">>,
@@ -55,7 +56,7 @@
          time :: non_neg_integer(),
          height :: non_neg_integer(),
          hash :: blockchain_block:hash(),
-         pocs :: map(),
+         pocs :: blockchain_block_v1:poc_keys() | map(),
          hbbft_round :: non_neg_integer(),
          election_info :: {non_neg_integer(), non_neg_integer()},
          penalties :: {binary(), [{pos_integer(), binary()}]}

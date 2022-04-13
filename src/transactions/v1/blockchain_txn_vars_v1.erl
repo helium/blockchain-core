@@ -687,6 +687,19 @@ process_hooks(Vars, Unsets, Ledger) ->
 %% Separate out hook functions and call them in separate functions below the hook section.
 
 -spec var_hook(Var :: atom(), Value :: any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+var_hook(?poc_targeting_version, 6, Ledger) ->
+    %% purge any active POCs
+    purge_pocs(Ledger),
+    %% build the h3dex lookup
+    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
+    blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
+    ok;
+var_hook(?poc_targeting_version, 5, Ledger) ->
+    %% purge any active POCs
+    purge_pocs(Ledger),
+    %% v3 targeting enabled, remove the h3dex lookup
+    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
+    ok;
 var_hook(?poc_targeting_version, 4, Ledger) ->
     %% v4 targeting enabled, build the h3dex lookup
     {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
@@ -709,6 +722,29 @@ var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
     %% rebuild hexes since we're back to updating them
     blockchain:bootstrap_hexes(Ledger),
     ok;
+%% poc challenger type has been modified
+%% we want to clear out the pocs CF
+%% we dont care about its value, if its been
+%% updated then we wipe all POCs
+var_hook(?poc_challenger_type, Type, Ledger) ->
+    case Type of
+        validator ->
+            Ct =
+                blockchain_ledger_v1:fold_validators(
+                  fun(Val, Acc) ->
+                          case blockchain_ledger_validator_v1:status(Val) of
+                              staked ->
+                                  Acc + 1;
+                              _ -> Acc
+                          end
+                  end,
+                  0,
+                  Ledger),
+            blockchain_ledger_v1:validator_count(Ct, Ledger);
+        _ -> ok
+    end,
+    purge_pocs(Ledger),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
@@ -720,6 +756,9 @@ unset_hook(?poc_targeting_version, Ledger) ->
 unset_hook(?poc_hexing_type, Ledger) ->
     %% rebuild hexes since we're back to updating them
     blockchain:bootstrap_hexes(Ledger),
+    ok;
+unset_hook(?poc_challenger_type, Ledger) ->
+    purge_pocs(Ledger),
     ok;
 unset_hook(_Var, _Ledger) ->
     ok.
@@ -950,12 +989,34 @@ validate_var(?min_assert_h3_res, Value) ->
     validate_int(Value, "min_assert_h3_res", 0, 15, false);
 validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
+validate_var(?poc_challenge_rate, Value) ->
+    validate_int(Value, "poc_challenge_rate", 1, 10000, false);
+validate_var(?poc_timeout, Value) ->
+    validate_int(Value, "poc_timeout", 1, 50, false);
+validate_var(?poc_receipts_absorb_timeout, Value) ->
+    validate_int(Value, "poc_receipts_absorb_timeout", 10, 100, false);
+validate_var(?poc_validator_ephemeral_key_timeout, Value) ->
+    validate_int(Value, "poc_validator_ephemeral_key_timeout", 1, 1000, false);
+
+validate_var(?poc_challenger_type, Value) ->
+    case Value of
+        validator ->
+            ok;
+        _ ->
+            throw({error, {poc_challenger_type, Value}})
+    end;
 validate_var(?poc_version, Value) ->
     case Value of
         N when is_integer(N), N >= 1,  N =< 11 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
+    end;
+validate_var(?poc_activity_filter_enabled, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_activity_filter_enabled, Value}})
     end;
 validate_var(?poc_challenge_sync_interval, Value) ->
     validate_int(Value, "poc_challenge_sync_interval", 10, 1440, false);
@@ -1037,6 +1098,8 @@ validate_var(?poc_targeting_version, Value) ->
     case Value of
         3 -> ok;
         4 -> ok;
+        5 -> ok;
+        6 -> ok;
         _ ->
             throw({error, {invalid_poc_targeting_version, Value}})
     end;
@@ -1048,6 +1111,8 @@ validate_var(?poc_hexing_type, Value) ->
     _ ->
       throw({error, {poc_hexing_type, Value}})
   end;
+validate_var(?poc_validator_ct_scale, Value) ->
+    validate_float(Value, "poc_validator_ct_scale", 0.1, 1.0);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
@@ -1360,6 +1425,8 @@ validate_var(?validator_liveness_interval, Value) ->
     validate_int(Value, "validator_liveness_interval", 5, 2000, false);
 validate_var(?validator_liveness_grace_period, Value) ->
     validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
+validate_var(?validator_hb_reactivation_limit, Value) ->
+    validate_int(Value, "validator_hb_reactivation_limit", 5, 100, false);
 validate_var(?validator_key_check, Value) ->
     case Value of
         true -> ok;
@@ -1532,6 +1599,8 @@ validate_region_params(Var, Value) when is_binary(Value) ->
 validate_region_params(Var, Value) ->
     throw({error, {invalid_region_param_not_binary, Var, Value}}).
 
+purge_pocs(Ledger) ->
+    blockchain_ledger_v1:purge_pocs(Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
