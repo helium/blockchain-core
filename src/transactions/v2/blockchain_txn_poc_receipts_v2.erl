@@ -452,7 +452,7 @@ absorb(_POCVersion, Txn, Chain) ->
             true ->
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
-                case blockchain:config(poc_activity_filter_enabled, Ledger) of
+                case blockchain:config(?poc_activity_filter_enabled, Ledger) of
                     {ok, true} ->
                         Participants = poc_particpants(Txn, Chain),
                         lager:info("receipt txn poc participants: ~p", [Participants]),
