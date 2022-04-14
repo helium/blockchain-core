@@ -1189,7 +1189,7 @@ set_filename(BaseFilename) ->
 attempt_fetch_snap_source_snapshot(BaseUrl, SnapInfo) ->
     case validate_snapshot_file(SnapInfo) of
         {ok, Filename} ->
-            {ok, Filename}
+            {ok, Filename};
         {invalid, Filename, Filepath} ->
             _ = do_snap_source_download(build_url(BaseUrl, Filename), Filepath),
             validate_snapshot_file(SnapInfo)
