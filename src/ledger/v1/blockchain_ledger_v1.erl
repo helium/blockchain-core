@@ -2140,7 +2140,7 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Iter, Acc) ->
             promote_to_public_poc(ActivePOC2, Ledger),
             [ActivePOC2 | Acc];
         {error, _Reason} ->
-            lager:debug("iterator failed ~[", [_Reason]),
+            lager:debug("iterator failed ~p", [_Reason]),
             %% we probably fell off the end. Simply drop this as we may not have enough
             %% proposals to make the cut (or we can somehow retry some fixed number of times)
             Acc
@@ -2277,7 +2277,8 @@ purge_pocs(Ledger) ->
                          []
                         )
                end,
-    blockchain_utils:pmap(PurgeFun, [PoCsCF, ProposedPoCsCF]),
+    PurgeFun(PoCsCF),
+    PurgeFun(ProposedPoCsCF),
     ok.
 
 maybe_gc_pocs(Chain, Ledger) ->
@@ -2353,7 +2354,6 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                     end,
             GCFun(PoCsCF),
             GCFun(ProposedPoCsCF),
-%%            blockchain_utils:pmap(GCFun, [PoCsCF, ProposedPoCsCF]),
             ok;
         _ ->
           ok
