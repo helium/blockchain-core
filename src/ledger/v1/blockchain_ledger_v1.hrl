@@ -76,6 +76,7 @@
 -define(OUI_COUNTER, <<"oui_counter">>).
 -define(MASTER_KEY, <<"master_key">>).
 -define(MULTI_KEYS, <<"multi_keys">>).
+-define(NETIDS, <<"netids">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
 -define(HNT_BURNED, <<"hnt_burned">>).

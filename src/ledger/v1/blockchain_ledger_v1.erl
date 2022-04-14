@@ -129,13 +129,17 @@
     add_htlc/8,
     redeem_htlc/4,
 
+    get_netids/1,
+    set_netids/2,
+
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
 
     find_routing/2, find_routing_for_packet/2,
     find_router_ouis/2,
     find_routing_via_eui/3,
-    find_routing_via_devaddr/2,
+    find_routing_via_subnet/2,
+    find_dest/2,
     update_routing/4,
     get_routes/1,
     routing_cf/1,
@@ -282,6 +286,9 @@
 -export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
 -endif.
 
+-define(RETIRED_NETID, 16#200010).
+-define(OFFICIAL_NETID_01, 16#60002D).
+
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
@@ -294,6 +301,9 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
+-type netid() :: non_neg_integer().
+-type devaddr() :: non_neg_integer().
+
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -3399,6 +3409,23 @@ redeem_htlc(Address, Payee, Ledger, Chain) ->
             end
     end.
 
+-spec get_netids(ledger()) -> {ok, [netid()]} | {error, any()}.
+get_netids(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?NETIDS, []) of
+        {ok, BinNetIDs} ->
+            {ok, binary_to_term(BinNetIDs)};
+        not_found ->
+            %% Official NetID == 16#60002D assigned by LoRa Alliance
+            {ok, [?OFFICIAL_NETID_01]};
+        Error ->
+            Error
+    end.
+
+-spec set_netids([netid()], ledger()) -> ok | {error, _}.
+set_netids(NetIDs, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?NETIDS, term_to_binary(NetIDs)).
 
 -spec get_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 get_oui_counter(Ledger) ->
@@ -3472,8 +3499,8 @@ find_routing_for_packet(Packet, Ledger) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, DevEUI, AppEUI} ->
             find_routing_via_eui(DevEUI, AppEUI, Ledger);
-        {devaddr, DevAddr0} ->
-            find_routing_via_devaddr(DevAddr0, Ledger)
+        {devaddr, DevAddr} ->
+            find_routing_via_subnet(DevAddr, Ledger)
     end.
 
 -spec find_routing_via_eui(DevEUI :: non_neg_integer(),
@@ -3504,31 +3531,43 @@ find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
             {ok, Res}
     end.
 
--spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
-                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
-find_routing_via_devaddr(DevAddr0, Ledger) ->
-    DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
-    case <<DevAddr0:32/integer-unsigned-little>> of
-        <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
-            %% use the subnets
-            {_Name, DB, SubnetCF} = subnets_cf(Ledger),
-            {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-            Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
-            catch rocksdb:iterator_close(Itr),
-            case Dest of
-                error ->
-                    {error, subnet_not_found};
-                _ ->
-                    case find_routing(Dest, Ledger) of
-                        {ok, Route} ->
-                            {ok, [Route]};
-                        Error ->
-                            Error
-                    end
+-spec find_routing_via_subnet(DevAddr :: devaddr(),
+                              Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_subnet(DevAddr, Ledger) ->
+    {ok, NetIDList} = get_netids(Ledger),
+    case lorawan:is_local_devaddr(DevAddr, NetIDList) of
+        true ->
+            SubnetAddr = lorawan:subnet_from_devaddr(DevAddr, NetIDList),
+            Dest = find_dest(SubnetAddr, Ledger),
+            case find_routing(Dest, Ledger) of
+                {ok, Route} ->
+                    {ok, [Route]};
+                Error ->
+                    Error
             end;
-        <<_:25/integer, Prefix:7/integer>> ->
-            {error, {unknown_devaddr_prefix, Prefix}}
+        false ->
+            {error, {unknown_devaddr_prefix, DevAddr}}
     end.
+
+-spec find_dest(Key :: non_neg_integer(),
+                Ledger :: ledger()) -> non_neg_integer() | error.
+find_dest(Key, Ledger) ->
+    %% iterate through the subnets
+    {_Name, DB, SubnetCF} = subnets_cf(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
+    Dest = subnet_lookup(Itr, Key, rocksdb:iterator_move(Itr, {seek_for_prev, <<Key:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+    catch rocksdb:iterator_close(Itr),
+    Dest.
+
+subnet_lookup(Itr, AddrBase, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
+    case (AddrBase band (Mask bsl 2)) == Base of
+        true ->
+            Dest;
+        false ->
+            subnet_lookup(Itr, AddrBase, rocksdb:iterator_move(Itr, prev))
+    end;
+subnet_lookup(_, _, _) ->
+    error.
 
 -spec find_router_ouis(RouterPubkeyBin :: libp2p_crypto:pubkey_bin(),
                        Ledger :: ledger()) -> [non_neg_integer()].
@@ -5241,16 +5280,6 @@ increment_bin(Binary) ->
     NewSize = max(Size, BitsNeeded),
     <<(BinAsInt+1):NewSize/integer-unsigned-big>>.
 
-subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
-    case (DevAddr band (Mask bsl 2)) == Base of
-        true ->
-            Dest;
-        false ->
-            subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, prev))
-    end;
-subnet_lookup(_, _, _) ->
-    error.
-
 %% extract and load section for snapshots.  note that for determinism
 %% reasons, we need to not use maps, but sorted lists
 
@@ -6269,40 +6298,73 @@ subnet_allocation_test() ->
     Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
     Mask64 = blockchain_ledger_routing_v1:subnet_size_to_mask(64),
     {ok, Subnet} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet),
+    Key1 = <<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key1, Subnet),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet, <<1:32/little-unsigned-integer>>, []),
 
     {ok, Subnet2} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<8:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet2),
+    Key2 = <<8:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key2, Subnet2),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<2:32/little-unsigned-integer>>, []),
 
     {ok, Subnet3} = allocate_subnet(32, Ledger),
-    ?assertEqual(<<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet3),
+    Key3 = <<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>,
+    ?assertEqual(Key3, Subnet3),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet3, <<3:32/little-unsigned-integer>>, []),
 
     {ok, Subnet4} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<16:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet4),
+    Key4 = <<16:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key4, Subnet4),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet4, <<4:32/little-unsigned-integer>>, []),
 
     {ok, Subnet5} = allocate_subnet(16, Ledger),
-    ?assertEqual(<<64:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>, Subnet5),
+    Key5 = <<64:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>,
+    ?assertEqual(Key5, Subnet5),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet5, <<5:32/little-unsigned-integer>>, []),
 
     {ok, Subnet6} = allocate_subnet(8, Ledger),
-    ?assertEqual(<<24:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet6),
+    Key6 = <<24:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>,
+    ?assertEqual(Key6, Subnet6),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet6, <<6:32/little-unsigned-integer>>, []),
 
     {ok, Subnet7} = allocate_subnet(16, Ledger),
-    ?assertEqual(<<80:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>, Subnet7),
+    Key7 = <<80:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>,
+    ?assertEqual(Key7, Subnet7),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet7, <<7:32/little-unsigned-integer>>, []),
 
     {ok, Subnet8} = allocate_subnet(64, Ledger),
-    ?assertEqual(<<128:25/integer-unsigned-big, Mask64:23/integer-unsigned-big>>, Subnet8),
+    Key8 = <<128:25/integer-unsigned-big, Mask64:23/integer-unsigned-big>>,
+    ?assertEqual(Key8, Subnet8),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet8, <<8:32/little-unsigned-integer>>, []),
 
     {ok, Subnet9} = allocate_subnet(32, Ledger),
-    ?assertEqual(<<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet9),
+    Key9 = <<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>,
+    ?assertEqual(Key9, Subnet9),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet9, <<9:32/little-unsigned-integer>>, []),
+
+    % R1 = find_dest(Key1, Ledger),
+    % ?assertEqual(<<1:32/little-unsigned-integer>>, R1),
+    % R2 = find_dest(Key2, Ledger),
+    % ?assertEqual(<<2:32/little-unsigned-integer>>, R2),
+    % R3 = find_dest(Key3, Ledger),
+    % ?assertEqual(<<3:32/little-unsigned-integer>>, R3),
+    % R4 = find_dest(Key4, Ledger),
+    % ?assertEqual(<<4:32/little-unsigned-integer>>, R4),
+    % R5 = find_dest(Key5, Ledger),
+    % ?assertEqual(<<5:32/little-unsigned-integer>>, R5),
+    % R6 = find_dest(Key6, Ledger),
+    % ?assertEqual(<<6:32/little-unsigned-integer>>, R6),
+    % R7 = find_dest(Key7, Ledger),
+    % ?assertEqual(<<7:32/little-unsigned-integer>>, R7),
+    % R8 = find_dest(Key8, Ledger),
+    % ?assertEqual(<<8:32/little-unsigned-integer>>, R8),
+    % R9 = find_dest(Key9, Ledger),
+    % ?assertEqual(<<9:32/little-unsigned-integer>>, R9),
+
+    % DevAddr0 = devaddr(16#60002D, 16),
+    % {ok, Dest} = find_routing_via_subnet(DevAddr0, Ledger),
+    % ?assertEqual(<<4:32/little-unsigned-integer>>, Dest),
+
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
