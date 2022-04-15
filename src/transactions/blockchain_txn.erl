@@ -545,14 +545,7 @@ absorb_block(Block, Rescue, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
-            BlockPOCs = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
-            %% for the leading ledger, fire the poc keys event
-            case blockchain_ledger_v1:mode(Ledger) of
-                active ->
-                    ok = blockchain_worker:notify({poc_keys, {Height, Hash, BlockPOCs}});
-                _ ->
-                    ok
-            end,
+            ok = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
             {ok, Chain};
         Error ->
             Error
