@@ -173,6 +173,7 @@ replace(Index, Element, List) ->
     {Head, [_ToRemove|Tail]} = lists:split(Index, List),
     Head ++ [Element] ++ Tail.
 
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------

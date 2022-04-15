@@ -168,8 +168,50 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_routing(), blockchain_ledger_v1:ledger(), pos_integer(), pos_integer(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
-    ?calculate_fee(Txn#blockchain_txn_routing_v1_pb{fee=0, staking_fee = 0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
+calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
+    FeeVersion =
+        case blockchain:config(?txn_routing_update_xor_fees_version, Ledger) of
+            {ok, V} -> V;
+            _ -> 0
+    end,
+    Txn1 = Txn0#blockchain_txn_routing_v1_pb{
+        fee=0,
+        staking_fee = 0,
+        signature = <<0:512>>
+    },
+    case FeeVersion of
+        1 ->
+            case Txn0#blockchain_txn_routing_v1_pb.update of
+                {update_xor, Index, Filter} ->
+                    %% Find out current size at index
+                    %% Get new size
+                    %% calulate diff
+                    OUI = Txn0#blockchain_txn_routing_v1_pb.oui,
+                    OldFilter = 
+                        case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+                            {ok, Routing} ->
+                                Filters = blockchain_ledger_routing_v1:filters(Routing),
+                                %% We do +1 here because Index is "0 indexed"
+                                %% and lists:nth/2 does not support 0
+                                lists:nth(Index+1, Filters);
+                            _Error ->
+                                <<>>
+                        end,
+                    SizeDiff = erlang:byte_size(OldFilter) - erlang:byte_size(Filter),
+                    case SizeDiff < 0 of
+                        true ->
+                            Txn2 = Txn1#blockchain_txn_routing_v1_pb{update= {update_xor, Index, <<>>}},
+                            ?calculate_fee(Txn2, Ledger, DCPayloadSize, TxnFeeMultiplier);
+                        false ->
+                            Txn2 = Txn1#blockchain_txn_routing_v1_pb{update= {update_xor, Index, crypto:strong_rand_bytes(SizeDiff)}},
+                            ?calculate_fee(Txn2, Ledger, DCPayloadSize, TxnFeeMultiplier)
+                    end;
+                _ ->
+                    ?calculate_fee(Txn1, Ledger, DCPayloadSize, TxnFeeMultiplier)
+            end;
+        _ ->
+            ?calculate_fee(Txn1, Ledger, DCPayloadSize, TxnFeeMultiplier )
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
