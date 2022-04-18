@@ -193,6 +193,7 @@ calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
                                 %% and lists:nth/2 does not support 0
                                 lists:nth(Index+1, Filters);
                             _Error ->
+                                lager:error("we failed to get routing info for OUI=~p : ~p", [OUI, _Error]),
                                 <<>>
                         end,
                     SizeDiff = erlang:byte_size(OldFilter) - erlang:byte_size(Filter),
@@ -203,7 +204,7 @@ calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
                             Txn2 = Txn1#blockchain_txn_routing_v1_pb{update= {update_xor, Index, <<>>}},
                             ?calculate_fee(Txn2, Ledger, DCPayloadSize, TxnFeeMultiplier);
                         false ->
-                            Txn2 = Txn1#blockchain_txn_routing_v1_pb{update= {update_xor, Index, crypto:strong_rand_bytes(SizeDiff)}},
+                            Txn2 = Txn1#blockchain_txn_routing_v1_pb{update= {update_xor, Index, <<0:(8*SizeDiff)>>}},
                             ?calculate_fee(Txn2, Ledger, DCPayloadSize, TxnFeeMultiplier)
                     end;
                 _ ->
