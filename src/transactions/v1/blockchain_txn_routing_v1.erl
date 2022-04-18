@@ -183,9 +183,7 @@ calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
         1 ->
             case Txn0#blockchain_txn_routing_v1_pb.update of
                 {update_xor, Index, Filter} ->
-                    %% Find out current size at index
-                    %% Get new size
-                    %% calulate diff
+                    %% Find out current size at index, get new size, calculate diff
                     OUI = Txn0#blockchain_txn_routing_v1_pb.oui,
                     OldFilter = 
                         case blockchain_ledger_v1:find_routing(OUI, Ledger) of
@@ -198,6 +196,8 @@ calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
                                 <<>>
                         end,
                     SizeDiff = erlang:byte_size(OldFilter) - erlang:byte_size(Filter),
+                    %% If diff < 0, meaning that old filter is bigger than new one we set new filter to be empty
+                    %% If diff > 0, we calculate fees base on a random binarey that size
                     case SizeDiff < 0 of
                         true ->
                             Txn2 = Txn1#blockchain_txn_routing_v1_pb{update= {update_xor, Index, <<>>}},
