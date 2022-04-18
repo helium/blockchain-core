@@ -950,10 +950,10 @@ normalize_challenger_rewards(ChallengerRewards,
     TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
     ShareOfDCRemainder =
         case PocChallengerType of
-            gateway ->
-                share_of_dc_rewards(poc_challengers_percent, Vars);
             validator ->
-                0
+                0;
+            _ ->
+                share_of_dc_rewards(poc_challengers_percent, Vars)
         end,
     ChallengersReward = (EpochReward * PocChallengersPercent) + ShareOfDCRemainder,
     maps:fold(
@@ -1591,6 +1591,13 @@ maybe_calc_tx_scale(_Challengee,
 share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
     0;
 share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
+    erlang:round(DCRemainder
+                 * ((maps:get(Key, Vars) /
+                     (maps:get(poc_challengees_percent, Vars)
+                      + maps:get(poc_witnesses_percent, Vars))))
+                );
+share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder,
+                                poc_challenger_type := validator}) ->
     erlang:round(DCRemainder
                  * ((maps:get(Key, Vars) /
                      (maps:get(poc_challengers_percent, Vars)
