@@ -359,7 +359,11 @@ handle_offer(
                             state_channel=PurchaseSC
                         },
                      SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
-                    case ReqDiff andalso CachedSC =/= undefined of
+                    case
+                        ReqDiff
+                        andalso CachedSC =/= undefined
+                        andalso blockchain_state_channel_v1:id(CachedSC) =:= blockchain_state_channel_v1:id(PurchaseSC)
+                    of
                         false ->
                             PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
                             %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
