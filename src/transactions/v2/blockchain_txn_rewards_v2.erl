@@ -943,11 +943,18 @@ poc_challenger_reward(Txn, ChallengerRewards, #{poc_version := Version}) ->
 
 -spec normalize_challenger_rewards( ChallengerRewards :: rewards_share_map(),
                                     Vars :: reward_vars() ) -> rewards_map().
-normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
-                                        poc_challengers_percent := PocChallengersPercent,
-                                        poc_challenger_type := PocChallengerType}=Vars) ->
+normalize_challenger_rewards(ChallengerRewards,
+                             #{epoch_reward := EpochReward,
+                               poc_challengers_percent := PocChallengersPercent,
+                               poc_challenger_type := PocChallengerType}=Vars) ->
     TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
-    ShareOfDCRemainder = share_of_dc_rewards(poc_challengers_percent, Vars),
+    ShareOfDCRemainder =
+        case PocChallengerType of
+            gateway ->
+                share_of_dc_rewards(poc_challengers_percent, Vars);
+            validator ->
+                0
+        end,
     ChallengersReward = (EpochReward * PocChallengersPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Challenger, Challenged, Acc) ->
