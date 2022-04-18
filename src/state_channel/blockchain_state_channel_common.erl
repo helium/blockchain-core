@@ -362,7 +362,7 @@ handle_offer(
                     case
                         ReqDiff
                         andalso CachedSC =/= undefined
-                        andalso blockchain_state_channel_v1:id(CachedSC) =/= blockchain_state_channel_v1:id(PurchaseSC)
+                        andalso blockchain_state_channel_v1:id(CachedSC) =:= blockchain_state_channel_v1:id(PurchaseSC)
                     of
                         false ->
                             PacketHash = blockchain_state_channel_offer_v1:packet_hash(Offer),
