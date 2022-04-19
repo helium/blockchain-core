@@ -1321,8 +1321,10 @@ do_snap_source_download(Url, Filepath) ->
                                           Loop(Ref);
                                       {hackney_response, Ref, {status, 403, _}} ->
                                           throw({error, url_forbidden});
-                                      {hackney_response, Ref, {status, 403, _}} ->
+                                      {hackney_response, Ref, {status, 404, _}} ->
                                           throw({error, url_not_found});
+                                      {hackney_response, Ref, {status, 416, _}} ->
+                                          throw({error, range_out_of_bounds});
                                       {hackney_response, Ref, {status, Status, Response}} ->
                                           throw({error, {Status, Response}});
                                       {hackney_response, Ref, {headers, _Headers}} ->
