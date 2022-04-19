@@ -1590,14 +1590,14 @@ maybe_calc_tx_scale(_Challengee,
 
 share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
     0;
-share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
+share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder,
+                                poc_challenger_type := validator}) ->
     erlang:round(DCRemainder
                  * ((maps:get(Key, Vars) /
                      (maps:get(poc_challengees_percent, Vars)
                       + maps:get(poc_witnesses_percent, Vars))))
                 );
-share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder,
-                                poc_challenger_type := validator}) ->
+share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
     erlang:round(DCRemainder
                  * ((maps:get(Key, Vars) /
                      (maps:get(poc_challengers_percent, Vars)
@@ -2074,21 +2074,17 @@ dc_rewards_v3_spillover_test() ->
     SpilloverChallengeeRewards = normalize_challengee_rewards(SpilloverChallengeeShares, NewVars),
     SpilloverWitnessRewards = normalize_witness_rewards(SpilloverWitnessShares, NewVars),
 
-    ChallengerSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengers_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
-                                                                                                       maps:get(poc_witnesses_percent, Vars) +
-                                                                                                       maps:get(poc_challengers_percent, Vars))))),
+    ChallengerSpilloverAward = 0,
 
     ?assertEqual(#{{validator,poc_challengers,<<"X">>} =>  ChallengersAward + ChallengerSpilloverAward}, SpilloverChallengerRewards), %% entire 15% allocation
     ChallengeeSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengees_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
-                                                                                                       maps:get(poc_witnesses_percent, Vars) +
-                                                                                                       maps:get(poc_challengers_percent, Vars))))),
+                                                                                                       maps:get(poc_witnesses_percent, Vars))))),
     ?assertEqual(#{{gateway,poc_challengees,<<"a">>} => trunc((ChallengeesAward + ChallengeeSpilloverAward) * 4/8), %% 4 of 8 shares of 20% allocation
                    {gateway,poc_challengees,<<"b">>} => trunc((ChallengeesAward + ChallengeeSpilloverAward) * 3/8), %% 3 shares
-                   {gateway,poc_challengees,<<"c">>} => trunc((ChallengeesAward + ChallengeeSpilloverAward) * 1/8)}, %% 1 share
+                   {gateway,poc_challengees,<<"c">>} => round((ChallengeesAward + ChallengeeSpilloverAward) * 1/8)}, %% 1 share
                  SpilloverChallengeeRewards),
     WitnessesSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_witnesses_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
-                                                                                                       maps:get(poc_witnesses_percent, Vars) +
-                                                                                                       maps:get(poc_challengers_percent, Vars))))),
+                                                                                                       maps:get(poc_witnesses_percent, Vars))))),
     ?assertEqual(#{{gateway,poc_witnesses,<<"c">>} => WitnessesAward + WitnessesSpilloverAward}, %% entire 15% allocation
                  SpilloverWitnessRewards),
     test_utils:cleanup_tmp_dir(BaseDir).
