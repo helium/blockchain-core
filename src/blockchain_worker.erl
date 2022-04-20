@@ -774,7 +774,7 @@ integrate_genesis_block_(
         true ->
             ok = blockchain:integrate_genesis(GenesisBlock, Chain),
             Ledger = blockchain:ledger(Chain),
-            mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
+            blockchain:mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
             [ConsensusAddrs] =
                 [
                     blockchain_txn_consensus_group_v1:members(T)
