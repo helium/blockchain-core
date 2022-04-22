@@ -690,24 +690,10 @@ process_hooks(Vars, Unsets, Ledger) ->
 var_hook(?poc_targeting_version, 6, Ledger) ->
     %% purge any active POCs
     purge_pocs(Ledger),
-    %% build the h3dex lookup
-    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
-    blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
     ok;
 var_hook(?poc_targeting_version, 5, Ledger) ->
     %% purge any active POCs
     purge_pocs(Ledger),
-    %% v3 targeting enabled, remove the h3dex lookup
-    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
-    ok;
-var_hook(?poc_targeting_version, 4, Ledger) ->
-    %% v4 targeting enabled, build the h3dex lookup
-    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
-    blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
-    ok;
-var_hook(?poc_targeting_version, 3, Ledger) ->
-    %% v3 targeting enabled, remove the h3dex lookup
-    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
     ok;
 var_hook(?poc_target_hex_parent_res, Value, Ledger) ->
     %% targeting resolution changed, rebuild h3dex lookup
@@ -720,6 +706,9 @@ var_hook(?poc_hexing_type, h3dex, Ledger) ->
     ok;
 var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
     %% rebuild hexes since we're back to updating them
+    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
+    blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
+    blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
     blockchain:bootstrap_hexes(Ledger),
     ok;
 %% poc challenger type has been modified
