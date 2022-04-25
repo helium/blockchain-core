@@ -66,8 +66,14 @@ gateways_for_zone(
             case choose_zone(HexRandState, HexList) of
                 {error, _} = ErrorResp -> ErrorResp;
                 {ok, New} ->
-                    %% remove Hex from attempted, add New to attempted and retry
-                    gateways_for_zone(ChallengerPubkeyBin, Ledger, Vars, HexList, [New | Tail])
+                    case (length(_Attempted) + 1) =< length(HexList)  of
+                        true ->
+                            %% remove Hex from attempted, add New to attempted and retry
+                            gateways_for_zone(ChallengerPubkeyBin, Ledger, Vars, HexList, [New | Tail]);
+                        false ->
+                            %% we have exhausted our search, no gateways found
+                            {ok, []}
+                    end
             end
 
 
@@ -106,7 +112,7 @@ target(ChallengerPubkeyBin, InitTargetRandState, ZoneRandState, Ledger, Vars) ->
     HexList :: [h3:h3_index()],
     InitHex :: h3:h3_index(),
     InitHexRandState :: rand:state()
-) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
+) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}} | {error, any()}.
 target_(
     ChallengerPubkeyBin,
     InitTargetRandState,
@@ -116,24 +122,30 @@ target_(
     InitHex,
     InitHexRandState
 ) ->
-    {ok, ZoneGWs} = gateways_for_zone(ChallengerPubkeyBin, Ledger, Vars, HexList, [
-        {InitHex, InitHexRandState}
-    ]),
-    %% Assign probabilities to each of these gateways
-    Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
-    ProbTargets = lists:map(
-        fun(A) ->
-            {A, Prob}
-        end,
-        ZoneGWs),
-    %% Sort the scaled probabilities in default order by gateway pubkey_bin
-    %% make sure that we carry the rand_state through for determinism
-    {RandVal, TargetRandState} = rand:uniform_s(InitTargetRandState),
-    {ok, TargetPubkeybin} = blockchain_utils:icdf_select(
-        lists:keysort(1, ProbTargets),
-        RandVal
-    ),
-    {ok, {TargetPubkeybin, TargetRandState}}.
+    case gateways_for_zone(ChallengerPubkeyBin,
+        Ledger, Vars, HexList, [{InitHex, InitHexRandState}]) of
+
+        {ok, []} ->
+            {error, no_gateways_found};
+        {ok, ZoneGWs} ->
+            %% Assign probabilities to each of these gateways
+            Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
+            ProbTargets = lists:map(
+                fun(A) ->
+                    {A, Prob}
+                end,
+                ZoneGWs),
+            %% Sort the scaled probabilities in default order by gateway pubkey_bin
+            %% make sure that we carry the rand_state through for determinism
+            {RandVal, TargetRandState} = rand:uniform_s(InitTargetRandState),
+            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(
+                lists:keysort(1, ProbTargets),
+                RandVal
+            ),
+            {ok, {TargetPubkeybin, TargetRandState}}
+        end.
+
+
 
 %% @doc Filter gateways based on these conditions:
 %% - gateways which do not have the relevant capability
