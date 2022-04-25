@@ -151,8 +151,7 @@ filter(AddrList, Ledger, Height, Vars) ->
         end,
     lists:filter(
         fun(A) ->
-            {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
-            Mode = blockchain_ledger_gateway_v2:mode(Gateway),
+            {ok, Mode} = blockchain_ledger_v1:find_gateway_mode(A, Ledger),
             is_active(ActivityFilterEnabled, A, Height, Vars, Ledger) andalso
                 blockchain_ledger_gateway_v2:is_valid_capability(
                     Mode,
