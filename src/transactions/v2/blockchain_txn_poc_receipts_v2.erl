@@ -187,7 +187,6 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    BlockHash = ?MODULE:block_hash(Txn),
     POCID = ?MODULE:poc_id(Txn),
     StartPre = maybe_start_duration(),
     case blockchain_ledger_v1:find_public_poc(POCOnionKeyHash, Ledger) of
@@ -198,10 +197,12 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
             Error;
         {ok, PoC} ->
             Secret = ?MODULE:secret(Txn),
-            case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
-                false ->
-                    {error, invalid_poc};
-                true ->
+            Keys = libp2p_crypto:keys_from_bin(Secret),
+            case verify_poc_details(Txn, PoC, Keys) of
+                {error, _Reason} = Error ->
+                    lager:debug("invalid poc ~p. Reason ~p", [POCOnionKeyHash, _Reason]),
+                    Error;
+                ok ->
                     PrePocBlockHeight = blockchain_ledger_poc_v3:start_height(PoC),
                     case blockchain:get_block_info(PrePocBlockHeight, Chain) of
                         {error, Reason}=Error ->
@@ -216,7 +217,6 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
                             StartFT = maybe_log_duration(ledger_at, StartLA),
                             Vars = vars(OldLedger),
-                            Keys = libp2p_crypto:keys_from_bin(Secret),
                             Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
                             {Path, StartP} = get_path(POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
                             N = erlang:length(Path),
@@ -303,6 +303,7 @@ connections(Txn) ->
                                           blockchain_poc_witness_v1:timestamp(Witness)}
                                   end, blockchain_poc_path_element_v1:witnesses(PathElement)) ++ Acc
                 end, [], TaggedPaths).
+
 
 -spec poc_particpants(Txn :: txn_poc_receipts(),
                       Chain :: blockchain:blockchain()) -> [libp2p_crypto:pubkey_bin()].
@@ -1171,6 +1172,38 @@ poc_version(Ledger) ->
     case blockchain:config(?poc_version, Ledger) of
         {error, not_found} -> 0;
         {ok, V} -> V
+    end.
+
+-spec verify_poc_details(
+    Txn :: txn_poc_receipts(),
+    PoC :: blockchain_ledger_poc_v3:poc(),
+    Keys :: map()
+) -> ok | {error, atom()}.
+verify_poc_details(Txn, PoC, Keys) ->
+    %% verify the secret (pub and priv keys) submitted by the challenger
+    %% are a valid key pair
+    %% to do this sign a msg with the priv key and verify its sig with
+    %% the pub key
+    %% we also verify the hash of the pub key matches the onion key hash
+    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    BlockHash = ?MODULE:block_hash(Txn),
+    Challenger = ?MODULE:challenger(Txn),
+    #{public := PubKey, secret := PrivKey} = Keys,
+    OnionHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(PubKey)),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SignedPayload = SigFun(OnionHash),
+    case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
+        false -> {error, mismatched_poc};
+        true ->
+            case POCOnionKeyHash == OnionHash of
+                false -> {error, mismatched_onion_key_hash};
+                true ->
+                    case libp2p_crypto:verify(OnionHash, SignedPayload, PubKey) of
+                        false -> {error, invalid_secret};
+                        true -> ok
+                    end
+
+            end
     end.
 
 %% ------------------------------------------------------------------
