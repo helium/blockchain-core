@@ -445,7 +445,6 @@ absorb(_POCVersion, Txn, Chain) ->
                        lager:warning("potential replay: ~p not found", [OnionKeyHash]),
                        throw(replay)
                end,
-        lager:info("POC POC POC ~p", [PoC]),
         case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
             false ->
                 {error, invalid_poc};
@@ -455,7 +454,7 @@ absorb(_POCVersion, Txn, Chain) ->
                 case blockchain:config(?poc_activity_filter_enabled, Ledger) of
                     {ok, true} ->
                         Participants = poc_particpants(Txn, Chain),
-                        lager:info("receipt txn poc participants: ~p", [Participants]),
+                        lager:debug("receipt txn poc participants: ~p", [Participants]),
                         [update_participant_gateway(GWAddr, Height, Ledger) || GWAddr <- Participants];
                     _ ->
                         ok
