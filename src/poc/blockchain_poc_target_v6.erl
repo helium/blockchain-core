@@ -45,7 +45,34 @@ gateways_for_zone(
     Ledger,
     Vars,
     HexList,
-    [{Hex, HexRandState0} | Tail] = _Attempted
+    Attempted
+) ->
+    gateways_for_zone(ChallengerPubkeyBin,Ledger,Vars,HexList,Attempted, 20).
+
+-spec gateways_for_zone(
+    ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
+    Ledger :: blockchain_ledger_v1:ledger(),
+    Vars :: map(),
+    HexList :: [h3:h3_index()],
+    Attempted :: [{h3:h3_index(), rand:state()}],
+    NumAttempts :: integer()
+) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
+gateways_for_zone(
+    _ChallengerPubkeyBin,
+    _Ledger,
+    _Vars,
+    _HexList,
+    _Attempted,
+    0
+)->
+    {ok, []};
+gateways_for_zone(
+    ChallengerPubkeyBin,
+    Ledger,
+    Vars,
+    HexList,
+    [{Hex, HexRandState0} | Tail] = _Attempted,
+    NumAttempts
 ) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% Get a list of gateway pubkeys within this hex
@@ -66,17 +93,9 @@ gateways_for_zone(
             case choose_zone(HexRandState, HexList) of
                 {error, _} = ErrorResp -> ErrorResp;
                 {ok, New} ->
-                    case (length(_Attempted) + 1) =< length(HexList)  of
-                        true ->
-                            %% remove Hex from attempted, add New to attempted and retry
-                            gateways_for_zone(ChallengerPubkeyBin, Ledger, Vars, HexList, [New | Tail]);
-                        false ->
-                            %% we have exhausted our search, no gateways found
-                            {ok, []}
-                    end
+                    %% remove Hex from attempted, add New to attempted and retry
+                    gateways_for_zone(ChallengerPubkeyBin, Ledger, Vars, HexList, [New | Tail], NumAttempts - 1)
             end
-
-
     end.
 
 -spec target(
