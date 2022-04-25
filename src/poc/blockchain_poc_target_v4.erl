@@ -102,7 +102,7 @@ hex_list(Ledger, RandState, HexCount, Acc) ->
     case blockchain_ledger_v1:count_gateways_in_hex(Hex, Ledger) of
         0 ->
             %% this should not happen, but handle it anyway
-            hex_list(Ledger, NewRandState, HexCount, Acc);
+            hex_list(Ledger, NewRandState, HexCount - 1, Acc);
         GWCount ->
             hex_list(Ledger, NewRandState, HexCount - 1, [{Hex, GWCount}|Acc])
     end.
