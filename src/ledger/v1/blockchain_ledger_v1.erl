@@ -78,6 +78,7 @@
     update_gateway_oui/4,
     gateway_count/1,
     gateway_update_challenge/5,
+    reactivate_gateway/4,
 
     find_pocs/2,
     find_poc/3,
@@ -2087,6 +2088,27 @@ gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
     Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
     ok = update_gateway(Gw0, Gw3, Challenger, Ledger).
+
+-spec reactivate_gateway(
+    Height :: pos_integer(),
+    GW0 :: blockchain_ledger_gateway_v2:gateway(),
+    GWAddr :: libp2p_crypto:pubkey_bin(),
+    Ledger :: ledger()
+) ->
+    ok.
+reactivate_gateway(Height, Gw0, GWAddr, Ledger) ->
+    lager:debug("reactivating gw at height ~p for gateway ~p", [Height, GWAddr]),
+    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height, Gw0),
+    case ?MODULE:config(?poc_hexing_type, Ledger) of
+        X when X == {ok, hex_h3dex};
+               X == {ok, h3dex} ->
+            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+            Location = blockchain_ledger_gateway_v2:location(Gw0),
+            add_gw_to_h3dex(Location, GWAddr, Res, Ledger);
+        _ ->
+            ok
+    end,
+    ok = update_gateway(Gw0, Gw1, GWAddr, Ledger).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
@@ -4844,36 +4866,32 @@ maybe_gc_h3dex(Ledger) ->
             %% from the current block (which are sorted by *challenger* and GC the
             %% hexes the *challengee* is in.
             {ok, Height} = current_height(Ledger),
-            case Height > 1 of
-                false -> ok;
-                true ->
-                    %% If we can't get the block, we will just crash here
-                    {ok, Block} = get_block(Height, Ledger),
-                    {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
-                    RandState = blockchain_utils:rand_from_hash(BlockHash),
-                    RequestFilter = fun(T) ->
-                                            blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
-                                            orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
-                                    end,
-                    case blockchain_utils:find_txn(Block, RequestFilter) of
-                        [] ->
-                            %% no receipts, don't do any GC
-                            ok;
-                        Txns ->
-                            %% take the first `Width` receipts and GC the parent hexes of the challengees
-                            {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
-                            lists:foreach(fun(T) ->
-                                                  ReceiptType = blockchain_txn:type(T),
-                                                  Path = ReceiptType:path(T),
-                                                  Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
-                                                  case find_gateway_location(Challengee, Ledger) of
-                                                      {ok, Location} ->
-                                                          gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
-                                                      _ ->
-                                                          ok
-                                                  end
-                                          end, Selected)
-                    end
+            %% If we can't get the block, we will just crash here
+            {ok, Block} = get_block(Height, Ledger),
+            {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
+            RandState = blockchain_utils:rand_from_hash(BlockHash),
+            RequestFilter = fun(T) ->
+                                    blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
+                                    orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
+                            end,
+            case blockchain_utils:find_txn(Block, RequestFilter) of
+                [] ->
+                    %% no receipts, don't do any GC
+                    ok;
+                Txns ->
+                    %% take the first `Width` receipts and GC the parent hexes of the challengees
+                    {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
+                    lists:foreach(fun(T) ->
+                                          ReceiptType = blockchain_txn:type(T),
+                                          Path = ReceiptType:path(T),
+                                          Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+                                          case find_gateway_location(Challengee, Ledger) of
+                                              {ok, Location} ->
+                                                  gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
+                                              _ ->
+                                                  ok
+                                          end
+                                  end, Selected)
             end;
         _ ->
             ok

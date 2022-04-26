@@ -219,4 +219,4 @@ is_active(_, _Gateway, _Height, _Vars, _Ledger) ->
 
 -spec max_activity_age(Vars :: map()) -> pos_integer().
 max_activity_age(Vars) ->
-    maps:get(poc_v4_target_challenge_age, Vars).
+    maps:get(hip17_interactivity_blocks, Vars).

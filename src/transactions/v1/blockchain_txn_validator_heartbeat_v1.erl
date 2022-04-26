@@ -255,14 +255,12 @@ to_json(Txn, _Opts) ->
 
 reactivate_gws(GWAddrs, Height, Ledger) ->
     lists:foreach(
-        fun(GW) ->
-            case blockchain_ledger_v1:find_gateway_info(GW, Ledger) of
+        fun(GWAddr) ->
+            case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
                 {error, _} ->
                     {error, no_active_gateway};
-                {ok, Gw0} ->
-                    lager:debug("reactivating gw at height ~p for gateway ~p", [Height, GW]),
-                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height, Gw0),
-                    ok = blockchain_ledger_v1:update_gateway(Gw0, Gw1, GW, Ledger)
+                {ok, GW0} ->
+                    blockchain_ledger_v1:reactivate_gateway(Height, GW0, GWAddr, Ledger)
             end
         end, GWAddrs).
 
