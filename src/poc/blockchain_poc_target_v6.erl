@@ -83,17 +83,7 @@ gateways_for_zone(
     %% Limit max number of potential targets in the zone
     {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
 
-    %%
-    %% TODO: hip54 states there will be no need to perform activity filtering in h3dex
-    %% but yet we have it in here
-    %% Do we want to keep it ?
-    %% If we remove it then GWs will be available for POC until they are removed
-    %% via the ledger GC run
-    %% We dont yet know how long it wil take for that GC to do a full sweep over GWs
-    %% so maybe there is still value in filtering inactive GWs here
-    %% in this version if we do hit an inactive GW the filter will GC it from h3dex
-    %% which reduces the load on any next target run
-    %%
+    %% filter the selected hex
     case filter(AddrList, Height, Ledger) of
         FilteredList when length(FilteredList) >= 1 ->
             lager:debug("*** filtered gateways for hex ~p: ~p", [Hex, FilteredList]),
