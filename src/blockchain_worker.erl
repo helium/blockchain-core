@@ -92,7 +92,6 @@
           etag = undefined :: undefined | string(),
           file_hash = undefined :: undefined | binary(),
           file_size = undefined :: undefined | pos_integer(),
-          is_compressed = false :: boolean(),
           last_success = 0 :: non_neg_integer(), %% posix time of last successful download
           download_attempts = 0 :: non_neg_integer()
          }).
@@ -1151,36 +1150,17 @@ get_latest_snap_data(URL, SnapInfo) ->
                with_body],
     case hackney:request(get, URL ++ "/latest-snap.json", ReqHeaders, <<>>, Options) of
         {ok, 200, RespHeaders, Body} ->
-            Data = #{<<"height">> := Height,
-              <<"hash">> := B64Hash} = jsx:decode(Body, [{return_maps, true}]),
+            #{<<"height">> := Height,
+              <<"hash">> := B64Hash,
+              <<"compressed_hash">> := FHash,
+              <<"compressed_size">> := FSz} = jsx:decode(Body, [{return_maps, true}]),
             Hash = base64url:decode(B64Hash),
-            MaybeFileHash = case maps:get(<<"file_hash">>, Data, undefined) of
-                                undefined -> undefined;
-                                B64FileHash -> base64url:decode(B64FileHash)
-                            end,
-            MaybeFileSize = case maps:get(<<"file_size">>, Data, undefined) of
-                                undefined -> undefined;
-                                Sz -> Sz
-                            end,
-            MaybeCompressedSize = case maps:get(<<"compressed_size">>, Data, undefined) of
-                                      undefined -> undefined;
-                                      CSz -> CSz
-                                  end,
-            MaybeCompressedHash = case maps:get(<<"compressed_hash">>, Data, undefined) of
-                                      undefined -> undefined;
-                                      B64CHash -> base64url:decode(B64CHash)
-                                  end,
             NewEtag = get_etag(RespHeaders),
-            lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, compressed size: ~p, compressed hash: ~p, new etag: ~p",
-                        [Etag, Height, B64Hash, MaybeFileHash, MaybeFileSize,
-                         MaybeCompressedSize, MaybeCompressedHash, NewEtag]),
-            {IsCompressed, FHash, FSz} = case MaybeCompressedHash of
-                               undefined -> {false, MaybeFileHash, MaybeFileSize};
-                               _ -> {true, MaybeCompressedHash, MaybeCompressedSize}
-                           end,
+            lager:debug("new latest-json data: previous etag: ~p; height: ~p, internal snapshot hash: ~p, file hash: ~p, file size: ~p, new etag: ~p",
+                        [Etag, Height, B64Hash, FHash, FSz, NewEtag]),
             SnapInfo#snapshot_info{height=Height, hash=Hash,
                                    file_hash=FHash, file_size=FSz,
-                                   is_compressed=IsCompressed, etag=NewEtag};
+                                   etag=NewEtag};
         {ok, 304, _RespHeaders, _Body} ->
             lager:debug("Got 304 from ~p; latest-snap.json has not been modified", [URL]),
             SnapInfo;
@@ -1203,15 +1183,13 @@ build_filename(Height) ->
 build_url(BaseUrl, Filename) ->
     BaseUrl ++ "/" ++ Filename.
 
-set_filename(BaseFilename, true) ->
-    BaseFilename ++ ".gz";
-set_filename(BaseFilename, false) ->
-    BaseFilename.
+set_filename(BaseFilename) ->
+    BaseFilename ++ ".gz".
 
 attempt_fetch_snap_source_snapshot(BaseUrl, #snapshot_info{height = Height, file_hash = Hash,
-                                                           file_size = Size, is_compressed = IsCompressed}) ->
+                                                           file_size = Size}) ->
     %% httpc and ssl applications are started in the top level blockchain supervisor
-    Filename = set_filename(build_filename(Height), IsCompressed),
+    Filename = set_filename(build_filename(Height)),
     HashFilename = Filename ++ ".hash",
     BaseDir = application:get_env(blockchain, base_dir, "data"),
     Filepath = filename:join([BaseDir, "snap", Filename]),
