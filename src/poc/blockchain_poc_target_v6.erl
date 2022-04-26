@@ -94,7 +94,7 @@ gateways_for_zone(
     %% in this version if we do hit an inactive GW the filter will GC it from h3dex
     %% which reduces the load on any next target run
     %%
-    case filter(AddrList, Hex, Height, Ledger) of
+    case filter(AddrList, Height, Ledger) of
         FilteredList when length(FilteredList) >= 1 ->
             lager:debug("*** filtered gateways for hex ~p: ~p", [Hex, FilteredList]),
             {ok, FilteredList};
@@ -183,52 +183,31 @@ target_(
 %% - gateways which are inactive
 -spec filter(
     AddrList :: [libp2p_crypto:pubkey_bin()],
-    Hex :: h3:h3_index(),
     Height :: non_neg_integer(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> [libp2p_crypto:pubkey_bin()].
-filter(AddrList, Hex, Height, Ledger) ->
+filter(AddrList, Height, Ledger) ->
     ActivityFilterEnabled =
         case blockchain:config(poc_activity_filter_enabled, Ledger) of
             {ok, V} -> V;
             _ -> false
         end,
     {ok, MaxActivityAge} = blockchain:config(hip17_interactivity_blocks, Ledger),
-    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-    L1 = blockchain_ledger_v1:new_context(Ledger),
-    FilteredGWs =
-        lists:foldl(
-            fun(A, Acc) ->
-                {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, L1),
+
+    lists:filter(
+            fun(A) ->
+                {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
                 Mode = blockchain_ledger_gateway_v2:mode(Gateway),
                 LastActivity = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
-                case is_active(ActivityFilterEnabled, LastActivity, MaxActivityAge, Height) of
-                    true ->
-                        case blockchain_ledger_gateway_v2:is_valid_capability(
-                            Mode,
-                            ?GW_CAPABILITY_POC_CHALLENGEE,
-                            L1
-                        ) of
-                            true ->
-                                [A | Acc];
-                            false ->
-                                Acc
-                        end;
-                    false ->
-                        %% If the GW is inactive then remove it from the h3dex
-                        %% so as to avoid having to iterate over it again later
-                        %% if it becomes active again it will be re-added
-                        %% via its durable validator heartbeat reactivation mechanism
-                        %% NOTE: the GW will eventually be GCed irrespective of what we do here
-                        %% but GCing it here keeps the h3dex more current
-                        _ = blockchain_ledger_v1:remove_gw_from_h3dex(Hex, A, Res, L1),
-                        Acc
-                end
-            end, [],
+                 is_active(ActivityFilterEnabled, LastActivity, MaxActivityAge, Height) andalso
+                    blockchain_ledger_gateway_v2:is_valid_capability(
+                        Mode,
+                        ?GW_CAPABILITY_POC_CHALLENGEE,
+                        Ledger
+                    )
+            end,
             AddrList
-        ),
-    _ = blockchain_ledger_v1:commit_context(L1),
-    FilteredGWs.
+        ).
 
 %%%-------------------------------------------------------------------
 %% Helpers
