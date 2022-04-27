@@ -78,6 +78,7 @@
     update_gateway_oui/4,
     gateway_count/1,
     gateway_update_challenge/5,
+    reactivate_gateway/4,
 
     find_pocs/2,
     find_poc/3,
@@ -2087,6 +2088,27 @@ gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
     Gw3 = blockchain_ledger_gateway_v2:version(Version, Gw2),
     ok = update_gateway(Gw0, Gw3, Challenger, Ledger).
+
+-spec reactivate_gateway(
+    Height :: pos_integer(),
+    GW0 :: blockchain_ledger_gateway_v2:gateway(),
+    GWAddr :: libp2p_crypto:pubkey_bin(),
+    Ledger :: ledger()
+) ->
+    ok.
+reactivate_gateway(Height, Gw0, GWAddr, Ledger) ->
+    lager:debug("reactivating gw at height ~p for gateway ~p", [Height, GWAddr]),
+    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height, Gw0),
+    case ?MODULE:config(?poc_hexing_type, Ledger) of
+        X when X == {ok, hex_h3dex};
+               X == {ok, h3dex} ->
+            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+            Location = blockchain_ledger_gateway_v2:location(Gw0),
+            add_gw_to_h3dex(Location, GWAddr, Res, Ledger);
+        _ ->
+            ok
+    end,
+    ok = update_gateway(Gw0, Gw1, GWAddr, Ledger).
 
 -spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 delete_poc(OnionKeyHash, Challenger, Ledger) ->
@@ -4832,7 +4854,7 @@ maybe_gc_h3dex(Ledger) ->
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, Width} ->
             InactivityThreshold =
-              case ?MODULE:config(?hip17_interactivity_blocks, Ledger) of
+              case ?MODULE:config(?poc_v4_target_challenge_age, Ledger) of
                 {ok, InActV} -> InActV;
                 _ -> 10
               end,
