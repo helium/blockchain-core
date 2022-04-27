@@ -53,7 +53,7 @@
 
 -type state() :: #state{}.
 -type stream_key() :: non_neg_integer() | string().
--type stream_val() :: undefined | dialing | {unverified, pid()} | pid().
+-type stream_val() :: undefined |  {unverified, dialing | pid()} | pid().
 -type streams() :: #{stream_key() => stream_val()}.
 -type waiting_packet() :: {Packet :: blockchain_helium_packet_v1:packet(), Region :: atom(), ReceivedTime :: non_neg_integer()}.
 -type waiting_key() :: non_neg_integer() | string().
@@ -395,12 +395,10 @@ handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm_tid=
                                 lager:debug("stream undef dialing first, address: ~p", [Address]),
                                 ok = dial(SCClientTransportHandler, SwarmTID, RouteOrAddress),
                                 add_packet_to_waiting(Address, {Packet, Region, ReceivedTime}, add_stream(Address, dialing, StateAcc));
-                            dialing ->
-                                lager:debug("stream is still dialing queueing packet, address: ~p", [Address]),
-                                add_packet_to_waiting(Address, {Packet, Region, ReceivedTime}, StateAcc);
                             {unverified, _Stream} ->
                                 %% queue it until we get a banner
-                                lager:debug("unverified stream, add_packet_to_waiting, address: ~p", [Address]),
+                                %% this stream could be a pid or could still be `dialing'
+                                lager:debug("unverified stream ~p, add_packet_to_waiting, address: ~p", [_Stream, Address]),
                                 add_packet_to_waiting(Address, {Packet, Region, ReceivedTime}, StateAcc);
                             Stream ->
                                 lager:debug("stream ~p, send_packet_when_v1, address: ~p", [Stream, Address]),
@@ -412,12 +410,10 @@ handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, #state{swarm_tid=
                                 lager:debug("stream undef dialing first, oui: ~p", [OUI]),
                                 ok = dial(SCClientTransportHandler, SwarmTID, RouteOrAddress),
                                 add_packet_to_waiting(OUI, {Packet, Region, ReceivedTime}, add_stream(OUI, dialing, StateAcc));
-                            dialing ->
-                                lager:debug("stream is still dialing queueing packet, oui: ~p", [OUI]),
-                                add_packet_to_waiting(OUI, {Packet, Region, ReceivedTime}, StateAcc);
                             {unverified, _Stream} ->
                                 %% queue it until we get a banner
-                                lager:debug("unverified stream, add_packet_to_waiting, oui: ~p", [OUI]),
+                                %% this stream could be a pid or could still be `dialing'
+                                lager:debug("unverified stream ~p, add_packet_to_waiting, oui: ~p", [_Stream, OUI]),
                                 add_packet_to_waiting(OUI, {Packet, Region, ReceivedTime}, StateAcc);
                             Stream ->
                                 lager:debug("got stream: ~p, send_packet_or_offer, oui: ~p", [Stream, OUI]),
