@@ -321,7 +321,15 @@ calculate_rewards_metadata(Start, End, Chain) ->
         %% We only want to fold over the blocks and transaction in an epoch once,
         %% so we will do that top level work here. If we get a thrown error while
         %% we are folding, we will abort reward calculation.
-        PerfTab = ets:new(rwd_perf, [named_table]),
+        Me = self(),
+        PerfTab =
+            case application:get_env(blockchain, print_rewards_perf, false) of
+                true ->
+                    PT = ets:new(rwd_perf, []),
+                    erlang:put({Me, '$rwd_perf'}, PT),
+                    PT;
+                _ -> ok
+            end,
         Results0 = fold_blocks_for_rewards(Start, End, Chain,
                                            Vars, Ledger, AccInit),
 
@@ -349,7 +357,8 @@ calculate_rewards_metadata(Start, End, Chain) ->
             _ -> ok
         end,
         perf_report(PerfTab),
-        ets:delete(PerfTab),
+        catch ets:delete(PerfTab),
+        erlang:erase({Me, '$rwd_perf'}),
         {ok, Results}
     catch
         C:Error:Stack ->
@@ -358,7 +367,13 @@ calculate_rewards_metadata(Start, End, Chain) ->
     end.
 
 perf(Tag, Time) ->
-    catch ets:update_counter(rwd_perf, Tag, Time, {Tag, Time}).
+    Me = self(),
+    case erlang:get({Me, '$rwd_perf'}) of
+        undefined ->
+            ok;
+        Tab ->
+            catch ets:update_counter(Tab, Tag, Time, {Tag, Time})
+    end.
 
 perf_report(Tab) ->
     case application:get_env(blockchain, print_rewards_perf, false) of
