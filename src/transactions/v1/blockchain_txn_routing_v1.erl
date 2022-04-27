@@ -197,7 +197,7 @@ calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
                                 lager:error("we failed to get routing info for OUI=~p : ~p", [OUI, _Error]),
                                 <<>>
                         end,
-                    SizeDiff = erlang:byte_size(OldFilter) - erlang:byte_size(Filter),
+                    SizeDiff = erlang:byte_size(Filter) - erlang:byte_size(OldFilter),
                     %% If diff =< 0, meaning that old filter is bigger than new one we set new filter to be empty
                     %% If diff > 0, we calculate fees based on a random binary of same size
                     case SizeDiff =< 0 of
@@ -663,8 +663,10 @@ calculate_fee_test_() ->
             Nonce = 1,
             Txn = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor, Nonce),
 
+            %% Testing legacy path
             ?assertEqual(?LEGACY_TXN_FEE, calculate_fee(Txn, ledger, 1, 1, false)),
 
+            %% Testing old version (pay for full xor size)
             ?assertEqual(313, calculate_fee(Txn, ledger, 1, 1, true)),
 
             %% Set txn_routing_update_xor_fees_version to 1
@@ -672,7 +674,14 @@ calculate_fee_test_() ->
                 {ok, 1}
             end),
 
-            ?assertEqual(108, calculate_fee(Txn, ledger, 1, 1, true)),
+            %% Testing with version 1 (pay for diff of xor size)
+            ?assertEqual(211, calculate_fee(Txn, ledger, 1, 1, true)),
+
+            Xor1 = crypto:strong_rand_bytes(50),
+            Txn1 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor1, Nonce),
+
+            %% Testing with smaller xor
+            ?assertEqual(108, calculate_fee(Txn1, ledger, 1, 1, true)),
 
             meck:unload(blockchain_ledger_v1),
             meck:unload(blockchain),
