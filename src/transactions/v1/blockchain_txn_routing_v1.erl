@@ -683,6 +683,13 @@ calculate_fee_test_() ->
             %% Testing with smaller xor
             ?assertEqual(108, calculate_fee(Txn1, ledger, 1, 1, true)),
 
+            Xor2 = crypto:strong_rand_bytes(102),
+            Txn2 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor2, Nonce),
+
+            %% Testing with small update to show price diff with previous version
+            %% 112 compare to > 300
+            ?assertEqual(112, calculate_fee(Txn2, ledger, 1, 1, true)),
+
             meck:unload(blockchain_ledger_v1),
             meck:unload(blockchain),
             ok
