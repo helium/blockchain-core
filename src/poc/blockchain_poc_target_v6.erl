@@ -182,7 +182,7 @@ filter(AddrList, Height, Ledger) ->
             {ok, V} -> V;
             _ -> false
         end,
-    {ok, MaxActivityAge} = blockchain:config(hip17_interactivity_blocks, Ledger),
+    {ok, MaxActivityAge} = blockchain:config(poc_v4_target_challenge_age, Ledger),
 
     lists:filter(
             fun(A) ->

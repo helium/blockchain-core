@@ -4854,7 +4854,7 @@ maybe_gc_h3dex(Ledger) ->
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, Width} ->
             InactivityThreshold =
-              case ?MODULE:config(?hip17_interactivity_blocks, Ledger) of
+              case ?MODULE:config(?poc_v4_target_challenge_age, Ledger) of
                 {ok, InActV} -> InActV;
                 _ -> 10
               end,
