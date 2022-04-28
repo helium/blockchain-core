@@ -392,6 +392,9 @@
 %%  - 1 :: accept first dispute, drop all DC from opener, no rewards
 -define(sc_dispute_strategy_version, sc_dispute_strategy_version).
 
+%% Txn Routing Xor Filter Fee calculation var HIP-XXX
+-define(txn_routing_update_xor_fees_version, txn_routing_update_xor_fees_version).
+
 %% ------------------------------------------------------------------
 %% snapshot vars
 

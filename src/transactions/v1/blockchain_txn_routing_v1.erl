@@ -168,8 +168,56 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_routing(), blockchain_ledger_v1:ledger(), pos_integer(), pos_integer(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
-    ?calculate_fee(Txn#blockchain_txn_routing_v1_pb{fee=0, staking_fee = 0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
+calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
+    FeeVersion =
+        case blockchain:config(?txn_routing_update_xor_fees_version, Ledger) of
+            {ok, V} -> V;
+            _ -> 0
+    end,
+    Txn1 = Txn0#blockchain_txn_routing_v1_pb{
+        fee=0,
+        staking_fee = 0,
+        signature = <<0:512>>
+    },
+    case FeeVersion of
+        1 ->
+            Action = ?MODULE:action(Txn1),
+            case Action of
+                {update_xor, Index, Filter} ->
+                    %% Find out current size at index, get new size, calculate diff
+                    OUI = Txn0#blockchain_txn_routing_v1_pb.oui,
+                    OldFilter = 
+                        case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+                            {ok, Routing} ->
+                                Filters = blockchain_ledger_routing_v1:filters(Routing),
+                                %% We do +1 here because Index is "0 indexed"
+                                %% and lists:nth/2 does not support 0
+                                lists:nth(Index+1, Filters);
+                            _Error ->
+                                lager:error("we failed to get routing info for OUI=~p : ~p", [OUI, _Error]),
+                                <<>>
+                        end,
+                    SizeDiff = erlang:byte_size(Filter) - erlang:byte_size(OldFilter),
+                    %% If diff =< 0, meaning that old filter is bigger than new one we set new filter to be empty
+                    %% If diff > 0, we calculate fees based on a random binary of same size
+                    case SizeDiff =< 0 of
+                        true ->
+                            Txn2 = Txn1#blockchain_txn_routing_v1_pb{
+                                update={update_xor, #update_xor_pb{index=Index, filter= <<>>}}
+                            },
+                            ?calculate_fee(Txn2, Ledger, DCPayloadSize, TxnFeeMultiplier);
+                        false ->
+                            Txn2 = Txn1#blockchain_txn_routing_v1_pb{
+                                update={update_xor, #update_xor_pb{index=Index, filter= <<0:(8*SizeDiff)>>}}
+                            },
+                            ?calculate_fee(Txn2, Ledger, DCPayloadSize, TxnFeeMultiplier)
+                    end;
+                _ ->
+                    ?calculate_fee(Txn1, Ledger, DCPayloadSize, TxnFeeMultiplier)
+            end;
+        _ ->
+            ?calculate_fee(Txn1, Ledger, DCPayloadSize, TxnFeeMultiplier )
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -583,5 +631,75 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, oui, owner, fee, action, nonce])).
+
+
+calculate_fee_test_() ->
+    {timeout, 30000,
+        fun() ->
+            OUI = 1,
+            Owner = crypto:strong_rand_bytes(32),
+            Routing = 
+                blockchain_ledger_routing_v1:new(
+                    OUI,
+                    Owner,
+                    [],
+                    crypto:strong_rand_bytes(100),
+                    <<>>,
+                    1
+                ),
+            meck:new(blockchain_ledger_v1, [passthrough]),
+            meck:expect(blockchain_ledger_v1, find_routing, fun(_, _) ->
+                {ok, Routing}
+            end),
+
+            meck:new(blockchain, [passthrough]),
+            %% Set txn_routing_update_xor_fees_version to 0
+            meck:expect(blockchain, config, fun(_, _) ->
+                {ok, 0}
+            end),
+
+            Index = 0,
+            Xor = crypto:strong_rand_bytes(200),
+            Nonce = 1,
+            Txn = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor, Nonce),
+
+            %% Testing legacy path
+            ?assertEqual(?LEGACY_TXN_FEE, calculate_fee(Txn, ledger, 1, 1, false)),
+
+            %% Testing old version (pay for full xor size)
+            ?assertEqual(313, calculate_fee(Txn, ledger, 1, 1, true)),
+
+            %% Set txn_routing_update_xor_fees_version to 1
+            meck:expect(blockchain, config, fun(_, _) ->
+                {ok, 1}
+            end),
+
+            %% Testing with version 1 (pay for diff of xor size)
+            ?assertEqual(211, calculate_fee(Txn, ledger, 1, 1, true)),
+
+            Xor1 = crypto:strong_rand_bytes(50),
+            Txn1 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor1, Nonce),
+
+            %% Testing with smaller xor
+            ?assertEqual(108, calculate_fee(Txn1, ledger, 1, 1, true)),
+
+            Xor2 = crypto:strong_rand_bytes(102),
+            Txn2 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor2, Nonce),
+
+            %% Testing with small update to show price diff with previous version
+            %% 112 compare to > 300
+            ?assertEqual(112, calculate_fee(Txn2, ledger, 1, 1, true)),
+            
+            Xor3 = crypto:strong_rand_bytes(102),
+            Txn3 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor3, Nonce),
+
+            %% Xor3 is same size as Xor2, no change in fee.
+            ?assertEqual(112, calculate_fee(Txn3, ledger, 1, 1, true)),
+
+            meck:unload(blockchain_ledger_v1),
+            meck:unload(blockchain),
+            ok
+         end
+    }.
 
 -endif.

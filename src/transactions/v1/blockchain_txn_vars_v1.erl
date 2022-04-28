@@ -1239,6 +1239,15 @@ validate_var(?sc_only_count_open_active, Value) ->
 validate_var(?sc_dispute_strategy_version, Value) ->
     validate_int(Value, "sc_dispute_strategy_version", 0, 1, false);
 
+%% Txn Routing Xor Filter Fee calculation var HIP-XXX
+validate_var(?txn_routing_update_xor_fees_version, Value) ->
+    case Value of
+        N when is_integer(N), N == 1 ->
+            ok;
+        _ ->
+            throw({error, {invalid_txn_routing_update_xor_fees_version, Value}})
+    end;
+
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
     case Value of
