@@ -104,6 +104,7 @@ init(Args) ->
            %% connections will hog all the gossip
            {peerbook_connections, application:get_env(blockchain, outbound_gossip_connections, 2)},
            {inbound_connections, application:get_env(blockchain, max_inbound_connections, 6)},
+           {seednode_connections, application:get_env(blockchain, seednode_connections, undefined)},
            {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
         ] ++ GroupMgrArgs,
