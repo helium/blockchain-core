@@ -892,7 +892,7 @@ start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
 
 get_configured_or_random_peer(SwarmTID) ->
     case get_configured_sync_peer(SwarmTID) of
-        undefined-> get_random_peer(SwarmTID);
+        undefined -> get_random_peer(SwarmTID);
         P -> P
     end.
 
@@ -922,10 +922,13 @@ get_configured_sync_peer(SwarmTID) ->
         [] ->
             lager:debug("No sync_peers configured"),
             undefined;
-        ConfiguredPeers ->
+        ConfiguredPeers = [P|_] when is_list(P) ->
             Peerbook = libp2p_swarm:peerbook(SwarmTID),
             {Left, Right} = lists:split(rand:uniform(length(ConfiguredPeers)), ConfiguredPeers),
-            get_configured_sync_peer(SwarmTID, Peerbook, Right ++ Left)
+            get_configured_sync_peer(SwarmTID, Peerbook, Right ++ Left);
+        _Invalid ->
+            lager:warning("Ignoring invalid sync_peers config:~p",[_Invalid]),
+            undefined
     end.
 
 get_configured_sync_peer(SwarmTID, Peerbook, [ Peer | RestPeers ]) ->
