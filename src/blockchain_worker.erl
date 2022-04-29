@@ -879,8 +879,7 @@ reset_ledger_to_snap(Hash, Height, State) ->
     snapshot_sync(State1#state{snapshot_info=SnapInfo}).
 
 start_sync(#state{blockchain = Chain, swarm_tid = SwarmTID} = State) ->
-    Peer = get_configured_or_random_peer(SwarmTID),
-    case Peer of
+    case get_configured_or_random_peer(SwarmTID) of
         no_peers ->
             %% try again later when there's peers
             schedule_sync(State);
