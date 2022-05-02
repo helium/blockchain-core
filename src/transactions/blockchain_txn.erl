@@ -51,14 +51,29 @@
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
--export_type([hash/0, txn/0, txns/0]).
+-export_type([hash/0, txn/0, txns/0, is_prompt/0]).
 
 -callback fee(txn()) -> non_neg_integer().
 -callback fee_payer(txn(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
 -callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+
+%% Check the transaction has the required fields and they're well formed and
+%% in-bounds. Use contracts heavily here.
+-callback is_well_formed(txn()) -> ok | {error, {contract_breach, any()}}.
+
+%% Check the txn has the right causal information (nonce, block height, etc) to
+%% be absorbed.  This should be quick.
+-callback is_prompt(txn(), blockchain_ledger_v1:ledger()) ->
+    {ok, is_prompt()} | {error, term()}.
+-type is_prompt() ::
+    yes | no | {not_yet, Delta :: pos_integer()}.
+
+%% Final heavy-weight validity checks, including signature verification and
+%% other complex calculations:
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
@@ -601,14 +616,34 @@ print(Txn, Verbose) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn(), blockchain:blockchain()) ->
+    ok | {error, Reason} when
+    Reason
+        :: txn_too_late
+        |  {txn_too_early, Delta :: pos_integer()}
+        |  any() % TODO Spec other errors explicitly.
+        .
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
         {value, _} ->
-            try Type:is_valid(Txn, Chain) of
-                Res ->
-                    Res
+            try
+                case Type:is_well_formed(Txn) of
+                    {error, _}=Err ->
+                        Err;
+                    ok ->
+                        Ledger = blockchain:ledger(Chain),
+                        case Type:is_prompt(Txn, Ledger) of
+                            {ok, yes} ->
+                                Type:is_valid(Txn, Chain);
+                            {ok, no} ->
+                                {error, txn_too_late};
+                            {ok, {not_yet, Delta}} ->
+                                {error, {txn_too_early, Delta}};
+                            {error, _}=Err ->
+                                Err
+                        end
+                end
             catch
                 What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),
