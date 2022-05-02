@@ -134,7 +134,9 @@ end_per_testcase(_TestCase, Config) ->
     ok.
 
 all() ->
-    [reward_perf_test].
+    [
+    %reward_perf_test - run test manually
+    ].
 
 reward_perf_test(Config) ->
     Chain = ?config(chain, Config),
