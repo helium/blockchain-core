@@ -161,7 +161,9 @@ sign(Receipt, SigFun) ->
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     Receipt#blockchain_poc_receipt_v1_pb{signature=SigFun(EncodedReceipt)}.
 
--spec is_valid(Receipt :: poc_receipt(), blockchain_ledger_v1:ledger()) -> boolean().
+-spec is_valid(Receipt :: undefined | poc_receipt(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(undefined, _Ledger) ->
+    false;
 is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH}, Ledger) ->
     ValidHash = case blockchain_ledger_v1:config(?poc_addr_hash_byte_count, Ledger) of
                     {ok, Bytes} when is_integer(Bytes), Bytes > 0 ->
