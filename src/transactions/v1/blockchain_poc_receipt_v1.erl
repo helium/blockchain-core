@@ -162,6 +162,9 @@ sign(Receipt, SigFun) ->
     Receipt#blockchain_poc_receipt_v1_pb{signature=SigFun(EncodedReceipt)}.
 
 -spec is_valid(Receipt :: poc_receipt(), blockchain_ledger_v1:ledger()) -> boolean().
+%% Receipt can be undefined as long as witnesses exist
+is_valid(undefined, _Ledger) ->
+    true;
 is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH}, Ledger) ->
     ValidHash = case blockchain_ledger_v1:config(?poc_addr_hash_byte_count, Ledger) of
                     {ok, Bytes} when is_integer(Bytes), Bytes > 0 ->
