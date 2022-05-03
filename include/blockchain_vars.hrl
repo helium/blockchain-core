@@ -160,6 +160,10 @@
 %% NOTE the minimum value here should be greater than that of validator_liveness_interval
 -define(poc_validator_ephemeral_key_timeout, poc_validator_ephemeral_key_timeout).
 
+%% determines whether or not to reject a v2 receipts txn which has no receipt : boolean
+-define(poc_reject_empty_receipts, poc_reject_empty_receipts).
+
+
 %% Determines whether or not to filter out inactive gateways
 %% from POC targets :: boolean()
 -define(poc_activity_filter_enabled, poc_activity_filter_enabled).

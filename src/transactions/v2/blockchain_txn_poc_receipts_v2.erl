@@ -607,8 +607,13 @@ validate(_POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                                     false -> radio
                                                                 end,
                                                %% check the receipt
+                                               RejectTxnEmptyReceipt =
+                                                    case blockchain_ledger_v1:config(?poc_reject_empty_receipts, Ledger) of
+                                                        {ok, V} -> V;
+                                                        _ -> false
+                                                    end,
                                                case
-                                                   Receipt == undefined orelse
+                                                   (Receipt == undefined andalso RejectTxnEmptyReceipt == false) orelse
                                                    (blockchain_poc_receipt_v1:is_valid(Receipt, OldLedger) andalso
                                                     blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
                                                     blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
