@@ -70,46 +70,46 @@
 %%--------------------------------------------------------------------
 all() ->
     [
-        basic_test,
-        reload_test,
-        restart_test,
-        htlc_payee_redeem_test,
-        htlc_payer_redeem_test,
-        poc_request_test,
-        bogus_coinbase_test,
-        bogus_coinbase_with_good_payment_test,
-        export_test,
-        delayed_ledger_test,
-        fees_since_test,
-        security_token_test,
-        routing_test,
-        block_save_failed_test,
-        absorb_failed_test,
-        missing_last_block_test,
-        epoch_reward_test,
-        net_emissions_reward_test,
-        election_test,
-        election_v3_test,
-        election_v4_test,
-        dataonly_gw_election_v4_test,
-        light_gw_election_v4_test,
-        chain_vars_test,
-        chain_vars_set_unset_test,
-        poc_v2_set_challenger_type_chain_var_test,
-        poc_v2_unset_challenger_type_chain_var_test,
-        token_burn_test,
-        payer_test,
-        poc_sync_interval_test,
-        zero_payment_v1_test,
-        zero_amt_htlc_create_test,
-        negative_payment_v1_test,
-        negative_amt_htlc_create_test,
-        update_gateway_oui_test,
-        max_subnet_test,
-        replay_oui_test,
-        failed_txn_error_handling,
-        genesis_no_var_validation_stay_invalid_test,
-        genesis_no_var_validation_make_valid_test
+         basic_test,
+         reload_test,
+         restart_test,
+         htlc_payee_redeem_test,
+         htlc_payer_redeem_test,
+         poc_request_test,
+         bogus_coinbase_test,
+         bogus_coinbase_with_good_payment_test,
+         export_test,
+         delayed_ledger_test,
+         fees_since_test,
+         security_token_test,
+         routing_test,
+         block_save_failed_test,
+         absorb_failed_test,
+         missing_last_block_test,
+         epoch_reward_test,
+         net_emissions_reward_test,
+         election_test,
+         election_v3_test,
+         election_v4_test,
+         dataonly_gw_election_v4_test,
+         light_gw_election_v4_test,
+         chain_vars_test,
+         chain_vars_set_unset_test,
+         poc_v2_set_challenger_type_chain_var_test,
+         poc_v2_unset_challenger_type_chain_var_test,
+         token_burn_test,
+         payer_test,
+         poc_sync_interval_test,
+         zero_payment_v1_test,
+         zero_amt_htlc_create_test,
+         negative_payment_v1_test,
+         negative_amt_htlc_create_test,
+         update_gateway_oui_test,
+         max_subnet_test,
+         replay_oui_test,
+         failed_txn_error_handling,
+         genesis_no_var_validation_stay_invalid_test,
+         genesis_no_var_validation_make_valid_test
     ].
 
 %%--------------------------------------------------------------------
@@ -2566,7 +2566,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
     SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
 
     {ok, AddGWBlock} = test_utils:create_block(ConsensusMembers, [SignedAddGatewayTx2, SignedAssertLocationTx2]),
-    _ = blockchain_gossip_handler:add_block(AddGWBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(AddGWBlock, Chain, self(), blockchain_swarm:tid()),
 
     ct:pal("height: ~p", [blockchain:height(Chain)]),
 
@@ -2580,9 +2580,9 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
     POCReqTxn = fake_poc_request(Gateway, GatewaySigFun, BlockHash),
     OnionKeyHash = blockchain_txn_poc_request_v1:onion_key_hash(POCReqTxn),
     {ok, POCBlock} = test_utils:create_block(ConsensusMembers, [POCReqTxn]),
-    _ = blockchain_gossip_handler:add_block(POCBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(POCBlock, Chain, self(), blockchain_swarm:tid()),
     %% confirm the poc is on the ledger
-    {ok, [_POC1]} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
+    {ok, [_POC1]} = blockchain_ledger_v1:find_pocs(OnionKeyHash, Ledger),
 
     %% create the var txn to enable validators as poc challengers
     Vars = #{poc_challenger_type => validator},
@@ -2592,7 +2592,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
     {ok, VarBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:tid()),
 
     %% wait for the chain var to take effect
     {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
@@ -2604,7 +2604,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
     lists:foreach(
         fun(_) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                 {ok, CurHeight} = blockchain:height(Chain),
                 case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
                     {error, not_found} when CurHeight < CommitHeight ->
@@ -2618,7 +2618,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
         lists:seq(1, CommitHeight)
     ),
     %% confirm the poc no longer exists on the ledger
-    {error,not_found} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
+    {error,not_found} = blockchain_ledger_v1:find_pocs(OnionKeyHash, Ledger),
     ok.
 
 poc_v2_unset_challenger_type_chain_var_test(Config) ->
@@ -2654,7 +2654,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     ct:pal("SignedStakeTxn: ~p", [SignedValTxn]),
 
     {ok, AddGWBlock} = test_utils:create_block(ConsensusMembers, [SignedValTxn]),
-    _ = blockchain_gossip_handler:add_block(AddGWBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(AddGWBlock, Chain, self(), blockchain_swarm:tid()),
 
     %%
     %% create a var txn to set enable validator challengers
@@ -2666,7 +2666,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
     {ok, VarBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:tid()),
 
     %% wait for the chain var to take effect
     {ok, Height} = blockchain:height(Chain),
@@ -2678,7 +2678,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     lists:foreach(
         fun(_) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                 {ok, CurHeight} = blockchain:height(Chain),
                 case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
                     {error, not_found} when CurHeight < CommitHeight ->
@@ -2698,8 +2698,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     blockchain_ledger_v1:commit_context(Ledger1),
 
     %% confirm the poc data exists
-    [_ValidatorPOC1 | _] = blockchain_ledger_v1:active_public_pocs(Ledger),
-
+    [_ValidatorPOC1 | _] = blockchain_ledger_v1:pocs(proposed, Ledger),
 
     %%
     %% now unset the poc_challenger_type chain var
@@ -2712,7 +2711,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     UnsetVarTxn1 = blockchain_txn_vars_v1:proof(UnsetVarTxn, UnsetProof),
 
     {ok, UnsetBlock} = test_utils:create_block(ConsensusMembers, [UnsetVarTxn1]),
-    _ = blockchain_gossip_handler:add_block(UnsetBlock, Chain, self(), blockchain_swarm:swarm()),
+    _ = blockchain_gossip_handler:add_block(UnsetBlock, Chain, self(), blockchain_swarm:tid()),
 
     %% wait for the unset to take effect
     {ok, Height3} = blockchain:height(Chain),
@@ -2720,7 +2719,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     lists:foreach(
         fun(_) ->
                 {ok, Block1} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:swarm()),
+                _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:tid()),
                 {ok, CurHeight1} = blockchain:height(Chain),
                 ct:pal("Height1 ~p", [CurHeight1]),
                 case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
@@ -2736,7 +2735,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     ),
 
     %% confirm the public pocs have been wiped from the ledger
-    [] = blockchain_ledger_v1:active_public_pocs(Ledger),
+    ?assertEqual([], blockchain_ledger_v1:pocs(proposed, Ledger)),
 
     ok.
 
@@ -3652,4 +3651,4 @@ fake_poc_request(Gateway, GatewaySigFun, BlockHash) ->
     blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun).
 
 fake_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
-    ok = blockchain_ledger_v1:save_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger).
+    ok = blockchain_ledger_v1:save_poc_proposal(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger).

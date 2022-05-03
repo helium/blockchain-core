@@ -2305,7 +2305,7 @@ purge_pocs(Ledger) ->
     PurgeFun = fun(CF) ->
                        cache_fold(
                          Ledger,
-                         PoCsCF,
+                         CF,
                          fun({KeyHash, _}, _Acc) ->
                                  cache_delete(Ledger, CF, KeyHash)
                          end,

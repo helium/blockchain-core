@@ -384,7 +384,7 @@ create_vars(Vars) ->
 raw_vars(Vars) ->
     DefVars = #{
                 ?chain_vars_version => 2,
-                ?vars_commit_delay => 10,
+                ?vars_commit_delay => 1,
                 ?election_version => 2,
                 ?election_restart_interval => 5,
                 ?election_replacement_slope => 20,
