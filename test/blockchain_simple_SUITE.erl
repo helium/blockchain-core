@@ -2735,7 +2735,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     ),
 
     %% confirm the public pocs have been wiped from the ledger
-    [] = blockchain_ledger_v1:pocs(proposed, Ledger),
+    ?assertEqual([], blockchain_ledger_v1:pocs(proposed, Ledger)),
 
     ok.
 
