@@ -2135,6 +2135,7 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
                     {Name, DB, CF} = proposed_pocs_cf(Ledger),
                     {ok, Itr} = rocksdb:iterator(DB, CF, []),
                     POCSubset = promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Itr, []),
+                    catch rocksdb:iterator_close(Itr),
                     lager:debug("Selected POCs ~p", [POCSubset]),
                     lager:info("Selected ~p POCs for block height ~p", [length(POCSubset), BlockHeight]),
                     %% if we are on the leading ledger, fire the poc keys event
@@ -2152,36 +2153,39 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     end.
 
 -spec promote_proposals(non_neg_integer(), binary(), pos_integer(), rand:state(), ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
-promote_proposals(0, _Hash, _Height, _RandState, _Ledger, _Name, Iter, Acc) ->
-    catch rocksdb:iterator_close(Iter),
+promote_proposals(0, _Hash, _Height, _RandState, _Ledger, _Name, _Iter, Acc) ->
     Acc;
 promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Iter, Acc) ->
-    {RandVal, NewRandState} = rand:uniform_s(RandState),
-    RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
-    NewAcc = case rocksdb:iterator_move(Iter, {seek, RandHash}) of
-        {ok, Key, Binary} ->
-            %% check that this has not already been promoted in
-            %% the context cache so if we're absorbing multiple
-            %% blocks we don't alter the promotion selection
-            case cache_is_deleted(Ledger, Name, Key) of
-                true ->
-                    Acc;
-                false ->
-                    POC = blockchain_ledger_poc_v3:deserialize(Binary),
-                    ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
-                    ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
-                    ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-                    promote_to_public_poc(ActivePOC2, Ledger),
-                    [ActivePOC2 | Acc]
-            end;
-        {error, _Reason} ->
-            lager:debug("iterator failed ~p", [_Reason]),
-            %% we probably fell off the end. Simply drop this as we may not have enough
-            %% proposals to make the cut (or we can somehow retry some fixed number of times)
-            Acc
-    end,
-    promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Name, Iter, NewAcc).
-
+    try
+        {RandVal, NewRandState} = rand:uniform_s(RandState),
+        RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
+        NewAcc = case rocksdb:iterator_move(Iter, {seek, RandHash}) of
+            {ok, Key, Binary} ->
+                %% check that this has not already been promoted in
+                %% the context cache so if we're absorbing multiple
+                %% blocks we don't alter the promotion selection
+                case cache_is_deleted(Ledger, Name, Key) of
+                    true ->
+                        Acc;
+                    false ->
+                        POC = blockchain_ledger_poc_v3:deserialize(Binary),
+                        ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
+                        ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
+                        ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
+                        promote_to_public_poc(ActivePOC2, Ledger),
+                        [ActivePOC2 | Acc]
+                end;
+            {error, _Reason} ->
+                lager:warning("promote_proposals failed, iterator failed ~p", [_Reason]),
+                %% we probably fell off the end. Simply drop this as we may not have enough
+                %% proposals to make the cut (or we can somehow retry some fixed number of times)
+                Acc
+        end,
+        promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Name, Iter, NewAcc)
+    catch _What:_Why ->
+        lager:warning("promote_proposals failed, ~p ~p", [_What, _Why]),
+        Acc
+    end.
 
 -spec save_poc_proposals(Proposals :: [binary()],
                          Challenger :: libp2p_crypto:pubkey_bin(),
