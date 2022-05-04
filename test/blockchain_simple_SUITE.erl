@@ -3665,7 +3665,7 @@ receipts_txn_reject_empty_receipt_test(Config) ->
     %% hardcode the poc packet, save having to create a real poc
     meck:new(blockchain_txn_poc_receipts_v2, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v2, get_path, fun(_,_,_,_,_,_,_,_,_) -> {[Gateway], erlang:monotonic_time(microsecond)} end),
-    meck:expect(blockchain_txn_poc_receipts_v2, get_channels_, fun(_,_,_,_,_) -> {ok, [1]} end),
+    meck:expect(blockchain_txn_poc_receipts_v2, get_channels, fun(_,_,_,_,_) -> {ok, [1]} end),
     meck:expect(blockchain_txn_poc_receipts_v2, create_secret_hash, fun(_,_) -> [IVBytes, Data] end),
     meck:new(blockchain_poc_packet_v2, [passthrough]),
     meck:expect(blockchain_poc_packet_v2, build, fun(_,_,_) -> {<<"ignored_onion">>, [<<"ignored_layer">>,Layer]} end),

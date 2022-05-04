@@ -38,7 +38,7 @@
     good_quality_witnesses/2,
     valid_witnesses/3, valid_witnesses/4,
     tagged_witnesses/3,
-    get_channels/2, get_channels/4, get_channels_/5,
+    get_channels/2, get_channels/4, get_channels/5,
     get_path/9
 ]).
 
@@ -232,7 +232,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             %% no witness will exist with the first layer hash
                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                             StartV = maybe_log_duration(packet_construction, StartP),
-                            Channels = ?MODULE:get_channels_(POCVersion, OldLedger, Path, LayerData, no_prefetch),
+                            Channels = ?MODULE:get_channels(POCVersion, OldLedger, Path, LayerData, no_prefetch),
                             %% %% run validations
                             Ret = validate(POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger),
                             maybe_log_duration(receipt_validation, StartV),
@@ -1071,16 +1071,16 @@ get_channels(Txn, POCVersion, RegionVars, Chain) ->
             Entropy1 = <<OnionKeyHash/binary, BlockHash/binary>>,
             [_ | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy1, PathLength+1),
             Path = [blockchain_poc_path_element_v1:challengee(Element) || Element <- Path0],
-            Channels = get_channels_(POCVersion, Ledger, Path, LayerData, RegionVars),
+            Channels = get_channels(POCVersion, Ledger, Path, LayerData, RegionVars),
             {ok, Channels}
     end.
 
--spec get_channels_(POCVersion :: pos_integer(),
+-spec get_channels(POCVersion :: pos_integer(),
                     Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
                     RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}) -> [non_neg_integer()].
-get_channels_(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
+get_channels(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
     Challengee = hd(Path),
     RegionVars =
         case RegionVars0 of
