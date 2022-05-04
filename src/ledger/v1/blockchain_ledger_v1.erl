@@ -281,6 +281,7 @@
 
 -ifdef(TEST).
 -export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
+-export([promote_to_public_poc/2]).
 -endif.
 
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.

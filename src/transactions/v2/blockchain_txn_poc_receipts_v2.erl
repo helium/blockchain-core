@@ -38,7 +38,8 @@
     good_quality_witnesses/2,
     valid_witnesses/3, valid_witnesses/4,
     tagged_witnesses/3,
-    get_channels/2, get_channels/4
+    get_channels/2, get_channels/4, get_channels/5,
+    get_path/9
 ]).
 
 -ifdef(TEST).
@@ -218,7 +219,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             StartFT = maybe_log_duration(ledger_at, StartLA),
                             Vars = vars(OldLedger),
                             Entropy = <<POCOnionKeyHash/binary, PrePoCBlockHash/binary>>,
-                            {Path, StartP} = get_path(POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
+                            {Path, StartP} = ?MODULE:get_path(POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Ledger, StartFT),
                             N = erlang:length(Path),
                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
                             OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
@@ -231,7 +232,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             %% no witness will exist with the first layer hash
                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                             StartV = maybe_log_duration(packet_construction, StartP),
-                            Channels = get_channels_(POCVersion, OldLedger, Path, LayerData, no_prefetch),
+                            Channels = ?MODULE:get_channels(POCVersion, OldLedger, Path, LayerData, no_prefetch),
                             %% %% run validations
                             Ret = validate(POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger),
                             maybe_log_duration(receipt_validation, StartV),
@@ -602,13 +603,20 @@ validate(_POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                            true ->
                                                IsFirst = Elem == hd(?MODULE:path(Txn)),
                                                Receipt = blockchain_poc_path_element_v1:receipt(Elem),
+                                               Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
                                                ExpectedOrigin = case IsFirst of
                                                                     true -> p2p;
                                                                     false -> radio
                                                                 end,
                                                %% check the receipt
+                                               RejectTxnEmptyReceipt =
+                                                    case blockchain_ledger_v1:config(?poc_reject_empty_receipts, OldLedger) of
+                                                        {ok, V} -> V;
+                                                        _ -> false
+                                                    end,
                                                case
-                                                   Receipt == undefined orelse
+                                                   (Receipt == undefined andalso RejectTxnEmptyReceipt == false) orelse
+                                                   (Receipt == undefined andalso RejectTxnEmptyReceipt == true andalso Witnesses /= []) orelse
                                                    (blockchain_poc_receipt_v1:is_valid(Receipt, OldLedger) andalso
                                                     blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
                                                     blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
@@ -635,7 +643,7 @@ validate(_POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                            true ->
                                                                lager:warning([{poc_id, POCID}],
                                                                              "Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
-                                                                             [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
+                                                                             [ExpectedOrigin, LayerDatum, Gateway]);
                                                            false ->
                                                                lager:warning([{poc_id, POCID}],
                                                                              "Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
@@ -735,7 +743,8 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
          )
     of
         true -> ok;
-        false -> {error, invalid_witness}
+        false ->
+            {error, invalid_witness}
     end.
 
 -spec poc_id(txn_poc_receipts()) -> binary().
@@ -1062,16 +1071,16 @@ get_channels(Txn, POCVersion, RegionVars, Chain) ->
             Entropy1 = <<OnionKeyHash/binary, BlockHash/binary>>,
             [_ | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy1, PathLength+1),
             Path = [blockchain_poc_path_element_v1:challengee(Element) || Element <- Path0],
-            Channels = get_channels_(POCVersion, Ledger, Path, LayerData, RegionVars),
+            Channels = get_channels(POCVersion, Ledger, Path, LayerData, RegionVars),
             {ok, Channels}
     end.
 
--spec get_channels_(POCVersion :: pos_integer(),
+-spec get_channels(POCVersion :: pos_integer(),
                     Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
                     RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}) -> [non_neg_integer()].
-get_channels_(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
+get_channels(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
     Challengee = hd(Path),
     RegionVars =
         case RegionVars0 of

@@ -1018,6 +1018,12 @@ validate_var(?poc_activity_filter_enabled, Value) ->
         false -> ok;
         _ -> throw({error, {poc_activity_filter_enabled, Value}})
     end;
+validate_var(?poc_reject_empty_receipts, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_reject_empty_receipts, Value}})
+    end;
 validate_var(?poc_challenge_sync_interval, Value) ->
     validate_int(Value, "poc_challenge_sync_interval", 10, 1440, false);
 validate_var(?poc_path_limit, undefined) ->
