@@ -251,7 +251,7 @@ init_per_testcase(TestCase, Config) ->
         ),
 
     Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
+    Swarm = blockchain_swarm:tid(),
     N = length(ConsensusMembers),
 
     % Check ledger to make sure everyone has the right balance
@@ -347,7 +347,7 @@ reload_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
-    OldSwarm = blockchain_swarm:swarm(),
+    OldSwarm = blockchain_swarm:tid(),
     Worker = whereis(blockchain_worker),
     ok = gen_server:stop(Sup),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
@@ -372,7 +372,7 @@ reload_test(Config) ->
     ct:pal("new start"),
 
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
-    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+    ?assert(erlang:is_pid(blockchain_swarm:tid())),
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
@@ -409,7 +409,7 @@ restart_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
-    OldSwarm = blockchain_swarm:swarm(),
+    OldSwarm = blockchain_swarm:tid(),
     ok = gen_server:stop(Sup),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm) end),
@@ -419,7 +419,7 @@ restart_test(Config) ->
 
     % Restart with an empty 'GenDir'
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
-    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+    ?assert(erlang:is_pid(blockchain_swarm:tid())),
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
@@ -430,7 +430,7 @@ restart_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
    %% Kill this blockchain sup
-    OldSwarm2 = blockchain_swarm:swarm(),
+    OldSwarm2 = blockchain_swarm:tid(),
     ok = gen_server:stop(Sup1),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm2) end),
@@ -442,7 +442,7 @@ restart_test(Config) ->
     ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(GenBlock)),
 
     {ok, Sup2} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
-    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+    ?assert(erlang:is_pid(blockchain_swarm:tid())),
 
     Chain1 = blockchain_worker:blockchain(),
     {ok, HeadBlock1} = blockchain:head_block(Chain1),
@@ -2622,7 +2622,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
     {ok, POCBlock} = test_utils:create_block(ConsensusMembers, [POCReqTxn]),
     _ = blockchain_gossip_handler:add_block(POCBlock, Chain, self(), blockchain_swarm:tid()),
     %% confirm the poc is on the ledger
-    {ok, [_POC1]} = blockchain_ledger_v1:find_pocs(OnionKeyHash, Ledger),
+    {ok, _POC1} = blockchain_ledger_v1:find_poc(OnionKeyHash, Gateway, Ledger),
 
     %% create the var txn to enable validators as poc challengers
     Vars = #{poc_challenger_type => validator},
@@ -2658,7 +2658,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
         lists:seq(1, CommitHeight)
     ),
     %% confirm the poc no longer exists on the ledger
-    {error,not_found} = blockchain_ledger_v1:find_pocs(OnionKeyHash, Ledger),
+    {error,not_found} = blockchain_ledger_v1:find_public_poc(OnionKeyHash, Ledger),
     ok.
 
 poc_v2_unset_challenger_type_chain_var_test(Config) ->
@@ -2738,7 +2738,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     blockchain_ledger_v1:commit_context(Ledger1),
 
     %% confirm the poc data exists
-    [_ValidatorPOC1 | _] = blockchain_ledger_v1:pocs(proposed, Ledger),
+    [_ValidatorPOC1 | _] = blockchain_ledger_v1:pocs(active, Ledger),
 
     %%
     %% now unset the poc_challenger_type chain var
@@ -2775,7 +2775,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
     ),
 
     %% confirm the public pocs have been wiped from the ledger
-    ?assertEqual([], blockchain_ledger_v1:pocs(proposed, Ledger)),
+    [] = blockchain_ledger_v1:pocs(active, Ledger),
 
     ok.
 
