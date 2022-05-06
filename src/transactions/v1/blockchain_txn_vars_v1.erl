@@ -995,6 +995,13 @@ validate_var(?poc_timeout, Value) ->
     validate_int(Value, "poc_timeout", 1, 50, false);
 validate_var(?poc_receipts_absorb_timeout, Value) ->
     validate_int(Value, "poc_receipts_absorb_timeout", 10, 100, false);
+
+%% !!! WARNING !!!
+%% do not modify poc_validator_ephemeral_key_timeout var value
+%% as it may result in sync issues
+%% this notice will be removed
+%% when a fix is applied
+%%
 validate_var(?poc_validator_ephemeral_key_timeout, Value) ->
     validate_int(Value, "poc_validator_ephemeral_key_timeout", 1, 1000, false);
 

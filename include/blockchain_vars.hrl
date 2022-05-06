@@ -158,6 +158,13 @@
 %% Number of blocks for which a validator ephemeral key will remain valid : pos_integer
 %% after this period it will be GCed
 %% NOTE the minimum value here should be greater than that of validator_liveness_interval
+%%
+%% !!! WARNING !!!
+%% do not modify poc_validator_ephemeral_key_timeout var value
+%% as it may result in sync issues
+%% this notice will be removed
+%% when a fix is applied
+%%
 -define(poc_validator_ephemeral_key_timeout, poc_validator_ephemeral_key_timeout).
 
 %% determines whether or not to reject a v2 receipts txn which has no receipt : boolean
