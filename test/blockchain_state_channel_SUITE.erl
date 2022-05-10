@@ -45,18 +45,15 @@
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
 
-groups() ->
-    [{sc_libp2p,
-      [],
-      test_cases()
-     },
-     {sc_grpc,
-      [],
-      test_cases()
-     }].
+groups() -> [
+    {sc_libp2p, [], test_cases()},
+    {sc_grpc, [], test_cases()}
+    ].
 
-all() ->
-    [{group, sc_libp2p}, {group, sc_grpc}].
+all() -> [
+    {group, sc_libp2p},
+    {group, sc_grpc}
+    ].
 
 test_cases() ->
     [
@@ -117,11 +114,31 @@ init_per_testcase(Test, Config) ->
     InitConfig0 = blockchain_ct_utils:init_base_dir_config(?MODULE, Test, Config),
     InitConfig = blockchain_ct_utils:init_per_testcase(Test, InitConfig0),
 
-    Nodes = ?config(nodes, InitConfig),
+    InitNodes = ?config(nodes, InitConfig),
     Balance = 50000,
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
-    [RouterNode, GatewayNode1|_] = Nodes,
+    %% Make a map Node => Addr
+    NodeAddrList = lists:foldl(
+        fun(Node, Acc) ->
+            [{Node, ct_rpc:call(Node, blockchain_swarm, pubkey_bin, [])} | Acc]
+        end, [], InitNodes),
+    Addrs = [Addr || {_, Addr} <- NodeAddrList],
+
+    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
+
+    %% the SC tests use the first two nodes as the gateway and router
+    %% for the GRPC group to work we need to ensure these two nodes are
+    %% connected to each other in blockchain_ct_utils:init_per_testcase the
+    %% nodes are connected to a majority of the group but that does not
+    %% guarantee these two nodes are connected
+
+    [RouterNode, GatewayNode] =
+        blockchain_ct_utils:find_connected_node_pair(NodeAddrList),
+    Nodes =
+        [RouterNode, GatewayNode] ++ (InitNodes -- [RouterNode, GatewayNode]),
+
+
     Dir = os:getenv("SC_DIR", ""),
     debug_modules_for_node(
       RouterNode,
@@ -134,48 +151,12 @@ init_per_testcase(Test, Config) ->
        blockchain_txn_state_channel_close_v1]
      ),
     debug_modules_for_node(
-      GatewayNode1,
+      GatewayNode,
       Dir ++ "sc_client_1.log",
       [blockchain_state_channel_v1,
        blockchain_state_channels_client,
        blockchain_state_channels_handler]
      ),
-
-    %% accumulate the address of each node
-    Addrs = lists:foldl(fun(Node, Acc) ->
-                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                                [Addr | Acc]
-                        end, [], Nodes),
-
-    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
-
-    %% the SC tests use the first two nodes as the gateway and router
-    %% for the GRPC group to work we need to ensure these two nodes are connected to each other
-    %% in blockchain_ct_utils:init_per_testcase the nodes are connected to a majority of the group
-    %% but that does not guarantee these two nodes will be connected
-    [RouterNode, GatewayNode|_] = Nodes,
-    [RouterNodeAddr, GatewayNodeAddr|_] = Addrs,
-    ok = blockchain_ct_utils:wait_until(
-             fun() ->
-                     lists:all(
-                       fun({Node, AddrToConnectToo}) ->
-                               try
-                                   GossipPeers = ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500),
-                                   ct:pal("~p connected to peers ~p", [Node, GossipPeers]),
-                                   case lists:member(libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo), GossipPeers) of
-                                       true -> true;
-                                       false ->
-                                           ct:pal("~p is not connected to desired peer ~p", [Node, AddrToConnectToo]),
-                                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
-                                           CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo)], 500),
-                                           ct:pal("Connecting ~p to ~p: ~p", [Node, AddrToConnectToo, CRes]),
-                                           false
-                                   end
-                               catch _C:_E ->
-                                       false
-                               end
-                       end, [{RouterNode, GatewayNodeAddr}, {GatewayNode, RouterNodeAddr}])
-             end, 200, 150),
 
     SCDisputeStrat = case Test == sc_dispute_prevention_test of
                          false -> 0;
@@ -216,9 +197,7 @@ init_per_testcase(Test, Config) ->
     lists:foreach(
         fun(Node) ->
             ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
-        end,
-        Nodes
-    ),
+        end, Nodes),
 
     %% wait till each worker gets the genesis block
     ok = lists:foreach(
@@ -233,13 +212,18 @@ init_per_testcase(Test, Config) ->
                 100,
                 100
             )
-        end,
-        Nodes
-    ),
+        end, Nodes),
 
-    ok = check_genesis_block(InitConfig, GenesisBlock),
-    ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_members, ConsensusMembers}, {master_key, MasterKey} | InitConfig].
+    ok = check_genesis_block(Nodes, GenesisBlock),
+    ConsensusMembers = get_consensus_members(Nodes, ConsensusAddrs),
+    [
+        {connected_nodes, [RouterNode, GatewayNode]},
+        {routernode, RouterNode},
+        {gatewaynode, GatewayNode},
+        {nodes, Nodes},
+        {consensus_members, ConsensusMembers},
+        {master_key, MasterKey}
+            | proplists:delete(nodes, InitConfig)].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -260,7 +244,8 @@ end_per_suite(_) ->
 %%--------------------------------------------------------------------
 
 full_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -387,6 +372,8 @@ full_test(Config) ->
     ok.
 
 diff_test(Config) ->
+    % TODO - does this test assume that GatewayNode2 is also connected to
+    % RouterNode, or that the three are fully connected?
     [RouterNode, GatewayNode1, GatewayNode2|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
@@ -517,7 +504,8 @@ diff_test(Config) ->
     ok.
 
 overspent_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -645,7 +633,8 @@ overspent_test(Config) ->
     ok.
 
 dup_packets_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -742,7 +731,8 @@ dup_packets_test(Config) ->
     ok.
 
 cached_routing_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -818,7 +808,8 @@ cached_routing_test(Config) ->
     ok.
 
 max_actor_cache_eviction_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -955,7 +946,8 @@ max_actor_cache_eviction_test(Config) ->
 
 
 max_actor_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1087,7 +1079,8 @@ max_actor_test(Config) ->
     ok.
 
 replay_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1183,7 +1176,8 @@ replay_test(Config) ->
     ok.
 
 multiple_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1274,7 +1268,7 @@ multiple_test(Config) ->
     ok.
 
 multi_owner_multi_sc_test(Config) ->
-    [RouterNode1, RouterNode2 | _] = ?config(nodes, Config),
+    [RouterNode1, RouterNode2] = ?config(connected_nodes, Config),
 
     Dir = os:getenv("SC_DIR", ""),
     {ok, _} = ct_rpc:call(
@@ -1447,7 +1441,8 @@ multi_owner_multi_sc_test(Config) ->
     ok.
 
 multi_active_sc_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1608,7 +1603,7 @@ multi_active_sc_test(Config) ->
     ok.
 
 open_without_oui_test(Config) ->
-    [RouterNode |_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1627,7 +1622,7 @@ open_without_oui_test(Config) ->
     ok.
 
 max_scs_open_test(Config) ->
-    [RouterNode |_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1669,7 +1664,7 @@ max_scs_open_test(Config) ->
     ok.
 
 max_scs_open_v2_test(Config) ->
-    [RouterNode |_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     Self = self(),
@@ -1757,6 +1752,8 @@ max_scs_open_v2_test(Config) ->
     ok.
 
 sc_dispute_prevention_test(Config) ->
+    % TODO - does this test assume that GatewayNode2 is also connected to
+    % RouterNode, or that the three are fully connected?
     [RouterNode, GatewayNode1, GatewayNode2 |_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
@@ -1953,7 +1950,7 @@ sc_dispute_prevention_test(Config) ->
 
 
 oui_not_found_test(Config) ->
-    [RouterNode |_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1977,7 +1974,7 @@ oui_not_found_test(Config) ->
     ok.
 
 unknown_owner_test(Config) ->
-    [RouterNode, PayerNode |_] = ?config(nodes, Config),
+    [RouterNode, PayerNode] = ?config(connected_nodes, Config),
     Self = self(),
 
     ConsensusMembers = ?config(consensus_members, Config),
@@ -2025,7 +2022,8 @@ unknown_owner_test(Config) ->
     ok.
 
 crash_single_sc_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2133,7 +2131,8 @@ crash_single_sc_test(Config) ->
     ok.
 
 crash_multi_sc_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2314,7 +2313,8 @@ crash_multi_sc_test(Config) ->
     ok.
 
 crash_sc_sup_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2424,7 +2424,8 @@ crash_sc_sup_test(Config) ->
     ok.
 
 hotspot_in_router_oui_test(Config) ->
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2535,7 +2536,9 @@ hotspot_in_router_oui_test(Config) ->
     ok.
 
 default_routers_test(Config) ->
-    [RouterNode, GatewayNode1|_] = Nodes = ?config(nodes, Config),
+    Nodes = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2631,8 +2634,7 @@ default_routers_test(Config) ->
 %% Helper functions
 %% ------------------------------------------------------------------
 
-check_genesis_block(Config, GenesisBlock) ->
-    Nodes = ?config(nodes, Config),
+check_genesis_block(Nodes, GenesisBlock) ->
     lists:foreach(fun(Node) ->
                           Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
                           {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
@@ -2643,8 +2645,7 @@ check_genesis_block(Config, GenesisBlock) ->
                           ?assertEqual(1, Height)
                   end, Nodes).
 
-get_consensus_members(Config, ConsensusAddrs) ->
-    Nodes = ?config(nodes, Config),
+get_consensus_members(Nodes, ConsensusAddrs) ->
     lists:keysort(1, lists:foldl(fun(Node, Acc) ->
                                          Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                                          case lists:member(Addr, ConsensusAddrs) of
