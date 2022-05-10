@@ -2173,8 +2173,10 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Iter, Acc)
                         ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
                         ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
                         ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-                        promote_to_public_poc(ActivePOC2, Ledger),
-                        [ActivePOC2 | Acc]
+                        case promote_to_public_poc(ActivePOC2, Ledger) of
+                            ok -> [ActivePOC2 | Acc];
+                            _ -> Acc
+                        end
                 end;
             {error, _Reason} ->
                 lager:warning("promote_proposals failed, iterator failed ~p", [_Reason]),
@@ -2355,7 +2357,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
             %% or the reverse
             %% anything other than V3s we will want to GC no matter what
             %% V3s we will GC if lifespan is up
-            GCFun = fun(CF) -> cache_fold(
+            GCFun = fun(CF, CFGCFun) -> cache_fold(
                                  Ledger,
                                  CF,
                                  fun
@@ -2378,7 +2380,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                           ((POCStatus /= active) andalso (CurHeight - POCStartHeight) > POCValKeyProposalTimeout) of
                           true ->
                               %% the lifespan of the POC for this key has passed, we can GC
-                              ok = delete_public_poc(OnionKeyHash, Ledger);
+                              ok = CFGCFun(OnionKeyHash, Ledger);
                           _ ->
                               ok
                       end,
@@ -2392,8 +2394,9 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                                  []
                                 )
                     end,
-            GCFun(PoCsCF),
-            GCFun(ProposedPoCsCF),
+
+            GCFun(PoCsCF, fun delete_public_poc/2),
+            GCFun(ProposedPoCsCF, fun delete_poc_proposal/2),
             ok;
         _ ->
           ok
