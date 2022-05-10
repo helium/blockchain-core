@@ -163,6 +163,8 @@
 %% determines whether or not to reject a v2 receipts txn which has no receipt : boolean
 -define(poc_reject_empty_receipts, poc_reject_empty_receipts).
 
+%% determines whether or not to use the fix for a buggy POC GC : boolean
+-define(poc_apply_gc_fix, poc_apply_gc_fix).
 
 %% Determines whether or not to filter out inactive gateways
 %% from POC targets :: boolean()
