@@ -2132,10 +2132,17 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
             %% Mark the selected POCs as active on ledger
             case blockchain:config(?poc_challenge_rate, Ledger) of
                 {ok, K} ->
+                    ProposalGCWindowCheck =
+                        case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+                            {ok, V} -> V;
+                            _ -> false
+                    end,
+                    {ok, POCValKeyProposalTimeout} = blockchain:config(?poc_validator_ephemeral_key_timeout, Ledger),
                     RandState = blockchain_utils:rand_state(BlockHash),
                     {Name, DB, CF} = proposed_pocs_cf(Ledger),
                     {ok, Itr} = rocksdb:iterator(DB, CF, []),
-                    POCSubset = promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Itr, []),
+                    POCSubset = promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                        ProposalGCWindowCheck, RandState, Ledger, Name, Itr, []),
                     catch rocksdb:iterator_close(Itr),
                     lager:debug("Selected POCs ~p", [POCSubset]),
                     lager:info("Selected ~p POCs for block height ~p", [length(POCSubset), BlockHeight]),
@@ -2153,10 +2160,13 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
             ok
     end.
 
--spec promote_proposals(non_neg_integer(), binary(), pos_integer(), rand:state(), ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
-promote_proposals(0, _Hash, _Height, _RandState, _Ledger, _Name, _Iter, Acc) ->
+-spec promote_proposals(non_neg_integer(), binary(), pos_integer(), pos_integer(), boolean(), rand:state(),
+    ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
+promote_proposals(0, _Hash, _Height, _POCValKeyProposalTimeout, _ProposalGCWindowCheck,
+    _RandState, _Ledger, _Name, _Iter, Acc) ->
     Acc;
-promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Iter, Acc) ->
+promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+    ProposalGCWindowCheck, RandState, Ledger, Name, Iter, Acc) ->
     try
         {RandVal, NewRandState} = rand:uniform_s(RandState),
         RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
@@ -2170,12 +2180,21 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Iter, Acc)
                         Acc;
                     false ->
                         POC = blockchain_ledger_poc_v3:deserialize(Binary),
-                        ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
-                        ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
-                        ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-                        case promote_to_public_poc(ActivePOC2, Ledger) of
-                            ok -> [ActivePOC2 | Acc];
-                            _ -> Acc
+                        ProposalHeight = blockchain_ledger_poc_v3:start_height(POC),
+                        %% if the proposal is not within GC window, then promote it
+                        case ((BlockHeight - ProposalHeight) < POCValKeyProposalTimeout andalso
+                             ProposalGCWindowCheck)
+                            orelse ProposalGCWindowCheck =:= false of
+                            true ->
+                                ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
+                                ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
+                                ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
+                                case promote_to_public_poc(ActivePOC2, Ledger) of
+                                    ok -> [ActivePOC2 | Acc];
+                                    _ -> Acc
+                                end;
+                            _ ->
+                                Acc
                         end
                 end;
             {error, _Reason} ->
@@ -2184,7 +2203,8 @@ promote_proposals(K, BlockHash, BlockHeight, RandState, Ledger, Name, Iter, Acc)
                 %% proposals to make the cut (or we can somehow retry some fixed number of times)
                 Acc
         end,
-        promote_proposals(K - 1, BlockHash, BlockHeight, NewRandState, Ledger, Name, Iter, NewAcc)
+        promote_proposals(K - 1, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+            ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, NewAcc)
     catch _What:_Why ->
         lager:warning("promote_proposals failed, ~p ~p", [_What, _Why]),
         Acc
@@ -2345,7 +2365,20 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
     %% to be absorbed
     {ok, CurHeight} = current_height(Ledger),
     %%  set GC point off by one so it doesnt align with so many other gc processes
-    case CurHeight rem 101 == 0 of
+
+    %% if we're in the validator challenges, but the window check is not in place, we are tied
+    %% to 101 for replay reasons. if it's set, then we can change it however we'd like and we
+    %% should be safe
+    Interval =
+        case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+            {ok, true} ->
+                %% make any needed interval changes here
+                application:get_env(blockchain, poc_gc_interval_size, 101); % <---- this one
+
+            %% don't change this one!
+            _ -> 101
+        end,
+    case CurHeight rem Interval == 0 of
         true ->
             PoCsCF = pocs_cf(Ledger),
             ProposedPoCsCF = proposed_pocs_cf(Ledger),
