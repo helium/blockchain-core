@@ -2371,7 +2371,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
         case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
             {ok, true} ->
                 %% make any needed interval changes here
-                101; % <---- this one
+                application:get_env(blockchain, poc_gc_interval_size, 101); % <---- this one
 
             %% don't change this one!
             _ -> 101
