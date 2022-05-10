@@ -165,6 +165,9 @@
 
 %% determines whether or not to use the fix for a buggy POC GC : boolean
 -define(poc_apply_gc_fix, poc_apply_gc_fix).
+%% determines whether or not to check if poc proposals are within a GC window
+%% before deciding whether to promote
+-define(poc_proposal_gc_window_check, poc_proposal_gc_window_check).
 
 %% Determines whether or not to filter out inactive gateways
 %% from POC targets :: boolean()
