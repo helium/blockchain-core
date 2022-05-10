@@ -2365,7 +2365,20 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
     %% to be absorbed
     {ok, CurHeight} = current_height(Ledger),
     %%  set GC point off by one so it doesnt align with so many other gc processes
-    case CurHeight rem 101 == 0 of
+
+    %% if we're in the validator challenges, but the window check is not in place, we are tied
+    %% to 101 for replay reasons. if it's set, then we can change it however we'd like and we
+    %% should be safe
+    Interval =
+        case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+            {ok, true} ->
+                %% make any needed interval changes here
+                application:get_env(blockchain, poc_gc_interval_size, 101); % <---- this one
+
+            %% don't change this one!
+            _ -> 101
+        end,
+    case CurHeight rem Interval == 0 of
         true ->
             PoCsCF = pocs_cf(Ledger),
             ProposedPoCsCF = proposed_pocs_cf(Ledger),
