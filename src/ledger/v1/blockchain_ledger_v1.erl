@@ -2189,10 +2189,8 @@ promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
                                 ActivePOC0 = blockchain_ledger_poc_v3:status(active, POC),
                                 ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
                                 ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
-                                case promote_to_public_poc(ActivePOC2, Ledger) of
-                                    ok -> [ActivePOC2 | Acc];
-                                    _ -> Acc
-                                end;
+                                ok = promote_to_public_poc(ActivePOC2, Ledger),
+                                [ActivePOC2 | Acc];
                             _ ->
                                 Acc
                         end
@@ -2291,7 +2289,7 @@ promote_to_public_poc(POC, Ledger) ->
     update_public_poc(POC, Ledger).
 
 -spec update_public_poc(POC :: blockchain_ledger_poc_v3:poc(),
-                     Ledger :: ledger()) -> ok | {error, _}.
+                     Ledger :: ledger()) -> ok.
 update_public_poc(POC, Ledger) ->
     POCAddr = blockchain_ledger_poc_v3:onion_key_hash(POC),
     Bin = blockchain_ledger_poc_v3:serialize(POC),
