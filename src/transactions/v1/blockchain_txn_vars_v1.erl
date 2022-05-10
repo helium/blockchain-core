@@ -1024,6 +1024,12 @@ validate_var(?poc_reject_empty_receipts, Value) ->
         false -> ok;
         _ -> throw({error, {poc_reject_empty_receipts, Value}})
     end;
+validate_var(?poc_apply_gc_fix, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_apply_gc_fix, Value}})
+    end;
 validate_var(?poc_challenge_sync_interval, Value) ->
     validate_int(Value, "poc_challenge_sync_interval", 10, 1440, false);
 validate_var(?poc_path_limit, undefined) ->

@@ -2352,6 +2352,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
             {ok, POCTimeout} = get_config(?poc_timeout, Ledger, 10),
             {ok, POCReceiptsAbsorbTimeout} = get_config(?poc_receipts_absorb_timeout, Ledger, 50),
             {ok, POCValKeyProposalTimeout} = get_config(?poc_validator_ephemeral_key_timeout, Ledger, 200),
+            {ok, ApplyPOCGCFix} = get_config(?poc_apply_gc_fix, Ledger, false),
             %% allow for the possibility there may be a mix of POC versions in the POC CF
             %% this can happen when transitioning from hotspot generated POCs -> validator generated POCs
             %% or the reverse
@@ -2380,7 +2381,12 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
                           ((POCStatus /= active) andalso (CurHeight - POCStartHeight) > POCValKeyProposalTimeout) of
                           true ->
                               %% the lifespan of the POC for this key has passed, we can GC
-                              ok = CFGCFun(OnionKeyHash, Ledger);
+                              case ApplyPOCGCFix of
+                                true ->
+                                    ok = CFGCFun(OnionKeyHash, Ledger);
+                                false ->
+                                    ok = delete_public_poc(OnionKeyHash, Ledger)
+                              end;
                           _ ->
                               ok
                       end,
