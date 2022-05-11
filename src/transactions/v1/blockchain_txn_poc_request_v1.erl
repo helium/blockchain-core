@@ -154,6 +154,11 @@ is_valid(Txn, Chain) ->
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
 
+    %% if this var is enabled reject request txns
+    case blockchain:config(?poc_reject_requests, Ledger) of
+        {ok, true} -> throw({error, poc_requests_not_accepted});
+        _ -> ok
+    end,
     case blockchain_txn:validate_fields([{{secret_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
                                          {{onion_key_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
                                          {{block_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}}]) of
@@ -273,7 +278,6 @@ maybe_log_duration(Type, Start) ->
             End;
         _ -> ok
     end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
