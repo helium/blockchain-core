@@ -264,14 +264,14 @@ get_path(_POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Led
 %% TODO: I'm not sure that this is actually faster than checking the time, but I suspect that it'll
 %% be more lock-friendly?
 maybe_start_duration() ->
-    case application:get_env(blockchain, log_validation_times, false) of
+    case application:get_env(blockchain, log_validation_times2, false) of
         true ->
             erlang:monotonic_time(microsecond);
         _ -> 0
     end.
 
 maybe_log_duration(Type, Start) ->
-    case application:get_env(blockchain, log_validation_times, false) of
+    case application:get_env(blockchain, log_validation_times2, false) of
         true ->
             End = erlang:monotonic_time(microsecond),
             lager:info("~p took ~p usec", [Type, End - Start]),
@@ -447,17 +447,22 @@ absorb(_POCVersion, Txn, Chain) ->
                        lager:warning("potential replay: ~p not found", [OnionKeyHash]),
                        throw(replay)
                end,
+        StartV = maybe_start_duration(),
         case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
             false ->
                 {error, invalid_poc};
             true ->
+                StartP = maybe_log_duration(abs_ver, StartV),
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
                 case blockchain:config(?poc_activity_filter_enabled, Ledger) of
                     {ok, true} ->
                         Participants = poc_particpants(Txn, Chain),
+                        StartU = maybe_log_duration(abs_part, StartP),
                         lager:debug("receipt txn poc participants: ~p", [Participants]),
-                        [update_participant_gateway(GWAddr, Height, Ledger) || GWAddr <- Participants];
+                        [update_participant_gateway(GWAddr, Height, Ledger) || GWAddr <- Participants],
+                        maybe_log_duration(abs_update, StartU),
+                        ok;
                     _ ->
                         ok
                 end,
