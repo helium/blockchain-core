@@ -2177,7 +2177,7 @@ get_snapshot(<<Hash/binary>>, #blockchain{db=DB, dir=Dir, snapshots=SnapshotsCF}
             {error, sentinel};
         {ok, <<"file:", SnapFile/binary>>} ->
             SnapDir = filename:join(Dir, "saved-snaps"),
-            Filename = filename:join(SnapDir, SnapFile),
+            Filename = filename:join(SnapDir, SnapFile ++ ".gz"),
             case filelib:is_file(Filename) of
                 true ->
                     {ok, {file, Filename}};
