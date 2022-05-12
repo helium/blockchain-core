@@ -247,13 +247,13 @@ chain_start_from_snap(Snapshot, SnapBin, Cfg) ->
 
 snap_download(SnapHeight, Cfg) ->
     PrivDir = ?config(priv_dir, Cfg),
-    SnapFileName = lists:flatten(io_lib:format("snap-~b", [SnapHeight])),
+    SnapFileName = lists:flatten(io_lib:format("snap-~b.gz", [SnapHeight])),
     SnapFilePath = filename:join(PrivDir, SnapFileName),
     Cmd =
         %% The -c option in wget effectively memoizes the downloaded file,
         %% since priv_dir is per-suite.
         lists:flatten(io_lib:format(
-            "cd ~s && wget -c https://snapshots.helium.wtf/mainnet/~s",
+            "cd ~s && wget -c https://snapshots-dev.helium.wtf/tests/~s",
             [PrivDir, SnapFileName]
         )),
     os:cmd(Cmd),
