@@ -426,12 +426,12 @@ types(L) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback()) ->
-                               ok | {error, any()}.
+                               {ok, tuple()} | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit) ->
     absorb_and_commit(Block, Chain0, BeforeCommit, false).
 
 -spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback(), boolean()) ->
-                               ok | {error, any()}.
+                               {ok, tuple()} | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
@@ -446,7 +446,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             End = erlang:monotonic_time(millisecond),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
-                {ok, Chain2} ->
+                {ok, Chain2, KeysPayload} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
@@ -463,7 +463,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                             End3 = erlang:monotonic_time(millisecond),
                             lager:info("validation took ~p absorb took ~p post took ~p ms for block height ~p",
                                        [End - Start, End2 - End, End3 - End2, Height]),
-                            ok;
+                            {ok, KeysPayload};
                         Any ->
                             Any
                     end;
@@ -478,7 +478,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     end.
 
 -spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback(), boolean()) ->
-                               ok | {error, any()}.
+                               {ok, tuple()} | {error, any()}.
 unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
@@ -498,7 +498,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             End = erlang:monotonic_time(millisecond),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
-                {ok, Chain2} ->
+                {ok, Chain2, KeysPayload} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
@@ -510,7 +510,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                             End3 = erlang:monotonic_time(millisecond),
                             lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
                                        [End - Start, End2 - End, End3 - End2, Height]),
-                            ok;
+                            {ok, KeysPayload};
                         Any ->
                             Any
                     end;
@@ -529,12 +529,13 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb_block(blockchain_block:block(), blockchain:blockchain()) ->
-                          {ok, blockchain:blockchain()} | {error, any()}.
+          {ok, blockchain:blockchain(), tuple()} |
+          {error, any()}.
 absorb_block(Block, Chain) ->
     absorb_block(Block, false, Chain).
 
 -spec absorb_block(blockchain_block:block(), boolean(), blockchain:blockchain()) ->
-                          {ok, blockchain:blockchain()} | {error, any()}.
+                          {ok, blockchain:blockchain(), tuple()} | {error, any()}.
 absorb_block(Block, Rescue, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Transactions0 = blockchain_block:transactions(Block),
@@ -545,8 +546,8 @@ absorb_block(Block, Rescue, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
-            ok = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
-            {ok, Chain};
+            {ok, KeysPayload} = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
+            {ok, Chain, KeysPayload};
         Error ->
             Error
     end.
@@ -865,7 +866,7 @@ absorb_delayed_async(Block0, Chain0) ->
                                                             ok,
                                                             lists:seq(DelayedHeight+1, DelayedHeight + Lag)),
                                           case Res of
-                                              ok ->
+                                              {ok, _} ->
                                                   blockchain_ledger_v1:give_context(DelayedLedger1, Parent),
                                                   Parent ! {Ref, {ok, DelayedLedger1}};
                                               Error ->
@@ -905,8 +906,9 @@ absorb_aux(Block0, Chain0) ->
                                       ok,
                                       lists:seq(AuxHeight+1, End)),
                     case Res of
-                        ok ->
-                            ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                        {ok, _KeysPayload} ->
+                            ok = blockchain_ledger_v1:commit_context(AuxLedger1),
+                            Res;
                         Error ->
                             lager:info("AUX absorb failed ~p", [Error]),
                             Error
@@ -920,14 +922,14 @@ absorb_aux(Block0, Chain0) ->
 
 plain_absorb_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
-        {ok, _} ->
+        {ok, _, KeysPayload} ->
             Ledger0 = blockchain:ledger(Chain0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger0),
             %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
-            ok;
+            {ok, KeysPayload};
         Error ->
             Ledger = blockchain:ledger(Chain0),
             blockchain_ledger_v1:delete_context(Ledger),

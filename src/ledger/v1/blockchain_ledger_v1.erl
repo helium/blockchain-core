@@ -2120,9 +2120,9 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
     BlockHeight :: pos_integer(),
     BlockHash :: binary(),
     Ledger :: ledger()
-) -> ok.
+) -> {ok, none | tuple()}.
 process_poc_proposals(1, _BlockHash, _Ledger) ->
-    ok;
+    {ok, none};
 process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     %% we need to update the ledger with public poc data
     %% based on the blocks poc ephemeral keys
@@ -2146,18 +2146,13 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
                     catch rocksdb:iterator_close(Itr),
                     lager:debug("Selected POCs ~p", [POCSubset]),
                     lager:info("Selected ~p POCs for block height ~p", [length(POCSubset), BlockHeight]),
-                    %% if we are on the leading ledger, fire the poc keys event
-                    case blockchain_ledger_v1:mode(Ledger) of
-                        active ->
-                            ok = blockchain_worker:notify({poc_keys, {BlockHeight, BlockHash, POCSubset}});
-                        _ ->
-                            ok
-                    end;
+
+                    {ok, {BlockHeight, BlockHash, POCSubset}};
                 _ ->
-                    ok
+                    {ok, none}
             end;
         _ ->
-            ok
+            {ok, none}
     end.
 
 -spec promote_proposals(non_neg_integer(), binary(), pos_integer(), pos_integer(), boolean(), rand:state(),
