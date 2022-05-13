@@ -16,8 +16,6 @@
     mem_limit_test/1
 ]).
 
--import(blockchain_utils, [normalize_float/1]).
-
 init_per_suite(Cfg) ->
     {ok, _} = application:ensure_all_started(lager),
     Cfg.
@@ -49,7 +47,7 @@ basic_test(DeserializeFrom, Cfg0) ->
     SnapHeight = 1160641,
     SnapExpectedMem = 1024, % 1160641 needs 1 GB, while 913684 was ok on 200 MB.
     SnapFilePath = snap_download(SnapHeight, Cfg0),
-    {ok, SnapBin} = file:read_file(SnapFilePath),
+    SnapBin = file_read(SnapFilePath),
     {ok, Snap} =
         case DeserializeFrom of
             from_bin ->
@@ -184,7 +182,7 @@ new_test(Cfg0) ->
 
 mem_limit_test(Cfg) ->
     Filename = snap_download(1160641, Cfg),
-    {ok, BinSnap} = file:read_file(Filename),
+    BinSnap = file_read(Filename),
     {Pid, Ref} =
         spawn_monitor(
           fun() ->
@@ -205,6 +203,27 @@ mem_limit_test(Cfg) ->
 %% ----------------------------------------------------------------------------
 %% Helpers
 %% ----------------------------------------------------------------------------
+
+-spec file_read(filename:filename_all()) -> binary().
+file_read(Path) ->
+    {ok, Data0} = file:read_file(Path),
+    case filename:extension(Path) of
+        ".gz" ->
+            ct:pal("Snap file compressed? YES. Path: ~p", [Path]),
+            Z = zlib:open(),
+            ok = zlib:inflateInit(Z, 16 + 15), % TODO Centralize these magic window bits.
+            Data1 =
+                (fun
+                    Gunzip ({finished, Datum}) -> [Datum];
+                    Gunzip ({continue, Datum}) -> [Datum | Gunzip(zlib:safeInflate(Z, []))]
+                end)(zlib:safeInflate(Z, Data0)),
+            zlib:inflateEnd(Z),
+            zlib:close(Z),
+            iolist_to_binary(Data1);
+        [] ->
+            ct:pal("Snap file compressed? NO. Path: ~p", [Path]),
+            Data0
+    end.
 
 -spec snap_hash_without_fields([atom()], map()) -> map().
 snap_hash_without_fields(Fields, Snap) ->
@@ -245,9 +264,12 @@ chain_start_from_snap(Snapshot, SnapBin, Cfg) ->
 
     [{chain, Chain1} | Cfg].
 
-snap_download(SnapHeight, Cfg) ->
+snap_download(Height, Cfg) ->
+    snap_download(Height, ".gz", Cfg).
+
+snap_download(Height, FileExt, Cfg) ->
     PrivDir = ?config(priv_dir, Cfg),
-    SnapFileName = lists:flatten(io_lib:format("snap-~b.gz", [SnapHeight])),
+    SnapFileName = lists:flatten(io_lib:format("snap-~b~s", [Height, FileExt])),
     SnapFilePath = filename:join(PrivDir, SnapFileName),
     Cmd =
         %% The -c option in wget effectively memoizes the downloaded file,
