@@ -448,9 +448,9 @@ absorb(_POCVersion, Txn, Chain) ->
                        throw(replay)
                end,
         case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
-            false ->
-                {error, invalid_poc};
-            true ->
+            {error, R} ->
+                {error, {invalid_poc, R}};
+            ok ->
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
                 case blockchain:config(?poc_activity_filter_enabled, Ledger) of
@@ -1196,8 +1196,8 @@ verify_poc_details(Txn, PoC, Keys) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedPayload = SigFun(OnionHash),
     case blockchain_ledger_poc_v3:verify(PoC, Challenger, BlockHash) of
-        false -> {error, mismatched_poc};
-        true ->
+        {error, R} -> {error, {mismatched_poc, R}};
+        ok ->
             case POCOnionKeyHash == OnionHash of
                 false -> {error, mismatched_onion_key_hash};
                 true ->

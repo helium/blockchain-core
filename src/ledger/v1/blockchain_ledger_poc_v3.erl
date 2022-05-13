@@ -82,9 +82,25 @@ start_height(PoC) ->
 start_height(Height, PoC) ->
     PoC#poc_v3{start_height=Height}.
 
--spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> boolean().
+-spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> ok | {error, any()}.
 verify(PoC, Challenger, BlockHash) ->
-    ?MODULE:challenger(PoC) =:= Challenger andalso ?MODULE:block_hash(PoC) =:= BlockHash.
+    POCChallenger = ?MODULE:challenger(PoC),
+    POCBlockHash = ?MODULE:block_hash(PoC),
+    C1 = POCChallenger =:= Challenger,
+    C2 = POCBlockHash =:= BlockHash,
+    case (C1 andalso C2) of
+        true -> ok;
+        false ->
+            ErrorRes = [{onion_key_hash, ?MODULE:onion_key_hash(PoC)},
+                        {txn_challenger, libp2p_crypto:bin_to_b58(Challenger)},
+                        {ledger_challenger, libp2p_crypto:bin_to_b58(POCChallenger)},
+                        {txn_blockhash, libp2p_crypto:bin_to_b58(BlockHash)},
+                        {ledger_blockhash, libp2p_crypto:bin_to_b58(POCBlockHash)},
+                        {equal_challenger, C1},
+                        {equal_blockhash, C2}],
+
+            {error, ErrorRes}
+    end.
 
 -spec serialize(poc()) -> binary().
 serialize(PoC) ->
