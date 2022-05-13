@@ -220,6 +220,9 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
+            %% Routing table gets cached per State Channel; otherwise, this
+            %% feature would need to scan incoming blocks (see the add_block
+            %% event) for var changes and update local state when that changes.
             Ledger = blockchain:ledger(Chain),
             Routers =
                 case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
