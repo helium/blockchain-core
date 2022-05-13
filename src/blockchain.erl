@@ -404,7 +404,7 @@ bootstrap_h3dex(Ledger) ->
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
-    ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun(_, _) ->
+    {ok, _} = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun(_, _) ->
         {ok, Batch} = rocksdb:batch(),
         ok = save_block(GenesisBlock, Batch, Blockchain),
         GenBin = blockchain_block:serialize(GenesisBlock),
@@ -647,7 +647,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
               case ?MODULE:get_block(H, Chain0) of
                   {ok, Block} ->
                       case blockchain_txn:absorb_block(Block, ChainAcc) of
-                          {ok, Chain1} ->
+                          {ok, Chain1, _} ->
                               {ok, H} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain1)),
                               ok = run_gc_hooks(ChainAcc, Block),
 
@@ -1165,8 +1165,8 @@ add_block_(Block, Blockchain, Syncing) ->
                                     ok
                             end,
                             Error;
-                        ok ->
-                            run_absorb_block_hooks(Syncing, Hash, Blockchain)
+                        {ok, KeysPayload} ->
+                            run_absorb_block_hooks(Syncing, Hash, Blockchain, KeysPayload)
                     end;
                 plausible ->
                     %% regossip plausible blocks
@@ -1263,8 +1263,8 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
               case blockchain_txn:Fun(B, Chain,
                                       fun(FChain, _FHash) -> ok = run_gc_hooks(FChain, B) end,
                                       blockchain_block:is_rescue_block(B)) of
-                  ok ->
-                      run_absorb_block_hooks(Syncing, Hash, Chain);
+                  {ok, KeysPayload} ->
+                      run_absorb_block_hooks(Syncing, Hash, Chain, KeysPayload);
                   {error, Reason} ->
                       lager:error("Error absorbing transaction, "
                                   "Ignoring Hash: ~p, Reason: ~p",
@@ -1362,8 +1362,8 @@ absorb_temp_blocks_fun_([BlockHash|Chain], Blockchain, Syncing) ->
         {error, Reason}=Error ->
             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
             Error;
-        ok ->
-            run_absorb_block_hooks(Syncing, Hash, Blockchain),
+        {ok, KeysPayload} ->
+            run_absorb_block_hooks(Syncing, Hash, Blockchain, KeysPayload),
             absorb_temp_blocks_fun_(Chain, Blockchain, Syncing)
     end.
 
@@ -1613,15 +1613,15 @@ reset_ledger(Height,
                                              end,
                               case Revalidate of
                                   false ->
-                                      ok = blockchain_txn:unvalidated_absorb_and_commit(Block, CAcc, BeforeCommit,
+                                      {ok, KeysPayload} = blockchain_txn:unvalidated_absorb_and_commit(Block, CAcc, BeforeCommit,
                                                                                         blockchain_block:is_rescue_block(Block));
                                   true ->
-                                      ok = blockchain_txn:absorb_and_commit(Block, CAcc, BeforeCommit,
+                                      {ok, KeysPayload} = blockchain_txn:absorb_and_commit(Block, CAcc, BeforeCommit,
                                                                             blockchain_block:is_rescue_block(Block))
                               end,
                               Hash = blockchain_block:hash_block(Block),
                               %% can only get here if the absorb suceeded
-                              run_absorb_block_hooks(true, Hash, CAcc),
+                              run_absorb_block_hooks(true, Hash, CAcc, KeysPayload),
                               CAcc;
                           _ ->
                               lager:warning("couldn't absorb block at ~p", [H]),
@@ -2750,7 +2750,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
         {error, _} when LedgerHeight == 0 ->
             %% reload the genesis block
             {ok, GenesisBlock} = blockchain:genesis_block(Blockchain),
-            ok = blockchain_txn:unvalidated_absorb_and_commit(GenesisBlock, Blockchain, fun(_, _) -> ok end, false),
+            {ok, _} = blockchain_txn:unvalidated_absorb_and_commit(GenesisBlock, Blockchain, fun(_, _) -> ok end, false),
             {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
             ok = blockchain_worker:notify({integrate_genesis_block, GenesisHash}),
             case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
@@ -2797,11 +2797,11 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               case application:get_env(blockchain, force_resync_validation, false) of
                                                   true ->
-                                                      ok = blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block));
+                                                      {ok, KeysPayload} = blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block));
                                                   false ->
-                                                      ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block))
+                                                      {ok, KeysPayload} = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block))
                                               end,
-                                              run_absorb_block_hooks(true, Hash, Blockchain)
+                                              run_absorb_block_hooks(true, Hash, Blockchain, KeysPayload)
                                       end, HashChain)
                     after
                         blockchain_lock:release()
@@ -3043,13 +3043,19 @@ run_gc_hooks(Blockchain, _Block) ->
             {error, gc_hooks_failed}
     end.
 
-run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
+run_absorb_block_hooks(Syncing, Hash, Blockchain, KeysPayload) ->
     Ledger = blockchain:ledger(Blockchain),
     case blockchain_ledger_v1:new_snapshot(Ledger) of
         {error, Reason}=Error ->
             lager:error("Error creating snapshot, Reason: ~p", [Reason]),
             Error;
         {ok, NewLedger} ->
+            case KeysPayload of
+                none -> ok;
+                {BlockHeight, BlockHash, POCSubset} ->
+                    ok = blockchain_worker:notify({poc_keys, {BlockHeight, BlockHash,
+                                                              POCSubset, NewLedger}})
+            end,
             case application:get_env(blockchain, test_mode, false) of
                 false ->
                     ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger});
