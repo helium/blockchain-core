@@ -16,12 +16,12 @@
 ]).
 
 -record(sched, {
-    id      :: reference(),
-    ps_up   :: [{pid(), reference()}],  % producers up.
-    cs_up   :: [{pid(), reference()}],  % consumers up.
-    cs_free :: [pid()],                 % consumers available to work.
-    xs      :: [any()],                 % inputs. received from producers.
-    ys      :: [any()]                  % outputs received from consumers.
+    id             :: reference(),
+    producers      :: [{pid(), reference()}],
+    consumers      :: [{pid(), reference()}],
+    consumers_free :: [pid()],  % available to work.
+    work           :: [any()],  % received from producers.
+    results        :: [any()]   % received from consumers.
 }).
 
 %% API ========================================================================
@@ -70,14 +70,14 @@ pmap_to_bag(T, F, J) when is_function(T), is_function(F), is_integer(J), J > 0 -
         fun () ->
             SchedPid = self(),
             Consumer =
-                fun Work () ->
+                fun Consume () ->
                     ConsumerPid = self(),
                     SchedPid ! {SchedID, consumer_ready, ConsumerPid},
                     receive
                         {SchedID, job, X} ->
                             Y = F(X),
                             SchedPid ! {SchedID, consumer_output, Y},
-                            Work();
+                            Consume();
                         {SchedID, done} ->
                             ok
                     end
@@ -88,12 +88,12 @@ pmap_to_bag(T, F, J) when is_function(T), is_function(F), is_integer(J), J > 0 -
                 end,
             Ys =
                 sched(#sched{
-                    id      = SchedID,
-                    ps_up   = [spawn_monitor(Producer)],
-                    cs_up   = [spawn_monitor(Consumer) || _ <- lists:duplicate(J, {})],
-                    cs_free = [],
-                    xs      = [],
-                    ys      = []
+                    id             = SchedID,
+                    producers      = [spawn_monitor(Producer)],
+                    consumers      = [spawn_monitor(Consumer) || _ <- lists:duplicate(J, {})],
+                    consumers_free = [],
+                    work           = [],
+                    results        = []
                 }),
             CallerPid ! {SchedID, Ys}
         end,
@@ -115,19 +115,19 @@ pmap_to_bag(T, F, J) when is_function(T), is_function(F), is_integer(J), J > 0 -
 %% Internal ===================================================================
 
 -spec sched(#sched{}) -> [any()].
-sched(#sched{id=_, ps_up=[], cs_up=[], cs_free=[], xs=[], ys=Ys}) ->
+sched(#sched{id=_, producers=[], consumers=[], consumers_free=[], work=[], results=Ys}) ->
     Ys;
-sched(#sched{id=ID, ps_up=[], cs_up=[_|_], cs_free=[_|_]=CsFree, xs=[]}=S0) ->
+sched(#sched{id=ID, producers=[], consumers=[_|_], consumers_free=[_|_]=CsFree, work=[]}=S0) ->
     _ = [C ! {ID, done} || C <- CsFree],
-    sched(S0#sched{cs_free=[]});
-sched(#sched{id=_, ps_up=_, cs_up=[_|_], cs_free=[_|_], xs=[_|_]}=S0) ->
+    sched(S0#sched{consumers_free=[]});
+sched(#sched{id=_, producers=_, consumers=[_|_], consumers_free=[_|_], work=[_|_]}=S0) ->
     S1 = sched_assign(S0),
     sched(S1);
-sched(#sched{id=ID, ps_up=Ps, cs_up=_, cs_free=CsFree, xs=Xs, ys=Ys }=S) ->
+sched(#sched{id=ID, producers=Ps, consumers=_, consumers_free=CsFree, work=Xs, results=Ys }=S) ->
     receive
-        {ID, producer_output, X} -> sched(S#sched{xs=[X | Xs]});
-        {ID, consumer_output, Y} -> sched(S#sched{ys=[Y | Ys]});
-        {ID, consumer_ready, C}  -> sched(S#sched{cs_free=[C | CsFree]});
+        {ID, producer_output, X} -> sched(S#sched{work=[X | Xs]});
+        {ID, consumer_output, Y} -> sched(S#sched{results=[Y | Ys]});
+        {ID, consumer_ready, C}  -> sched(S#sched{consumers_free=[C | CsFree]});
         {'DOWN', MonRef, process, Pid, normal} ->
             S1 = sched_remove_worker(S, {Pid, MonRef}),
             sched(S1);
@@ -139,23 +139,23 @@ sched(#sched{id=ID, ps_up=Ps, cs_up=_, cs_free=CsFree, xs=Xs, ys=Ys }=S) ->
     end.
 
 -spec sched_remove_worker(#sched{}, {pid(), reference()}) -> #sched{}.
-sched_remove_worker(#sched{ps_up=Ps, cs_up=Cs, cs_free=CsFree}=S, {Pid, _}=PidRef) ->
+sched_remove_worker(#sched{producers=Ps, consumers=Cs, consumers_free=CsFree}=S, {Pid, _}=PidRef) ->
     case lists:member(PidRef, Ps) of
         true ->
-            S#sched{ps_up = Ps -- [PidRef]};
+            S#sched{producers = Ps -- [PidRef]};
         false ->
             S#sched{
-                cs_up = Cs -- [PidRef],
-                cs_free = CsFree -- [Pid]
+                consumers = Cs -- [PidRef],
+                consumers_free = CsFree -- [Pid]
             }
     end.
 
 -spec sched_assign(#sched{}) -> #sched{}.
-sched_assign(#sched{cs_free=[], xs=Xs}=S) -> S#sched{cs_free=[], xs=Xs};
-sched_assign(#sched{cs_free=Cs, xs=[]}=S) -> S#sched{cs_free=Cs, xs=[]};
-sched_assign(#sched{cs_free=[C | Cs], xs=[X | Xs], id=ID}=S) ->
+sched_assign(#sched{consumers_free=[], work=Xs}=S) -> S#sched{consumers_free=[], work=Xs};
+sched_assign(#sched{consumers_free=Cs, work=[]}=S) -> S#sched{consumers_free=Cs, work=[]};
+sched_assign(#sched{consumers_free=[C | Cs], work=[X | Xs], id=ID}=S) ->
     C ! {ID, job, X},
-    sched_assign(S#sched{cs_free=Cs, xs=Xs}).
+    sched_assign(S#sched{consumers_free=Cs, work=Xs}).
 
 %% Tests ======================================================================
 
