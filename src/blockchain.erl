@@ -1466,19 +1466,8 @@ build(Height, Blockchain, N, Acc) ->
     blockchain(),
     rocksdb:cf_handle()
 ) ->
-    [H] when H :: blockchain_block:hash().
+    [H, ...] when H :: blockchain_block:hash().
 build_hash_chain(StopHash, StartBlock, #blockchain{db=DB}, CF) ->
-    StartHash = blockchain_block:hash_block(StartBlock),
-    build_hash_chain_in_parallel(DB, CF, StopHash, StartHash).
-
--spec build_hash_chain_in_parallel(
-    rocksdb:db_handle(),
-    rocksdb:cf_handle(),
-    H,
-    H
-) ->
-    [H] when H :: blockchain_block:hash().
-build_hash_chain_in_parallel(DB, CF, Oldest, Youngest) ->
     Parents =
         maps:from_list(
             data_stream:pmap_to_bag(
@@ -1490,6 +1479,11 @@ build_hash_chain_in_parallel(DB, CF, Oldest, Youngest) ->
                 end
             )
         ),
+    StartHash = blockchain_block:hash_block(StartBlock),
+    trace_lineage(Parents, StopHash, StartHash).
+
+-spec trace_lineage(#{A => A}, A, A) -> [A, ...].
+trace_lineage(Parents, Oldest, Youngest) ->
     (fun TraceBack ([Child | _]=Lineage) ->
         case maps:find(Child, Parents) of
             error        -> Lineage;
@@ -3402,5 +3396,33 @@ block_info_upgrade_test() ->
                                     penalties = {<<>>, []}},
     V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
     ?assertMatch(ExpV2BlockInfo, V2BlockInfo).
+
+trace_lineage_test_() ->
+    [
+        ?_assertEqual(
+            [middle, youngest],
+            trace_lineage(
+                #{
+                    youngest => middle,
+                    middle => oldest
+                },
+                oldest,
+                youngest
+             )
+        ),
+        ?_assertEqual(
+            [b, c, d, e],
+            trace_lineage(
+                #{
+                    e => d,
+                    d => c,
+                    c => b,
+                    b => a
+                },
+                a,
+                e
+             )
+        )
+    ].
 
 -endif.
