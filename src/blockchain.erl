@@ -1479,45 +1479,24 @@ build_hash_chain(StopHash, StartBlock, #blockchain{db=DB}, CF) ->
 ) ->
     [H] when H :: blockchain_block:hash().
 build_hash_chain_in_parallel(DB, CF, Oldest, Youngest) ->
-    Relations = digraph:new([cyclic]), % XXX 'cyclic' is a perf compromise:
-    %% 'acyclic' is what we'd ideally want, but it is an expensive option, as
-    %% it forces a cycles check ON EACH add_edge operation, so by using
-    %% 'cyclic' we're just trusting that our prev_hash relationships are all
-    %% correct, which they should be, if not - we have bigger problems.
-    Edges =
-        data_stream:pmap_to_bag(
-            rocksdb_stream(DB, CF),
-            fun ({<<ChildHash/binary>>, <<ChildBlockBin/binary>>}) ->
-                ChildBlock = blockchain_block:deserialize(ChildBlockBin),
-                <<ParentHash/binary>> = blockchain_block:prev_hash(ChildBlock),
-                %% XXX Can't update digraph in parallel - no concurrent writes.
-                {ParentHash, ChildHash}
-            end
+    Parents =
+        maps:from_list(
+            data_stream:pmap_to_bag(
+                rocksdb_stream(DB, CF),
+                fun ({<<ChildHash/binary>>, <<ChildBlockBin/binary>>}) ->
+                    ChildBlock = blockchain_block:deserialize(ChildBlockBin),
+                    <<ParentHash/binary>> = blockchain_block:prev_hash(ChildBlock),
+                    {ChildHash, ParentHash}
+                end
+            )
         ),
-    _ = [digraph:add_vertex(Relations, Child)       || {_     , Child} <- Edges],
-    _ = [digraph:add_edge(Relations, Parent, Child) || {Parent, Child} <- Edges],
-    HashChain =
-        %% XXX The simplest solution:
-        %%         digraph:get_path(Relations, Oldest, Youngest)
-        %%     is fine in the ideal case, but doesn't work in the case of a
-        %%     broken path (when a block was missing and its parent could not
-        %%     be looked up), in which case we need to return the longest
-        %%     lineage found, traced back from the youngest hash. TraceBack
-        %%     works for either scenario.
-        (fun TraceBack ([Child | _]=Lineage) ->
-            case digraph:in_neighbours(Relations, Child) of
-                [] ->
-                    Lineage;
-                [Oldest] ->
-                    Lineage;
-                [Parent] ->
-                    TraceBack([Parent | Lineage]);
-                [_|_]=Parents ->
-                    error({incorrect_chain, multiple_parents, Child, Parents})
-            end
-        end)([Youngest]),
-    true = digraph:delete(Relations),
-    HashChain.
+    (fun TraceBack ([Child | _]=Lineage) ->
+        case maps:find(Child, Parents) of
+            error        -> Lineage;
+            {ok, Oldest} -> Lineage;
+            {ok, Parent} -> TraceBack([Parent | Lineage])
+        end
+    end)([Youngest]).
 
 -spec rocksdb_stream(rocksdb:db_handle(), rocksdb:cf_handle()) ->
     data_stream:t({K :: binary(), V :: binary()}).
