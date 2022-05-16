@@ -1468,6 +1468,24 @@ build(Height, Blockchain, N, Acc) ->
 ) ->
     [H, ...] when H :: blockchain_block:hash().
 build_hash_chain(StopHash, StartBlock, #blockchain{db=DB}, CF) ->
+    %% XXX This parallelized build_hash_chain has a potential PERF DRAWBACK:
+    %%
+    %%     Because it processes the WHOLE of blocks CF BEFORE knowing what will
+    %%     actually be needed, if the caller needs a significantly smaller
+    %%     segment than the whole - we end-up doing a lot of wasted
+    %%     deserializations.
+    %%
+    %%     Some ideas for solutions:
+    %%     A. eliminate the desrialization step entirtely, by maintaining
+    %%        a rocksdb CF of ChildHash->ParentHash mappings;
+    %%     B. dispatch between serial and parallel versions based on some
+    %%        conditions/configs;
+    %%     C. accept the redundancy, but create an opportunity to terminate
+    %%        early once a long-enough segment is built - reimplement Parents
+    %%        as a cache process which does two things:
+    %%          1. starts a background job which fills the cache with parents;
+    %%          2. accepts parent requests and either retrieves responses from
+    %%             cache or compute them (updating the cache).
     Parents =
         maps:from_list(
             data_stream:pmap_to_bag(
