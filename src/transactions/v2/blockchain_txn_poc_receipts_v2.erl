@@ -772,16 +772,16 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             DstPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
             SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(PreviousElement),
             {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
-            {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
             SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
-            DestinationRegion = blockchain_region_v1:h3_to_region(DestinationLoc, Ledger),
+            {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
             {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
             {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
 
-            case is_same_region(Version, SourceRegion, DestinationRegion) of
+            case is_same_region(SourceRegion, DestinationLoc, Ledger) of
                 false ->
+                    DestinationRegion = blockchain_region_v1:h3_to_region(DestinationLoc, Ledger),
                     lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
                                 [blockchain_utils:addr2name(SrcPubkeyBin),
                                  blockchain_utils:addr2name(DstPubkeyBin),
@@ -898,18 +898,13 @@ check_valid_frequency(Region0, Frequency, Ledger, _Version) ->
     lists:any(fun(E) -> abs(E - Frequency*?MHzToHzMultiplier) =< 1000 end, ChannelFreqs).
 
 -spec is_same_region(
-    Version :: non_neg_integer(),
     SourceRegion :: {error, any()} | {ok, atom()},
-    DstRegion :: {error, any()} | {ok, atom()}
+    DstLoc :: h3:h3_index(),
+    Ledger :: blockchain_ledger_v1:ledger()
 ) -> boolean().
-is_same_region(_Version, SourceRegion0, DstRegion0) ->
+is_same_region(SourceRegion0, DstLoc, Ledger) ->
     {ok, SourceRegion} = SourceRegion0,
-    case DstRegion0 of
-        {ok, DstRegion} ->
-            SourceRegion == DstRegion;
-        {error, _} ->
-            false
-    end.
+    blockchain_region_v1:h3_in_region(DstLoc, SourceRegion, Ledger).
 
 
 %% This function adds a tag to each witness specifying a reason why a witness was considered invalid,
@@ -951,7 +946,6 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                          {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
-                         DestinationRegion = blockchain_region_v1:h3_to_region(DestinationLoc, Ledger, RegionVars),
 %%                            case blockchain_region_v1:h3_to_region(DestinationLoc, Ledger, RegionVars) of
 %%                                {error, {unknown_region, _Loc}} when Version >= 11 ->
 %%                                    lager:warning("saw unknown region for ~p loc ~p",
@@ -967,7 +961,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
                              {{ok, true}, 0.0} ->
                                 [{false, <<"witness_zero_freq">>, Witness} | Acc];
                              _ ->
-                                 case is_same_region(Version, SourceRegion, DestinationRegion) of
+                                 case is_same_region(SourceRegion, DestinationLoc, Ledger) of
                                      false ->
                                          lager:debug("Not in the same region!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p",
                                                      [blockchain_utils:addr2name(SrcPubkeyBin),
