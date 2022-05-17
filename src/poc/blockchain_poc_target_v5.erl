@@ -121,19 +121,18 @@ target_(
         {InitHex, InitHexRandState}
     ]),
     %% Assign probabilities to each of these gateways
-    ProbTargetMap = lists:foldl(
-        fun(A, Acc) ->
-            Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
-            maps:put(A, Prob, Acc)
+    Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
+    ProbTargets = lists:map(
+        fun(A) ->
+            {A, Prob}
         end,
-        #{},
         ZoneGWs
     ),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
     %% make sure that we carry the rand_state through for determinism
     {RandVal, TargetRandState} = rand:uniform_s(InitTargetRandState),
     {ok, TargetPubkeybin} = blockchain_utils:icdf_select(
-        lists:keysort(1, maps:to_list(ProbTargetMap)),
+        lists:keysort(1, maps:to_list(ProbTargets)),
         RandVal
     ),
     {ok, {TargetPubkeybin, TargetRandState}}.
