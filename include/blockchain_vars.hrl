@@ -614,3 +614,8 @@
 
 %% Block size limit variable (in bytes). Set to 25 * 1024 * 1024.
 -define(block_size_limit, block_size_limit).
+
+%% ------------------------------------------------------------------
+%% Protocol version (aka support multiple tokens)
+%% Testing for now, set to 2
+-define(protocol_version, protocol_version).

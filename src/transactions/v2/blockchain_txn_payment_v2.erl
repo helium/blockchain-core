@@ -460,6 +460,43 @@ has_default_memos(Payments) ->
         Payments
     ).
 
+-spec token_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+token_check(Txn, Ledger) ->
+    Payments = ?MODULE:payments(Txn),
+    case blockchain:config(?protocol_version, Ledger) of
+        {ok, 2} ->
+            %% check that the memos are valid
+            case has_valid_tokens(Payments) of
+                true -> ok;
+                false -> {error, invalid_tokens}
+            end;
+        _ ->
+            %% old behavior before var, allow only if token_type=hnt (default)
+            case has_default_tokens(Payments) of
+                true -> ok;
+                false -> {error, invalid_token_before_var}
+            end
+    end.
+
+-spec has_valid_tokens(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_valid_tokens(Payments) ->
+    lists:all(
+        fun(Payment) ->
+                %% TODO: check that the memo field is valid
+                blockchain_payment_v2:is_valid_token_type(Payment)
+        end,
+        Payments
+    ).
+
+-spec has_default_tokens(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_default_tokens(Payments) ->
+    lists:all(
+        fun(Payment) ->
+            hnt == blockchain_payment_v2:token_type(Payment)
+        end,
+        Payments
+    ).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------

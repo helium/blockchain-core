@@ -40,6 +40,7 @@
 
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
     entries/1,
+    entries_v2/1,
     htlcs/1,
 
     master_key/1, master_key/2,
@@ -102,7 +103,9 @@
     upgrade_pocs/1,
 
     find_entry/2,
+    find_entry_v2/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
+    credit_account/4,
     check_balance/3,
 
     dc_entries/1,
@@ -285,6 +288,7 @@
 -endif.
 
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
+-type entries_v2() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v2:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -344,11 +348,11 @@ new(Dir, ReadOnly, Options) ->
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, ProposedPoCsCF,
      SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, EntriesV2CF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedProposedPoCsCF,
      DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF,
-     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
+     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF, DelayedEntriesV2CF] = CFs,
     Ledger =
     #ledger_v1{
         dir=Dir,
@@ -369,7 +373,8 @@ new(Dir, ReadOnly, Options) ->
             subnets=SubnetsCF,
             state_channels=SCsCF,
             h3dex=H3DexCF,
-            validators=ValidatorsCF
+            validators=ValidatorsCF,
+            entries_v2=EntriesV2CF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -385,7 +390,8 @@ new(Dir, ReadOnly, Options) ->
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF,
-            validators=DelayedValidatorsCF
+            validators=DelayedValidatorsCF,
+            entries_v2=DelayedEntriesV2CF
         }
     },
     Ledger.
@@ -902,7 +908,8 @@ atom_to_cf(Atom, Ledger) ->
             subnets -> SL#sub_ledger_v1.subnets;
             state_channels -> SL#sub_ledger_v1.state_channels;
             h3dex -> SL#sub_ledger_v1.h3dex;
-            validators -> SL#sub_ledger_v1.validators
+            validators -> SL#sub_ledger_v1.validators;
+            entries_v2 -> SL#sub_ledger_v1.entries_v2
         end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
@@ -1336,6 +1343,19 @@ entries(Ledger) ->
         EntriesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_entry_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{}
+    ).
+
+-spec entries_v2(ledger()) -> entries_v2().
+entries_v2(Ledger) ->
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        EntriesV2CF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_entry_v2:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
         #{}
@@ -2989,6 +3009,19 @@ find_entry(Address, Ledger) ->
             Error
     end.
 
+-spec find_entry_v2(Addres :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) ->
+    {ok, blockchain_ledger_entry_v2:entry()} | {error, any()}.
+find_entry_v2(Address, Ledger) ->
+    EntriesV2CF = entries_v2_cf(Ledger),
+    case cache_get(Ledger, EntriesV2CF, Address, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_entry_v2:deserialize(BinEntry)};
+        not_found ->
+            {error, address_entry_not_found};
+        Error ->
+            Error
+    end.
+
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),
@@ -3003,6 +3036,29 @@ credit_account(Address, Amount, Ledger) ->
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
             ),
             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {error, _}=Error ->
+            Error
+    end.
+
+-spec credit_account(Address :: libp2p_crypto:pubkey_bin(),
+                     Amount :: integer(),
+                     TT :: blockchain_token_type_v1:token(),
+                     Ledger :: ledger()) -> ok | {error, any()}.
+credit_account(Address, Amount, TT, Ledger) ->
+    EntriesCF = entries_v2_cf(Ledger),
+    case ?MODULE:find_entry_v2(Address, Ledger) of
+        {error, address_entry_not_found} ->
+            %% create blank entry to fill all the token types
+            Entry0 = blockchain_ledger_entry_v2:new(),
+            %% credit this particular token amount
+            Entry1 = blockchain_ledger_entry_v2:credit(Entry0, Amount, TT),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {ok, Entry} ->
+            %% credit this particular token amount
+            Entry1 = blockchain_ledger_entry_v2:credit(Entry, Amount, TT),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
             cache_put(Ledger, EntriesCF, Address, Bin);
         {error, _}=Error ->
             Error
@@ -4138,6 +4194,11 @@ entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries, db(Ledger), SL#sub_ledger_v1.entries}.
 
+-spec entries_v2_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+entries_v2_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {entries_v2, db(Ledger), SL#sub_ledger_v1.entries_v2}.
+
 -spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 dc_entries_cf(Ledger) ->
     SL = subledger(Ledger),
@@ -4486,7 +4547,7 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
 default_cfs() ->
     ["default", "active_gateways", "entries", "dc_entries", "htlcs",
      "pocs", "proposed_pocs", "securities", "routing", "subnets",
-     "state_channels", "h3dex", "gw_denorm", "validators"].
+     "state_channels", "h3dex", "gw_denorm", "validators", "entries_v2"].
 
 -spec delayed_cfs() -> list().
 delayed_cfs() ->
