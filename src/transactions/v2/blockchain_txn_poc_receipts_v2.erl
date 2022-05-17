@@ -756,9 +756,34 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
 poc_id(Txn) ->
     ?BIN_TO_B64(?MODULE:onion_key_hash(Txn)).
 
+-define(poc_vars, [
+    ?poc_version,
+    ?poc_v4_target_challenge_age,
+    ?poc_v5_target_prob_randomness_wt,
+    ?poc_witness_consideration_limit,
+    ?poc_v4_prob_rssi_wt,
+    ?poc_v4_prob_time_wt,
+    ?poc_v4_prob_count_wt,
+    ?poc_v4_prob_no_rssi,
+    ?poc_v4_prob_good_rssi,
+    ?poc_v4_prob_bad_rssi,
+    ?poc_v4_parent_res,
+    ?poc_v4_exclusion_cells,
+    ?poc_v4_randomness_wt,
+    ?poc_centrality_wt,
+    ?poc_good_bucket_low,
+    ?poc_good_bucket_high,
+    ?poc_max_hop_cells,
+    ?poc_v4_target_prob_score_wt,
+    ?poc_v4_target_prob_edge_wt,
+    ?poc_v5_target_prob_randomness_wt,
+    ?poc_v4_target_score_curve,
+    ?poc_v4_target_exclusion_cells,
+    ?poc_path_limit
+]).
+
 vars(Ledger) ->
-    blockchain_utils:vars_binary_keys_to_atoms(
-      maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
+    blockchain_utils:get_vars(?poc_vars, Ledger).
 
 -spec valid_receipt(PreviousElement :: undefined | blockchain_poc_path_element_v1:poc_element(),
                     Element :: blockchain_poc_path_element_v1:poc_element(),
