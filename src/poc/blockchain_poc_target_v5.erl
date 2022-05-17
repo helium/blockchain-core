@@ -175,8 +175,8 @@ prob_randomness_wt(Vars) ->
 -spec sorted_hex_list(Ledger :: blockchain_ledger_v1:ledger()) -> [h3:h3_index()].
 sorted_hex_list(Ledger) ->
     %% Grab the list of parent hexes
-    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-    lists:keysort(1, maps:to_list(Hexes)).
+    {ok, Hexes} = blockchain_ledger_v1:get_hexes_list(Ledger),
+    Hexes.
 
 -spec choose_zone(
     RandState :: rand:state(),
