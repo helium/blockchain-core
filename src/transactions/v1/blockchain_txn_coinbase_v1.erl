@@ -14,12 +14,13 @@
 -include_lib("helium_proto/include/blockchain_txn_coinbase_v1_pb.hrl").
 
 -export([
-    new/2,
+    new/2, new/3,
     hash/1,
     payee/1,
     amount/1,
     fee/1,
     fee_payer/2,
+    token_type/1,
     is_valid/2,
     absorb/2,
     sign/2,
@@ -37,11 +38,23 @@
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Construct new coinbase_v1 transaction with default token_type = hnt
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_coinbase().
 new(Payee, Amount) ->
     #blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Construct new coinbase_v1 transaction with specific token type
+%% @end
+%%--------------------------------------------------------------------
+-spec new(Payee :: libp2p_crypto:pubkey_bin(),
+          Amount :: non_neg_integer(),
+          TokenType :: blockchain_token_type_v1:token_type()) -> txn_coinbase().
+new(Payee, Amount, TokenType) ->
+    #blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount, token_type=TokenType}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -87,6 +100,15 @@ fee(_Txn) ->
 -spec fee_payer(txn_coinbase(), blockchain_ledger_v1:ledger()) -> libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(_Txn, _Ledger) ->
     undefined.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Get token_type associated with coinbase txn
+%% @end
+%%--------------------------------------------------------------------
+-spec token_type(txn_coinbase()) -> blockchain_token_type_v1:token_type().
+token_type(Txn) ->
+    Txn#blockchain_txn_coinbase_v1_pb.token_type.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -150,7 +172,13 @@ to_json(Txn, _Opts) ->
 
 new_test() ->
     Tx = #blockchain_txn_coinbase_v1_pb{payee= <<"payee">>, amount=666},
-    ?assertEqual(Tx, new(<<"payee">>, 666)).
+    ?assertEqual(Tx, new(<<"payee">>, 666)),
+    ?assertEqual(token_type(Tx), hnt).
+
+new2_test() ->
+    Tx = #blockchain_txn_coinbase_v1_pb{payee= <<"payee">>, amount=666, token_type=hst},
+    ?assertEqual(Tx, new(<<"payee">>, 666, hst)),
+    ?assertEqual(token_type(Tx), hst).
 
 payee_test() ->
     Tx = new(<<"payee">>, 666),
