@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Ledger Entry V2 ==
+%% == Blockchain Ledger Entries V2 ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_ledger_entries_v2).
@@ -8,7 +8,7 @@
 -export([
     new/2,
     owner/1,
-    entries/1,
+    entries/1, entries/2,
 
     serialize/1,
     deserialize/1,
@@ -20,6 +20,10 @@
 
 -include("blockchain_json.hrl").
 -include_lib("helium_proto/include/blockchain_ledger_entries_v2_pb.hrl").
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -type entries() :: #blockchain_ledger_entries_v2_pb{}.
 
@@ -38,9 +42,10 @@ owner(#blockchain_ledger_entries_v2_pb{owner = Owner}) ->
 entries(#blockchain_ledger_entries_v2_pb{entries = Entries}) ->
     Entries.
 
--spec entries(Entries :: entries(), LedgerEntries :: blockchain_ledger_entry_v2:entries()) -> blockchain_ledger_entry_v2:entries().
+-spec entries(Entries :: entries(), LedgerEntries :: blockchain_ledger_entry_v2:entries()) ->
+    blockchain_ledger_entry_v2:entries().
 entries(Entries, LedgerEntries) ->
-    Entries.
+    Entries#blockchain_ledger_entries_v2_pb{entries = LedgerEntries}.
 
 -spec serialize(Entries :: entries()) -> binary().
 serialize(Entries) ->
@@ -72,3 +77,40 @@ to_json(Entries, _Opts) ->
         owner => ?BIN_TO_B58(owner(Entries)),
         entries => [blockchain_ledger_entry_v2:to_json(E) || E <- ?MODULE:entries(Entries)]
     }.
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+new_test() ->
+    E1 = #blockchain_ledger_entry_v2_pb{nonce = 0, balance = 100, token_type = hnt},
+    E2 = #blockchain_ledger_entry_v2_pb{nonce = 1, balance = 200, token_type = hst},
+    E3 = #blockchain_ledger_entry_v2_pb{nonce = 1, balance = 300, token_type = hgt},
+    E4 = #blockchain_ledger_entry_v2_pb{nonce = 0, balance = 50, token_type = hlt},
+    LedgerEntries = [E1, E2, E3, E4],
+    Entries = #blockchain_ledger_entries_v2_pb{owner = <<"owner">>, entries = LedgerEntries},
+    ?assertEqual(Entries, new(<<"owner">>, LedgerEntries)).
+
+owner_test() ->
+    Entries = new(<<"owner">>, [
+        blockchain_ledger_entry_v2:new(0, 100), blockchain_ledger_entry_v2:new(1, 20, hlt)
+    ]),
+    ?assertEqual(<<"owner">>, ?MODULE:owner(Entries)).
+
+entries_test() ->
+    LedgerEntries = [
+        blockchain_ledger_entry_v2:new(0, 100), blockchain_ledger_entry_v2:new(1, 20, hlt)
+    ],
+    Entries = new(<<"owner">>, LedgerEntries),
+    ?assertEqual(LedgerEntries, ?MODULE:entries(Entries)).
+
+serde_test() ->
+    LedgerEntries = [
+        blockchain_ledger_entry_v2:new(0, 100), blockchain_ledger_entry_v2:new(1, 20, hlt)
+    ],
+    Entries = new(<<"owner">>, LedgerEntries),
+    SerEntries = ?MODULE:serialize(Entries),
+    ?assertEqual(Entries, ?MODULE:deserialize(SerEntries)).
+
+-endif.

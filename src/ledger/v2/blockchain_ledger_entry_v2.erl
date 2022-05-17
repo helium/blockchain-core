@@ -89,17 +89,17 @@ to_json(Entry, _Opts) ->
 -ifdef(TEST).
 
 new_test() ->
-    Entry = #blockchain_ledger_entry_v2_pb{nonce=0, balance=100},
+    Entry = #blockchain_ledger_entry_v2_pb{nonce = 0, balance = 100},
     ?assertEqual(Entry, new(0, 100)),
-    ?assertEqual(hnt, ?MODULE:token_type(Entry)),
+    ?assertEqual(hnt, ?MODULE:token_type(Entry)).
 
 new2_test() ->
-    Entry = #blockchain_ledger_entry_v2_pb{nonce=0, balance=100, token_type=hst},
+    Entry = #blockchain_ledger_entry_v2_pb{nonce = 0, balance = 100, token_type = hst},
     ?assertEqual(Entry, new(0, 100, hst)),
-    ?assertEqual(hst, ?MODULE:token_type(Entry)),
+    ?assertEqual(hst, ?MODULE:token_type(Entry)).
 
 nonce_test() ->
-    Entry = #blockchain_ledger_entry_v2_pb{nonce=0, balance=100},
+    Entry = #blockchain_ledger_entry_v2_pb{nonce = 0, balance = 100},
     ?assertEqual(0, ?MODULE:nonce(Entry)).
 
 balance_test() ->
