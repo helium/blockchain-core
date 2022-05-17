@@ -132,7 +132,7 @@ target_(
     %% make sure that we carry the rand_state through for determinism
     {RandVal, TargetRandState} = rand:uniform_s(InitTargetRandState),
     {ok, TargetPubkeybin} = blockchain_utils:icdf_select(
-        lists:keysort(1, maps:to_list(ProbTargets)),
+        lists:keysort(1, ProbTargets),
         RandVal
     ),
     {ok, {TargetPubkeybin, TargetRandState}}.
