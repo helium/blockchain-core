@@ -204,49 +204,57 @@ init_per_testcase(TestCase, Config) ->
 
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
 
-    Nodes = pmap(fun(Node) ->
-                         start_node(Node, Config, TestCase)
-                 end, NodeNames),
+    Nodes =
+        pmap(
+            fun(Node) ->
+                 start_node(Node, Config, TestCase)
+             end, NodeNames),
 
-    ConfigResult = pmap(fun(Node) ->
-                                ct_rpc:call(Node, cover, start, []),
-                                ct_rpc:call(Node, application, load, [lager]),
-                                ct_rpc:call(Node, application, load, [blockchain]),
-                                ct_rpc:call(Node, application, load, [libp2p]),
-                                ct_rpc:call(Node, application, load, [erlang_stats]),
-                                ct_rpc:call(Node, application, load, [grpcbox]),
-                                %% give each node its own log directory
-                                LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
-                                ct_rpc:call(Node, application, set_env, [lager, log_root, LogRoot]),
-                                ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
+    pmap(
+        fun(Node) ->
+            LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
 
-                                %% set blockchain configuration
-                                #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-                                Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
-                                BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
-                                ct_rpc:call(Node, application, set_env, [blockchain, testing, true]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, enable_nat, false]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BlockchainBaseDir]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, key, Key]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, peer_cache_timeout, PeerCacheTimeout]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, sc_client_handler, sc_client_test_handler]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, sc_packet_handler, sc_packet_test_handler]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, peerbook_update_interval, 200]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, peerbook_allow_rfc1918, true]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, max_inbound_connections, TotalNodes*2]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, outbound_gossip_connections, TotalNodes]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, listen_interface, "127.0.0.1"]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, sc_client_transport_handler, SCClientTransportHandler]),
-                                ct_rpc:call(Node, application, set_env, [blockchain, sc_sup_type, testing]),
-                                {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
-                                log("Node: ~p, StartedApps: ~p", [Node, StartedApps])
-                        end, Nodes),
+            %% set blockchain configuration
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+            Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
+            BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
 
-    %% check that the config loaded correctly on each node
-    true = lists:all(fun(Res) -> Res == ok end, ConfigResult),
+            ct_rpc:call(Node, cover, start, []),
+
+            application_load(Node,
+                [lager, blockchain, libp2p, erlang_stats, grpcbox]),
+
+            application_set_env(Node, [
+                % give each node its own log directory
+                {lager, log_root, LogRoot},
+                {blockchain, testing, true},
+                {blockchain, enable_nat, false},
+                {blockchain, base_dir, BlockchainBaseDir},
+                {blockchain, num_consensus_members, NumConsensusMembers},
+                {blockchain, port, Port},
+                {blockchain, seed_nodes, SeedNodes},
+                {blockchain, key, Key},
+                {blockchain, peer_cache_timeout, PeerCacheTimeout},
+                {blockchain, sc_client_handler, sc_client_test_handler},
+                {blockchain, sc_packet_handler, sc_packet_test_handler},
+                {blockchain, peerbook_update_interval, 200},
+                {blockchain, peerbook_allow_rfc1918, true},
+                {blockchain, max_inbound_connections, TotalNodes*2},
+                {blockchain, outbound_gossip_connections, TotalNodes},
+                {blockchain, listen_interface, "127.0.0.1"},
+                {blockchain, sc_client_transport_handler, SCClientTransportHandler},
+                {blockchain, sc_sup_type, testing}
+            ]),
+
+            {Node, {ok, StartedApps3}} = {
+                Node,
+                ct_rpc:call(Node,
+                    application, ensure_all_started, [blockchain])},
+            log("Node: ~p, StartedApps: ~p", [Node, StartedApps3]),
+
+            ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug])
+
+        end, Nodes),
 
     %% accumulate the listen addr of all the nodes
     Addrs = pmap(
@@ -584,7 +592,8 @@ download_serialized_region(URL) ->
     Data.
 
 
-% [{Node, PubKey}]
+-spec find_connected_node_pair({node(), binary()}) ->
+    [node()] | disjoint_network.
 find_connected_node_pair(NodeAddrList) ->
     AddrMap =
         lists:foldl(
@@ -595,11 +604,14 @@ find_connected_node_pair(NodeAddrList) ->
     ct:pal("Node map: ~p", [AddrMap]),
     find_connected_node_pair(maps:next(maps:iterator(AddrMap)), AddrMap, #{}).
 
+
+% NetworkMap - #{ConnectedToNode => [ConnectedFromNode]}
+-spec find_connected_node_pair(
+    maps:iterator(string(), node()), #{string() => node()},
+    #{node() => [node()]}) -> [node()] | disjoint_network.
 find_connected_node_pair(none, _, NetworkMap) ->
     ct:pal("Final Network Map~n~p", [NetworkMap]),
     disjoint_network;
-
-% NetworkMap - #{ConnectedToNode => [ConnectedFromNode]}
 find_connected_node_pair({_, Node, Iter}, AddrToNodeMap, NetworkMap) ->
     GossipPeerNodes =
         addr_to_node(
@@ -621,10 +633,15 @@ find_connected_node_pair({_, Node, Iter}, AddrToNodeMap, NetworkMap) ->
             [Node, ConnectedNode]
     end.
 
+
+-spec addr_to_node([string()], #{string() => node()}) -> [node()].
 addr_to_node(Addrs, AddrToNodeMap) ->
     [maps:get(Addr, AddrToNodeMap, undefined) || Addr <- Addrs].
 
+
 % Remember which nodes a peer node is connected to
+-spec add_to_network_map(node(), [string()], #{node() => [node()]}) ->
+    #{node() => [node()]}.
 add_to_network_map(Node, GossipPeerNodes, NetworkMap) ->
     lists:foldl(
         fun(PeerNode, Acc) ->
@@ -633,3 +650,20 @@ add_to_network_map(Node, GossipPeerNodes, NetworkMap) ->
                     [Node | NodeList]
                 end, [Node], Acc)
         end, NetworkMap, GossipPeerNodes).
+
+
+-spec application_load(node(), [atom()]) -> ok.
+application_load(Node, Applications) ->
+    lists:foreach(
+        fun(Application) ->
+            ct_rpc:call(Node, application, load, [Application])
+        end, Applications).
+
+
+-spec application_set_env(node(), [{atom(), atom(), term()}]) -> ok.
+application_set_env(Node, Env) ->
+    lists:foreach(
+        fun({Application, Par, Val}) ->
+            ok = ct_rpc:call(
+                Node, application, set_env, [Application, Par, Val])
+        end, Env).
