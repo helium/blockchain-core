@@ -110,7 +110,8 @@
     snapshots :: rocksdb:cf_handle(),
     implicit_burns :: rocksdb:cf_handle(),
     htlc_receipts :: rocksdb:cf_handle(),
-    ledger :: blockchain_ledger_v1:ledger()
+    ledger :: blockchain_ledger_v1:ledger(),
+    rtc :: ets:tab()
 }).
 
 -define(GEN_HASH_FILE, "genesis").
@@ -706,8 +707,13 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %%--------------------------------------------------------------------
 -spec get_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
 get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
+    Start = erlang:monotonic_time(microsecond),
     case rocksdb:get(DB, BlocksCF, Hash, []) of
         {ok, BinBlock} ->
+            End = erlang:monotonic_time(microsecond),
+            blockchain_worker:update_rocks_ctr(<<"get_block">>,
+                                               byte_size(BinBlock),
+                                               End - Start),
             {ok, blockchain_block:deserialize(BinBlock)};
         not_found ->
             {error, not_found};
@@ -777,22 +783,36 @@ put_block_info(Height, Info, _Chain = #blockchain{db=DB, info=InfoCF}) ->
 -spec get_block_info(Height :: pos_integer(), Blockchain :: blockchain()) ->
           {ok, #block_info_v2{}} | {error, any()}.
 get_block_info(Height, Chain = #blockchain{db=DB, info=InfoCF}) ->
-    case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
-        {ok, BinInfo} ->
-            {ok, deserialize_block_info(BinInfo, Chain)};
-        not_found ->
-            case get_block(Height, Chain) of
-                {ok, Block} ->
-                    Hash = blockchain_block:hash_block(Block),
-                    Info = mk_block_info(Hash, Block),
-                    InfoBin = serialize_block_info(Info),
-                    ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
+    %% TODO: handle missing table for tests
+    case ets:lookup(bc_rtc, Height) of
+        [{_, Info}] ->
+            {ok, Info};
+        [] ->
+            Start = erlang:monotonic_time(microsecond),
+            case rocksdb:get(DB, InfoCF, <<Height:64/integer-unsigned-big>>, []) of
+                {ok, BinInfo} ->
+                    End = erlang:monotonic_time(microsecond),
+                    blockchain_worker:update_rocks_ctr(<<"get_info">>,
+                                                       byte_size(BinInfo),
+                                                       End - Start),
+                    Info = deserialize_block_info(BinInfo, Chain),
+                    %% TODO limit cache size
+                    ets:insert(bc_rtc, {Height, Info}),
                     {ok, Info};
+                not_found ->
+                    case get_block(Height, Chain) of
+                        {ok, Block} ->
+                            Hash = blockchain_block:hash_block(Block),
+                            Info = mk_block_info(Hash, Block),
+                            InfoBin = serialize_block_info(Info),
+                            ok = rocksdb:put(DB, InfoCF, <<Height:64/integer-unsigned-big>>, InfoBin, []),
+                            {ok, Info};
+                        Error ->
+                            Error
+                    end;
                 Error ->
                     Error
-            end;
-        Error ->
-            Error
+            end
     end.
 
 -spec mk_block_info(blockchain_block:hash(), blockchain_block:block()) -> #block_info_v2{}.

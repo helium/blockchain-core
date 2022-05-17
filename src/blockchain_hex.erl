@@ -198,6 +198,8 @@ precalc(Testing, Ledger) ->
         blockchain_ledger_v1:cf_fold(
           active_gateways,
           fun({_Addr, BinGw}, Acc) ->
+                  %% todo explore alternate serialization formats where we can get the location and
+                  %% the last challenge without fully deserializing the gateway
                   G = blockchain_ledger_gateway_v2:deserialize(BinGw),
                   L = blockchain_ledger_gateway_v2:location(G),
                   LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(G),
@@ -229,7 +231,7 @@ precalc(Testing, Ledger) ->
                             ResHex = h3:parent(Hex, Level),
                             Ct = lookup(ClipETS, Hex),
                             ets:update_counter(UnclipETS, ResHex, Ct, {ResHex, 0}),
-                            ets:update_counter(ClipETS, ResHex, Ct, {ResHex, 0}), % not sure if required
+                            ets:update_counter(ClipETS, ResHex, Ct, {ResHex, 0}),
                             [ResHex | A]
                     end, [], Acc),
               Acc2 = lists:usort(Acc1),
