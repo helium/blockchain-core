@@ -57,7 +57,9 @@ init_per_testcase(TestCase, Config) ->
                 have_init_dc =>
                     true,
                 extra_vars =>
-                    ExtraVars
+                    ExtraVars,
+                token_type =>
+                    hnt
             }
         ),
 
@@ -67,7 +69,7 @@ init_per_testcase(TestCase, Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
-    Entries = blockchain_ledger_v1:entries(Ledger),
+    Entries = blockchain_ledger_v1:entries_v2(Ledger),
     _ = lists:foreach(
         fun(Entry) ->
             Balance = blockchain_ledger_entry_v1:balance(Entry),
