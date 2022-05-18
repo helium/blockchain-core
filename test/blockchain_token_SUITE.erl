@@ -2,7 +2,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -10,7 +10,6 @@
     coinbase_test/1
 ]).
 
--import(blockchain_utils, [normalize_float/1]).
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
@@ -33,23 +32,21 @@ all() ->
 
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    Balance =
-        case TestCase of
-            poc_v2_unset_challenger_type_chain_var_test -> ?bones(15000);
-            receipts_txn_reject_empty_receipt_test -> ?bones(15000);
-            receipts_txn_dont_reject_empty_receipt_test -> ?bones(15000);
-            _ -> 5000
-        end,
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
-    %% two tests rely on the swarm not being in the consensus group, so exclude them here
 
-    ExtraVars = #{},
+    HNTBal = 5000,
+    HGTBal = 1000,
+    HSTBal = 100,
+    HLTBal = 10,
+
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
+
+    ExtraVars = #{?protocol_version => 2},
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain_with_opts(
             #{
                 balance =>
-                    Balance,
+                    HNTBal,
                 keys =>
                     {PrivKey, PubKey},
                 in_consensus =>
@@ -58,8 +55,8 @@ init_per_testcase(TestCase, Config) ->
                     true,
                 extra_vars =>
                     ExtraVars,
-                token_type =>
-                    hnt
+                token_allocations =>
+                    #{hnt => HNTBal, hst => HSTBal, hgt => HGTBal, hlt => HLTBal}
             }
         ),
 
@@ -67,19 +64,11 @@ init_per_testcase(TestCase, Config) ->
     Swarm = blockchain_swarm:tid(),
     N = length(ConsensusMembers),
 
-    % Check ledger to make sure everyone has the right balance
-    Ledger = blockchain:ledger(Chain),
-    Entries = blockchain_ledger_v1:entries_v2(Ledger),
-    _ = lists:foreach(
-        fun(Entry) ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
-            0 = blockchain_ledger_entry_v1:nonce(Entry)
-        end,
-        maps:values(Entries)
-    ),
-
     [
-        {balance, Balance},
+        {hnt_bal, HNTBal},
+        {hst_bal, HSTBal},
+        {hgt_bal, HGTBal},
+        {hlt_bal, HLTBal},
         {sup, Sup},
         {pubkey, PubKey},
         {privkey, PrivKey},
@@ -115,29 +104,28 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 
 coinbase_test(Config) ->
-    ConsensusMembers = ?config(consensus_members, Config),
-    Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    HNTBal = ?config(hnt_bal, Config),
+    HSTBal = ?config(hst_bal, Config),
+    HGTBal = ?config(hgt_bal, Config),
+    HLTBal = ?config(hlt_bal, Config),
 
-    % Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
-    Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
-    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
-    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
-
-    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
-    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 2}, blockchain:height(Chain)),
-
-    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
-
+    % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
-    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
-    ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    Entries = blockchain_ledger_v1:entries_v2(Ledger),
+    _ = lists:foreach(
+        fun(Entry) ->
+            HNTBal = blockchain_ledger_entry_v2:hnt_balance(Entry),
+            0 = blockchain_ledger_entry_v2:hnt_nonce(Entry),
+            HSTBal = blockchain_ledger_entry_v2:hst_balance(Entry),
+            0 = blockchain_ledger_entry_v2:hst_nonce(Entry),
+            HGTBal = blockchain_ledger_entry_v2:hgt_balance(Entry),
+            0 = blockchain_ledger_entry_v2:hgt_nonce(Entry),
+            HLTBal = blockchain_ledger_entry_v2:hlt_balance(Entry),
+            0 = blockchain_ledger_entry_v2:hlt_nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
-    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    %% TODO: Test a few payment v2 txns
     ok.

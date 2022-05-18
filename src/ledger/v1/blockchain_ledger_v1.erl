@@ -908,7 +908,8 @@ atom_to_cf(Atom, Ledger) ->
             subnets -> SL#sub_ledger_v1.subnets;
             state_channels -> SL#sub_ledger_v1.state_channels;
             h3dex -> SL#sub_ledger_v1.h3dex;
-            validators -> SL#sub_ledger_v1.validators
+            validators -> SL#sub_ledger_v1.validators;
+            entries_v2 -> SL#sub_ledger_v1.entries_v2
         end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
@@ -1349,13 +1350,13 @@ entries(Ledger) ->
 
 -spec entries_v2(ledger()) -> entries_v2().
 entries_v2(Ledger) ->
-    EntriesCF = entries_v2_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
     cache_fold(
         Ledger,
-        EntriesCF,
+        EntriesV2CF,
         fun({Address, Binary}, Acc) ->
-            Entries = blockchain_ledger_entries_v2:deserialize(Binary),
-            maps:put(Address, Entries, Acc)
+            Entry = blockchain_ledger_entry_v2:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
         end,
         #{}
     ).
