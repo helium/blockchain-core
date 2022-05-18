@@ -571,6 +571,7 @@ commit_context(Ledger) ->
         {direct, _GwCache} ->
             ok;
         {Cache, _GwCache} ->
+            Start = erlang:monotonic_time(millisecond),
             {Callbacks, Batch} = batch_from_cache(Cache, Ledger),
             delete_context(Ledger),
             ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
@@ -579,7 +580,9 @@ commit_context(Ledger) ->
                 active ->
                     Callbacks();
                 _ -> ok
-            end
+            end,
+            End = erlang:monotonic_time(millisecond),
+            lager:info("commit took ~p ms", [End - Start])
     end,
     ok.
 
