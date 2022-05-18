@@ -1374,7 +1374,8 @@ txn_fees_oui_test() ->
     ?assertEqual(1, Txn04LegacyStakingFee),
     ok.
 
-txn_fees_routing_update_router_test_fixme() ->
+-ifdef(FIXME).
+txn_fees_routing_update_router_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
 
     %% create new txn, and confirm expected fee size
@@ -1398,7 +1399,7 @@ txn_fees_routing_update_router_test_fixme() ->
     ?assertEqual(0, Txn03LegacyStakingFee),
     ok.
 
-txn_fees_routing_new_xor_test_fixme() ->
+txn_fees_routing_new_xor_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
     {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
@@ -1423,7 +1424,7 @@ txn_fees_routing_new_xor_test_fixme() ->
     ?assertEqual(0, Txn03LegacyStakingFee),
     ok.
 
-txn_fees_routing_update_xor_test_fixme() ->
+txn_fees_routing_update_xor_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
     {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
@@ -1448,7 +1449,7 @@ txn_fees_routing_update_xor_test_fixme() ->
     ?assertEqual(0, Txn03LegacyStakingFee),
     ok.
 
-txn_fees_routing_request_subnet_test_fixme() ->
+txn_fees_routing_request_subnet_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
 
     %% create new txn, and confirm expected fee size
@@ -1471,6 +1472,7 @@ txn_fees_routing_request_subnet_test_fixme() ->
     ?assertEqual(160000000, Txn03StakingFee),
     ?assertEqual(0, Txn03LegacyStakingFee),
     ok.
+-endif.
 
 txn_fees_security_exchange_v1_test() ->
     [{Payer, PayerSigFun}] = gen_payers(1),
