@@ -281,7 +281,6 @@
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
--include_lib("helium_proto/include/blockchain_ledger_entries_v2_pb.hrl").
 
 -ifdef(TEST).
 -export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
@@ -289,7 +288,7 @@
 -endif.
 
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
--type entries_v2() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entries_v2:entries()}.
+-type entries_v2() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v2:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -3010,12 +3009,12 @@ find_entry(Address, Ledger) ->
     end.
 
 -spec find_entry_v2(Addres :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) ->
-    {ok, blockchain_ledger_entries_v2:entries()} | {error, any()}.
+    {ok, blockchain_ledger_entry_v2:entry()} | {error, any()}.
 find_entry_v2(Address, Ledger) ->
     EntriesV2CF = entries_v2_cf(Ledger),
     case cache_get(Ledger, EntriesV2CF, Address, []) of
         {ok, BinEntry} ->
-            {ok, blockchain_ledger_entries_v2:deserialize(BinEntry)};
+            {ok, blockchain_ledger_entry_v2:deserialize(BinEntry)};
         not_found ->
             {error, address_entry_not_found};
         Error ->
@@ -3050,30 +3049,11 @@ credit_account(Address, Amount, TT, Ledger) ->
     case ?MODULE:find_entry_v2(Address, Ledger) of
         {error, address_entry_not_found} ->
             Entry = blockchain_ledger_entry_v2:new(0, Amount, TT),
-            Entries = blockchain_ledger_entries_v2:new(Address, [Entry]),
-            Bin = blockchain_ledger_entries_v2:serialize(Entries),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry),
             cache_put(Ledger, EntriesCF, Address, Bin);
-        {ok, Entries} ->
-            OldLedgerEntries = blockchain_ledger_entries_v2:entries(Entries),
-            [TokenEntry] = lists:filter(
-                             fun(LedgerEntry) ->
-                                     blockchain_ledger_entry_v2:token_type(LedgerEntry) == TT
-                             end,
-                             OldLedgerEntries),
-
-            NewEntry = blockchain_ledger_entry_v2:new(
-                         blockchain_ledger_entry_v2:nonce(TokenEntry),
-                         blockchain_ledger_entry_v2:balance(TokenEntry) + Amount,
-                         blockchain_ledger_entry_v2:token_type(TokenEntry)),
-
-            NewLedgerEntries = lists:keyreplace(
-                                 TT,
-                                 #blockchain_ledger_entry_v2_pb.token_type,
-                                 OldLedgerEntries,
-                                 NewEntry),
-
-            Entries1 = blockchain_ledger_entries_v2:new(Address, NewLedgerEntries),
-            Bin = blockchain_ledger_entries_v2:serialize(Entries1),
+        {ok, Entry} ->
+            Entry1 = blockchain_ledger_entry_v2:credit(Entry, Amount, TT),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
             cache_put(Ledger, EntriesCF, Address, Bin);
         {error, _}=Error ->
             Error
