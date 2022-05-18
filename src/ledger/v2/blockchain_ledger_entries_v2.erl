@@ -43,7 +43,7 @@ entries(#blockchain_ledger_entries_v2_pb{entries = Entries}) ->
     Entries.
 
 -spec entries(Entries :: entries(), LedgerEntries :: blockchain_ledger_entry_v2:entries()) ->
-    blockchain_ledger_entry_v2:entries().
+    entries().
 entries(Entries, LedgerEntries) ->
     Entries#blockchain_ledger_entries_v2_pb{entries = LedgerEntries}.
 
@@ -55,16 +55,11 @@ serialize(Entries) ->
 deserialize(EntriesBin) ->
     blockchain_ledger_entries_v2_pb:decode_msg(EntriesBin, blockchain_ledger_entries_v2_pb).
 
--spec print(undefined | entries()) -> iodata().
-print(undefined) ->
-    <<"type=entries_v2 undefined">>;
+-spec print(entries()) -> iodata().
 print(#blockchain_ledger_entries_v2_pb{owner = Owner, entries = Entries}) ->
     io_lib:format(
         "type=entries_v2 owner: ~p entries: ~p",
-        [
-            libp2p_crypto:bin_to_b58(Owner),
-            [blockchain_ledger_entry_v2:print(E) || E <- ?MODULE:entries(Entries)]
-        ]
+        [libp2p_crypto:bin_to_b58(Owner), [blockchain_ledger_entry_v2:print(E) || E <- Entries]]
     ).
 
 -spec json_type() -> binary().
@@ -75,7 +70,7 @@ json_type() ->
 to_json(Entries, _Opts) ->
     #{
         owner => ?BIN_TO_B58(owner(Entries)),
-        entries => [blockchain_ledger_entry_v2:to_json(E) || E <- ?MODULE:entries(Entries)]
+        entries => [blockchain_ledger_entry_v2:to_json(E, []) || E <- ?MODULE:entries(Entries)]
     }.
 
 %% ------------------------------------------------------------------
@@ -94,20 +89,23 @@ new_test() ->
 
 owner_test() ->
     Entries = new(<<"owner">>, [
-        blockchain_ledger_entry_v2:new(0, 100), blockchain_ledger_entry_v2:new(1, 20, hlt)
+        blockchain_ledger_entry_v2:new(0, 100),
+        blockchain_ledger_entry_v2:new(1, 20, hlt)
     ]),
     ?assertEqual(<<"owner">>, ?MODULE:owner(Entries)).
 
 entries_test() ->
     LedgerEntries = [
-        blockchain_ledger_entry_v2:new(0, 100), blockchain_ledger_entry_v2:new(1, 20, hlt)
+        blockchain_ledger_entry_v2:new(0, 100),
+        blockchain_ledger_entry_v2:new(1, 20, hlt)
     ],
     Entries = new(<<"owner">>, LedgerEntries),
     ?assertEqual(LedgerEntries, ?MODULE:entries(Entries)).
 
 serde_test() ->
     LedgerEntries = [
-        blockchain_ledger_entry_v2:new(0, 100), blockchain_ledger_entry_v2:new(1, 20, hlt)
+        blockchain_ledger_entry_v2:new(0, 100),
+        blockchain_ledger_entry_v2:new(1, 20, hlt)
     ],
     Entries = new(<<"owner">>, LedgerEntries),
     SerEntries = ?MODULE:serialize(Entries),
