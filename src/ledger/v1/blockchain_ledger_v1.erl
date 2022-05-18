@@ -94,8 +94,8 @@
     pocs/2,
     delete_poc/3,
     purge_pocs/1,
-    maybe_gc_pocs/2,
-    maybe_gc_scs/2,
+    maybe_gc_pocs/1,
+    maybe_gc_scs/1,
     maybe_gc_h3dex/1,
 
     upgrade_pocs/1,
@@ -157,7 +157,7 @@
     raw_fingerprint/2, %% does not use cache
     cf_fold/4,
 
-    maybe_recalc_price/2,
+    maybe_recalc_price/1,
     add_oracle_price/2,
     current_oracle_price/1,
     next_oracle_prices/2,
@@ -2336,15 +2336,15 @@ purge_pocs(Ledger) ->
     PurgeFun(ProposedPoCsCF),
     ok.
 
-maybe_gc_pocs(Chain, Ledger) ->
+maybe_gc_pocs(Ledger) ->
     case blockchain:config(?poc_challenger_type, Ledger) of
         {ok, validator} ->
-            maybe_gc_pocs(Chain, Ledger, validator);
+            maybe_gc_pocs(Ledger, validator);
         _ ->
-            maybe_gc_pocs(Chain, Ledger, undefined)
+            maybe_gc_pocs(Ledger, undefined)
     end.
 
-maybe_gc_pocs(_Chain, Ledger, validator) ->
+maybe_gc_pocs(Ledger, validator) ->
     %% iterate over the public POCs,
     %% delete any which are beyond the lifespan
     %% of when the active POC would have ended
@@ -2433,7 +2433,7 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
         _ ->
           ok
     end;
-maybe_gc_pocs(Chain, Ledger, _) ->
+maybe_gc_pocs(Ledger, _) ->
     {ok, Height} = current_height(Ledger),
     Version = case ?MODULE:config(?poc_version, Ledger) of
                   {ok, V} -> V;
@@ -2452,8 +2452,10 @@ maybe_gc_pocs(Chain, Ledger, _) ->
             Hashes =
                 lists:foldl(
                   fun(H, Acc) ->
-                          case blockchain:get_block_hash(H, Chain) of
-                              {ok, Hash} ->
+                          case get_block_info(H, Ledger) of
+                              {ok, #block_info_v2{hash = Hash}} ->
+                                  Acc#{Hash => H};
+                              {ok, #block_info{hash = Hash}} ->
                                   Acc#{Hash => H};
                               _ ->
                                   Acc
@@ -2575,11 +2577,11 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
--spec maybe_gc_scs(blockchain:blockchain(), ledger()) -> ok.
-maybe_gc_scs(Chain, Ledger) ->
+-spec maybe_gc_scs(ledger()) -> ok.
+maybe_gc_scs(Ledger) ->
     {ok, Height} = current_height(Ledger),
 
-    case blockchain:get_block_info(Height, Chain) of
+    case get_block_info(Height, Ledger) of
         {ok, #block_info_v2{election_info={_Epoch, EpochStart}}} ->
             RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
                                 {ok, N} -> N;
@@ -2877,15 +2879,14 @@ hnt_to_dc(HNTAmount, Ledger)->
 %% price is reused.
 %% @end
 %%--------------------------------------------------------------------
--spec maybe_recalc_price( Blockchain :: blockchain:blockchain(),
-                          Ledger :: ledger() ) -> ok.
-maybe_recalc_price(Blockchain, Ledger) ->
+-spec maybe_recalc_price( Ledger :: ledger() ) -> ok.
+maybe_recalc_price(Ledger) ->
     case blockchain:config(?price_oracle_refresh_interval, Ledger) of
         {error, not_found} -> ok;
-        {ok, I} -> do_maybe_recalc_price(I, Blockchain, Ledger)
+        {ok, I} -> do_maybe_recalc_price(I, Ledger)
     end.
 
-do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
+do_maybe_recalc_price(Interval, Ledger) ->
     DefaultCF = default_cf(Ledger),
     {ok, CurrentHeight} = current_height(Ledger),
     {ok, LastPrice} = current_oracle_price(Ledger),
@@ -2893,7 +2894,7 @@ do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     case CurrentHeight rem Interval == 0 of
         false -> ok;
         true ->
-            {ok, #block_info_v2{time = BlockT}} = blockchain:get_block_info(CurrentHeight, Blockchain),
+            {ok, #block_info_v2{time = BlockT}} = get_block_info(CurrentHeight, Ledger),
             {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
             cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(NewPriceList)),
             cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(NewPrice))

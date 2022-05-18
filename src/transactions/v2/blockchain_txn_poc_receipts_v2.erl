@@ -205,7 +205,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                     Error;
                 ok ->
                     PrePocBlockHeight = blockchain_ledger_poc_v3:start_height(PoC),
-                    case blockchain:get_block_info(PrePocBlockHeight, Chain) of
+                    case blockchain_ledger_v1:get_block_info(PrePocBlockHeight, Ledger) of
                         {error, Reason}=Error ->
                             lager:warning([{poc_id, POCID}],
                                           "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
@@ -306,13 +306,12 @@ connections(Txn) ->
                 end, [], TaggedPaths).
 
 
--spec poc_particpants(Txn :: txn_poc_receipts(),
-                      Chain :: blockchain:blockchain()) -> [libp2p_crypto:pubkey_bin()].
-poc_particpants(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+-spec poc_participants(Txn :: txn_poc_receipts(),
+                      Ledger :: blockchain_ledger_v1:ledger()) -> [libp2p_crypto:pubkey_bin()].
+poc_participants(Txn, Ledger) ->
     Path = blockchain_txn_poc_receipts_v2:path(Txn),
     Length = length(Path),
-    try get_channels(Txn, Chain) of
+    try get_channels(Txn, Ledger) of
         {ok, Channels} ->
             Participants =
                 lists:foldl(
@@ -366,8 +365,8 @@ good_quality_witnesses(Element, _Ledger) ->
 
 %% Iterate over all poc_path elements and for each path element calls a given
 %% callback function with reason tagged witnesses and valid receipt.
-tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
-    try get_channels(Txn, Chain) of
+tagged_path_elements_fold(Fun, Acc0, Txn, Ledger) ->
+    try get_channels(Txn, Ledger) of
         {ok, Channels} ->
             Path = ?MODULE:path(Txn),
             lists:foldl(fun({ElementPos, Element}, Acc) ->
@@ -455,7 +454,7 @@ absorb(_POCVersion, Txn, Chain) ->
                 %% participating in the POC
                 case blockchain:config(?poc_activity_filter_enabled, Ledger) of
                     {ok, true} ->
-                        Participants = poc_particpants(Txn, Chain),
+                        Participants = poc_participants(Txn, Ledger),
                         lager:debug("receipt txn poc participants: ~p", [Participants]),
                         [update_participant_gateway(GWAddr, Height, Ledger) || GWAddr <- Participants];
                     _ ->
@@ -696,13 +695,13 @@ json_type() ->
 to_json(Txn, Opts) ->
     PathElems =
     case {lists:keyfind(ledger, 1, Opts), lists:keyfind(chain, 1, Opts)} of
-        {{ledger, Ledger}, {chain, Chain}} ->
+        {{ledger, Ledger}, {chain, _Chain}} ->
                     FoldedPath =
                         tagged_path_elements_fold(fun(Elem, {TaggedWitnesses, ValidReceipt}, Acc) ->
                                                      ElemOpts = [{tagged_witnesses, TaggedWitnesses},
                                                                  {valid_receipt, ValidReceipt}],
                                                      [{Elem, ElemOpts} | Acc]
-                                             end, [], Txn, Ledger, Chain),
+                                             end, [], Txn, Ledger),
                     lists:reverse(FoldedPath);
         {_, _} ->
             [{Elem, []} || Elem <- path(Txn)]
@@ -1039,23 +1038,21 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
                  end, [], Witnesses).
 
 -spec get_channels(Txn :: txn_poc_receipts(),
-                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_channels(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+                   Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, Ledger) ->
     Version = poc_version(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    get_channels(Txn, Version, RegionVars, Chain).
+    get_channels(Txn, Version, RegionVars, Ledger).
 
 -spec get_channels(Txn :: txn_poc_receipts(),
                    POCVersion :: pos_integer(),
                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]},
-                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_channels(Txn, POCVersion, RegionVars, Chain) ->
+                   Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, POCVersion, RegionVars, Ledger) ->
     Path0 = ?MODULE:path(Txn),
     PathLength = length(Path0),
     BlockHash = ?MODULE:block_hash(Txn),
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    Ledger = blockchain:ledger(Chain),
     case BlockHash of
         <<>> ->
             {error, request_block_hash_not_found};

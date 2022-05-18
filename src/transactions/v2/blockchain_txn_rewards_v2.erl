@@ -575,8 +575,8 @@ calculate_poc_challengee_rewards(Txn, #{ poc_challengee := ChallengeeMap } = Acc
                                      Chain :: blockchain:blockchain(),
                                      Ledger :: blockchain_ledger_v1:ledger(),
                                      Vars :: reward_vars() ) -> rewards_share_metadata().
-calculate_poc_witness_rewards(Txn, #{ poc_witness := WitnessMap } = Acc, Chain, Ledger, Vars) ->
-    NewWM = poc_witness_reward(Txn, WitnessMap, Chain, Ledger, Vars),
+calculate_poc_witness_rewards(Txn, #{ poc_witness := WitnessMap } = Acc, _Chain, Ledger, Vars) ->
+    NewWM = poc_witness_reward(Txn, WitnessMap, Ledger, Vars),
     Acc#{ poc_witness => NewWM }.
 
 -spec calculate_dc_rewards( Txn :: blockchain_txn:txn(),
@@ -1027,7 +1027,7 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     HIP15TxRewardUnitCap = maps:get(hip15_tx_reward_unit_cap, Vars, undefined),
     %% check if there were any legitimate witnesses
     WitStart = erlang:monotonic_time(microsecond),
-    Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version),
+    Witnesses = legit_witnesses(Txn, Ledger, Elem, StaticPath, RegionVars, Version),
     WitEnd = erlang:monotonic_time(microsecond),
     perf({challengee, witness}, WitEnd - WitStart),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
@@ -1193,11 +1193,9 @@ normalize_reward_unit(Unit) -> Unit.
 -spec poc_witness_reward( Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts() |
                                  blockchain_txn_poc_receipts_v2:txn_poc_receipts(),
                           AccIn :: rewards_share_map(),
-                          Chain :: blockchain:blockchain(),
                           Ledger :: blockchain_ledger_v1:ledger(),
                           Vars :: reward_vars() ) -> rewards_share_map().
-poc_witness_reward(Txn, AccIn,
-                   Chain, Ledger,
+poc_witness_reward(Txn, AccIn, Ledger,
                    #{ poc_version := POCVersion,
                       var_map := VarMap } = Vars) when is_integer(POCVersion)
                                                        andalso POCVersion >= 9 ->
@@ -1210,7 +1208,7 @@ poc_witness_reward(Txn, AccIn,
 
     try
         %% Get channels without validation
-        {ok, Channels} = TxnType:get_channels(Txn, POCVersion, RegionVars, Chain),
+        {ok, Channels} = TxnType:get_channels(Txn, POCVersion, RegionVars, Ledger),
         Path = TxnType:path(Txn),
 
         %% Do the new thing for witness filtering
@@ -1302,7 +1300,7 @@ poc_witness_reward(Txn, AccIn,
             lager:error("failed to calculate poc_witness_rewards, error ~p:~p:~p", [What, Why, ST]),
             AccIn
     end;
-poc_witness_reward(Txn, AccIn, _Chain, Ledger,
+poc_witness_reward(Txn, AccIn, Ledger,
                    #{ poc_version := POCVersion } = Vars) when is_integer(POCVersion)
                                                         andalso POCVersion > 4 ->
     TxnType = blockchain_txn:type(Txn),
@@ -1325,7 +1323,7 @@ poc_witness_reward(Txn, AccIn, _Chain, Ledger,
       AccIn,
       TxnType:path(Txn)
      );
-poc_witness_reward(Txn, AccIn, _Chain, _Ledger, Vars) ->
+poc_witness_reward(Txn, AccIn, _Ledger, Vars) ->
     TxnType = blockchain_txn:type(Txn),
     lists:foldl(
       fun(Elem, A) ->
@@ -1547,20 +1545,19 @@ poc_witness_reward_unit(R, W, N) ->
 
 -spec legit_witnesses( Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts() |
                               blockchain_txn_poc_receipts_v2:txn_poc_receipts(),
-                       Chain :: blockchain:blockchain(),
                        Ledger :: blockchain_ledger_v1:ledger(),
                        Elem :: blockchain_poc_path_element_v1:poc_element(),
                        StaticPath :: blockchain_poc_path_element_v1:poc_path(),
                        RegionVars :: {ok, [{atom(), binary() | {error, any()}}]} | {error, any()},
                        Version :: pos_integer()
                      ) -> [blockchain_txn_poc_witnesses_v1:poc_witness()].
-legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
+legit_witnesses(Txn, Ledger, Elem, StaticPath, RegionVars, Version) ->
     TxnType = blockchain_txn:type(Txn),
     case Version of
         V when is_integer(V), V >= 9 ->
             try
                 %% Get channels without validation
-                {ok, Channels} = TxnType:get_channels(Txn, Version, RegionVars, Chain),
+                {ok, Channels} = TxnType:get_channels(Txn, Version, RegionVars, Ledger),
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
                 KeyHash = TxnType:onion_key_hash(Txn),
@@ -1840,7 +1837,7 @@ poc_witnesses_rewards_test() ->
     Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
                 {gateway,poc_witnesses,<<"b">>} => 25},
 
-    WitnessShares = lists:foldl(fun(T, Acc) -> poc_witness_reward(T, Acc, Chain, Ledger, EpochVars) end,
+    WitnessShares = lists:foldl(fun(T, Acc) -> poc_witness_reward(T, Acc, Ledger, EpochVars) end,
                                 #{}, Txns),
     ?assertEqual(Rewards, normalize_witness_rewards(WitnessShares, EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).

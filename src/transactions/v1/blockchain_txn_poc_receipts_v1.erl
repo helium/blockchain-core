@@ -487,20 +487,19 @@ deltas(Txn, Chain) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V >= 9 ->
             %% do the new thing
-            calculate_delta(Txn, Chain, true);
+            calculate_delta(Txn, Ledger, true);
         _ ->
-            calculate_delta(Txn, Chain, false)
+            calculate_delta(Txn, Ledger, false)
     end.
 
 -spec calculate_delta(Txn :: txn_poc_receipts(),
-                      Chain :: blockchain:blockchain(),
+                      Ledger :: blockchain_ledger_v1:ledger(),
                       CalcFreq :: boolean()) -> deltas().
-calculate_delta(Txn, Chain, true) ->
-    Ledger = blockchain:ledger(Chain),
+calculate_delta(Txn, Ledger, true) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
 
-    try get_channels(Txn, Chain) of
+    try get_channels(Txn, Ledger) of
         {ok, Channels} ->
 
             lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
@@ -527,8 +526,7 @@ calculate_delta(Txn, Chain, true) ->
         _:_ ->
             []
     end;
-calculate_delta(Txn, Chain, false) ->
-    Ledger = blockchain:ledger(Chain),
+calculate_delta(Txn, Ledger, false) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
     lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
@@ -717,8 +715,8 @@ good_quality_witnesses(Element, Ledger) ->
 
 %% Iterate over all poc_path elements and for each path element calls a given
 %% callback function with reason tagged witnesses and valid receipt.
-tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
-    try get_channels(Txn, Chain) of
+tagged_path_elements_fold(Fun, Acc0, Txn, Ledger) ->
+    try get_channels(Txn, Ledger) of
         {ok, Channels} ->
             Path = ?MODULE:path(Txn),
             lists:foldl(fun({ElementPos, Element}, Acc) ->
@@ -774,9 +772,9 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
 
 %% Iterate over all poc_path elements and for each path element calls a given
 %% callback function with the valid witnesses and valid receipt.
-%% valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
+%% valid_path_elements_fold(Fun, Acc0, Txn, Ledger, _Chain) ->
 %%     Path = ?MODULE:path(Txn),
-%%     try get_channels(Txn, Chain) of
+%%     try get_channels(Txn, Ledger) of
 %%         {ok, Channels} ->
 %%             lists:foldl(fun({ElementPos, Element}, Acc) ->
 %%                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
@@ -1164,7 +1162,7 @@ json_type() ->
 to_json(Txn, Opts) ->
     PathElems =
     case {lists:keyfind(ledger, 1, Opts), lists:keyfind(chain, 1, Opts)} of
-        {{ledger, Ledger}, {chain, Chain}} ->
+        {{ledger, Ledger}, {chain, _Chain}} ->
             case blockchain:config(?poc_version, Ledger) of
                 {ok, POCVersion} when POCVersion >= 10 ->
                     FoldedPath =
@@ -1172,7 +1170,7 @@ to_json(Txn, Opts) ->
                                                      ElemOpts = [{tagged_witnesses, TaggedWitnesses},
                                                                  {valid_receipt, ValidReceipt}],
                                                      [{Elem, ElemOpts} | Acc]
-                                             end, [], Txn, Ledger, Chain),
+                                             end, [], Txn, Ledger),
                     lists:reverse(FoldedPath);
                 _ ->
                     %% Older poc version, don't add validity
@@ -1579,21 +1577,20 @@ calculate_rssi_bounds_from_snr(SNR) ->
         end.
 
 -spec get_channels(Txn :: txn_poc_receipts(),
-                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_channels(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+                   Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, Ledger) ->
     Version = poc_version(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    get_channels(Txn, Version, RegionVars, Chain).
+    get_channels(Txn, Version, RegionVars, Ledger).
 
-get_channels(Txn, Version, RegionVars, Chain) ->
+get_channels(Txn, Version, RegionVars, Ledger) ->
     Challenger = ?MODULE:challenger(Txn),
     Path0 = ?MODULE:path(Txn),
     Secret = ?MODULE:secret(Txn),
     PathLength = length(Path0),
+    Chain = blockchain_worker:blockchain(),
 
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    Ledger = blockchain:ledger(Chain),
 
     BlockHash = case Version of
         POCVer when POCVer >= 10 ->
@@ -1605,7 +1602,7 @@ get_channels(Txn, Version, RegionVars, Chain) ->
                                     blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
                                     blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
                             end,
-            {ok, CurrentHeight} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
+            {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
             {ok, Head} = blockchain:get_block(CurrentHeight, Chain),
             blockchain:fold_chain(fun(Block, undefined) ->
                                                       case blockchain_utils:find_txn(Block, RequestFilter) of

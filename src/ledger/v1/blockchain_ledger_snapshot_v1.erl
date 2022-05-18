@@ -730,8 +730,8 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       Chain1 = blockchain:ledger(Ledger2, Chain),
                       Rescue = blockchain_block:is_rescue_block(Block),
                       {ok, _Chain, _} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
-                      ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
+                      ok = blockchain_ledger_v1:maybe_gc_pocs(Ledger2),
+                      ok = blockchain_ledger_v1:maybe_gc_scs(Ledger2),
                       %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
                       ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2),
                       %% TODO Q: Why no match result?
