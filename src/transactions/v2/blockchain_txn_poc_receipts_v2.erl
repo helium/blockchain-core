@@ -1181,7 +1181,7 @@ poc_version(Ledger) ->
     Txn :: txn_poc_receipts(),
     PoC :: blockchain_ledger_poc_v3:poc(),
     Keys :: map()
-) -> ok | {error, atom()}.
+) -> ok | {error, atom()} | {error, {mismatched_poc, blockchain_ledger_poc_v3:poc_verification_error()}}.
 verify_poc_details(Txn, PoC, Keys) ->
     %% verify the secret (pub and priv keys) submitted by the challenger
     %% are a valid key pair

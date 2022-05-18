@@ -39,7 +39,15 @@
 -type poc_result_types() :: [poc_result_type()].
 -type poc() :: #poc_v3{}.
 -type pocs() :: [poc()].
--export_type([poc/0, pocs/0, poc_result_type/0, poc_result_types/0]).
+-type poc_verification_error() :: {{onion_key_hash   , binary()},
+                                   {txn_challenger   , string()},
+                                   {ledger_challenger, string()},
+                                   {txn_blockhash    , string()},
+                                   {ledger_blockhash , string()},
+                                   {equal_challenger , boolean()},
+                                   {equal_blockhash  , boolean()}}.
+
+-export_type([poc/0, pocs/0, poc_result_type/0, poc_result_types/0, poc_verification_error/0]).
 
 -spec new(binary(), libp2p_crypto:pubkey_bin(), binary(), pos_integer()) -> poc().
 new(OnionKeyHash, Challenger, BlockHash, StartHeight) ->
@@ -82,18 +90,7 @@ start_height(PoC) ->
 start_height(Height, PoC) ->
     PoC#poc_v3{start_height=Height}.
 
--spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> ok | {error, Reason}
-    when
-        Reason ::
-            [
-                {onion_key_hash   , binary()},
-                {txn_challenger   , string()},
-                {ledger_challenger, string()},
-                {txn_blockhash    , string()},
-                {ledger_blockhash , string()},
-                {equal_challenger , boolean()},
-                {equal_blockhash  , boolean()}
-            ].
+-spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> ok | {error, poc_verification_error()}.
 verify(PoC, Challenger, BlockHash) ->
     POCChallenger = ?MODULE:challenger(PoC),
     POCBlockHash = ?MODULE:block_hash(PoC),
@@ -102,13 +99,13 @@ verify(PoC, Challenger, BlockHash) ->
     case (C1 andalso C2) of
         true -> ok;
         false ->
-            ErrorRes = [{onion_key_hash, ?MODULE:onion_key_hash(PoC)},
+            ErrorRes = {{onion_key_hash, ?MODULE:onion_key_hash(PoC)},
                         {txn_challenger, libp2p_crypto:bin_to_b58(Challenger)},
                         {ledger_challenger, libp2p_crypto:bin_to_b58(POCChallenger)},
                         {txn_blockhash, libp2p_crypto:bin_to_b58(BlockHash)},
                         {ledger_blockhash, libp2p_crypto:bin_to_b58(POCBlockHash)},
                         {equal_challenger, C1},
-                        {equal_blockhash, C2}],
+                        {equal_blockhash, C2}},
 
             {error, ErrorRes}
     end.
