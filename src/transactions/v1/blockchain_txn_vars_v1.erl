@@ -1132,6 +1132,9 @@ validate_var(?poc_targeting_version, Value) ->
         _ ->
             throw({error, {invalid_poc_targeting_version, Value}})
     end;
+validate_var(?poc_hardcode_poc_selection_count, Value) ->
+    validate_int(Value, "poc_hardcode_poc_selection_count", 1, 500, false);
+
 validate_var(?poc_hexing_type, Value) ->
   case Value of
     hex_h3dex -> ok;

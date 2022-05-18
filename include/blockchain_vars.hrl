@@ -181,6 +181,8 @@
 %% when determining if a GW is active or inactive: boolean
 -define(harmonize_activity_on_hip17_interactivity_blocks, harmonize_activity_on_hip17_interactivity_blocks).
 
+-define(poc_hardcode_poc_selection_count, poc_hardcode_poc_selection_count).
+
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
 %% acceptable height.

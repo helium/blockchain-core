@@ -2132,16 +2132,22 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
             %% Mark the selected POCs as active on ledger
             case blockchain:config(?poc_challenge_rate, Ledger) of
                 {ok, K} ->
+
+                    K2 =
+                        case blockchain:config(?poc_hardcode_poc_selection_count, Ledger) of
+                            {ok, V} -> V;
+                            _ -> K
+                        end,
                     ProposalGCWindowCheck =
                         case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
-                            {ok, V} -> V;
+                            {ok, V2} -> V2;
                             _ -> false
                     end,
                     {ok, POCValKeyProposalTimeout} = blockchain:config(?poc_validator_ephemeral_key_timeout, Ledger),
                     RandState = blockchain_utils:rand_state(BlockHash),
                     {Name, DB, CF} = proposed_pocs_cf(Ledger),
                     {ok, Itr} = rocksdb:iterator(DB, CF, []),
-                    POCSubset = promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                    POCSubset = promote_proposals(K2, BlockHash, BlockHeight, POCValKeyProposalTimeout,
                         ProposalGCWindowCheck, RandState, Ledger, Name, Itr, []),
                     catch rocksdb:iterator_close(Itr),
                     lager:debug("Selected POCs ~p", [POCSubset]),
