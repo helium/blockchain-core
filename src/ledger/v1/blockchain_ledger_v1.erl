@@ -488,8 +488,6 @@ unmark_key(Key, Ledger) ->
 
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
-    ST = erlang:process_info(self(), [current_stacktrace]),
-    lager:info("context stacktrace ~p", [ST]),
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
