@@ -101,7 +101,9 @@
     upgrade_pocs/1,
 
     find_entry/2,
+    find_entry_v2/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
+    credit_account/4,
     check_balance/3,
 
     dc_entries/1,
@@ -277,6 +279,7 @@
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
+-include_lib("helium_proto/include/blockchain_ledger_entries_v2_pb.hrl").
 
 
 -ifdef(TEST).
@@ -344,11 +347,11 @@ new(Dir, ReadOnly, Options) ->
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, ProposedPoCsCF,
      SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, EntriesV2CF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedProposedPoCsCF,
      DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF,
-     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
+     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF, DelayedEntriesV2CF] = CFs,
     Ledger =
     #ledger_v1{
         dir=Dir,
@@ -369,7 +372,8 @@ new(Dir, ReadOnly, Options) ->
             subnets=SubnetsCF,
             state_channels=SCsCF,
             h3dex=H3DexCF,
-            validators=ValidatorsCF
+            validators=ValidatorsCF,
+            entries_v2=EntriesV2CF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -385,7 +389,8 @@ new(Dir, ReadOnly, Options) ->
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF,
-            validators=DelayedValidatorsCF
+            validators=DelayedValidatorsCF,
+            entries_v2=DelayedEntriesV2CF
         }
     },
     Ledger.
@@ -2979,6 +2984,19 @@ find_entry(Address, Ledger) ->
             Error
     end.
 
+-spec find_entry_v2(libp2p_crypto:pubkey_bin(), ledger()) ->
+    {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}.
+find_entry_v2(Address, Ledger) ->
+    EntriesV2CF = entries_v2_cf(Ledger),
+    case cache_get(Ledger, EntriesV2CF, Address, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_entries_v2:deserialize(BinEntry)};
+        not_found ->
+            {error, address_entry_not_found};
+        Error ->
+            Error
+    end.
+
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),
@@ -2993,6 +3011,41 @@ credit_account(Address, Amount, Ledger) ->
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
             ),
             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {error, _}=Error ->
+            Error
+    end.
+
+-spec credit_account(libp2p_crypto:pubkey_bin(), integer(), blockchain_token_type_v1:token(), ledger()) -> ok | {error, any()}.
+credit_account(Address, Amount, TT, Ledger) ->
+    EntriesCF = entries_v2_cf(Ledger),
+    case ?MODULE:find_entry_v2(Address, Ledger) of
+        {error, address_entry_not_found} ->
+            Entry = blockchain_ledger_entry_v2:new(0, Amount, TT),
+            Entries = blockchain_ledger_entries_v2:new(Address, [Entry]),
+            Bin = blockchain_ledger_entries_v2:serialize(Entries),
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {ok, Entries} ->
+            OldLedgerEntries = blockchain_ledger_entries_v2:entries(Entries),
+            [TokenEntry] = lists:filter(
+                             fun(LedgerEntry) ->
+                                     blockchain_ledger_entry_v2:token_type(LedgerEntry) == TT
+                             end,
+                             OldLedgerEntries),
+
+            NewEntry = blockchain_ledger_entry_v2:new(
+                         blockchain_ledger_entry_v2:nonce(TokenEntry),
+                         blockchain_ledger_entry_v2:balance(TokenEntry) + Amount,
+                         blockchain_ledger_entry_v2:token_type(TokenEntry)),
+
+            NewLedgerEntries = lists:keyreplace(
+                                 TT,
+                                 #blockchain_ledger_entry_v2_pb.token_type,
+                                 OldLedgerEntries,
+                                 NewEntry),
+
+            Entries1 = blockchain_ledger_entries_v2:new(Address, NewLedgerEntries),
+            Bin = blockchain_ledger_entries_v2:serialize(Entries1),
             cache_put(Ledger, EntriesCF, Address, Bin);
         {error, _}=Error ->
             Error
@@ -4127,6 +4180,11 @@ gw_denorm_cf(Ledger) ->
 entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries, db(Ledger), SL#sub_ledger_v1.entries}.
+
+-spec entries_v2_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+entries_v2_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {entries_v2, db(Ledger), SL#sub_ledger_v1.entries_v2}.
 
 -spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 dc_entries_cf(Ledger) ->
