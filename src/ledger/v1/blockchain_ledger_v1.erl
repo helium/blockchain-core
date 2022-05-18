@@ -4224,6 +4224,9 @@ cache_put(Ledger, {Name, _DB, _CF}, Key, Value) ->
     end,
     ok.
 
+trace_me(Cache, Key) ->
+    ets:lookup(Cache, Key).
+
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
     Tag = proplists:get_value(tag, Options, Key),
@@ -4233,7 +4236,7 @@ cache_get(Ledger, {Name, DB, CF}, Key, Options) ->
         {Cache, _GwCache} ->
             %% don't do anything smart here with the cache yet,
             %% otherwise the semantics get all confused.
-            case ets:lookup(Cache, {Name, Key}) of
+            case trace_me(Cache, {Name, Key}) of
                 [] ->
                     Start = erlang:monotonic_time(microsecond),
                     case rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options)) of
