@@ -82,7 +82,18 @@ start_height(PoC) ->
 start_height(Height, PoC) ->
     PoC#poc_v3{start_height=Height}.
 
--spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> ok | {error, any()}.
+-spec verify(poc(), libp2p_crypto:pubkey_bin(), binary()) -> ok | {error, Reason}
+    when
+        Reason ::
+            [
+                {onion_key_hash   , binary()},
+                {txn_challenger   , string()},
+                {ledger_challenger, string()},
+                {txn_blockhash    , string()},
+                {ledger_blockhash , string()},
+                {equal_challenger , boolean()},
+                {equal_blockhash  , boolean()}
+            ].
 verify(PoC, Challenger, BlockHash) ->
     POCChallenger = ?MODULE:challenger(PoC),
     POCBlockHash = ?MODULE:block_hash(PoC),
