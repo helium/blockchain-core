@@ -140,7 +140,8 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
-    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).
+    TokenType = ?MODULE:token_type(Txn),
+    blockchain_ledger_v1:credit_account(Payee, Amount, TokenType, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
