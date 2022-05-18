@@ -9,7 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_coinbase_v1_pb.hrl").
 
@@ -140,8 +140,15 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
-    TokenType = ?MODULE:token_type(Txn),
-    blockchain_ledger_v1:credit_account(Payee, Amount, TokenType, Ledger).
+
+    case blockchain:config(?protocol_version, Ledger) of
+        {ok, 2} ->
+            TokenType = ?MODULE:token_type(Txn),
+            blockchain_ledger_v1:credit_account(Payee, Amount, TokenType, Ledger);
+        _ ->
+            blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc

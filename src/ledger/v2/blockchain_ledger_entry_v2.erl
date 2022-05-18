@@ -57,7 +57,7 @@ balance(#blockchain_ledger_entry_v2_pb{balance = Balance}) ->
 balance(Balance, Entry) ->
     Entry#blockchain_ledger_entry_v2_pb{balance = Balance}.
 
--spec token_type(Entry :: entry()) -> non_neg_integer().
+-spec token_type(Entry :: entry()) -> atom().
 token_type(#blockchain_ledger_entry_v2_pb{token_type = TT}) ->
     TT.
 
@@ -65,9 +65,7 @@ token_type(#blockchain_ledger_entry_v2_pb{token_type = TT}) ->
 token_type(TT, Entry) ->
     Entry#blockchain_ledger_entry_v2_pb{token_type = TT}.
 
--spec print(undefined | entry()) -> iodata().
-print(undefined) ->
-    <<"type=entry_v2 undefined">>;
+-spec print(entry()) -> iodata().
 print(#blockchain_ledger_entry_v2_pb{nonce = Nonce, balance = Balance, token_type = TT}) ->
     io_lib:format("type=entry_v2 nonce: ~p balance: ~p, token_type: ~p", [Nonce, Balance, TT]).
 
