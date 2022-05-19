@@ -2676,7 +2676,7 @@ default_routers_test(Config) ->
 netid_to_oui_test(Config) ->
     %% Fake 24 bit NetIDs and fake OUIs:
     PeerRouterNetIDs = [16#001000, 16#010000, 16#011000],
-    OUIs = lists:seq(9001, 9000+length(PeerRouterNetIDs)),
+    OUIs = lists:seq(200, 200+length(PeerRouterNetIDs)),
     %%PeerNetIdToOUIs = lists:zip(PeerRouterNetIDs, OUIs),
     PeerRouters = lists:sublist(?config(nodes, Config), length(OUIs)),
     OUIsToRoutes = lists:zip(OUIs, PeerRouters),
@@ -2735,6 +2735,7 @@ netid_to_oui_test(Config) ->
 
     %% This is where this test significantly diverges from full_test().
     %% Using our fake OUI and borrowing other gateways for peer routers:
+    %% FIXME: cleanup from using sequential map()
     SignedPeerOUITxns =
         lists:foldl(fun({OUI, Node}, Acc) ->
                             DevEUI = 16#dddd0000 + OUI,
@@ -2748,16 +2749,18 @@ netid_to_oui_test(Config) ->
 
     IDs = lists:map(fun(_) -> crypto:strong_rand_bytes(32) end, PeerRouters),
     SignedSCOpenTxns =
-        lists:map(fun({Peer,ID}) ->
-                          create_sc_open_txn(Peer, ID, ExpireWithin, 1, Nonce)
+        lists:map(fun({Peer,ID,Nonce_}) ->
+                          create_sc_open_txn(Peer, ID, ExpireWithin, 1, Nonce_)
                   end,
-                  lists:zip(PeerRouters, IDs)),
+                  lists:zip3(PeerRouters, IDs, lists:seq(Nonce+1, Nonce+length(IDs)))),
     ct:pal("SignedSCOpenTxns: ~p", [SignedSCOpenTxns]),
     %% Add block with oui and sc open txns
-    Txns = SignedPeerOUITxns ++ SignedSCOpenTxns,
-    %% FIXME: fails with [bad nonce, 3x unknown_router]
-    {ok, Block2} = add_block(RouterNode, RouterChain, ConsensusMembers, Txns),
-
+    lists:map(fun({{_, Node}, OUITxn, OpenTxn}) ->
+                      NodeChain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                      %% FIXME: fails with {invalid_txns, ... unknown_router}
+                      {ok, _Block} = add_block(Node, NodeChain, ConsensusMembers, [OUITxn, OpenTxn])
+              end,
+              lists:zip3(OUIsToRoutes, SignedPeerOUITxns, SignedSCOpenTxns)),
 
 
     %% FIXME: exercise PeerNetIdToOUIs and uncomment it above
