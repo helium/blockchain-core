@@ -133,11 +133,10 @@ init_per_testcase(Test, Config) ->
     %% nodes are connected to a majority of the group but that does not
     %% guarantee these two nodes are connected
 
-    [RouterNode, GatewayNode] =
+    {RouterNode, GatewayNode} =
         blockchain_ct_utils:find_connected_node_pair(NodeAddrList),
     Nodes =
-        [RouterNode, GatewayNode] ++ (InitNodes -- [RouterNode, GatewayNode]),
-
+        [RouterNode, GatewayNode | (InitNodes -- [RouterNode, GatewayNode])],
 
     Dir = os:getenv("SC_DIR", ""),
     debug_modules_for_node(

@@ -592,64 +592,25 @@ download_serialized_region(URL) ->
     Data.
 
 
--spec find_connected_node_pair({node(), binary()}) ->
-    [node()] | disjoint_network.
-find_connected_node_pair(NodeAddrList) ->
-    AddrMap =
+-spec find_connected_node_pair([{node(), libp2p_crypto:pubkey_bin()}]) ->
+    {node(), node()}.
+find_connected_node_pair([{FirstNode, _} | NodeAddrList]) ->
+    AddrToNodeMap =
         lists:foldl(
             fun({Node, Addr}, Acc) ->
                 AddrStr = libp2p_crypto:pubkey_bin_to_p2p(Addr),
                 Acc#{AddrStr => Node}
             end, #{}, NodeAddrList),
-    ct:pal("Node map: ~p", [AddrMap]),
-    find_connected_node_pair(maps:next(maps:iterator(AddrMap)), AddrMap, #{}).
-
-
-% NetworkMap - #{ConnectedToNode => [ConnectedFromNode]}
--spec find_connected_node_pair(
-    maps:iterator(string(), node()), #{string() => node()},
-    #{node() => [node()]}) -> [node()] | disjoint_network.
-find_connected_node_pair(none, _, NetworkMap) ->
-    ct:pal("Final Network Map~n~p", [NetworkMap]),
-    disjoint_network;
-find_connected_node_pair({_, Node, Iter}, AddrToNodeMap, NetworkMap) ->
-    GossipPeerNodes =
+    [ConnectedNode | _] =
         addr_to_node(
-            lists:usort(
-                ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500)),
+            ct_rpc:call(FirstNode, blockchain_swarm, gossip_peers, [], 500),
             AddrToNodeMap),
-    ct:pal("Node ~p connected to:~n~p", [Node, GossipPeerNodes]),
-
-    % Is Node connected to a node in NetworkMap?
-    case maps:get(Node, NetworkMap, []) of
-        [] ->
-            % Nope, try checking the next node
-            find_connected_node_pair(
-                maps:next(Iter),
-                AddrToNodeMap,
-                add_to_network_map(Node, GossipPeerNodes, NetworkMap));
-        [ConnectedNode | _] ->
-            ct:pal("Found connected pair ~p <-> ~p", [Node, ConnectedNode]),
-            [Node, ConnectedNode]
-    end.
+    {FirstNode, ConnectedNode}.
 
 
 -spec addr_to_node([string()], #{string() => node()}) -> [node()].
 addr_to_node(Addrs, AddrToNodeMap) ->
     [maps:get(Addr, AddrToNodeMap, undefined) || Addr <- Addrs].
-
-
-% Remember which nodes a peer node is connected to
--spec add_to_network_map(node(), [string()], #{node() => [node()]}) ->
-    #{node() => [node()]}.
-add_to_network_map(Node, GossipPeerNodes, NetworkMap) ->
-    lists:foldl(
-        fun(PeerNode, Acc) ->
-            maps:update_with(PeerNode,
-                fun(NodeList) ->
-                    [Node | NodeList]
-                end, [Node], Acc)
-        end, NetworkMap, GossipPeerNodes).
 
 
 -spec application_load(node(), [atom()]) -> ok.
