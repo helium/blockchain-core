@@ -129,11 +129,11 @@ init_per_testcase(Test, Config) ->
 
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
-    %% the SC tests use the first two nodes as the gateway and router
-    %% for the GRPC group to work we need to ensure these two nodes are
-    %% connected to each other in blockchain_ct_utils:init_per_testcase the
-    %% nodes are connected to a majority of the group but that does not
-    %% guarantee these two nodes are connected
+    %% The SC tests use the first two nodes as the gateway and router.
+    %% For the GRPC group to work we need to ensure these two nodes are
+    %% connected to each other in blockchain_ct_utils:init_per_testcase().
+    %% The nodes are connected to a majority of the group, but that does not
+    %% guarantee these two nodes are connected.
 
     [RouterNode, GatewayNode] =
         blockchain_ct_utils:find_connected_node_pair(NodeAddrList),
@@ -2674,12 +2674,16 @@ default_routers_test(Config) ->
     ok.
 
 netid_to_oui_test(Config) ->
-    %% 24 bit NetIDs:
-    %% PeerRouters = [2#001000, 2#010000, 2#011000],
-    %% PeerNetIdToOUIs = lists:zip(PeerRouters, lists:seq(1, length(PeerRouters))),
+    %% Fake 24 bit NetIDs and fake OUIs:
+    PeerRouterNetIDs = [16#001000, 16#010000, 16#011000],
+    OUIs = lists:seq(9001, 9000+length(PeerRouterNetIDs)),
+    %%PeerNetIdToOUIs = lists:zip(PeerRouterNetIDs, OUIs),
+    PeerRouters = lists:sublist(?config(nodes, Config), length(OUIs)),
+    OUIsToRoutes = lists:zip(OUIs, PeerRouters),
 
     %% Boilerplate code was replicated from full_test()...
-    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    RouterNode = ?config(routernode, Config),
+    GatewayNode1 = ?config(gatewaynode, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2729,30 +2733,37 @@ netid_to_oui_test(Config) ->
     SignedSC = ct_rpc:call(RouterNode, blockchain_state_channels_worker, get, [SCWorkerPid1, 100]),
     ?assertEqual(ok, blockchain_state_channel_v1:validate(SignedSC)),
 
+    %% This is where this test significantly diverges from full_test().
+    %% Using our fake OUI and borrowing other gateways for peer routers:
+    SignedPeerOUITxns =
+        lists:foldl(fun({OUI, Node}, Acc) ->
+                            DevEUI = 16#dddd0000 + OUI,
+                            AppEUI = 16#aaaa0000 + OUI,
+                            Txn = create_oui_txn(OUI, Node, [{DevEUI, AppEUI}], 8),
+                            [Txn|Acc]
+                    end,
+                    [],
+                    OUIsToRoutes),
+    ct:pal("SignedPeerOUITxns: ~p", [SignedPeerOUITxns]),
 
-    %% FIXME next, attempt routing by NetID to OUI...
+    IDs = lists:map(fun(_) -> crypto:strong_rand_bytes(32) end, PeerRouters),
+    SignedSCOpenTxns =
+        lists:map(fun({Peer,ID}) ->
+                          create_sc_open_txn(Peer, ID, ExpireWithin, 1, Nonce)
+                  end,
+                  lists:zip(PeerRouters, IDs)),
+    ct:pal("SignedSCOpenTxns: ~p", [SignedSCOpenTxns]),
+    %% Add block with oui and sc open txns
+    Txns = SignedPeerOUITxns ++ SignedSCOpenTxns,
+    %% FIXME: fails with [bad nonce, 3x unknown_router]
+    {ok, Block2} = add_block(RouterNode, RouterChain, ConsensusMembers, Txns),
 
-    %% FIXME: do we need to create an OUI for each peer router?
-    %% SignedPeerOUITxns =
-    %%     lists:foldl(fun(Peer, Acc) ->
-    %%                         I = length(Acc),
-    %%                         Txn = create_oui_txn(I, Peer, [{I*2, I*2+1}], 8),
-    %%                         [Txn|Acc]
-    %%                 end,
-    %%                 [],
-    %%                 PeerRouters),
-    %% ct:pal("SignedPeerOUITxns: ~p", [SignedPeerOUITxns]),
 
-    %% IDs = lists:map(fun(_) -> crypto:strong_rand_bytes(32) end, PeerRouters),
-    %% SignedSCOpenTxns =
-    %%     lists:map(fun({Peer,ID}) ->
-    %%                       create_sc_open_txn(Peer, ID, ExpireWithin, 1, Nonce)
-    %%               end,
-    %%               lists:zip(PeerRouters, IDs)),
-    %% ct:pal("SignedSCOpenTxns: ~p", [SignedSCOpenTxns]),
-    %% %% Add block with oui and sc open txns
-    %% Txns = [SignedOUITxn, SignedSCOpenTxn | SignedPeerOUITxns ++ SignedSCOpenTxns],
-    %% {ok, Block2} = add_block(RouterNode, RouterChain, ConsensusMembers, Txns),
+
+    %% FIXME: exercise PeerNetIdToOUIs and uncomment it above
+
+
+
 
     %% Open another SC that will NOT expire
     ID2 = crypto:strong_rand_bytes(32),
@@ -2771,16 +2782,16 @@ netid_to_oui_test(Config) ->
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
     Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
+    ct:pal("Gateway node1 ~p sending ~p", [GatewayNode1, Packet0]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
-    %% FIXME: test case fails here with grpc mode:
     ok = expect_nonce_for_state_channel(RouterNode, ID1, 1),
 
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
-    ct:pal("Gateway node1 ~p", [GatewayNode1]),
+    ct:pal("Gateway node1 ~p sending ~p", [GatewayNode1, Packet1]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
