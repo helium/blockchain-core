@@ -195,6 +195,12 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% test cases
 %%--------------------------------------------------------------------
+
+
+%% H3 located from https://github.com/helium/lorawan-h3
+
+%% H3 created from HPlans at https://github.com/dewi-alliance/hplans
+
 region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     H3 = 631183727389488639,
@@ -219,7 +225,7 @@ as923_1_test(Config) ->
 
 as923_1b_test(Config) ->
     Ledger = ?config(ledger, Config),
-    H3 = 631319855840474623,
+    H3 = 609766440970485759,
     {ok, region_as923_1b} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_as923_1b, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
