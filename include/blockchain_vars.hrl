@@ -173,6 +173,9 @@
 %% from POC targets :: boolean()
 -define(poc_activity_filter_enabled, poc_activity_filter_enabled).
 
+%% If set to true, all incoming poc request txns will be rejected : boolean
+-define(poc_reject_requests, poc_reject_requests).
+
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
 %% acceptable height.
