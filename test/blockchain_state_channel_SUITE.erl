@@ -2735,32 +2735,23 @@ netid_to_oui_test(Config) ->
 
     %% This is where this test significantly diverges from full_test().
     %% Using our fake OUI and borrowing other gateways for peer routers:
-    %% FIXME: cleanup from using sequential map()
-    SignedPeerOUITxns =
-        lists:foldl(fun({OUI, Node}, Acc) ->
-                            DevEUI = 16#dddd0000 + OUI,
-                            AppEUI = 16#aaaa0000 + OUI,
-                            Txn = create_oui_txn(OUI, Node, [{DevEUI, AppEUI}], 8),
-                            [Txn|Acc]
-                    end,
-                    [],
-                    OUIsToRoutes),
-    ct:pal("SignedPeerOUITxns: ~p", [SignedPeerOUITxns]),
-
-    IDs = lists:map(fun(_) -> crypto:strong_rand_bytes(32) end, PeerRouters),
-    SignedSCOpenTxns =
-        lists:map(fun({Peer,ID,Nonce_}) ->
-                          create_sc_open_txn(Peer, ID, ExpireWithin, 1, Nonce_)
+    Txns =
+        lists:map(fun({OUI, Node}) ->
+                          DevEUI = 16#dddd0000 + OUI,
+                          AppEUI = 16#aaaa0000 + OUI,
+                          OUITxn = create_oui_txn(OUI, RouterNode, [{DevEUI, AppEUI}], 8),
+                          ID = crypto:strong_rand_bytes(32),
+                          OpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce),
+                          ct:pal("OUITxn=~p~nOpenTxn=~p", [OUITxn, OpenTxn]),
+                          NodeChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+                          %% FIXME: fails with {invalid_txns, ... not_found}
+                          {ok, _Block} = add_block(Node, NodeChain, ConsensusMembers,
+                                                   [OUITxn, OpenTxn]),
+                          {OUITxn, OpenTxn}
                   end,
-                  lists:zip3(PeerRouters, IDs, lists:seq(Nonce+1, Nonce+length(IDs)))),
-    ct:pal("SignedSCOpenTxns: ~p", [SignedSCOpenTxns]),
-    %% Add block with oui and sc open txns
-    lists:map(fun({{_, Node}, OUITxn, OpenTxn}) ->
-                      NodeChain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                      %% FIXME: fails with {invalid_txns, ... unknown_router}
-                      {ok, _Block} = add_block(Node, NodeChain, ConsensusMembers, [OUITxn, OpenTxn])
-              end,
-              lists:zip3(OUIsToRoutes, SignedPeerOUITxns, SignedSCOpenTxns)),
+                  OUIsToRoutes),
+    ct:pal("Txns: ~p", [Txns]),
+
 
 
     %% FIXME: exercise PeerNetIdToOUIs and uncomment it above
