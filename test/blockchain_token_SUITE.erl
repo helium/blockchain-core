@@ -10,7 +10,6 @@
     coinbase_test/1
 ]).
 
-
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
@@ -115,14 +114,14 @@ coinbase_test(Config) ->
     Entries = blockchain_ledger_v1:entries_v2(Ledger),
     _ = lists:foreach(
         fun(Entry) ->
-            HNTBal = blockchain_ledger_entry_v2:hnt_balance(Entry),
-            0 = blockchain_ledger_entry_v2:hnt_nonce(Entry),
-            HSTBal = blockchain_ledger_entry_v2:hst_balance(Entry),
-            0 = blockchain_ledger_entry_v2:hst_nonce(Entry),
-            HGTBal = blockchain_ledger_entry_v2:hgt_balance(Entry),
-            0 = blockchain_ledger_entry_v2:hgt_nonce(Entry),
-            HLTBal = blockchain_ledger_entry_v2:hlt_balance(Entry),
-            0 = blockchain_ledger_entry_v2:hlt_nonce(Entry)
+            HNTBal = blockchain_ledger_entry_v2:balance(Entry, hnt),
+            0 = blockchain_ledger_entry_v2:nonce(Entry, hnt),
+            HSTBal = blockchain_ledger_entry_v2:balance(Entry, hst),
+            0 = blockchain_ledger_entry_v2:nonce(Entry, hst),
+            HGTBal = blockchain_ledger_entry_v2:balance(Entry, hgt),
+            0 = blockchain_ledger_entry_v2:nonce(Entry, hgt),
+            HLTBal = blockchain_ledger_entry_v2:balance(Entry, hlt),
+            0 = blockchain_ledger_entry_v2:nonce(Entry, hlt)
         end,
         maps:values(Entries)
     ),

@@ -3039,10 +3039,14 @@ credit_account(Address, Amount, TT, Ledger) ->
     EntriesCF = entries_v2_cf(Ledger),
     case ?MODULE:find_entry_v2(Address, Ledger) of
         {error, address_entry_not_found} ->
-            Entry = blockchain_ledger_entry_v2:new(0, Amount, TT),
-            Bin = blockchain_ledger_entry_v2:serialize(Entry),
+            %% create blank entry to fill all the token types
+            Entry0 = blockchain_ledger_entry_v2:new(),
+            %% credit this particular token amount
+            Entry1 = blockchain_ledger_entry_v2:credit(Entry0, Amount, TT),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
             cache_put(Ledger, EntriesCF, Address, Bin);
         {ok, Entry} ->
+            %% credit this particular token amount
             Entry1 = blockchain_ledger_entry_v2:credit(Entry, Amount, TT),
             Bin = blockchain_ledger_entry_v2:serialize(Entry1),
             cache_put(Ledger, EntriesCF, Address, Bin);
