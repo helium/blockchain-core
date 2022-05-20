@@ -1089,8 +1089,7 @@ validate_var(?poc_v5_target_prob_randomness_wt, Value) ->
     validate_float(Value, "poc_v5_target_prob_randomness_wt", 0.0, 1.0);
 validate_var(?poc_typo_fixes, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_poc_typo_fixes, Value}})
     end;
 validate_var(?poc_target_hex_parent_res, Value) ->
@@ -1115,8 +1114,7 @@ validate_var(?poc_distance_limit, Value) ->
     validate_int(Value, "poc_distance_limit", 0, 1000, false);
 validate_var(?check_snr, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_check_snr, Value}})
     end;
 validate_var(?polyfill_resolution, Value) ->
@@ -1203,23 +1201,26 @@ validate_var(?max_payments, Value) ->
 
 validate_var(?deprecate_payment_v1, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_payment_v1, Value}})
     end;
 
 validate_var(?allow_payment_v2_memos, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_allow_payment_v2_memos, Value}})
     end;
 
 validate_var(?allow_zero_amount, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_allow_zero_amount, Value}})
+    end;
+
+validate_var(?enable_balance_clearing, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_enable_balance_clearing, Value}})
     end;
 
 %% general txn vars
@@ -1263,9 +1264,8 @@ validate_var(?sc_max_actors, Value) ->
     validate_int(Value, "sc_max_actors", 500, 10000, false);
 validate_var(?sc_only_count_open_active, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
-        Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_sc_only_count_open_active_value, Value}})
     end;
 validate_var(?sc_dispute_strategy_version, Value) ->
     validate_int(Value, "sc_dispute_strategy_version", 0, 1, false);
@@ -1319,8 +1319,7 @@ validate_var(?price_oracle_height_delta, Value) ->
 %% txn fee related vars
 validate_var(?txn_fees, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_txn_fees, Value}})
     end;
 
@@ -1374,8 +1373,7 @@ validate_var(?data_aggregation_version, Value) ->
 
 validate_var(?use_multi_keys, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_multi_keys, Value}})
     end;
 
@@ -1469,9 +1467,8 @@ validate_var(?validator_hb_reactivation_limit, Value) ->
     validate_int(Value, "validator_hb_reactivation_limit", 5, 100, false);
 validate_var(?validator_key_check, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_validator_key_check, Value}})
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_validator_key_check, Value}})
     end;
 %% TODO fix this var
 validate_var(?stake_withdrawal_cooldown, Value) ->
@@ -1493,8 +1490,7 @@ validate_var(?penalty_history_limit, Value) ->
 
 validate_var(?net_emissions_enabled, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_net_emissions_boolean, Value}})
     end;
 validate_var(?net_emissions_max_rate, Value) ->
@@ -1516,8 +1512,7 @@ validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
 validate_var(?discard_zero_freq_witness, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
     end;
 validate_var(?block_size_limit, Value) ->
