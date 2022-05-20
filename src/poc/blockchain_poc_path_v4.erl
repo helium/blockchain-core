@@ -469,7 +469,10 @@ poc_version(Vars) ->
 
 -spec challenge_age(Vars :: map()) -> pos_integer().
 challenge_age(Vars) ->
-    maps:get(poc_v4_target_challenge_age, Vars).
+    case maps:get(harmonize_activity_on_hip17_interactivity_blocks, Vars, false) of
+        true -> maps:get(hip17_interactivity_blocks, Vars);
+        false -> maps:get(poc_v4_target_challenge_age, Vars)
+    end.
 
 -spec poc_good_bucket_low(Vars :: map()) -> integer().
 poc_good_bucket_low(Vars) ->

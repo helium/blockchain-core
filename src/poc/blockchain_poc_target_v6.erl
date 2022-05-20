@@ -84,7 +84,7 @@ gateways_for_zone(
     {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
 
     %% filter the selected hex
-    case filter(AddrList, Height, Ledger) of
+    case filter(AddrList, Height, Ledger, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
             lager:debug("*** filtered gateways for hex ~p: ~p", [Hex, FilteredList]),
             {ok, FilteredList};
@@ -174,16 +174,16 @@ target_(
 -spec filter(
     AddrList :: [libp2p_crypto:pubkey_bin()],
     Height :: non_neg_integer(),
-    Ledger :: blockchain_ledger_v1:ledger()
+    Ledger :: blockchain_ledger_v1:ledger(),
+    Vars :: map()
 ) -> [libp2p_crypto:pubkey_bin()].
-filter(AddrList, Height, Ledger) ->
+filter(AddrList, Height, Ledger, Vars) ->
     ActivityFilterEnabled =
         case blockchain:config(poc_activity_filter_enabled, Ledger) of
             {ok, V} -> V;
             _ -> false
         end,
-    {ok, MaxActivityAge} = blockchain:config(poc_v4_target_challenge_age, Ledger),
-
+    MaxActivityAge = max_activity_age(Vars),
     lists:filter(
             fun(A) ->
                 {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
@@ -257,3 +257,9 @@ is_active(true, LastActivity, MaxActivityAge, Height) ->
 is_active(_ActivityFilterEnabled, _Gateway, _Height, _Vars) ->
     true.
 
+-spec max_activity_age(Vars :: map()) -> pos_integer().
+max_activity_age(Vars) ->
+    case maps:get(harmonize_activity_on_hip17_interactivity_blocks, Vars, false) of
+        true -> maps:get(hip17_interactivity_blocks, Vars);
+        false -> maps:get(poc_v4_target_challenge_age, Vars)
+    end.

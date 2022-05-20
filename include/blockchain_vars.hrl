@@ -177,6 +177,10 @@
 %% consensus status (GH#1357)
 -define(poc_always_process_reactivations, poc_always_process_reactivations).
 
+%% Whether or not to always use hip17 interactivity blocks
+%% when determining if a GW is active or inactive: boolean
+-define(harmonize_activity_on_hip17_interactivity_blocks, harmonize_activity_on_hip17_interactivity_blocks).
+
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
 %% acceptable height.
