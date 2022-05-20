@@ -39,7 +39,7 @@ init_per_testcase(TestCase, Config) ->
 
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
-    ExtraVars = #{?protocol_version => 2},
+    ExtraVars = extra_vars(TestCase),
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain_with_opts(
@@ -128,43 +128,49 @@ coinbase_test(Config) ->
 
     %% TODO: test payment txn
 
-    %% ConsensusMembers = ?config(consensus_members, Config),
-    %% Balance = ?config(balance, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
 
-    %% %% Test a payment transaction, add a block and check balances
-    %% [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    %% Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
-    %% %% Create a payment to a single payee
-    %% Recipient = blockchain_swarm:pubkey_bin(),
-    %% HNTAmt = 1000,
-    %% HSTAmt = 100,
-    %% HGTAmt = 10,
-    %% HLTAmt = 1,
-    %% P1 = blockchain_payment_v2:new(Recipient, HNTAmt, hnt),
-    %% P2 = blockchain_payment_v2:new(Recipient, HSTAmt, hst),
-    %% P3 = blockchain_payment_v2:new(Recipient, HGTAmt, hgt),
-    %% P4 = blockchain_payment_v2:new(Recipient, HLTAmt, hlt),
+    %% Create a payment to a single payee
+    Recipient = blockchain_swarm:pubkey_bin(),
+    HNTAmt = 1000,
+    HSTAmt = 100,
+    HGTAmt = 10,
+    HLTAmt = 1,
+    P1 = blockchain_payment_v2:new(Recipient, HNTAmt, hnt),
+    P2 = blockchain_payment_v2:new(Recipient, HSTAmt, hst),
+    P3 = blockchain_payment_v2:new(Recipient, HGTAmt, hgt),
+    P4 = blockchain_payment_v2:new(Recipient, HLTAmt, hlt),
 
-    %% Tx = blockchain_txn_payment_v2:new(Payer, [P1, P2, P3, P4], 1),
-    %% SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
-    %% SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+    Tx = blockchain_txn_payment_v2:new(Payer, [P1, P2, P3, P4], 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    %% ct:pal("~s", [blockchain_txn:print(SignedTx)]),
+    ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    %% {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    %% _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
 
-    %% ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
-    %% ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
-    %% ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
-    %% ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    %% Ledger = blockchain:ledger(Chain),
+    {ok, RecipientEntry} = blockchain_ledger_v1:find_entry_v2(Recipient, Ledger),
+    ?assertEqual(HNTBal + HNTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hnt)),
+    ?assertEqual(HSTBal + HSTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hst)),
+    ?assertEqual(HGTBal + HGTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hgt)),
+    ?assertEqual(HLTBal + HLTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hlt)),
 
-    %% {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
-    %% ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry0)),
-
-    %% {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    %% ?assertEqual(Balance - Amount, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+    ?assertEqual(HNTBal - HNTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hnt)),
+    ?assertEqual(HSTBal - HSTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
+    ?assertEqual(HGTBal - HGTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hgt)),
+    ?assertEqual(HLTBal - HLTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hlt)),
     ok.
+
+extra_vars(_) ->
+    #{?protocol_version => 2, ?max_payments => 20, ?allow_zero_amount => false}.

@@ -161,8 +161,43 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    case blockchain:config(?protocol_version, Ledger) of
+        {ok, 2} ->
+            absorb_v2_(Txn, Ledger, Chain);
+        _ ->
+            absorb_(Txn, Ledger, Chain)
+    end.
+
+-spec absorb_v2_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb_v2_(Txn, Ledger, Chain) ->
+    Fee = ?MODULE:fee(Txn),
+    Hash = ?MODULE:hash(Txn),
+    Payer = ?MODULE:payer(Txn),
+    Nonce = ?MODULE:nonce(Txn),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
+        {error, _Reason}=Error ->
+            Error;
+        ok ->
+            Payments = ?MODULE:payments(Txn),
+            ok = lists:foreach(
+                   fun(Payment) ->
+                           Payee = blockchain_payment_v2:payee(Payment),
+                           Amount = blockchain_payment_v2:amount(Payment),
+                           TT = blockchain_payment_v2:token_type(Payment),
+                           case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, TT, Ledger) of
+                               ok ->
+                                   ok = blockchain_ledger_v1:credit_account(Payee, Amount, TT, Ledger);
+                               {error, _}=E ->
+                                   E
+                           end
+                   end, Payments)
+    end.
+
+-spec absorb_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb_(Txn, Ledger, Chain) ->
+    TotAmount = ?MODULE:total_amount(Txn),
     SpecifiedAmount = lists:sum([blockchain_payment_v2:amount(Payment) || Payment <- ?MODULE:payments(Txn)]),
-    TotAmount = ?MODULE:total_amount(Txn, Ledger),
     MaxPayment = TotAmount - SpecifiedAmount,
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
