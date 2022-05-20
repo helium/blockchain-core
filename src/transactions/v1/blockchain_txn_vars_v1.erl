@@ -1018,6 +1018,12 @@ validate_var(?poc_activity_filter_enabled, Value) ->
         false -> ok;
         _ -> throw({error, {poc_activity_filter_enabled, Value}})
     end;
+validate_var(?poc_always_process_reactivations, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_always_process_reactivations, Value}})
+    end;
 validate_var(?poc_reject_empty_receipts, Value) ->
     case Value of
         true -> ok;
