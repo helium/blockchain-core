@@ -4893,10 +4893,18 @@ maybe_gc_h3dex(Ledger) ->
     %% pick a random h3dex index and remove any inactive hotspots from it
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, Width} ->
-            InactivityThreshold =
+            InactivityThreshold0 =
               case ?MODULE:config(?poc_v4_target_challenge_age, Ledger) of
-                {ok, InActV} -> InActV;
+                {ok, V1} -> V1;
                 _ -> 10
+              end,
+            InactivityThreshold1 =
+              case ?MODULE:config(?harmonize_activity_on_hip17_interactivity_blocks, Ledger) of
+                {ok, true} ->
+                    {ok, V2} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
+                    V2;
+                _ ->
+                    InactivityThreshold0
               end,
             %% we need a fairly deterministic way to choose hexes to be GC'd
             %% that ideally is not tied to internal representations like rocksdb
@@ -4927,7 +4935,7 @@ maybe_gc_h3dex(Ledger) ->
                                           Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
                                           case find_gateway_location(Challengee, Ledger) of
                                               {ok, Location} ->
-                                                  gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
+                                                  gc_h3dex_hex(Location, Height, InactivityThreshold1, Ledger);
                                               _ ->
                                                   ok
                                           end
