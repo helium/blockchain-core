@@ -104,7 +104,7 @@
     find_entry/2,
     find_entry_v2/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
-    credit_account/4,
+    credit_account/4, debit_account/5,
     check_balance/3,
 
     dc_entries/1,
@@ -3077,6 +3077,33 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                     end;
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
+            end
+    end.
+
+-spec debit_account(Address :: libp2p_crypto:pubkey_bin(),
+                    Amount :: integer(),
+                    Nonce :: integer(),
+                    TT :: blockchain_token_type_v1:token_type(),
+                    Ledger :: ledger()) -> ok | {error, any()}.
+debit_account(Address, Amount, Nonce, TT, Ledger) ->
+    case ?MODULE:find_entry_v2(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            case Nonce =:= blockchain_ledger_entry_v2:nonce(Entry) + 1 of
+                true ->
+                    Balance = blockchain_ledger_entry_v2:balance(Entry, TT),
+                    case (Balance - Amount) >= 0 of
+                        true ->
+                            Entry1 = blockchain_ledger_entry_v2:debit(Entry, Amount, TT),
+                            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
+                            EntriesCF = entries_v2_cf(Ledger),
+                            cache_put(Ledger, EntriesCF, Address, Bin);
+                        false ->
+                            {error, {insufficient_balance, {Amount, Balance, TT}}}
+                    end;
+                false ->
+                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v2:nonce(Entry)}}}
             end
     end.
 
