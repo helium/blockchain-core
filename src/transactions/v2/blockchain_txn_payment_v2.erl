@@ -18,25 +18,25 @@
 -include_lib("helium_proto/include/blockchain_txn_payment_v2_pb.hrl").
 
 -export([
-    new/3,
-    hash/1,
-    payer/1,
-    payments/1,
-    payees/1,
-    amounts/2,
-    total_amount/2,
-    fee/1, fee/2,
-    fee_payer/2,
-    calculate_fee/2, calculate_fee/5,
-    nonce/1,
-    signature/1,
-    sign/2,
-    is_valid/2,
-    absorb/2,
-    print/1,
-    json_type/0,
-    to_json/2
-]).
+         new/3,
+         hash/1,
+         payer/1,
+         payments/1,
+         payees/1,
+         amounts/2,
+         total_amount/2, total_amounts_v2/1,
+         fee/1, fee/2,
+         fee_payer/2,
+         calculate_fee/2, calculate_fee/5,
+         nonce/1,
+         signature/1,
+         sign/2,
+         is_valid/2,
+         absorb/2,
+         print/1,
+         json_type/0,
+         to_json/2
+        ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -88,6 +88,16 @@ amounts(Txn, Ledger) ->
 -spec total_amount(txn_payment_v2(), blockchain_ledger_v1:ledger()) -> pos_integer().
 total_amount(Txn, Ledger) ->
     lists:sum(?MODULE:amounts(Txn, Ledger)).
+
+-spec total_amounts_v2(txn_payment_v2()) -> #{blockchain_token_type_v1:token_type() => non_neg_integer()}.
+total_amounts_v2(Txn) ->
+    lists:foldl(
+      fun(Payment, Acc) ->
+              TT = blockchain_payment_v2:token_type(Payment),
+              Amt = blockchain_payment_v2:amount(Payment),
+              Fun = fun(V) -> V + Amt end,
+              maps:update_with(TT, Fun, Amt, Acc)
+      end, #{}, ?MODULE:payments(Txn)).
 
 -spec fee(txn_payment_v2()) -> non_neg_integer().
 fee(Txn) ->
@@ -150,7 +160,12 @@ is_valid(Txn, Chain) ->
                 ])
             of
                 ok ->
-                    do_is_valid_checks(Txn, Chain, M);
+                    case blockchain:config(?protocol_version, Ledger) of
+                        {ok, 2} ->
+                            do_is_valid_checks_v2(Txn, Chain, M);
+                        _ ->
+                            do_is_valid_checks(Txn, Chain, M)
+                    end;
                 Error ->
                     Error
             end;
@@ -239,17 +254,10 @@ print(
         signature = S
     }
 ) ->
-    {MaxPayment, SpecifiedPayments} = split_max_payment(Payments),
-    SpecifiedTotal = lists:sum([blockchain_payment_v2:amount(Payment) || Payment <- SpecifiedPayments]),
-    TotalAmount = case length(MaxPayment) > 1 of
-                      true -> erlang:integer_to_list(SpecifiedTotal) ++ " + a balance clearing payment";
-                      false -> SpecifiedTotal
-                  end,
     io_lib:format(
-        "type=payment_v2, payer=~p, total_amount: ~p, fee=~p, nonce=~p, signature=~s~n payments: ~s",
+        "type=payment_v2, payer=~p, fee=~p, nonce=~p, signature=~s~n payments: ~s",
         [
             ?TO_B58(Payer),
-            TotalAmount,
             Fee,
             Nonce,
             ?TO_B58(S),
@@ -352,6 +360,75 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
             end
     end.
 
+-spec do_is_valid_checks_v2(
+        Txn :: txn_payment_v2(),
+        Chain :: blockchain:blockchain(),
+        MaxPayments :: pos_integer()) -> ok | {error, any()}.
+do_is_valid_checks_v2(Txn, Chain, MaxPayments) ->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    Signature = ?MODULE:signature(Txn),
+    Payments = ?MODULE:payments(Txn),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    BaseTxn = Txn#blockchain_txn_payment_v2_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_payment_v2_pb:encode_msg(BaseTxn),
+
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            LengthPayments = length(Payments),
+            case LengthPayments == 0 of
+                true ->
+                    %% Check that there are payments
+                    {error, zero_payees};
+                false ->
+                    case blockchain_ledger_v1:find_entry_v2(Payer, Ledger) of
+                        {error, _}=Error0 ->
+                            Error0;
+                        {ok, Entry} ->
+                            TxnNonce = ?MODULE:nonce(Txn),
+                            LedgerNonce = blockchain_ledger_entry_v2:nonce(Entry),
+                            case TxnNonce =:= LedgerNonce + 1 of
+                                false ->
+                                    {error, {bad_nonce, {payment_v2, TxnNonce, LedgerNonce}}};
+                                true ->
+                                    case LengthPayments > MaxPayments of
+                                        %% Check that we don't exceed max payments
+                                        true ->
+                                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
+                                        false ->
+                                            case lists:member(Payer, ?MODULE:payees(Txn)) of
+                                                false ->
+                                                    %% check that every payee is unique
+                                                    case has_unique_payees_v2(Payments) of
+                                                        false ->
+                                                            {error, duplicate_payees};
+                                                        true ->
+                                                            TokenCheck = token_check(Txn, Ledger),
+                                                            AmountCheck = amount_check_v2(Txn, Ledger),
+                                                            MemoCheck = memo_check(Txn, Ledger),
+
+                                                            case {AmountCheck, MemoCheck, TokenCheck} of
+                                                                {ok, ok, ok} ->
+                                                                    %% Everthing looks good so far, do the fee check last
+                                                                    fee_check(Txn, Chain, Ledger);
+                                                                _ ->
+                                                                    {error, {invalid_transaction,
+                                                                             {amount_check, AmountCheck},
+                                                                             {memo_check, MemoCheck},
+                                                                             {token_check, TokenCheck}}}
+                                                            end
+                                                    end;
+                                                true ->
+                                                    {error, self_payment}
+                                            end
+                                    end
+                            end
+                    end
+            end
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal functions
 %% ------------------------------------------------------------------
@@ -390,6 +467,41 @@ memo_check(Txn, Ledger) ->
                 true -> ok;
                 false -> {error, invalid_memo_before_var}
             end
+    end.
+
+-spec amount_check_v2(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+amount_check_v2(Txn, Ledger) ->
+    TotAmounts = ?MODULE:total_amounts_v2(Txn),
+    Payer = ?MODULE:payer(Txn),
+    Payments = ?MODULE:payments(Txn),
+
+    {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+
+    PayerHNTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hnt),
+    PayerHSTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hst),
+    PayerHGTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hgt),
+    PayerHLTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hlt),
+
+    C1 = PayerHNTBalance >= maps:get(hnt, TotAmounts, 0),
+    C2 = PayerHSTBalance >= maps:get(hst, TotAmounts, 0),
+    C3 = PayerHGTBalance >= maps:get(hgt, TotAmounts, 0),
+    C4 = PayerHLTBalance >= maps:get(hlt, TotAmounts, 0),
+
+    case blockchain:config(?allow_zero_amount, Ledger) of
+        {ok, false} ->
+            %% check that none of the payments have a zero amount
+            case has_non_zero_amounts(Payments) of
+                false -> false;
+                true ->
+                    case C1 andalso C2 andalso C3 andalso C4 of
+                        false ->
+                            {error, {amount_check_failed, {C1, C2, C3, C4}}};
+                        true ->
+                            ok
+                    end
+            end;
+        _ ->
+            {error, allow_zero_amount_not_set}
     end.
 
 -spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
@@ -437,6 +549,19 @@ split_payment_amounts(#blockchain_txn_payment_v2_pb{payer=Payer, fee=Fee}=Txn, L
 has_unique_payees(Payments) ->
     Payees = [blockchain_payment_v2:payee(P) || P <- Payments],
     length(lists:usort(Payees)) == length(Payees).
+
+-spec has_unique_payees_v2(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_unique_payees_v2(Payments) ->
+    %% Check that {payee, token} is unique across payments
+    PayeesAndTokens =
+    lists:foldl(
+      fun(Payment, Acc) ->
+              TT = blockchain_payment_v2:token_type(Payment),
+              Payee = blockchain_payment_v2:payee(Payment),
+              [{Payee, TT} | Acc]
+      end, [], Payments),
+    length(lists:usort(PayeesAndTokens)) == length(PayeesAndTokens).
+
 
 -spec has_non_zero_amounts(Payments :: blockchain_payment_v2:payments()) -> boolean().
 has_non_zero_amounts(Payments) ->
