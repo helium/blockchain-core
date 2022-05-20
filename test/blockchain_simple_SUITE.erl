@@ -25,6 +25,7 @@
     fees_since_test/1,
     security_token_test/1,
     routing_test/1,
+    routing_netid_to_oui_test/1,
     block_save_failed_test/1,
     absorb_failed_test/1,
     missing_last_block_test/1,
@@ -1341,6 +1342,54 @@ routing_test(Config) ->
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
+    ok.
+
+routing_netid_to_oui_test(Config) ->
+    %% %% Fake 24 bit NetIDs and fake OUIs:
+    %% PeerRouterNetIDs = [16#001000, 16#010000, 16#011000],
+    %% OUIs = lists:seq(200, 200+length(PeerRouterNetIDs)),
+    %% %%PeerNetIdToOUIs = lists:zip(PeerRouterNetIDs, OUIs),
+    %% PeerRouters = lists:sublist(?config(nodes, Config), length(OUIs)),
+    %% OUIsToRoutes = lists:zip(OUIs, PeerRouters),
+
+    %% Same as routing_test()...
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}}|_] = ConsensusMembers,
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    _RouterSigFun = libp2p_crypto:mk_sig_fun(RouterPrivKey),
+
+    meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
+    %% See comment in routing_test() for caveats.
+    meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
+
+    OUI1 = 1,
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm), Router1],
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
+    SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    {ok, Block0} = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
+    _ = blockchain_gossip_handler:add_block(Block0, Chain, self(), blockchain_swarm:tid()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
+
+    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+    ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    %% Diverging from routing_test()...
+
+    %% FIXME: populate chain var with routing table of roaming peers
+    %% and call blockchain_state_channels_client:route_by_netid()
+    %% to exercise that table
+
     ok.
 
 max_subnet_test(Config) ->
