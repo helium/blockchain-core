@@ -32,10 +32,10 @@ all() ->
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
 
-    HNTBal = 5000,
+    HNTBal = 50000,
+    HSTBal = 10000,
     HGTBal = 1000,
-    HSTBal = 100,
-    HLTBal = 10,
+    HLTBal = 100,
 
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
@@ -133,20 +133,37 @@ coinbase_test(Config) ->
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
-    %% Create a payment to a single payee
-    Recipient = blockchain_swarm:pubkey_bin(),
-    HNTAmt = 1000,
-    HSTAmt = 100,
-    HGTAmt = 10,
-    HLTAmt = 1,
-    P1 = blockchain_payment_v2:new(Recipient, HNTAmt, hnt),
-    P2 = blockchain_payment_v2:new(Recipient, HSTAmt, hst),
-    P3 = blockchain_payment_v2:new(Recipient, HGTAmt, hgt),
-    P4 = blockchain_payment_v2:new(Recipient, HLTAmt, hlt),
+    ct:pal("PayerEntry: ~p", [blockchain_ledger_v1:find_entry_v2(Payer, Ledger)]),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [P1, P2, P3, P4], 1),
+    %% Create a payment to a single payee
+    [{Recipient1, _}, {Recipient2, _}] = test_utils:generate_keys(2),
+
+    HNTAmt1 = 20000,
+    HSTAmt1 = 2000,
+    HGTAmt1 = 200,
+    HLTAmt1 = 20,
+    HNTAmt2 = 10000,
+    HSTAmt2 = 1000,
+    HGTAmt2 = 100,
+    HLTAmt2 = 10,
+
+    P1 = blockchain_payment_v2:new(Recipient1, HNTAmt1, hnt),
+    P2 = blockchain_payment_v2:new(Recipient1, HSTAmt1, hst),
+    P3 = blockchain_payment_v2:new(Recipient1, HGTAmt1, hgt),
+    P4 = blockchain_payment_v2:new(Recipient1, HLTAmt1, hlt),
+
+    P5 = blockchain_payment_v2:new(Recipient2, HNTAmt2, hnt),
+    P6 = blockchain_payment_v2:new(Recipient2, HSTAmt2, hst),
+    P7 = blockchain_payment_v2:new(Recipient2, HGTAmt2, hgt),
+    P8 = blockchain_payment_v2:new(Recipient2, HLTAmt2, hlt),
+
+    Payments = [P1, P2, P3, P4, P5, P6, P7, P8],
+
+    Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+
+    ct:pal("payment amounts: ~p", [blockchain_txn_payment_v2:total_amounts_v2(SignedTx)]),
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
@@ -159,17 +176,24 @@ coinbase_test(Config) ->
 
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    {ok, RecipientEntry} = blockchain_ledger_v1:find_entry_v2(Recipient, Ledger),
-    ?assertEqual(HNTBal + HNTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hnt)),
-    ?assertEqual(HSTBal + HSTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hst)),
-    ?assertEqual(HGTBal + HGTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hgt)),
-    ?assertEqual(HLTBal + HLTAmt, blockchain_ledger_entry_v2:balance(RecipientEntry, hlt)),
+    {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry_v2(Recipient1, Ledger),
+    {ok, RecipientEntry2} = blockchain_ledger_v1:find_entry_v2(Recipient2, Ledger),
+
+    ?assertEqual(HNTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hnt)),
+    ?assertEqual(HSTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hst)),
+    ?assertEqual(HGTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hgt)),
+    ?assertEqual(HLTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hlt)),
+
+    ?assertEqual(HNTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hnt)),
+    ?assertEqual(HSTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hst)),
+    ?assertEqual(HGTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hgt)),
+    ?assertEqual(HLTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hlt)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
-    ?assertEqual(HNTBal - HNTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hnt)),
-    ?assertEqual(HSTBal - HSTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
-    ?assertEqual(HGTBal - HGTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hgt)),
-    ?assertEqual(HLTBal - HLTAmt, blockchain_ledger_entry_v2:balance(PayerEntry, hlt)),
+    ?assertEqual(HNTBal - (HNTAmt1 + HNTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hnt)),
+    ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
+    ?assertEqual(HGTBal - (HGTAmt1 + HGTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hgt)),
+    ?assertEqual(HLTBal - (HLTAmt1 + HLTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hlt)),
     ok.
 
 extra_vars(_) ->
