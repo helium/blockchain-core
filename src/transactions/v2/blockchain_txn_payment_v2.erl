@@ -24,7 +24,7 @@
          payments/1,
          payees/1,
          amounts/2,
-         total_amount/2, total_amounts_v2/1,
+         total_amount/2, total_amounts/1,
          fee/1, fee/2,
          fee_payer/2,
          calculate_fee/2, calculate_fee/5,
@@ -89,8 +89,8 @@ amounts(Txn, Ledger) ->
 total_amount(Txn, Ledger) ->
     lists:sum(?MODULE:amounts(Txn, Ledger)).
 
--spec total_amounts_v2(txn_payment_v2()) -> #{blockchain_token_type_v1:token_type() => non_neg_integer()}.
-total_amounts_v2(Txn) ->
+-spec total_amounts(txn_payment_v2()) -> #{blockchain_token_type_v1:token_type() => non_neg_integer()}.
+total_amounts(Txn) ->
     lists:foldl(
       fun(Payment, Acc) ->
               TT = blockchain_payment_v2:token_type(Payment),
@@ -471,7 +471,7 @@ memo_check(Txn, Ledger) ->
 
 -spec amount_check_v2(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 amount_check_v2(Txn, Ledger) ->
-    TotAmounts = ?MODULE:total_amounts_v2(Txn),
+    TotAmounts = ?MODULE:total_amounts(Txn),
     Payer = ?MODULE:payer(Txn),
     Payments = ?MODULE:payments(Txn),
 

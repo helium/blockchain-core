@@ -163,7 +163,7 @@ coinbase_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    ct:pal("payment amounts: ~p", [blockchain_txn_payment_v2:total_amounts_v2(SignedTx)]),
+    ct:pal("payment amounts: ~p", [blockchain_txn_payment_v2:total_amounts(SignedTx)]),
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
