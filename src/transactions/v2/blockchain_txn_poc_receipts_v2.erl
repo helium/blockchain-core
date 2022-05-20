@@ -232,9 +232,9 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             %% no witness will exist with the first layer hash
                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                             StartV = maybe_log_duration(packet_construction, StartP),
-                            Channels = ?MODULE:get_channels(POCVersion, OldLedger, Path, LayerData, no_prefetch),
+                            {Channels, Region} = ?MODULE:get_channels(POCVersion, OldLedger, Path, LayerData, no_prefetch),
                             %% %% run validations
-                            Ret = validate(POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger),
+                            Ret = validate(POCVersion, Region, Txn, Path, LayerData, LayerHashes, OldLedger),
                             maybe_log_duration(receipt_validation, StartV),
                             case Ret of
                                 ok ->
@@ -368,7 +368,7 @@ good_quality_witnesses(Element, _Ledger) ->
 %% callback function with reason tagged witnesses and valid receipt.
 tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
     try get_channels(Txn, Chain) of
-        {ok, Channels} ->
+        {ok, Channels, Region} ->
             Path = ?MODULE:path(Txn),
             lists:foldl(fun({ElementPos, Element}, Acc) ->
                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
@@ -381,7 +381,7 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
 
                                %% if either crashes, the whole thing is invalid from a rewards perspective
                                {FilteredReceipt, TaggedWitnesses} =
-                               try {valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                               try {valid_receipt(PreviousElement, Element, ReceiptChannel, Region, Ledger),
                                     tagged_witnesses(Element, WitnessChannel, Ledger)} of
                                        Res -> Res
                                catch _:_ ->
@@ -566,7 +566,7 @@ create_secret_hash(Secret, X, Acc) ->
 %% witnesses (as evidence that the final recipient transmitted it).
 -spec validate(pos_integer(), txn_poc_receipts(), list(),
                [binary(), ...], [binary(), ...], blockchain_ledger_v1:ledger()) -> ok | {error, atom()}.
-validate(_POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger) ->
+validate(_POCVersion, Region, Txn, Path, LayerData, LayerHashes, OldLedger) ->
     TxnPath = ?MODULE:path(Txn),
     TxnPathLength = length(TxnPath),
     RebuiltPathLength = length(Path),
@@ -758,11 +758,12 @@ vars(Ledger) ->
 -spec valid_receipt(PreviousElement :: undefined | blockchain_poc_path_element_v1:poc_element(),
                     Element :: blockchain_poc_path_element_v1:poc_element(),
                     Channel :: non_neg_integer(),
+                    Region :: atom(),
                     Ledger :: blockchain_ledger_v1:ledger()) -> undefined | blockchain_poc_receipt_v1:poc_receipt().
-valid_receipt(undefined, _Element, _Channel, _Ledger) ->
+valid_receipt(undefined, _Element, _Channel, _SourceRegion, _Ledger) ->
     %% first hop in the path, cannot be validated.
     undefined;
-valid_receipt(PreviousElement, Element, Channel, Ledger) ->
+valid_receipt(PreviousElement, Element, Channel, SourceRegion, Ledger) ->
     case blockchain_poc_path_element_v1:receipt(Element) of
         undefined ->
             %% nothing to validate
@@ -1039,7 +1040,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
                  end, [], Witnesses).
 
 -spec get_channels(Txn :: txn_poc_receipts(),
-                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
+                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()], atom()} | {error, any()}.
 get_channels(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Version = poc_version(Ledger),
@@ -1049,7 +1050,7 @@ get_channels(Txn, Chain) ->
 -spec get_channels(Txn :: txn_poc_receipts(),
                    POCVersion :: pos_integer(),
                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]},
-                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
+                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()], atom()} | {error, any()}.
 get_channels(Txn, POCVersion, RegionVars, Chain) ->
     Path0 = ?MODULE:path(Txn),
     PathLength = length(Path0),
@@ -1065,15 +1066,15 @@ get_channels(Txn, POCVersion, RegionVars, Chain) ->
             Entropy1 = <<OnionKeyHash/binary, BlockHash/binary>>,
             [_ | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy1, PathLength+1),
             Path = [blockchain_poc_path_element_v1:challengee(Element) || Element <- Path0],
-            Channels = get_channels(POCVersion, Ledger, Path, LayerData, RegionVars),
-            {ok, Channels}
+            {Channels, Region} = get_channels(POCVersion, Ledger, Path, LayerData, RegionVars),
+            {ok, Channels, Region}
     end.
 
 -spec get_channels(POCVersion :: pos_integer(),
                     Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
-                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}) -> [non_neg_integer()].
+                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}) -> {[non_neg_integer()], atom()}.
 get_channels(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
     Challengee = hd(Path),
     RegionVars =
@@ -1084,7 +1085,7 @@ get_channels(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
             {error, Reason} -> error({get_channels_region, Reason})
         end,
 
-    ChannelCount =
+    {ChannelCount, Region} =
             %% Get from region vars
             %% Just get the channels using the challengee's region from head of the path
             %% We assert that all path members (which is only 1 member, beacon right now)
@@ -1098,13 +1099,13 @@ get_channels(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
                             throw(E);
                         {ok, Region} ->
                             {ok, Params} = blockchain_region_params_v1:for_region(Region, Ledger),
-                            length(Params)
+                            {length(Params), Region}
                     end
             end,
-    lists:map(fun(Layer) ->
+    {lists:map(fun(Layer) ->
                       <<IntData:16/integer-unsigned-little>> = Layer,
                       IntData rem ChannelCount
-              end, LayerData).
+              end, LayerData), Region}.
 
 -spec min_rcv_sig(Receipt :: undefined | blockchain_poc_receipt_v1:receipt(),
                   Ledger :: blockchain_ledger_v1:ledger(),

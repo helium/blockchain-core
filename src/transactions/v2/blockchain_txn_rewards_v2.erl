@@ -1210,7 +1210,7 @@ poc_witness_reward(Txn, AccIn,
 
     try
         %% Get channels without validation
-        {ok, Channels} = TxnType:get_channels(Txn, POCVersion, RegionVars, Chain),
+        {ok, Channels, Region} = TxnType:get_channels(Txn, POCVersion, RegionVars, Chain),
         Path = TxnType:path(Txn),
 
         %% Do the new thing for witness filtering
@@ -1224,7 +1224,7 @@ poc_witness_reward(Txn, AccIn,
                             case get({KeyHash, ElemHash}) of
                                 undefined ->
                                     VW = TxnType:valid_witnesses(Elem, WitnessChannel,
-                                                                                        RegionVars, Ledger),
+                                                                                        RegionVars, Region, Ledger),
                                     put({KeyHash, ElemHash}, VW),
                                     VW;
                                 VW -> VW
@@ -1560,7 +1560,7 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
         V when is_integer(V), V >= 9 ->
             try
                 %% Get channels without validation
-                {ok, Channels} = TxnType:get_channels(Txn, Version, RegionVars, Chain),
+                {ok, Channels, Region} = TxnType:get_channels(Txn, Version, RegionVars, Chain),
                 ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                 WitnessChannel = lists:nth(ElemPos, Channels),
                 KeyHash = TxnType:onion_key_hash(Txn),
@@ -1568,7 +1568,7 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
                 ValidWitnesses =
                     case get({KeyHash, ElemHash}) of
                         undefined ->
-                            VW = TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
+                            VW = TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Region, Ledger),
                             put({KeyHash, ElemHash}, VW),
                             VW;
                         VW -> VW
