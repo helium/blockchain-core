@@ -1087,8 +1087,11 @@ validate_var(?poc_v4_randomness_wt, Value) ->
     validate_float(Value, "poc_v4_randomness_wt", 0.0, 1.0);
 validate_var(?poc_v5_target_prob_randomness_wt, Value) ->
     validate_float(Value, "poc_v5_target_prob_randomness_wt", 0.0, 1.0);
-validate_var(?poc_typo_fixes, Value) when is_boolean(Value) -> ok;
-validate_var(?poc_typo_fixes, Value) -> throw({error, {invalidate_poc_typo_fixes, Value}});
+validate_var(?poc_typo_fixes, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_poc_typo_fixes, Value}})
+    end;
 validate_var(?poc_target_hex_parent_res, Value) ->
     validate_int(Value, "poc_target_hex_parent_res", 3, 7, false);
 validate_var(?poc_target_hex_collection_res, Value) ->
@@ -1109,8 +1112,11 @@ validate_var(?fspl_loss, Value) ->
     validate_float(Value, "fspl_loss", 0.0, 5.0);
 validate_var(?poc_distance_limit, Value) ->
     validate_int(Value, "poc_distance_limit", 0, 1000, false);
-validate_var(?check_snr, Value) when is_boolean(Value)-> ok;
-validate_var(?check_snr, Value) -> throw({error, {invalid_check_snr, Value}});
+validate_var(?check_snr, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_check_snr, Value}})
+    end;
 validate_var(?polyfill_resolution, Value) ->
     validate_int(Value, "polyfill_resolution", 0, 15, false);
 validate_var(?h3dex_gc_width, Value) ->
@@ -1193,17 +1199,29 @@ validate_var(?max_bundle_size, Value) ->
 validate_var(?max_payments, Value) ->
     validate_int(Value, "max_payments", 5, 50, false);
 
-validate_var(?deprecate_payment_v1, Value) when is_boolean(Value) -> ok;
-validate_var(?deprecate_payment_v1, Value) -> throw({error, {invalidate_deprecate_payment_v1, Value}});
+validate_var(?deprecate_payment_v1, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_payment_v1, Value}})
+    end;
 
-validate_var(?allow_payment_v2_memos, Value) when is_boolean(Value) -> ok;
-validate_var(?allow_payment_v2_memos, Value) -> throw({error, {invalid_allow_payment_v2_memos, Value}});
+validate_var(?allow_payment_v2_memos, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_allow_payment_v2_memos, Value}})
+    end;
 
-validate_var(?allow_zero_amount, Value) when is_boolean(Value) -> ok;
-validate_var(?allow_zero_amount, Value) -> throw({error, {invalid_allow_zero_amount, Value}});
+validate_var(?allow_zero_amount, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_allow_zero_amount, Value}})
+    end;
 
-validate_var(?enable_balance_clearing, Value) when is_boolean(Value) -> ok;
-validate_var(?enable_balance_clearing, Value) -> throw({error, {invalid_enable_balance_clearing, Value}});
+validate_var(?enable_balance_clearing, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_enable_balance_clearing, Value}})
+    end;
 
 %% general txn vars
 
@@ -1244,8 +1262,11 @@ validate_var(?sc_gc_interval, Value) ->
     validate_int(Value, "sc_gc_interval", 10, 100, false);
 validate_var(?sc_max_actors, Value) ->
     validate_int(Value, "sc_max_actors", 500, 10000, false);
-validate_var(?sc_only_count_open_active, Value) when is_boolean(Value) -> ok;
-validate_var(?sc_only_count_open_active, Value) -> throw({error, {invalid_sc_only_count_open_active_value, Value}});
+validate_var(?sc_only_count_open_active, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_sc_only_count_open_active_value, Value}})
+    end;
 validate_var(?sc_dispute_strategy_version, Value) ->
     validate_int(Value, "sc_dispute_strategy_version", 0, 1, false);
 
@@ -1296,8 +1317,11 @@ validate_var(?price_oracle_height_delta, Value) ->
     validate_int(Value, "price_oracle_height_delta", 0, 500, false);
 
 %% txn fee related vars
-validate_var(?txn_fees, Value) when is_boolean(Value) -> ok;
-validate_var(?txn_fees, Value) -> throw({error, {invalid_txn_fees, Value}});
+validate_var(?txn_fees, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_txn_fees, Value}})
+    end;
 
 validate_var(?staking_keys, Value) ->
     validate_staking_keys_format(Value);
@@ -1347,8 +1371,11 @@ validate_var(?txn_fee_multiplier, Value) ->
 validate_var(?data_aggregation_version, Value) ->
     validate_int(Value, "data_aggregation_version", 1, 3, false);
 
-validate_var(?use_multi_keys, Value) when is_boolean(Value) -> ok;
-validate_var(?use_multi_keys, Value) -> throw({error, {invalid_multi_keys, Value}});
+validate_var(?use_multi_keys, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_multi_keys, Value}})
+    end;
 
 validate_var(?transfer_hotspot_stale_poc_blocks, Value) ->
     validate_int(Value, "transfer_hotspot_stale_poc_blocks", 1, 50000, false);
@@ -1438,8 +1465,11 @@ validate_var(?validator_liveness_grace_period, Value) ->
     validate_int(Value, "validator_liveness_grace_period", 1, 200, false);
 validate_var(?validator_hb_reactivation_limit, Value) ->
     validate_int(Value, "validator_hb_reactivation_limit", 5, 100, false);
-validate_var(?validator_key_check, Value) when is_boolean(Value) -> ok;
-validate_var(?validator_key_check, Value) -> throw({error, {invalidate_validator_key_check, Value}});
+validate_var(?validator_key_check, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_validator_key_check, Value}})
+    end;
 %% TODO fix this var
 validate_var(?stake_withdrawal_cooldown, Value) ->
     %% maybe set this in the test
@@ -1458,8 +1488,11 @@ validate_var(?penalty_history_limit, Value) ->
     %% also low end cannot be 0
     validate_int(Value, "penalty_history_limit", 10, 100000, false);
 
-validate_var(?net_emissions_enabled, Value) when is_boolean(Value) -> ok;
-validate_var(?net_emissions_enabled, Value) -> throw({error, {invalid_net_emissions_boolean, Value}});
+validate_var(?net_emissions_enabled, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_net_emissions_boolean, Value}})
+    end;
 validate_var(?net_emissions_max_rate, Value) ->
     validate_int(Value, "net_emissions_max_rate", 0, ?bones(200), false);
 
@@ -1477,8 +1510,11 @@ validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     end;
 validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
-validate_var(?discard_zero_freq_witness, Value) when is_boolean(Value) -> ok;
-validate_var(?discard_zero_freq_witness, Value) -> throw({error, {invalid_discard_zero_freq_witness, Value}});
+validate_var(?discard_zero_freq_witness, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
+    end;
 validate_var(?block_size_limit, Value) ->
     validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
 
