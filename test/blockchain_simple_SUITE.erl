@@ -1386,9 +1386,17 @@ routing_netid_to_oui_test(Config) ->
 
     %% Diverging from routing_test()...
 
-    %% FIXME: populate chain var with routing table of roaming peers
-    %% and call blockchain_state_channels_client:route_by_netid()
-    %% to exercise that table
+    %% Populate chain var with routing table of roaming peers
+    %% [{fixme_netid, fixme_oui}],
+
+    %% PeerRouters =
+    %%     case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+    %%         {ok, Bin} -> binary_to_term(Bin);
+    %%         _ -> []
+    %%     end,
+    %% State = #state{chain=Chain, routers=PeerRouters},
+    %% blockchain_state_channels_client:route_by_netid(Packet, DevAddr, DefaultRouters,
+    %%                                                 Region, ReceivedTime, State),
 
     ok.
 

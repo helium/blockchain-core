@@ -159,10 +159,10 @@ handle_cast({banner, Banner, HandlerPid}, #state{sc_client_transport_handler = H
 handle_cast({packet,
              #packet_pb{routing = #routing_information_pb{data = {devaddr,DevAddr}}}=Packet,
              DefaultRouters, Region, ReceivedTime},
-            #state{chain=Chain, routers=RoamingRouters}=State)
+            State)
   when is_integer(DevAddr) andalso DevAddr > 0 ->
-    State2 = route_by_netid(Packet, DevAddr, Chain, DefaultRouters, RoamingRouters,
-                            Region, ReceivedTime, State),
+    State2 =
+        handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, State),
     {noreply, State2};
 handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, #state{chain=Chain}=State) ->
     State2 =
@@ -198,19 +198,13 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            %% Routing table gets cached per State Channel; otherwise, this
-            %% feature would need to scan incoming blocks (see the add_block
-            %% event) for var changes and update local state when that changes.
-            Ledger = blockchain:ledger(Chain),
-            Routers =
-                case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
-                    {ok, Bin} -> binary_to_term(Bin);
-                    _ -> []
-                end,
-            {noreply, State#state{chain=Chain, routers=Routers}}
+            %% Also scan incoming blocks for updates; see add_block event.
+            State1 = chain_var_routers_by_netid_to_oui(Chain, State),
+            {noreply, State1#state{chain=Chain}}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
-    {noreply, State#state{chain=NC}};
+    State1 = chain_var_routers_by_netid_to_oui(NC, State),
+    {noreply, State1#state{chain=NC}};
 handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
     Packets = get_waiting_packet(AddressOrOUI, State0),
     lager:error("failed to dial ~p: ~p dropping ~p packets", [AddressOrOUI, _Reason, erlang:length(Packets)+1]),
@@ -239,7 +233,8 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
         _ ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
-handle_info({blockchain_event, {add_block, _BlockHash, true, Ledger}}, State) ->
+handle_info({blockchain_event, {add_block, _BlockHash, true, Ledger}}, State)
+  when Ledger =/= undefined ->
     SCs = state_channels(State),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
@@ -257,7 +252,8 @@ handle_info({blockchain_event, {add_block, _BlockHash, true, Ledger}}, State) ->
                                   ok
                           end
                   end, SCs),
-    {noreply, State};
+    State1 = chain_var_ledger_routers_by_netid_to_oui(Ledger, State),
+    {noreply, State1};
 handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
             #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     Block =
@@ -578,45 +574,6 @@ dequeue_packet(Stream, #state{packets=Packets}=State) ->
             {undefined, State};
         {{value, ToPop}, NewQueue} ->
             {ToPop, State#state{packets=maps:update(Stream, NewQueue, Packets)}}
-    end.
-
--spec route_by_netid(
-        Packet :: blockchain_helium_packet_v1:packet(),
-        DevAddr :: number() | binary(),
-        Chain :: blockchain:blockchain(),
-        DefaultRouters :: [blockchain_ledger_routing_v1:routing()],
-        RoamingRouters :: [blockchain_ledger_routing_v1:routing()],
-        Region :: atom(),
-        ReceivedTime :: non_neg_integer(),
-        State :: state()
-       ) -> State1 :: state().
-route_by_netid(Packet, DevAddr, Chain, DefaultRouters, RoamingRouters, Region, ReceivedTime, State) ->
-    OurNetID = application:get_env(router, netid, 0),
-    case lora_subnet:parse_netid(DevAddr) of
-        {ok, OurNetID} ->
-            handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State);
-        {ok, ExtractedNetID} ->
-            Fn = fun({NetID, OUI}, Accumulator) ->
-                         case ExtractedNetID of
-                             NetID ->
-                                 Ledger = blockchain:ledger(Chain),
-                                 case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-                                     {ok, Route} -> [Route|Accumulator];
-                                     _ -> Accumulator
-                                 end;
-                             _ ->
-                                 Accumulator
-                         end
-                 end,
-            RoutesOrAddresses =
-                case lists:foldl(Fn, [], RoamingRouters) of
-                    [] -> DefaultRouters;
-                    RoamingSubset -> RoamingSubset
-                end,
-            handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, State);
-        _ ->
-            %% Drop undeliverable packet
-            State
     end.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
@@ -1102,6 +1059,67 @@ debug_multiple_scs(SC, KnownSCs) ->
             ok = file:write_file("/tmp/bin_sc", BinSC),
             ok = file:write_file("/tmp/known_scs", BinKnownSCs),
             ok
+    end.
+
+-spec chain_var_routers_by_netid_to_oui(
+        Chain :: undefined | blockchain:blockchain(),
+        State :: state()
+       ) -> State1 :: state().
+chain_var_routers_by_netid_to_oui(undefined, State) ->
+    Ledger = blockchain:ledger(),
+    chain_var_ledger_routers_by_netid_to_oui(Ledger, State);
+chain_var_routers_by_netid_to_oui(Chain, State) ->
+    Ledger = blockchain:ledger(Chain),
+    chain_var_ledger_routers_by_netid_to_oui(Ledger, State).
+
+-spec chain_var_ledger_routers_by_netid_to_oui(
+        Ledger :: blockchain:ledger(),
+        State :: state()
+       ) -> State1 :: state().
+chain_var_ledger_routers_by_netid_to_oui(Ledger, State) ->
+    Routers =
+        case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+            {ok, Bin} -> binary_to_term(Bin);
+            _ -> []
+        end,
+    State#state{routers=Routers}.
+
+-spec handle_route_by_netid(
+        Packet :: blockchain_helium_packet_v1:packet(),
+        DevAddr :: number() | binary(),
+        DefaultRouters :: [blockchain_ledger_routing_v1:routing()],
+        Region :: atom(),
+        ReceivedTime :: non_neg_integer(),
+        State :: state()
+       ) -> State1 :: state().
+handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, State) ->
+    #state{chain=Chain, routers=RoamingRouters} = State,
+    OurNetID = application:get_env(router, netid, 0),
+    case lora_subnet:parse_netid(DevAddr) of
+        {ok, OurNetID} ->
+            handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State);
+        {ok, ExtractedNetID} ->
+            Fn = fun({NetID, OUI}, Accumulator) ->
+                         case ExtractedNetID of
+                             NetID ->
+                                 Ledger = blockchain:ledger(Chain),
+                                 case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+                                     {ok, Route} -> [Route|Accumulator];
+                                     _ -> Accumulator
+                                 end;
+                             _ ->
+                                 Accumulator
+                         end
+                 end,
+            RoutesOrAddresses =
+                case lists:foldl(Fn, [], RoamingRouters) of
+                    [] -> DefaultRouters;
+                    RoamingSubset -> RoamingSubset
+                end,
+            handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, State);
+        _ ->
+            %% Drop undeliverable packet
+            State
     end.
 
 -spec handle_packet_routing(
