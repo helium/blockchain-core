@@ -477,15 +477,13 @@ amount_check_v2(Txn, Ledger) ->
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
 
-    PayerHNTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hnt),
-    PayerHSTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hst),
-    PayerHGTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hgt),
-    PayerHLTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, hlt),
-
-    C1 = PayerHNTBalance >= maps:get(hnt, TotAmounts, 0),
-    C2 = PayerHSTBalance >= maps:get(hst, TotAmounts, 0),
-    C3 = PayerHGTBalance >= maps:get(hgt, TotAmounts, 0),
-    C4 = PayerHLTBalance >= maps:get(hlt, TotAmounts, 0),
+    PayerHasEnoughTTBalance =
+    lists:all(
+      fun(TT) ->
+              PayerTTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, TT),
+              PayerTTBalance >= maps:get(TT, TotAmounts, 0)
+      end,
+      blockchain_token_type_v1:supported_tokens()),
 
     case blockchain:config(?allow_zero_amount, Ledger) of
         {ok, false} ->
@@ -493,9 +491,9 @@ amount_check_v2(Txn, Ledger) ->
             case has_non_zero_amounts(Payments) of
                 false -> false;
                 true ->
-                    case C1 andalso C2 andalso C3 andalso C4 of
+                    case PayerHasEnoughTTBalance of
                         false ->
-                            {error, {amount_check_failed, {C1, C2, C3, C4}}};
+                            {error, amount_check_v2_failed};
                         true ->
                             ok
                     end
