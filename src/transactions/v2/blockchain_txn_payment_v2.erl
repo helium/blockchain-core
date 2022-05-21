@@ -211,7 +211,7 @@ absorb_v2_(Txn, Ledger, Chain) ->
 
 -spec absorb_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_(Txn, Ledger, Chain) ->
-    TotAmount = ?MODULE:total_amount(Txn),
+    TotAmount = ?MODULE:total_amount(Txn, Ledger),
     SpecifiedAmount = lists:sum([blockchain_payment_v2:amount(Payment) || Payment <- ?MODULE:payments(Txn)]),
     MaxPayment = TotAmount - SpecifiedAmount,
     Fee = ?MODULE:fee(Txn),
