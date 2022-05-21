@@ -226,6 +226,9 @@
 %% the number of random hexes to utilize when targeting: integer
 -define(poc_target_pool_size, poc_target_pool_size).
 
+%% whether or not to process validation of poc receipt witnesses
+-define(poc_receipt_witness_validation, poc_receipt_witness_validation).
+
 %%%
 %%% score vars
 %%%

@@ -1142,6 +1142,8 @@ validate_var(?poc_hexing_type, Value) ->
   end;
 validate_var(?poc_validator_ct_scale, Value) ->
     validate_float(Value, "poc_validator_ct_scale", 0.1, 1.0);
+validate_var(?poc_receipt_witness_validation, Value) when is_boolean(Value) -> ok;
+validate_var(?poc_receipt_witness_validation, Value) -> throw({error, poc_receipt_witness_validation, Value});
 
 %% score vars
 validate_var(?alpha_decay, Value) ->

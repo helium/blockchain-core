@@ -55,7 +55,9 @@
     genesis_no_var_validation_stay_invalid_test/1,
     genesis_no_var_validation_make_valid_test/1,
     receipts_txn_reject_empty_receipt_test/1,
-    receipts_txn_dont_reject_empty_receipt_test/1
+    receipts_txn_dont_reject_empty_receipt_test/1,
+    receipts_txn_validate_witnesses_test/1,
+    receipts_txn_no_validate_witnesses_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -113,7 +115,9 @@ all() ->
          genesis_no_var_validation_stay_invalid_test,
          genesis_no_var_validation_make_valid_test,
          receipts_txn_reject_empty_receipt_test,
-         receipts_txn_dont_reject_empty_receipt_test
+         receipts_txn_dont_reject_empty_receipt_test,
+         receipts_txn_validate_witnesses_test,
+         receipts_txn_no_validate_witnesses_test
     ].
 
 %%--------------------------------------------------------------------
@@ -123,10 +127,12 @@ all() ->
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     Balance =
-        case TestCase of
-            poc_v2_unset_challenger_type_chain_var_test -> ?bones(15000);
-            receipts_txn_reject_empty_receipt_test -> ?bones(15000);
-            receipts_txn_dont_reject_empty_receipt_test -> ?bones(15000);
+        case lists:any(fun(Case) -> Case =:= TestCase end, [poc_v2_unset_challenger_type_chain_var_test,
+                                                            receipts_txn_reject_empty_receipt_test,
+                                                            receipts_txn_dont_reject_empty_receipt_test,
+                                                            receipts_txn_validate_witnesses_test,
+                                                            receipts_txn_no_validate_witnesses_test]) of
+            true -> ?bones(15000);
             _ -> 5000
         end,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
@@ -210,6 +216,48 @@ init_per_testcase(TestCase, Config) ->
                         #{
                             ?poc_challenger_type => validator,
                             ?poc_reject_empty_receipts => false,
+                            ?election_version => 5,
+                            ?validator_version => 3,
+                            ?validator_minimum_stake => ?bones(10000),
+                            ?validator_liveness_grace_period => 10,
+                            ?validator_liveness_interval => 5,
+                            ?validator_key_check => true,
+                            ?stake_withdrawal_cooldown => 10,
+                            ?stake_withdrawal_max => 500,
+                            ?dkg_penalty => 1.0,
+                            ?penalty_history_limit => 100,
+                            ?election_bba_penalty => 0.01,
+                            ?election_seen_penalty => 0.03
+                        };
+                    receipts_txn_validate_witnesses_test ->
+                        #{
+                            ?poc_challenger_type => validator,
+                            ?poc_reject_empty_receipts => false,
+                            ?poc_receipt_witness_validation => true,
+                            ?poc_activity_filter_enabled => true,
+                            ?poc_v4_parent_res => 11,
+                            ?poc_v4_exclusion_cells => 8,
+                            ?election_version => 5,
+                            ?validator_version => 3,
+                            ?validator_minimum_stake => ?bones(10000),
+                            ?validator_liveness_grace_period => 10,
+                            ?validator_liveness_interval => 5,
+                            ?validator_key_check => true,
+                            ?stake_withdrawal_cooldown => 10,
+                            ?stake_withdrawal_max => 500,
+                            ?dkg_penalty => 1.0,
+                            ?penalty_history_limit => 100,
+                            ?election_bba_penalty => 0.01,
+                            ?election_seen_penalty => 0.03
+                        };
+                    receipts_txn_no_validate_witnesses_test ->
+                        #{
+                            ?poc_challenger_type => validator,
+                            ?poc_reject_empty_receipts => false,
+                            ?poc_receipt_witness_validation => false,
+                            ?poc_activity_filter_enabled => true,
+                            ?poc_v4_parent_res => 11,
+                            ?poc_v4_exclusion_cells => 8,
                             ?election_version => 5,
                             ?validator_version => 3,
                             ?validator_minimum_stake => ?bones(10000),
@@ -3724,6 +3772,114 @@ receipts_txn_dont_reject_empty_receipt_test(Config) ->
     meck:unload(blockchain_poc_packet_v2),
 
     ok.
+
+receipts_txn_validate_witnesses_test(Config) ->
+    %% test behaviour enabled via poc_receipt_witness_validation chain var
+    %% when set to true receipts v2 txns will be rejected if they
+    %% have have witnesses that do not pass any of the validation checks.
+    Chain = ?config(chain, Config),
+
+    %% hardcode much of the poc data
+    IVBytes = crypto:strong_rand_bytes(16),
+    Data = <<45,98>>,
+    Layer = <<119,199,206,154,93,134,187,56,109>>,
+
+    {
+      ConsensusMembers,
+      Gateway,
+      Witness1,
+      Witness2,
+      SignedPoCReceiptsTxn
+    } = setup_receipts_witness_validation(Config, Data, Layer),
+
+    %% meck out all the things
+    %% remove any checks we dont care about
+    %% hardcode the poc packet, save having to create a real poc
+    meck:new(blockchain_txn_poc_receipts_v2, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v2, get_path, fun(_,_,_,_,_,_,_,_,_) -> {[Gateway], erlang:monotonic_time(microsecond)} end),
+    meck:expect(blockchain_txn_poc_receipts_v2, create_secret_hash, fun(_,_) -> [IVBytes, Data] end),
+    meck:new(blockchain_region_v1, [passthrough]),
+    meck:expect(blockchain_region_v1, get_all_region_bins, fun(_) -> {ok, [{some, <<"region">>}]} end),
+    meck:expect(blockchain_region_v1, h3_to_region, fun(_,_,_) -> {ok, region_us915} end),
+    meck:expect(blockchain_region_v1, h3_in_region, fun(_,_,_) -> true end),
+    meck:new(blockchain_region_params_v1, [passthrough]),
+    meck:expect(blockchain_region_params_v1, for_region, fun(_,_) -> {ok, stub_region_params()} end),
+    meck:new(blockchain_poc_packet_v2, [passthrough]),
+    meck:expect(blockchain_poc_packet_v2, build, fun(_,_,_) -> {<<"ignored_onion">>, [<<"ignored_layer">>,Layer]} end),
+
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn], #{}, false),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
+
+    Ledger = blockchain:ledger(Chain),
+
+    W1Info = blockchain_ledger_v1:find_gateway_info(Witness1, Ledger),
+    ct:pal("Gateway Info: Witness1 = ~p", [W1Info]),
+
+    ?assertEqual({ok, undefined}, blockchain_ledger_v1:find_gateway_last_challenge(Witness1, Ledger)),
+    ?assertEqual({ok, undefined}, blockchain_ledger_v1:find_gateway_last_challenge(Witness2, Ledger)),
+
+    meck:unload(blockchain_txn_poc_receipts_v2),
+    meck:unload(blockchain_region_v1),
+    meck:unload(blockchain_region_params_v1),
+    meck:unload(blockchain_poc_packet_v2),
+
+    ok.
+
+receipts_txn_no_validate_witnesses_test(Config) ->
+    %% test behaviour enabled via poc_receipt_witness_validation chain var
+    %% when set to true receipts v2 txns will be rejected if they
+    %% have have witnesses that do not pass any of the validation checks.
+    Chain = ?config(chain, Config),
+
+    %% hardcode much of the poc data
+    IVBytes = crypto:strong_rand_bytes(16),
+    Data = <<45,98>>,
+    Layer = <<119,199,206,154,93,134,187,56,109>>,
+
+    {
+      ConsensusMembers,
+      Gateway,
+      Witness1,
+      Witness2,
+      SignedPoCReceiptsTxn
+    } = setup_receipts_witness_validation(Config, Data, Layer),
+
+    %% meck out all the things
+    %% remove any checks we dont care about
+    %% hardcode the poc packet, save having to create a real poc
+    meck:new(blockchain_txn_poc_receipts_v2, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v2, get_path, fun(_,_,_,_,_,_,_,_,_) -> {[Gateway], erlang:monotonic_time(microsecond)} end),
+    meck:expect(blockchain_txn_poc_receipts_v2, create_secret_hash, fun(_,_) -> [IVBytes, Data] end),
+    meck:new(blockchain_region_v1, [passthrough]),
+    meck:expect(blockchain_region_v1, get_all_region_bins, fun(_) -> {ok, [{some, <<"region">>}]} end),
+    meck:expect(blockchain_region_v1, h3_to_region, fun(_,_,_) -> {ok, region_us915} end),
+    meck:expect(blockchain_region_v1, h3_in_region, fun(_,_,_) -> true end),
+    meck:new(blockchain_region_params_v1, [passthrough]),
+    meck:expect(blockchain_region_params_v1, for_region, fun(_,_) -> {ok, stub_region_params()} end),
+    meck:new(blockchain_poc_packet_v2, [passthrough]),
+    meck:expect(blockchain_poc_packet_v2, build, fun(_,_,_) -> {<<"ignored_onion">>, [<<"ignored_layer">>,Layer]} end),
+
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn], #{}, false),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
+
+    Ledger = blockchain:ledger(Chain),
+
+    W1Info = blockchain_ledger_v1:find_gateway_info(Witness1, Ledger),
+    ct:pal("Gateway Info: Witness1 = ~p", [W1Info]),
+
+    ?assertEqual({ok, 4}, blockchain_ledger_v1:find_gateway_last_challenge(Witness1, Ledger)),
+    ?assertEqual({ok, 4}, blockchain_ledger_v1:find_gateway_last_challenge(Witness2, Ledger)),
+
+    meck:unload(blockchain_txn_poc_receipts_v2),
+    meck:unload(blockchain_region_v1),
+    meck:unload(blockchain_region_params_v1),
+    meck:unload(blockchain_poc_packet_v2),
+
+    ok.
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -3772,6 +3928,56 @@ fake_public_poc(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger) ->
     ok = blockchain_ledger_v1:save_poc_proposal(OnionKeyHash, Challenger, BlockHash, BlockHeight, Ledger),
     {ok, POC} = blockchain_ledger_v1:find_poc_proposal(OnionKeyHash, Ledger),
     _ = blockchain_ledger_v1:promote_to_public_poc(POC, Ledger).
+
+stub_region_params() ->
+    [{blockchain_region_param_v1_pb,903900000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,904100000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,904300000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,904500000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,904700000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,904900000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,905100000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}},
+     {blockchain_region_param_v1_pb,905300000,125000,360,
+         {blockchain_region_spreading_v1_pb,
+             [{tagged_spreading_pb,'SF10',25},
+              {tagged_spreading_pb,'SF9',67},
+              {tagged_spreading_pb,'SF8',139},
+              {tagged_spreading_pb,'SF7',256}]}}].
 
 setup_receipts_txn_empty_receipt(Config, Data, Layer) ->
     %% perform setup, adds validator, 2 gateways & fakes a POC
@@ -3918,3 +4124,152 @@ setup_receipts_txn_empty_receipt(Config, Data, Layer) ->
     SignedPoCReceiptsTxn3 = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn3, ValSigFun),
 
     {Gateway, SignedPoCReceiptsTxn1, SignedPoCReceiptsTxn2, SignedPoCReceiptsTxn3}.
+
+setup_receipts_witness_validation(Config, Data, Layer) ->
+    %% perform setup, adds validator, 3 gateways & fakes a POC
+    %% returns 1 receipts v2 txns
+    %% the txn contains one valid and one invalid witness
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    Keys = libp2p_crypto:generate_keys(ecc_compact),
+    Secret = libp2p_crypto:keys_to_bin(Keys),
+    #{public := OnionCompactKey} = Keys,
+    OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey)),
+
+    %% Get an owner of our actors
+    [{OwnerPubkeyBin, {_OwnerPub, _OwnerPriv, OwnerSigFun}} | _] = ?config(genesis_members, Config),
+
+    %%
+    %% Create and add three Gateways
+    %%
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    #{public := Gateway2PubKey, secret := Gateway2PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway2 = libp2p_crypto:pubkey_to_bin(Gateway2PubKey),
+    Gateway2SigFun = libp2p_crypto:mk_sig_fun(Gateway2PrivKey),
+
+    #{public := Gateway3PubKey, secret := Gateway3PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway3 = libp2p_crypto:pubkey_to_bin(Gateway3PubKey),
+    Gateway3SigFun = libp2p_crypto:mk_sig_fun(Gateway3PrivKey),
+
+    % Add & assert Gateway1
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(OwnerPubkeyBin, Gateway),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, OwnerPubkeyBin, ?TEST_LOCATION, 1),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+
+    % Add & assert Gateway2
+    AddGateway2Tx = blockchain_txn_add_gateway_v1:new(OwnerPubkeyBin, Gateway2),
+    SignedOwnerAddGateway2Tx = blockchain_txn_add_gateway_v1:sign(AddGateway2Tx, OwnerSigFun),
+    SignedGatewayAddGateway2Tx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGateway2Tx, Gateway2SigFun),
+
+    AssertLocationRequestTx2 = blockchain_txn_assert_location_v1:new(Gateway2, OwnerPubkeyBin, ?TEST_LOCATION, 1),
+    PartialAssertLocationTxn2 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx2, Gateway2SigFun),
+    SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn2, OwnerSigFun),
+
+    % Add & assert Gateway3
+    AddGateway3Tx = blockchain_txn_add_gateway_v1:new(OwnerPubkeyBin, Gateway3),
+    SignedOwnerAddGateway3Tx = blockchain_txn_add_gateway_v1:sign(AddGateway3Tx, OwnerSigFun),
+    SignedGatewayAddGateway3Tx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGateway3Tx, Gateway3SigFun),
+
+    AssertLocationRequestTx3 = blockchain_txn_assert_location_v1:new(Gateway3, OwnerPubkeyBin, ?TEST_LOCATION, 1),
+    PartialAssertLocationTxn3 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx3, Gateway3SigFun),
+    SignedAssertLocationTx3 = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn3, OwnerSigFun),
+
+    {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx,
+                                                              SignedAssertLocationTx,
+                                                              SignedGatewayAddGateway2Tx,
+                                                              SignedAssertLocationTx2,
+                                                              SignedGatewayAddGateway3Tx,
+                                                              SignedAssertLocationTx3]),
+    _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:tid()),
+    {ok, _GWInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+
+    %%
+    %% stake a validator
+    %%
+
+    %% make a validator
+    [{ValPubkeyBin, {_ValPub, _ValPriv, ValSigFun}}] = test_utils:generate_keys(1),
+    ct:pal("StakePubkeyBin: ~p~nOwnerPubkeyBin: ~p", [ValPubkeyBin, OwnerPubkeyBin]),
+
+    ValTxn = blockchain_txn_stake_validator_v1:new(
+        ValPubkeyBin,
+        OwnerPubkeyBin,
+        ?bones(10000),
+        ?bones(5)
+    ),
+    SignedValTxn = blockchain_txn_stake_validator_v1:sign(ValTxn, OwnerSigFun),
+    ct:pal("SignedStakeTxn: ~p", [SignedValTxn]),
+
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedValTxn]),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
+
+    %% fake a validator poc by manually populating the ledger
+    {ok, Height2} = blockchain:height(Chain),
+    {ok, BlockHash} = blockchain:get_block_hash(Height2, Chain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    fake_public_poc(OnionKeyHash, ValPubkeyBin, BlockHash, Height2, Ledger1),
+    blockchain_ledger_v1:commit_context(Ledger1),
+
+    %% confirm the poc data exists
+    [_ValidatorPOC1 | _] = blockchain_ledger_v1:pocs(active, Ledger),
+
+    %%
+    %% Create version of the receipts txn with and without valid witnesses in the path
+    %%
+    R1 = blockchain_poc_receipt_v1:new(
+        Gateway,
+        1000,
+        10,
+        Data,
+        p2p
+    ),
+    SignedR1 = blockchain_poc_receipt_v1:sign(R1, GatewaySigFun),
+
+    Witness1 = blockchain_poc_witness_v1:new(
+        Gateway2,
+        1001,
+        10,
+        crypto:hash(sha256, Layer),
+        9.8,
+        915.2,
+        10,
+        <<"data_rate">>
+    ),
+    SignedWitness1 = blockchain_poc_witness_v1:sign(Witness1, Gateway2SigFun),
+
+    Witness2 = blockchain_poc_witness_v1:new(
+        Gateway3,
+        1001,
+        10,
+        crypto:hash(sha256, Layer),
+        9.8,
+        0.0, %% <---- Invalid frequency
+        10,
+        <<"data_rate">>
+    ),
+    SignedWitness2 = blockchain_poc_witness_v1:sign(Witness2, Gateway3SigFun),
+
+    %% generate path with the valid witnesses
+    Path = blockchain_poc_path_element_v1:new(Gateway, SignedR1, [SignedWitness1, SignedWitness2]),
+    ct:pal("P1: ~p", [Path]),
+
+    %% include the path in receipts v2 txns
+    PoCReceiptsTxn = blockchain_txn_poc_receipts_v2:new(
+        ValPubkeyBin,
+        Secret,
+        OnionKeyHash,
+        [Path],
+        BlockHash
+    ),
+    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn, ValSigFun),
+
+    {ConsensusMembers, Gateway, Gateway2, Gateway3, SignedPoCReceiptsTxn}.
