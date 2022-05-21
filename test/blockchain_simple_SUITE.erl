@@ -230,6 +230,7 @@ init_per_testcase(TestCase, Config) ->
                         #{
                             ?poc_challenger_type => validator,
                             ?poc_reject_empty_receipts => true,
+                            % ?poc_receipt_witness_validation => false,
                             ?election_version => 5,
                             ?validator_version => 3,
                             ?validator_minimum_stake => ?bones(10000),
@@ -3756,8 +3757,13 @@ receipts_txn_validate_witnesses_test(Config) ->
     Data = <<"data">>,
     Layer = <<119,199,206,154,93,134,187,56,109>>,
 
-    {Gateway, SignedPoCReceiptsTxn1, SignedPoCReceiptsTxn2} =
-        setup_receipts_witness_validation(Config, Data, Layer),
+    {
+      ConsensusMembers,
+      Gateway,
+      Witness1,
+      Witness2,
+      SignedPoCReceiptsTxn
+    } = setup_receipts_witness_validation(Config, Data, Layer),
 
     %% meck out all the things
     %% remove any checks we dont care about
@@ -3769,12 +3775,17 @@ receipts_txn_validate_witnesses_test(Config) ->
     meck:new(blockchain_poc_packet_v2, [passthrough]),
     meck:expect(blockchain_poc_packet_v2, build, fun(_,_,_) -> {<<"ignored_onion">>, [<<"ignored_layer">>,Layer]} end),
 
-    %%
-    %% validate the 2 receipts v2 txns
-    %% receipts v2 txn1 will be declared valid as it has the valid witness
-    ?assertEqual(ok, blockchain_txn_poc_receipts_v2:is_valid(SignedPoCReceiptsTxn1, Chain)),
-    %% receipts v2 txn2 will be declared invalid as it has the invalid witness
-    ?assertEqual({error, empty_path}, blockchain_txn_poc_receipts_v2:is_valid(SignedPoCReceiptsTxn2, Chain)),
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+
+
+    ok = test_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
+
+    Ledger = blockchain:ledger(Chain),
+    W1LastChallenge = blockchain_ledger_v1:find_gateway_last_challenge(Witness1, Ledger),
+    W2LastChallenge = blockchain_ledger_v1:find_gateway_last_challenge(Witness2, Ledger),
+    ?assertEqual(4, W1LastChallenge),
+    ?assertEqual({ok, undefined}, W2LastChallenge),
 
     meck:unload(blockchain_txn_poc_receipts_v2),
     meck:unload(blockchain_poc_packet_v2),
@@ -3978,9 +3989,8 @@ setup_receipts_txn_empty_receipt(Config, Data, Layer) ->
 
 setup_receipts_witness_validation(Config, Data, Layer) ->
     %% perform setup, adds validator, 3 gateways & fakes a POC
-    %% returns 2 receipts v2 txns
-    %% 1 whereby the path has a valid witness reports
-    %% 1 whereby the path has an invalid witness report
+    %% returns 1 receipts v2 txns
+    %% the txn contains one valid and one invalid witness
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
     Ledger = blockchain:ledger(Chain),
@@ -4111,29 +4121,17 @@ setup_receipts_witness_validation(Config, Data, Layer) ->
     SignedWitness2 = blockchain_poc_witness_v1:sign(Witness2, Gateway3SigFun),
 
     %% generate path with the valid witnesses
-    P1 = blockchain_poc_path_element_v1:new(Gateway, SignedR1, [SignedWitness1]),
-    ct:pal("P1: ~p", [P1]),
-
-    %% generate path with the invalid witnesses
-    P2 = blockchain_poc_path_element_v1:new(Gateway, SignedR1, [SignedWitness2]),
-    ct:pal("P2: ~p", [P2]),
+    Path = blockchain_poc_path_element_v1:new(Gateway, SignedR1, [SignedWitness1, SignedWitness2]),
+    ct:pal("P1: ~p", [Path]),
 
     %% include the path in receipts v2 txns
-    PoCReceiptsTxn1 = blockchain_txn_poc_receipts_v2:new(
+    PoCReceiptsTxn = blockchain_txn_poc_receipts_v2:new(
         ValPubkeyBin,
         Secret,
         OnionKeyHash,
-        [P1],
+        [Path],
         BlockHash
     ),
-    PoCReceiptsTxn2 = blockchain_txn_poc_receipts_v2:new(
-        ValPubkeyBin,
-        Secret,
-        OnionKeyHash,
-        [P2],
-        BlockHash
-    ),
-    SignedPoCReceiptsTxn1 = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn1, ValSigFun),
-    SignedPoCReceiptsTxn2 = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn2, ValSigFun),
+    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn, ValSigFun),
 
-    {Gateway, SignedPoCReceiptsTxn1, SignedPoCReceiptsTxn2}.
+    {ConsensusMembers, Gateway, Gateway2, Gateway3, SignedPoCReceiptsTxn}.
