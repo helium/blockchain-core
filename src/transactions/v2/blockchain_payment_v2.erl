@@ -80,9 +80,7 @@ new(Payee, Amount, Memo, TT) ->
        amount=Amount,
        memo=Memo,
        token_type=TT
->>>>>>> a0aa395e (Another rework for proto compliance)
       }.
-
 
 -spec payee(Payment :: payment()) -> libp2p_crypto:pubkey_bin().
 payee(Payment) ->
