@@ -142,9 +142,7 @@ multi_token_payment_test(Config) ->
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
-    ct:pal("PayerEntry: ~p", [blockchain_ledger_v1:find_entry_v2(Payer, Ledger)]),
-
-    %% Create a payment to a single payee
+    %% Generate two random recipients
     [{Recipient1, _}, {Recipient2, _}] = test_utils:generate_keys(2),
 
     HNTAmt1 = 20000,
@@ -171,10 +169,6 @@ multi_token_payment_test(Config) ->
     Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
-
-    ct:pal("payment amounts: ~p", [blockchain_txn_payment_v2:total_amounts(SignedTx)]),
-
-    ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
@@ -204,6 +198,61 @@ multi_token_payment_test(Config) ->
     ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
     ?assertEqual(HGTBal - (HGTAmt1 + HGTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hgt)),
     ?assertEqual(HLTBal - (HLTAmt1 + HLTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hlt)),
+
+    %% Do another payment
+
+    [{Recipient3, _}] = test_utils:generate_keys(1),
+
+    HNTAmt3 = 2000,
+    HSTAmt3 = 200,
+    HGTAmt3 = 20,
+    HLTAmt3 = 2,
+
+    P9 = blockchain_payment_v2:new(Recipient3, HNTAmt3, hnt),
+    P10 = blockchain_payment_v2:new(Recipient3, HSTAmt3, hst),
+    P11 = blockchain_payment_v2:new(Recipient3, HGTAmt3, hgt),
+    P12 = blockchain_payment_v2:new(Recipient3, HLTAmt3, hlt),
+
+    Payments3 = [P9, P10, P11, P12],
+
+    Tx3 = blockchain_txn_payment_v2:new(Payer, Payments3, 2),
+    SignedTx3 = blockchain_txn_payment_v2:sign(Tx3, SigFun),
+
+    {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedTx3]),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
+
+    ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+
+    {ok, RecipientEntry3} = blockchain_ledger_v1:find_entry_v2(Recipient3, Ledger),
+
+    ?assertEqual(HNTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hnt)),
+    ?assertEqual(HSTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hst)),
+    ?assertEqual(HGTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hgt)),
+    ?assertEqual(HLTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hlt)),
+
+    {ok, PayerEntry3} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+    ?assertEqual(2, blockchain_ledger_entry_v2:nonce(PayerEntry3)),
+    ?assertEqual(
+        HNTBal - (HNTAmt1 + HNTAmt2 + HNTAmt3),
+        blockchain_ledger_entry_v2:balance(PayerEntry3, hnt)
+    ),
+    ?assertEqual(
+        HSTBal - (HSTAmt1 + HSTAmt2 + HSTAmt3),
+        blockchain_ledger_entry_v2:balance(PayerEntry3, hst)
+    ),
+    ?assertEqual(
+        HGTBal - (HGTAmt1 + HGTAmt2 + HGTAmt3),
+        blockchain_ledger_entry_v2:balance(PayerEntry3, hgt)
+    ),
+    ?assertEqual(
+        HLTBal - (HLTAmt1 + HLTAmt2 + HLTAmt3),
+        blockchain_ledger_entry_v2:balance(PayerEntry3, hlt)
+    ),
+
     ok.
 
 extra_vars(_) ->
