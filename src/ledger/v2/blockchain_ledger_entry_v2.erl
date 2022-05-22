@@ -7,7 +7,7 @@
 
 -export([
     new/0,
-    nonce/1,
+    nonce/1, nonce/2,
     balance/2,
     credit/3,
     debit/3,
@@ -42,6 +42,10 @@ new() ->
 -spec nonce(Entry :: entry()) -> non_neg_integer().
 nonce(#blockchain_ledger_entry_v2_pb{nonce = Nonce}) ->
     Nonce.
+
+-spec nonce(Entry :: entry(), Nonce :: non_neg_integer()) -> entry().
+nonce(Entry, Nonce) ->
+    Entry#blockchain_ledger_entry_v2_pb{nonce = Nonce}.
 
 -spec balance(Entry :: entry(), TT :: blockchain_token_type_v1:token_type()) -> non_neg_integer().
 balance(Entry, hnt) ->

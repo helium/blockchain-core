@@ -105,7 +105,7 @@
     find_entry/2,
     find_entry_v2/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
-    credit_account/4, debit_account/5,
+    credit_account/4,
     check_balance/3,
 
     dc_entries/1,
@@ -3064,8 +3064,11 @@ credit_account(Address, Amount, TT, Ledger) ->
             Error
     end.
 
--spec debit_account(libp2p_crypto:pubkey_bin(), integer(), integer(), ledger()) -> ok | {error, any()}.
-debit_account(Address, Amount, Nonce, Ledger) ->
+-spec debit_account(Address :: libp2p_crypto:pubkey_bin(),
+                    AmountOrAmounts :: integer() | blockchain_txn_payment_v2:total_amounts(),
+                    Nonce :: integer(),
+                    Ledger :: ledger()) -> ok | {error, any()}.
+debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrAmounts) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -3073,49 +3076,52 @@ debit_account(Address, Amount, Nonce, Ledger) ->
             case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
                 true ->
                     Balance = blockchain_ledger_entry_v1:balance(Entry),
-                    case (Balance - Amount) >= 0 of
+                    case (Balance - AmountOrAmounts) >= 0 of
                         true ->
                             Entry1 = blockchain_ledger_entry_v1:new(
                                 Nonce,
-                                (Balance - Amount)
+                                (Balance - AmountOrAmounts)
                             ),
                             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
                             EntriesCF = entries_cf(Ledger),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
-                            {error, {insufficient_balance, {Amount, Balance}}}
+                            {error, {insufficient_balance, {AmountOrAmounts, Balance}}}
                     end;
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
             end
-    end.
-
--spec debit_account(Address :: libp2p_crypto:pubkey_bin(),
-                    Amount :: integer(),
-                    Nonce :: integer(),
-                    TT :: blockchain_token_type_v1:token_type(),
-                    Ledger :: ledger()) -> ok | {error, any()}.
-debit_account(Address, Amount, Nonce, TT, Ledger) ->
+    end;
+debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
     case ?MODULE:find_entry_v2(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
             case Nonce =:= blockchain_ledger_entry_v2:nonce(Entry) + 1 of
                 true ->
-                    Balance = blockchain_ledger_entry_v2:balance(Entry, TT),
-                    case (Balance - Amount) >= 0 of
+                    case lists:all(
+                      fun(TT) ->
+                              blockchain_ledger_entry_v2:balance(Entry, TT) >= maps:get(TT, AmountOrAmounts, 0)
+                      end,
+                      blockchain_token_type_v1:supported_tokens())
+                    of
                         true ->
-                            Entry1 = blockchain_ledger_entry_v2:debit(Entry, Amount, TT),
+                            Entry0 = maps:fold(
+                                       fun(TT, Amt, Acc) ->
+                                               blockchain_ledger_entry_v2:debit(Acc, Amt, TT)
+                                       end, Entry, AmountOrAmounts),
+                            Entry1 = blockchain_ledger_entry_v2:nonce(Entry0, Nonce),
                             Bin = blockchain_ledger_entry_v2:serialize(Entry1),
                             EntriesCF = entries_v2_cf(Ledger),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
-                            {error, {insufficient_balance, {Amount, Balance, TT}}}
+                            {error, {insufficient_balance, {libp2p_crypto:bin_to_b58(Address), AmountOrAmounts}}}
                     end;
                 false ->
-                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v2:nonce(Entry)}}}
+                    {error, {bad_nonce, {payment_v2, Nonce, blockchain_ledger_entry_v2:nonce(Entry)}}}
             end
     end.
+
 
 -spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), blockchain_txn:hash(), blockchain:blockchain()) -> ok | {error, any()}.
 debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->

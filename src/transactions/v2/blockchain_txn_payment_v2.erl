@@ -42,9 +42,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type total_amounts() :: #{blockchain_token_type_v1:token_type() => non_neg_integer()}.
 -type txn_payment_v2() :: #blockchain_txn_payment_v2_pb{}.
 
--export_type([txn_payment_v2/0]).
+-export_type([txn_payment_v2/0, total_amounts/0]).
 
 -spec new(
     Payer :: libp2p_crypto:pubkey_bin(),
@@ -89,7 +90,7 @@ amounts(Txn, Ledger) ->
 total_amount(Txn, Ledger) ->
     lists:sum(?MODULE:amounts(Txn, Ledger)).
 
--spec total_amounts(txn_payment_v2()) -> #{blockchain_token_type_v1:token_type() => non_neg_integer()}.
+-spec total_amounts(txn_payment_v2()) -> total_amounts().
 total_amounts(Txn) ->
     lists:foldl(
       fun(Payment, Acc) ->
@@ -189,24 +190,27 @@ absorb_v2_(Txn, Ledger, Chain) ->
     Hash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
+    TotalAmounts = ?MODULE:total_amounts(Txn),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->
-            Payments = ?MODULE:payments(Txn),
-            ok = lists:foreach(
-                   fun(Payment) ->
-                           Payee = blockchain_payment_v2:payee(Payment),
-                           Amount = blockchain_payment_v2:amount(Payment),
-                           TT = blockchain_payment_v2:token_type(Payment),
-                           case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, TT, Ledger) of
-                               ok ->
-                                   ok = blockchain_ledger_v1:credit_account(Payee, Amount, TT, Ledger);
-                               {error, _}=E ->
-                                   E
-                           end
-                   end, Payments)
+            case blockchain_ledger_v1:debit_account(Payer, TotalAmounts, Nonce, Ledger) of
+                {error, _Reason} = Error ->
+                    Error;
+                ok ->
+                    Payments = ?MODULE:payments(Txn),
+                    ok = lists:foreach(
+                        fun(Payment) ->
+                            PayeePubkeyBin = blockchain_payment_v2:payee(Payment),
+                            PayeeAmount = blockchain_payment_v2:amount(Payment),
+                            TT = blockchain_payment_v2:token_type(Payment),
+                            blockchain_ledger_v1:credit_account(PayeePubkeyBin, PayeeAmount, TT, Ledger)
+                        end,
+                        Payments
+                    )
+            end
     end.
 
 -spec absorb_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -623,7 +627,7 @@ token_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
     case blockchain:config(?protocol_version, Ledger) of
         {ok, 2} ->
-            %% check that the memos are valid
+            %% check that the tokens are valid
             case has_valid_tokens(Payments) of
                 true -> ok;
                 false -> {error, invalid_tokens}
@@ -640,7 +644,6 @@ token_check(Txn, Ledger) ->
 has_valid_tokens(Payments) ->
     lists:all(
         fun(Payment) ->
-                %% TODO: check that the memo field is valid
                 blockchain_payment_v2:is_valid_token_type(Payment)
         end,
         Payments
