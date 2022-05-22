@@ -7,7 +7,8 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-    coinbase_test/1
+    multi_token_coinbase_test/1,
+    multi_token_payment_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -22,7 +23,8 @@
 %%--------------------------------------------------------------------
 all() ->
     [
-        coinbase_test
+        multi_token_coinbase_test,
+        multi_token_payment_test
     ].
 
 %%--------------------------------------------------------------------
@@ -84,6 +86,7 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
+
 end_per_testcase(_, Config) ->
     Sup = ?config(sup, Config),
     meck:unload(),
@@ -102,7 +105,7 @@ end_per_testcase(_, Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-coinbase_test(Config) ->
+multi_token_coinbase_test(Config) ->
     Chain = ?config(chain, Config),
     HNTBal = ?config(hnt_bal, Config),
     HSTBal = ?config(hst_bal, Config),
@@ -125,10 +128,16 @@ coinbase_test(Config) ->
         end,
         maps:values(Entries)
     ),
+    ok.
 
-    %% TODO: test payment txn
-
+multi_token_payment_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    HNTBal = ?config(hnt_bal, Config),
+    HSTBal = ?config(hst_bal, Config),
+    HGTBal = ?config(hgt_bal, Config),
+    HLTBal = ?config(hlt_bal, Config),
+    Ledger = blockchain:ledger(Chain),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
@@ -190,6 +199,7 @@ coinbase_test(Config) ->
     ?assertEqual(HLTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hlt)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+    ?assertEqual(1, blockchain_ledger_entry_v2:nonce(PayerEntry)),
     ?assertEqual(HNTBal - (HNTAmt1 + HNTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hnt)),
     ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
     ?assertEqual(HGTBal - (HGTAmt1 + HGTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hgt)),
