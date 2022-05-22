@@ -3093,6 +3093,8 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrA
             end
     end;
 debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
+    %% TODO: Maybe also check that protocol_version = 2 is set here? Although amounts being
+    %% a map only ever should occur with the multi token payment txn, so maybe it's okay?
     case ?MODULE:find_entry_v2(Address, Ledger) of
         {error, _}=Error ->
             Error;
