@@ -1345,18 +1345,15 @@ routing_test(Config) ->
     ok.
 
 routing_netid_to_oui_test(Config) ->
-    %% %% Fake 24 bit NetIDs and fake OUIs:
-    %% PeerRouterNetIDs = [16#001000, 16#010000, 16#011000],
-    %% OUIs = lists:seq(200, 200+length(PeerRouterNetIDs)),
-    %% %%PeerNetIdToOUIs = lists:zip(PeerRouterNetIDs, OUIs),
-    %% PeerRouters = lists:sublist(?config(nodes, Config), length(OUIs)),
-    %% OUIsToRoutes = lists:zip(OUIs, PeerRouters),
+    %% Fake 24 bit NetIDs and fake OUIs:
+    PeerNetIdToOUIs = [{16#001000, 201}, {16#010000, 202}, {16#011000, 203}],
 
-    %% Same as routing_test()...
+    %% Mostly same as routing_test()...
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
+    {Priv, _} = ?config(master_key, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1386,8 +1383,47 @@ routing_netid_to_oui_test(Config) ->
 
     %% Diverging from routing_test()...
 
-    %% Populate chain var with routing table of roaming peers
-    %% [{fixme_netid, fixme_oui}],
+    %% Populate chain var with routing table of roaming peers.
+    Vars = #{routers_by_netid_to_oui => term_to_binary(PeerNetIdToOUIs)},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    {ok, VarBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:tid()),
+    %% wait for the chain var to take effect
+    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    {ok, Height} = blockchain:height(Chain),
+    CommitHeight = Height + Delay,
+    ct:pal("Var commit height=~p", [CommitHeight]),
+    %% Add some blocks up until the commit height
+    lists:foreach(
+        fun(_) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+                {ok, CurHeight} = blockchain:height(Chain),
+                case blockchain:config(routers_by_netid_to_oui, Ledger) of % ignore "?"
+                    {error, not_found} when CurHeight < CommitHeight ->
+                        ok;
+                    {ok, validator} ->
+                        ok;
+                    Res ->
+                        %% FIXME landing here
+                        throw({error, {chain_var_wrong_height, Res, CurHeight}})
+                end
+        end,
+        lists:seq(1, CommitHeight)
+    ),
+
+    %% FIXME send packet using devaddr within each of our test netids,
+    %% and confirm results of route_by_netid().  Repeat with devaddr
+    %% outside of our netids.
+
+    %% %% Send a packet.
+    %% Packet = fixme,
+    %% DevAddr = fixme,
+    %% DefaultRouters = fixme,
+    %% Region = fixme,
+    %% ReceivedTime = fixme,
 
     %% PeerRouters =
     %%     case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
