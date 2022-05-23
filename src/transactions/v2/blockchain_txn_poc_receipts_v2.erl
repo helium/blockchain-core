@@ -1005,7 +1005,6 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
                                                                                  DestinationLoc,
                                                                                  Freq,
                                                                                  Version),
-
                                                          case RSSI < MinRcvSig of
                                                              false ->
                                                                  %% RSSI is impossibly high discard this witness

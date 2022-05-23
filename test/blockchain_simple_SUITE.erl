@@ -10,6 +10,8 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -define(TEST_LOCATION, 631210968840687103).
+-define(TEST_LOCATION2, 631210968841757695).
+-define(TEST_LOCATION3, 631210968849535999).
 
 -export([
     basic_test/1,
@@ -3819,7 +3821,7 @@ receipts_txn_validate_witnesses_test(Config) ->
     W1Info = blockchain_ledger_v1:find_gateway_info(Witness1, Ledger),
     ct:pal("Gateway Info: Witness1 = ~p", [W1Info]),
 
-    ?assertEqual({ok, undefined}, blockchain_ledger_v1:find_gateway_last_challenge(Witness1, Ledger)),
+    ?assertEqual({ok, 4}, blockchain_ledger_v1:find_gateway_last_challenge(Witness1, Ledger)),
     ?assertEqual({ok, undefined}, blockchain_ledger_v1:find_gateway_last_challenge(Witness2, Ledger)),
 
     meck:unload(blockchain_txn_poc_receipts_v2),
@@ -4172,7 +4174,7 @@ setup_receipts_witness_validation(Config, Data, Layer) ->
     SignedOwnerAddGateway2Tx = blockchain_txn_add_gateway_v1:sign(AddGateway2Tx, OwnerSigFun),
     SignedGatewayAddGateway2Tx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGateway2Tx, Gateway2SigFun),
 
-    AssertLocationRequestTx2 = blockchain_txn_assert_location_v1:new(Gateway2, OwnerPubkeyBin, ?TEST_LOCATION, 1),
+    AssertLocationRequestTx2 = blockchain_txn_assert_location_v1:new(Gateway2, OwnerPubkeyBin, ?TEST_LOCATION2, 1),
     PartialAssertLocationTxn2 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx2, Gateway2SigFun),
     SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn2, OwnerSigFun),
 
@@ -4181,7 +4183,7 @@ setup_receipts_witness_validation(Config, Data, Layer) ->
     SignedOwnerAddGateway3Tx = blockchain_txn_add_gateway_v1:sign(AddGateway3Tx, OwnerSigFun),
     SignedGatewayAddGateway3Tx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGateway3Tx, Gateway3SigFun),
 
-    AssertLocationRequestTx3 = blockchain_txn_assert_location_v1:new(Gateway3, OwnerPubkeyBin, ?TEST_LOCATION, 1),
+    AssertLocationRequestTx3 = blockchain_txn_assert_location_v1:new(Gateway3, OwnerPubkeyBin, ?TEST_LOCATION3, 1),
     PartialAssertLocationTxn3 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx3, Gateway3SigFun),
     SignedAssertLocationTx3 = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn3, OwnerSigFun),
 
@@ -4239,10 +4241,10 @@ setup_receipts_witness_validation(Config, Data, Layer) ->
     Witness1 = blockchain_poc_witness_v1:new(
         Gateway2,
         1001,
-        10,
+        -60,
         crypto:hash(sha256, Layer),
         9.8,
-        915.2,
+        904.7,
         10,
         <<"data_rate">>
     ),
@@ -4251,10 +4253,10 @@ setup_receipts_witness_validation(Config, Data, Layer) ->
     Witness2 = blockchain_poc_witness_v1:new(
         Gateway3,
         1001,
-        10,
+        -60,
         crypto:hash(sha256, Layer),
         9.8,
-        0.0, %% <---- Invalid frequency
+        915.2, %% <---- Invalid frequency for the test region
         10,
         <<"data_rate">>
     ),
