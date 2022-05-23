@@ -179,8 +179,8 @@ multi_token_payment_test(Config) ->
 
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry_v2(Recipient1, Ledger),
-    {ok, RecipientEntry2} = blockchain_ledger_v1:find_entry_v2(Recipient2, Ledger),
+    {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
+    {ok, RecipientEntry2} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
 
     ?assertEqual(HNTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hnt)),
     ?assertEqual(HSTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hst)),
@@ -192,7 +192,7 @@ multi_token_payment_test(Config) ->
     ?assertEqual(HGTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hgt)),
     ?assertEqual(HLTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hlt)),
 
-    {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+    {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(1, blockchain_ledger_entry_v2:nonce(PayerEntry)),
     ?assertEqual(HNTBal - (HNTAmt1 + HNTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hnt)),
     ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
@@ -227,14 +227,14 @@ multi_token_payment_test(Config) ->
 
     ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
 
-    {ok, RecipientEntry3} = blockchain_ledger_v1:find_entry_v2(Recipient3, Ledger),
+    {ok, RecipientEntry3} = blockchain_ledger_v1:find_entry(Recipient3, Ledger),
 
     ?assertEqual(HNTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hnt)),
     ?assertEqual(HSTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hst)),
     ?assertEqual(HGTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hgt)),
     ?assertEqual(HLTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hlt)),
 
-    {ok, PayerEntry3} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+    {ok, PayerEntry3} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(2, blockchain_ledger_entry_v2:nonce(PayerEntry3)),
     ?assertEqual(
         HNTBal - (HNTAmt1 + HNTAmt2 + HNTAmt3),
