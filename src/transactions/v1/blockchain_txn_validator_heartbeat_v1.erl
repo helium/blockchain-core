@@ -263,19 +263,30 @@ maybe_reactivate_gateways(Txn, Ledger) ->
     case blockchain:config(poc_activity_filter_enabled, Ledger) of
         {ok, true} ->
             ReactivatedGWs = reactivated_gws(Txn),
-            reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
+            ok = reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
         _ ->
             ok
     end.
 
 reactivate_gws(GWAddrs, Height, Ledger) ->
+    %% when deciding if we need to update a GWs last activity
+    %% use the ledger height as opposed to the txn height
+    %% the GW could have been updated via another HB or POC activity
+    %% prior to this txn being handled
+    CurHeight = blockchain_ledger_v1:current_height(Ledger),
     lists:foreach(
         fun(GWAddr) ->
-            case blockchain_ledger_v1:find_gateway_info(GWAddr, Ledger) of
+            case blockchain_ledger_v1:find_gateway_location(GWAddr, Ledger) of
                 {error, _} ->
-                    {error, no_active_gateway};
+                    ok;
+                {ok, undefined} ->
+                    ok;
                 {ok, GW0} ->
-                    blockchain_ledger_v1:reactivate_gateway(Height, GW0, GWAddr, Ledger)
+                    LastActivity = blockchain_ledger_gateway_v2:last_poc_challenge(GW0),
+                    case blockchain_utils:is_gw_active(CurHeight, LastActivity, Ledger) of
+                        false -> blockchain_ledger_v1:reactivate_gateway(Height, GW0, GWAddr, Ledger);
+                        true -> ok
+                    end
             end
         end, GWAddrs).
 

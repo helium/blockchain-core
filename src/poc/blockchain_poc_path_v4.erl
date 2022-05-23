@@ -415,8 +415,8 @@ is_witness_stale(GatewayAddr, Height, Vars, Ledger) ->
             %% No POC challenge, don't include
             true;
         {ok, C} ->
-            %% Check challenge age is recent depending on the set chain var
-            (Height - C) >= challenge_age(Vars)
+            %% Check activity age is recent depending on the set chain var
+            (Height - C) >= blockchain_utils:max_activity_age(Vars)
     end.
 
 -spec rssi_weight(Vars :: map()) -> float().
@@ -466,13 +466,6 @@ centrality_wt(Vars) ->
 -spec poc_version(Vars :: map()) -> pos_integer().
 poc_version(Vars) ->
     maps:get(poc_version, Vars).
-
--spec challenge_age(Vars :: map()) -> pos_integer().
-challenge_age(Vars) ->
-    case maps:get(harmonize_activity_on_hip17_interactivity_blocks, Vars, false) of
-        true -> maps:get(hip17_interactivity_blocks, Vars);
-        false -> maps:get(poc_v4_target_challenge_age, Vars)
-    end.
 
 -spec poc_good_bucket_low(Vars :: map()) -> integer().
 poc_good_bucket_low(Vars) ->
