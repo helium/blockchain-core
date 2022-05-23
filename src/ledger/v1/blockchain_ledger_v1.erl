@@ -39,6 +39,7 @@
     process_delayed_actions/3,
 
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
+    versioned_entry_mod_and_entries_cf/1,
     entries/1,
     entries_v2/1,
     htlcs/1,
@@ -103,7 +104,6 @@
     upgrade_pocs/1,
 
     find_entry/2,
-    find_entry_v2/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
     credit_account/4,
     check_balance/3,
@@ -300,6 +300,8 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
+-type tagged_cf() :: tagged_cf().
+
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -2996,30 +2998,39 @@ trim_price_list(LastTime, PriceEntries) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
-                                                          | {error, any()}.
+-spec find_entry(Address :: libp2p_crypto:pubkey_bin(),
+                 Ledger :: ledger()) ->
+    {ok, blockchain_ledger_entry_v1:entry()}
+    | {ok, blockchain_ledger_entry_v2:entry()}
+    | {error, any()}.
 find_entry(Address, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    find_entry_(Address, EntryMod, EntriesCF, Ledger).
+
+-spec find_entry_(Address :: libp2p_crypto:pubkey_bin(),
+                  EntryMod :: atom(),
+                  EntriesCF :: tagged_cf(),
+                  Ledger :: ledger()) ->
+    {ok, blockchain_ledger_entry_v1:entry()}
+    | {ok, blockchain_ledger_entry_v2:entry()}
+    | {error, any()}.
+find_entry_(Address, EntryMod, EntriesCF, Ledger) ->
     case cache_get(Ledger, EntriesCF, Address, []) of
         {ok, BinEntry} ->
-            {ok, blockchain_ledger_entry_v1:deserialize(BinEntry)};
+            {ok, EntryMod:deserialize(BinEntry)};
         not_found ->
             {error, address_entry_not_found};
         Error ->
             Error
     end.
 
--spec find_entry_v2(Addres :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) ->
-    {ok, blockchain_ledger_entry_v2:entry()} | {error, any()}.
-find_entry_v2(Address, Ledger) ->
-    EntriesV2CF = entries_v2_cf(Ledger),
-    case cache_get(Ledger, EntriesV2CF, Address, []) of
-        {ok, BinEntry} ->
-            {ok, blockchain_ledger_entry_v2:deserialize(BinEntry)};
-        not_found ->
-            {error, address_entry_not_found};
-        Error ->
-            Error
+-spec versioned_entry_mod_and_entries_cf(Ledger :: ledger()) -> {atom(), tagged_cf()}.
+versioned_entry_mod_and_entries_cf(Ledger) ->
+    case ?MODULE:config(?protocol_version, Ledger) of
+        {ok, 2} ->
+            {blockchain_ledger_entry_v2, entries_v2_cf(Ledger)};
+        _ ->
+            {blockchain_ledger_entry_v1, entries_cf(Ledger)}
     end.
 
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
@@ -3047,7 +3058,7 @@ credit_account(Address, Amount, Ledger) ->
                      Ledger :: ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, TT, Ledger) ->
     EntriesCF = entries_v2_cf(Ledger),
-    case ?MODULE:find_entry_v2(Address, Ledger) of
+    case ?MODULE:find_entry(Address, Ledger) of
         {error, address_entry_not_found} ->
             %% create blank entry to fill all the token types
             Entry0 = blockchain_ledger_entry_v2:new(),
@@ -3095,7 +3106,7 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrA
 debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
     %% TODO: Maybe also check that protocol_version = 2 is set here? Although amounts being
     %% a map only ever should occur with the multi token payment txn, so maybe it's okay?
-    case ?MODULE:find_entry_v2(Address, Ledger) of
+    case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
@@ -4209,73 +4220,73 @@ get_block_info(Height, #ledger_v1{blocks_db = DB,
             end
     end.
 
--spec default_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec default_cf(ledger()) -> tagged_cf().
 default_cf(Ledger) ->
     SL = subledger(Ledger),
     {default, db(Ledger), SL#sub_ledger_v1.default}.
 
--spec active_gateways_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec active_gateways_cf(ledger()) -> tagged_cf().
 active_gateways_cf(Ledger) ->
     SL = subledger(Ledger),
     {active_gateways, db(Ledger), SL#sub_ledger_v1.active_gateways}.
 
--spec gw_denorm_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec gw_denorm_cf(ledger()) -> tagged_cf().
 gw_denorm_cf(Ledger) ->
     SL = subledger(Ledger),
     {gw_denorm, db(Ledger), SL#sub_ledger_v1.gw_denorm}.
 
--spec entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec entries_cf(ledger()) -> tagged_cf().
 entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries, db(Ledger), SL#sub_ledger_v1.entries}.
 
--spec entries_v2_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec entries_v2_cf(ledger()) -> tagged_cf().
 entries_v2_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries_v2, db(Ledger), SL#sub_ledger_v1.entries_v2}.
 
--spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec dc_entries_cf(ledger()) -> tagged_cf().
 dc_entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {dc_entries, db(Ledger), SL#sub_ledger_v1.dc_entries}.
 
--spec htlcs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec htlcs_cf(ledger()) -> tagged_cf().
 htlcs_cf(Ledger) ->
     SL = subledger(Ledger),
     {htlcs, db(Ledger), SL#sub_ledger_v1.htlcs}.
 
--spec pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec pocs_cf(ledger()) -> tagged_cf().
 pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
 
--spec proposed_pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec proposed_pocs_cf(ledger()) -> tagged_cf().
 proposed_pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {proposed_pocs, db(Ledger), SL#sub_ledger_v1.proposed_pocs}.
 
--spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec securities_cf(ledger()) -> tagged_cf().
 securities_cf(Ledger) ->
     SL = subledger(Ledger),
     {securities, db(Ledger), SL#sub_ledger_v1.securities}.
 
 
--spec routing_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec routing_cf(ledger()) -> tagged_cf().
 routing_cf(Ledger) ->
     SL = subledger(Ledger),
     {routing, db(Ledger), SL#sub_ledger_v1.routing}.
 
--spec subnets_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec subnets_cf(ledger()) -> tagged_cf().
 subnets_cf(Ledger) ->
     SL = subledger(Ledger),
     {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
 
--spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec state_channels_cf(ledger()) -> tagged_cf().
 state_channels_cf(Ledger) ->
     SL = subledger(Ledger),
     {state_channels, db(Ledger), SL#sub_ledger_v1.state_channels}.
 
--spec h3dex_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec h3dex_cf(ledger()) -> tagged_cf().
 h3dex_cf(Ledger) ->
     SL = subledger(Ledger),
     {h3dex, db(Ledger), SL#sub_ledger_v1.h3dex}.
