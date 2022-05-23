@@ -66,6 +66,7 @@ init_per_testcase(TestCase, Config) ->
 
     ExtraVars = extra_vars(TestCase),
 
+
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
 
@@ -75,13 +76,15 @@ init_per_testcase(TestCase, Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
+    {EntryMod, _} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
     Entries = blockchain_ledger_v1:entries(Ledger),
     _ = lists:foreach(fun(Entry) ->
-                              Balance = blockchain_ledger_entry_v1:balance(Entry),
-                              0 = blockchain_ledger_entry_v1:nonce(Entry)
+                              Balance = EntryMod:balance(Entry),
+                              0 = EntryMod:nonce(Entry)
                       end, maps:values(Entries)),
 
     [
+     {entry_mod, EntryMod},
      {balance, Balance},
      {sup, Sup},
      {pubkey, PubKey},
@@ -119,6 +122,7 @@ end_per_testcase(_, Config) ->
 multisig_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     Amount = 10,
     InitialHeight = 2,
@@ -136,15 +140,15 @@ multisig_test(Config) ->
             {C, _} = make_multisig_addr(M, N),
             {D, D_SigFun} = make_multisig_addr(M, N),
             %% * 2 because B will later pay twice (to C and D)
-            ?assertEqual(ok, transfer(Amount * 2, {A, A_SigFun}, B, H, Chain, ConsensusMembers)),
-            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, C, H + 1, Chain, ConsensusMembers)),
+            ?assertEqual(ok, transfer(Amount * 2, {A, A_SigFun}, B, H, Chain, ConsensusMembers, EntryMod)),
+            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, C, H + 1, Chain, ConsensusMembers, EntryMod)),
             %% B->D wrong SigFun
             ?assertError(
                 {badmatch, {error, {invalid_txns, [{_, bad_signature}]}}},
-                transfer(1, {B, D_SigFun}, D, H + 2, Chain, ConsensusMembers)
+                transfer(1, {B, D_SigFun}, D, H + 2, Chain, ConsensusMembers, EntryMod)
             ),
             %% B->D correct SigFun
-            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, D, H + 2, Chain, ConsensusMembers)),
+            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, D, H + 2, Chain, ConsensusMembers, EntryMod)),
             H + 3
         end,
         InitialHeight,
@@ -160,6 +164,7 @@ single_payee_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -187,10 +192,10 @@ single_payee_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - Amount, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance - Amount, EntryMod:balance(NewEntry1)),
     ok.
 
 same_payees_test(Config) ->
@@ -220,6 +225,7 @@ different_payees_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} |_] = ConsensusMembers,
@@ -251,13 +257,13 @@ different_payees_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
-    ?assertEqual(Balance + Amount1, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance + Amount1, EntryMod:balance(NewEntry1)),
 
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
-    ?assertEqual(Balance + Amount2, blockchain_ledger_entry_v1:balance(NewEntry2)),
+    ?assertEqual(Balance + Amount2, EntryMod:balance(NewEntry2)),
 
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - Amount1 - Amount2, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    ?assertEqual(Balance - Amount1 - Amount2, EntryMod:balance(NewEntry0)),
     ok.
 
 empty_payees_test(Config) ->
@@ -327,6 +333,7 @@ balance_clearing_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, {_, Recipient2PrivKey, _}}, {Recipient3, _} | _] = ConsensusMembers,
@@ -357,13 +364,13 @@ balance_clearing_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(RecipientEntry1)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(RecipientEntry1)),
 
     {ok, RecipientEntry2_1} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
-    ?assertEqual(Balance + (Balance - Amount), blockchain_ledger_entry_v1:balance(RecipientEntry2_1)),
+    ?assertEqual(Balance + (Balance - Amount), EntryMod:balance(RecipientEntry2_1)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(0, blockchain_ledger_entry_v1:balance(PayerEntry)),
+    ?assertEqual(0, EntryMod:balance(PayerEntry)),
 
     %% Normal txn with an explicit amount is still processed normally
     Payment3 = blockchain_payment_v2:new(Recipient3, Amount),
@@ -383,10 +390,10 @@ balance_clearing_test(Config) ->
     Ledger2 = blockchain:ledger(Chain),
 
     {ok, RecipientEntry2_2} = blockchain_ledger_v1:find_entry(Recipient2, Ledger2),
-    ?assertEqual((Balance + (Balance - Amount)) - Amount, blockchain_ledger_entry_v1:balance(RecipientEntry2_2)),
+    ?assertEqual((Balance + (Balance - Amount)) - Amount, EntryMod:balance(RecipientEntry2_2)),
 
     {ok, RecipientEntry3_1} = blockchain_ledger_v1:find_entry(Recipient3, Ledger2),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(RecipientEntry3_1)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(RecipientEntry3_1)),
 
     %% Balance-clearing `max' txn processed successfully in isolation
     Payment4 = blockchain_payment_v2:new(Recipient3, max),
@@ -405,16 +412,17 @@ balance_clearing_test(Config) ->
     Ledger3 = blockchain:ledger(Chain),
 
     {ok, RecipientEntry2_3} = blockchain_ledger_v1:find_entry(Recipient2, Ledger3),
-    ?assertEqual(0, blockchain_ledger_entry_v1:balance(RecipientEntry2_3)),
+    ?assertEqual(0, EntryMod:balance(RecipientEntry2_3)),
 
     {ok, RecipientEntry3_2} = blockchain_ledger_v1:find_entry(Recipient3, Ledger3),
-    ?assertEqual(Balance + Balance + (Balance - Amount), blockchain_ledger_entry_v1:balance(RecipientEntry3_2)),
+    ?assertEqual(Balance + Balance + (Balance - Amount), EntryMod:balance(RecipientEntry3_2)),
     ok.
 
 invalid_balance_clearing_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _}, {Recipient3, _} | _] = ConsensusMembers,
@@ -443,13 +451,13 @@ invalid_balance_clearing_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
-    ?assertEqual(Balance, blockchain_ledger_entry_v1:balance(RecipientEntry1)),
+    ?assertEqual(Balance, EntryMod:balance(RecipientEntry1)),
 
     {ok, RecipientEntry2} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
-    ?assertEqual(Balance, blockchain_ledger_entry_v1:balance(RecipientEntry2)),
+    ?assertEqual(Balance, EntryMod:balance(RecipientEntry2)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance, blockchain_ledger_entry_v1:balance(PayerEntry)),
+    ?assertEqual(Balance, EntryMod:balance(PayerEntry)),
     ok.
 
 balance_clearing_disabled_test(Config) ->
@@ -543,6 +551,7 @@ valid_memo_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {OtherRecipient, _} |_] = ConsensusMembers,
@@ -573,13 +582,13 @@ valid_memo_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(OtherRecipient, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry1)),
 
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2*Amount, blockchain_ledger_entry_v1:balance(NewEntry2)),
+    ?assertEqual(Balance - 2*Amount, EntryMod:balance(NewEntry2)),
     ok.
 
 negative_memo_test(Config) ->
@@ -607,6 +616,7 @@ valid_memo_not_set_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} |_] = ConsensusMembers,
@@ -637,13 +647,13 @@ valid_memo_not_set_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry1)),
 
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - Amount * 2, blockchain_ledger_entry_v1:balance(NewEntry2)),
+    ?assertEqual(Balance - Amount * 2, EntryMod:balance(NewEntry2)),
 
     ok.
 
@@ -672,6 +682,7 @@ big_memo_valid_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Balance = ?config(balance, Config),
     Chain = ?config(chain, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
@@ -697,10 +708,10 @@ big_memo_valid_test(Config) ->
     Ledger = blockchain:ledger(Chain),
 
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
-    ?assertEqual(Balance + Amount, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - Amount, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance - Amount, EntryMod:balance(NewEntry1)),
     ok.
 
 big_memo_invalid_test(Config) ->
@@ -739,7 +750,7 @@ extra_vars(negative_memo_test) ->
 extra_vars(BCEnabled) when BCEnabled == balance_clearing_test orelse BCEnabled == invalid_balance_clearing_test ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?enable_balance_clearing => true};
 extra_vars(_) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false}.
+    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?protocol_version => 2}.
 
 %% Helpers --------------------------------------------------------------------
 
@@ -766,13 +777,13 @@ make_multisig_addr(M, N) ->
     {libp2p_crypto:pubkey_to_bin(Network, MultisigPK), MultisigSign}.
 
 % TODO Use in the rest of cases?
-transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers) ->
-    SrcBalance0 = balance(Src, Chain),
-    DstBalance0 = balance(Dst, Chain),
+transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers, EntryMod) ->
+    SrcBalance0 = balance(Src, Chain, EntryMod),
+    DstBalance0 = balance(Dst, Chain, EntryMod),
     Ledger = blockchain:ledger(Chain),
     Nonce = case blockchain_ledger_v1:find_entry(Src, Ledger) of
                 {error, address_entry_not_found} -> 1;
-                {ok, Entry} -> blockchain_ledger_entry_v1:nonce(Entry) + 1
+                {ok, Entry} -> EntryMod:nonce(Entry) + 1
             end,
     Tx = blockchain_txn_payment_v2:new(Src, [blockchain_payment_v2:new(Dst, Amount)], Nonce),
     TxSigned = blockchain_txn_payment_v2:sign(Tx, SrcSigFun),
@@ -782,18 +793,18 @@ transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers) -
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, ExpectHeight}, blockchain:height(Chain)),
     ?assertEqual({ok, Block}, blockchain:get_block(ExpectHeight, Chain)),
-    SrcBalance1 = balance(Src, Chain),
-    DstBalance1 = balance(Dst, Chain),
+    SrcBalance1 = balance(Src, Chain, EntryMod),
+    DstBalance1 = balance(Dst, Chain, EntryMod),
     ?assertEqual(SrcBalance1, SrcBalance0 - Amount),
     ?assertEqual(DstBalance1, DstBalance0 + Amount),
     ok.
 
 % TODO Use in the rest of cases?
-balance(<<Addr/binary>>, Chain) ->
+balance(<<Addr/binary>>, Chain, EntryMod) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_entry(Addr, Ledger) of
         {error, address_entry_not_found} ->
             0;
         {ok, Entry} ->
-            blockchain_ledger_entry_v1:balance(Entry)
+            EntryMod:balance(Entry)
     end.

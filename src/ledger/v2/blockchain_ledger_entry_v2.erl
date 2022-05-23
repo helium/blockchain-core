@@ -8,7 +8,7 @@
 -export([
     new/0,
     nonce/1, nonce/2,
-    balance/2,
+    balance/1, balance/2,
     credit/3,
     debit/3,
     serialize/1,
@@ -47,6 +47,18 @@ nonce(#blockchain_ledger_entry_v2_pb{nonce = Nonce}) ->
 nonce(Entry, Nonce) ->
     Entry#blockchain_ledger_entry_v2_pb{nonce = Nonce}.
 
+%%--------------------------------------------------------------------
+%% @doc Return hnt balance as default.
+%% @end
+%%--------------------------------------------------------------------
+-spec balance(Entry :: entry()) -> non_neg_integer().
+balance(Entry) ->
+    hnt_balance(Entry).
+
+%%--------------------------------------------------------------------
+%% @doc Return requested token balance.
+%% @end
+%%--------------------------------------------------------------------
 -spec balance(Entry :: entry(), TT :: blockchain_token_type_v1:token_type()) -> non_neg_integer().
 balance(Entry, hnt) ->
     hnt_balance(Entry);

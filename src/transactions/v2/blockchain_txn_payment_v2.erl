@@ -387,7 +387,7 @@ do_is_valid_checks_v2(Txn, Chain, MaxPayments) ->
                     %% Check that there are payments
                     {error, zero_payees};
                 false ->
-                    case blockchain_ledger_v1:find_entry_v2(Payer, Ledger) of
+                    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
                         {error, _}=Error0 ->
                             Error0;
                         {ok, Entry} ->
@@ -479,7 +479,7 @@ amount_check_v2(Txn, Ledger) ->
     Payer = ?MODULE:payer(Txn),
     Payments = ?MODULE:payments(Txn),
 
-    {ok, PayerEntry} = blockchain_ledger_v1:find_entry_v2(Payer, Ledger),
+    {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
 
     PayerHasEnoughTTBalance =
     lists:all(
