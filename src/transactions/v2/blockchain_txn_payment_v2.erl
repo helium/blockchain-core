@@ -161,7 +161,7 @@ is_valid(Txn, Chain) ->
                 ])
             of
                 ok ->
-                    case blockchain:config(?protocol_version, Ledger) of
+                    case blockchain:config(?token_version, Ledger) of
                         {ok, 2} ->
                             do_is_valid_checks_v2(Txn, Chain, M);
                         _ ->
@@ -177,7 +177,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?protocol_version, Ledger) of
+    case blockchain:config(?token_version, Ledger) of
         {ok, 2} ->
             absorb_v2_(Txn, Ledger, Chain);
         _ ->
@@ -625,7 +625,7 @@ has_default_memos(Payments) ->
 -spec token_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 token_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
-    case blockchain:config(?protocol_version, Ledger) of
+    case blockchain:config(?token_version, Ledger) of
         {ok, 2} ->
             %% check that the tokens are valid
             case has_valid_tokens(Payments) of

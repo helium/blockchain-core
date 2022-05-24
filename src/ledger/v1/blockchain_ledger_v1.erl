@@ -3070,7 +3070,7 @@ find_entry_(Address, EntryMod, EntriesCF, Ledger) ->
 
 -spec versioned_entry_mod_and_entries_cf(Ledger :: ledger()) -> {atom(), tagged_cf()}.
 versioned_entry_mod_and_entries_cf(Ledger) ->
-    case ?MODULE:config(?protocol_version, Ledger) of
+    case ?MODULE:config(?token_version, Ledger) of
         {ok, 2} ->
             {blockchain_ledger_entry_v2, entries_v2_cf(Ledger)};
         _ ->
@@ -3148,7 +3148,7 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrA
             end
     end;
 debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
-    %% TODO: Maybe also check that protocol_version = 2 is set here? Although amounts being
+    %% TODO: Maybe also check that token_version = 2 is set here? Although amounts being
     %% a map only ever should occur with the multi token payment txn, so maybe it's okay?
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
