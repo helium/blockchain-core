@@ -4,56 +4,96 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([
+    all/0,
+    groups/0,
+    init_per_group/2,
+    end_per_group/2,
+    init_per_testcase/2,
+    end_per_testcase/2
+]).
 
 -export([
-         multisig_test/1,
-         single_payee_test/1,
-         same_payees_test/1,
-         different_payees_test/1,
-         empty_payees_test/1,
-         self_payment_test/1,
-         max_payments_test/1,
-         balance_clearing_test/1,
-         invalid_balance_clearing_test/1,
-         balance_clearing_disabled_test/1,
-         signature_test/1,
-         zero_amount_test/1,
-         negative_amount_test/1,
-         valid_memo_test/1,
-         negative_memo_test/1,
-         valid_memo_not_set_test/1,
-         invalid_memo_not_set_test/1,
-         big_memo_valid_test/1,
-         big_memo_invalid_test/1
-        ]).
+    multisig_test/1,
+    single_payee_test/1,
+    same_payees_test/1,
+    different_payees_test/1,
+    empty_payees_test/1,
+    self_payment_test/1,
+    max_payments_test/1,
+    balance_clearing_test/1,
+    invalid_balance_clearing_test/1,
+    balance_clearing_disabled_test/1,
+    signature_test/1,
+    zero_amount_test/1,
+    negative_amount_test/1,
+    valid_memo_test/1,
+    negative_memo_test/1,
+    valid_memo_not_set_test/1,
+    invalid_memo_not_set_test/1,
+    big_memo_valid_test/1,
+    big_memo_invalid_test/1
+]).
+
+groups() ->
+    [
+        {without_protocol_version, [], without_protocol_version_tests()},
+        {with_protocol_version, [], with_protocol_version_tests()}
+    ].
+
+without_protocol_version_tests() ->
+    test_cases().
+
+with_protocol_version_tests() ->
+    test_cases().
+
+init_per_group(with_protocol_version, Config) ->
+    [
+        {group_vars, #{?protocol_version => 2}},
+        {balance, 5000},
+        {token_allocations, #{hnt => 5000, hst => 1000, hgt => 100, hlt => 10}}
+        | Config
+    ];
+init_per_group(_, Config) ->
+    [{balance, 5000}, {group_vars, #{}}, {token_allocations, undefined} | Config].
+
+end_per_group(_, _Config) ->
+    ok.
 
 all() ->
     [
-     multisig_test,
-     single_payee_test,
-     same_payees_test,
-     different_payees_test,
-     empty_payees_test,
-     self_payment_test,
-     max_payments_test,
-     balance_clearing_test,
-     invalid_balance_clearing_test,
-     balance_clearing_disabled_test,
-     signature_test,
-     zero_amount_test,
-     negative_amount_test,
-     valid_memo_test,
-     negative_memo_test,
-     valid_memo_not_set_test,
-     invalid_memo_not_set_test,
-     big_memo_valid_test,
-     big_memo_invalid_test
+        {group, without_protocol_version},
+        {group, with_protocol_version}
+    ].
+
+test_cases() ->
+    [
+        multisig_test,
+        single_payee_test,
+        same_payees_test,
+        different_payees_test,
+        empty_payees_test,
+        self_payment_test,
+        max_payments_test,
+        balance_clearing_test,
+        invalid_balance_clearing_test,
+        balance_clearing_disabled_test,
+        signature_test,
+        zero_amount_test,
+        negative_amount_test,
+        valid_memo_test,
+        negative_memo_test,
+        valid_memo_not_set_test,
+        invalid_memo_not_set_test,
+        big_memo_valid_test,
+        big_memo_invalid_test
     ].
 
 -define(MAX_PAYMENTS, 20).
--define(VALID_GIANT_MEMO, 18446744073709551615).        %% max 64 bit number
--define(INVALID_GIANT_MEMO, 18446744073709551616).      %% max 64 bit number + 1, takes 72 bits
+%% max 64 bit number
+-define(VALID_GIANT_MEMO, 18446744073709551615).
+%% max 64 bit number + 1, takes 72 bits
+-define(INVALID_GIANT_MEMO, 18446744073709551616).
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
@@ -61,14 +101,36 @@ all() ->
 
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
-    Balance = 5000,
+
+    Balance = ?config(balance, Config0),
+
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
-    ExtraVars = extra_vars(TestCase),
-
+    GroupVars = ?config(group_vars, Config0),
+    ct:pal("group_vars: ~p", [GroupVars]),
+    TestCaseVars = test_case_vars(TestCase),
+    ExtraVars = maps:merge(GroupVars, TestCaseVars),
+    ct:pal("extra vars: ~p", [ExtraVars]),
+    TokenAllocations = ?config(token_allocations, Config0),
+    ct:pal("token_allocations: ~p", [TokenAllocations]),
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
-        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
+        test_utils:init_chain_with_opts(
+            #{
+                balance =>
+                    Balance,
+                keys =>
+                    {PrivKey, PubKey},
+                in_consensus =>
+                    true,
+                have_init_dc =>
+                    true,
+                extra_vars =>
+                    ExtraVars,
+                token_allocations =>
+                    TokenAllocations
+            }
+        ),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -76,27 +138,35 @@ init_per_testcase(TestCase, Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
+
+    %% NOTE: Get the current ledger entry module depending on the Ledger
+    %% For testing (chain var: protocol_version = 2)
     {EntryMod, _} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+    ct:pal("EntryMod: ~p", [EntryMod]),
+
     Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-                              Balance = EntryMod:balance(Entry),
-                              0 = EntryMod:nonce(Entry)
-                      end, maps:values(Entries)),
+    _ = lists:foreach(
+        fun(Entry) ->
+            Balance = EntryMod:balance(Entry),
+            0 = EntryMod:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
 
     [
-     {entry_mod, EntryMod},
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {chain, Chain},
-     {swarm, Swarm},
-     {n, N},
-     {consensus_members, ConsensusMembers},
-     {genesis_members, GenesisMembers},
-     Keys
-     | Config0
+        {entry_mod, EntryMod},
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {chain, Chain},
+        {swarm, Swarm},
+        {n, N},
+        {consensus_members, ConsensusMembers},
+        {genesis_members, GenesisMembers},
+        Keys
+        | Config0
     ].
 
 %%--------------------------------------------------------------------
@@ -133,29 +203,37 @@ multisig_test(Config) ->
     %%      +------> D[i]
     %% All funds will come from A, so only it needs a starting balance,
     %% the rest can be freshly created.
-    [_, {A, {_, _, A_SigFun}} | _ ] = ConsensusMembers,
+    [_, {A, {_, _, A_SigFun}} | _] = ConsensusMembers,
     lists:foldl(
-        fun ({M, N}, H) ->
+        fun({M, N}, H) ->
             {B, B_SigFun} = make_multisig_addr(M, N),
             {C, _} = make_multisig_addr(M, N),
             {D, D_SigFun} = make_multisig_addr(M, N),
             %% * 2 because B will later pay twice (to C and D)
-            ?assertEqual(ok, transfer(Amount * 2, {A, A_SigFun}, B, H, Chain, ConsensusMembers, EntryMod)),
-            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, C, H + 1, Chain, ConsensusMembers, EntryMod)),
+            ?assertEqual(
+                ok,
+                transfer(Amount * 2, {A, A_SigFun}, B, H, Chain, ConsensusMembers, EntryMod)
+            ),
+            ?assertEqual(
+                ok,
+                transfer(Amount, {B, B_SigFun}, C, H + 1, Chain, ConsensusMembers, EntryMod)
+            ),
             %% B->D wrong SigFun
             ?assertError(
                 {badmatch, {error, {invalid_txns, [{_, bad_signature}]}}},
                 transfer(1, {B, D_SigFun}, D, H + 2, Chain, ConsensusMembers, EntryMod)
             ),
             %% B->D correct SigFun
-            ?assertEqual(ok, transfer(Amount, {B, B_SigFun}, D, H + 2, Chain, ConsensusMembers, EntryMod)),
+            ?assertEqual(
+                ok,
+                transfer(Amount, {B, B_SigFun}, D, H + 2, Chain, ConsensusMembers, EntryMod)
+            ),
             H + 3
         end,
         InitialHeight,
         [
             {M, N}
-        ||
-            N <- lists:seq(1, 10),
+         || N <- lists:seq(1, 10),
             M <- lists:seq(1, N)
         ]
     ).
@@ -167,7 +245,7 @@ single_payee_test(Config) ->
     EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -205,7 +283,7 @@ same_payees_test(Config) ->
     _Swarm = ?config(swarm, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee TWICE
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -228,7 +306,7 @@ different_payees_test(Config) ->
     EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} |_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} | _] = ConsensusMembers,
 
     %% Create a payment to a payee1
     Recipient1 = blockchain_swarm:pubkey_bin(),
@@ -271,7 +349,7 @@ empty_payees_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     Tx = blockchain_txn_payment_v2:new(Payer, [], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -287,7 +365,7 @@ self_payment_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee TWICE
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -308,24 +386,28 @@ max_payments_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
 
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create 1+max_payments
     Payees = [P || {P, _} <- test_utils:generate_keys(?MAX_PAYMENTS + 1, ed25519)],
 
-    Payments = lists:foldl(fun(PayeePubkeyBin, Acc) ->
-                                   Amount = rand:uniform(100),
-                                   [blockchain_payment_v2:new(PayeePubkeyBin, Amount) | Acc]
-                           end,
-                           [],
-                           Payees),
+    Payments = lists:foldl(
+        fun(PayeePubkeyBin, Acc) ->
+            Amount = rand:uniform(100),
+            [blockchain_payment_v2:new(PayeePubkeyBin, Amount) | Acc]
+        end,
+        [],
+        Payees
+    ),
 
     Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    ?assertEqual({error, {exceeded_max_payments, {length(Payments), ?MAX_PAYMENTS}}},
-                 blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
+    ?assertEqual(
+        {error, {exceeded_max_payments, {length(Payments), ?MAX_PAYMENTS}}},
+        blockchain_txn_payment_v2:is_valid(SignedTx, Chain)
+    ),
 
     ok.
 
@@ -336,7 +418,8 @@ balance_clearing_test(Config) ->
     EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, {_, Recipient2PrivKey, _}}, {Recipient3, _} | _] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, {_, Recipient2PrivKey, _}}, {Recipient3, _} | _] =
+        ConsensusMembers,
 
     %% Create a payment to payee1
     Recipient1 = blockchain_swarm:pubkey_bin(),
@@ -445,7 +528,10 @@ invalid_balance_clearing_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    {error, {invalid_txns, [{BadTx, invalid_transaction}]}} = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    {error, {invalid_txns, [{BadTx, invalid_transaction}]}} = test_utils:create_block(
+        ConsensusMembers,
+        [SignedTx]
+    ),
     ?assertEqual(SignedTx, BadTx),
 
     Ledger = blockchain:ledger(Chain),
@@ -480,7 +566,10 @@ balance_clearing_disabled_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    {error, {invalid_txns, [{BadTx, invalid_transaction}]}} = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    {error, {invalid_txns, [{BadTx, invalid_transaction}]}} = test_utils:create_block(
+        ConsensusMembers,
+        [SignedTx]
+    ),
     ?assertEqual(SignedTx, BadTx),
     ok.
 
@@ -491,7 +580,7 @@ signature_test(Config) ->
     _Swarm = ?config(swarm, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, _PayerPrivKey, _}}, {_Other, {_, OtherPrivKey, _}} |_] = ConsensusMembers,
+    [_, {Payer, {_, _PayerPrivKey, _}}, {_Other, {_, OtherPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -514,7 +603,7 @@ zero_amount_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -533,7 +622,7 @@ negative_amount_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -554,7 +643,7 @@ valid_memo_test(Config) ->
     EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}, {OtherRecipient, _} |_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {OtherRecipient, _} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -588,7 +677,7 @@ valid_memo_test(Config) ->
     ?assertEqual(Balance + Amount, EntryMod:balance(NewEntry1)),
 
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2*Amount, EntryMod:balance(NewEntry2)),
+    ?assertEqual(Balance - 2 * Amount, EntryMod:balance(NewEntry2)),
     ok.
 
 negative_memo_test(Config) ->
@@ -596,7 +685,7 @@ negative_memo_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -608,8 +697,18 @@ negative_memo_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    {[], [{SignedTx, InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
-    ?assertEqual(invalid_memo, InvalidReason),
+    {error, InvalidReason} = blockchain_txn:is_valid(SignedTx, Chain),
+    ct:pal("InvalidReason: ~p", [InvalidReason]),
+
+    case ?config(group_vars, Config) of
+        #{?protocol_version := 2} ->
+            {invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
+                {token_check, ok}} = InvalidReason,
+            ok;
+        #{} ->
+            ?assertEqual(invalid_memo, InvalidReason)
+    end,
+
     ok.
 
 valid_memo_not_set_test(Config) ->
@@ -619,7 +718,7 @@ valid_memo_not_set_test(Config) ->
     EntryMod = ?config(entry_mod, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} |_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} | _] = ConsensusMembers,
 
     Amount = 100,
 
@@ -662,7 +761,7 @@ invalid_memo_not_set_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -674,8 +773,18 @@ invalid_memo_not_set_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    {[], [{SignedTx, InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
-    ?assertEqual(invalid_memo_before_var, InvalidReason),
+    {error, InvalidReason} = blockchain_txn:is_valid(SignedTx, Chain),
+    ct:pal("InvalidReason: ~p", [InvalidReason]),
+
+    case ?config(group_vars, Config) of
+        #{?protocol_version := 2} ->
+            {invalid_transaction, {amount_check, ok},
+                {memo_check, {error, invalid_memo_before_var}}, {token_check, ok}} = InvalidReason,
+            ok;
+        #{} ->
+            ?assertEqual(invalid_memo_before_var, InvalidReason)
+    end,
+
     ok.
 
 big_memo_valid_test(Config) ->
@@ -719,7 +828,7 @@ big_memo_invalid_test(Config) ->
     Chain = ?config(chain, Config),
 
     %% Test a payment transaction, add a block and check balances
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
 
     %% Create a payment to a single payee
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -730,27 +839,41 @@ big_memo_invalid_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    {[], [{SignedTx, InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
+    {error, InvalidReason} = blockchain_txn:is_valid(SignedTx, Chain),
     ct:pal("InvalidReason: ~p", [InvalidReason]),
-    ?assertEqual(invalid_memo, InvalidReason),
+
+    case ?config(group_vars, Config) of
+        #{?protocol_version := 2} ->
+            {invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
+                {token_check, ok}} = InvalidReason,
+            ok;
+        #{} ->
+            ?assertEqual(invalid_memo, InvalidReason)
+    end,
     ok.
 
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-extra_vars(big_memo_valid_test) ->
+test_case_vars(big_memo_valid_test) ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-extra_vars(big_memo_invalid_test) ->
+test_case_vars(big_memo_invalid_test) ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-extra_vars(valid_memo_test) ->
+test_case_vars(valid_memo_test) ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-extra_vars(negative_memo_test) ->
+test_case_vars(negative_memo_test) ->
     #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-extra_vars(BCEnabled) when BCEnabled == balance_clearing_test orelse BCEnabled == invalid_balance_clearing_test ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?enable_balance_clearing => true};
-extra_vars(_) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?protocol_version => 2}.
+test_case_vars(BCEnabled) when
+    BCEnabled == balance_clearing_test orelse BCEnabled == invalid_balance_clearing_test
+->
+    #{
+        ?max_payments => ?MAX_PAYMENTS,
+        ?allow_zero_amount => false,
+        ?enable_balance_clearing => true
+    };
+test_case_vars(_) ->
+    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false}.
 
 %% Helpers --------------------------------------------------------------------
 
@@ -763,13 +886,12 @@ make_multisig_addr(M, N) ->
     IFuns =
         [
             {libp2p_crypto:multisig_member_key_index(P, MemberKeys), MakeFun(S)}
-        ||
-            #{secret := S, public := P} <- KeyMaps
+         || #{secret := S, public := P} <- KeyMaps
         ],
     {ok, MultisigPK} = libp2p_crypto:make_multisig_pubkey(Network, M, N, MemberKeys),
     MultisigSign =
-        fun (Msg) ->
-            ISigs = [{I, F(Msg)}|| {I, F} <- IFuns],
+        fun(Msg) ->
+            ISigs = [{I, F(Msg)} || {I, F} <- IFuns],
             {ok, Sig} =
                 libp2p_crypto:make_multisig_signature(Network, Msg, MultisigPK, MemberKeys, ISigs),
             Sig
@@ -781,10 +903,11 @@ transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers, E
     SrcBalance0 = balance(Src, Chain, EntryMod),
     DstBalance0 = balance(Dst, Chain, EntryMod),
     Ledger = blockchain:ledger(Chain),
-    Nonce = case blockchain_ledger_v1:find_entry(Src, Ledger) of
-                {error, address_entry_not_found} -> 1;
-                {ok, Entry} -> EntryMod:nonce(Entry) + 1
-            end,
+    Nonce =
+        case blockchain_ledger_v1:find_entry(Src, Ledger) of
+            {error, address_entry_not_found} -> 1;
+            {ok, Entry} -> EntryMod:nonce(Entry) + 1
+        end,
     Tx = blockchain_txn_payment_v2:new(Src, [blockchain_payment_v2:new(Dst, Amount)], Nonce),
     TxSigned = blockchain_txn_payment_v2:sign(Tx, SrcSigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [TxSigned]),
