@@ -616,6 +616,12 @@
 -define(block_size_limit, block_size_limit).
 
 %% ------------------------------------------------------------------
-%% Protocol version (aka support multiple tokens)
+%% Token version (aka support multiple tokens)
 %% Testing for now, set to 2
--define(protocol_version, protocol_version).
+-define(token_version, token_version).
+%% Ledger entry migration variable
+%% Will be used to hook and switch the old style ledger entries
+%% to new style ledger entries
+-define(ledger_entry_version, ledger_entry_version).
+%% Var to switch off legacy security_exchange txn
+-define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).

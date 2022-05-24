@@ -41,7 +41,6 @@
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
     versioned_entry_mod_and_entries_cf/1,
     entries/1,
-    entries_v2/1,
     htlcs/1,
 
     master_key/1, master_key/2,
@@ -270,7 +269,9 @@
     txn_fee_multiplier/1,
 
     dc_to_hnt/2,
-    hnt_to_dc/2
+    hnt_to_dc/2,
+
+    migrate_entries/1
 
 ]).
 
@@ -300,7 +301,7 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
--type tagged_cf() :: tagged_cf().
+-type tagged_cf() :: {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 
 -export_type([ledger/0]).
 
@@ -1337,27 +1338,20 @@ write_gw_denorm_values(Address, Old, Gw, Ledger) ->
             _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain))
     end.
 
--spec entries(ledger()) -> entries().
+-spec entries(ledger()) -> entries() | entries_v2().
 entries(Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    entries_(EntryMod, EntriesCF, Ledger).
+
+-spec entries_(EntryMod :: blockchain_ledger_entry_v1 | blockchain_ledger_entry_v2,
+               EntriesCF :: tagged_cf(),
+               Ledger :: ledger()) -> entries() | entries_v2().
+entries_(EntryMod, EntriesCF, Ledger) ->
     cache_fold(
         Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_entry_v1:deserialize(Binary),
-            maps:put(Address, Entry, Acc)
-        end,
-        #{}
-    ).
-
--spec entries_v2(ledger()) -> entries_v2().
-entries_v2(Ledger) ->
-    EntriesV2CF = entries_v2_cf(Ledger),
-    cache_fold(
-        Ledger,
-        EntriesV2CF,
-        fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_entry_v2:deserialize(Binary),
+            Entry = EntryMod:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
         #{}
@@ -2884,6 +2878,90 @@ hnt_to_dc(HNTAmount, Ledger)->
             hnt_to_dc(HNTAmount, OracleHNTPrice)
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Migrate ledger entries
+%% @end
+%%--------------------------------------------------------------------
+-spec migrate_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_entries(Ledger) ->
+    ok = migrate_reg_entries(Ledger),
+    ok = migrate_sec_entries(Ledger),
+    ok.
+
+-spec migrate_reg_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_reg_entries(Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        EntriesCF,
+        fun({Address, Binary}, ok) ->
+            EntryV1 = blockchain_ledger_entry_v1:deserialize(Binary),
+            case ?MODULE:find_entry(Address, Ledger) of
+                {error, address_entry_not_found} ->
+                    %% This should _always_ occur as we assume no entries_v2 exist
+                    %% on ledger yet
+                    EntryV1Balance = blockchain_ledger_entry_v1:balance(EntryV1),
+                    EntryV1Nonce = blockchain_ledger_entry_v1:nonce(EntryV1),
+                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        blockchain_ledger_entry_v2:new(), EntryV1Balance, hnt),
+                      EntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                _ ->
+                    %% NOTE: This should never happen due to the order
+                    %% in which the migration is applied
+                    {error, entry_migration_aborted}
+            end
+
+        end,
+        ok
+    ).
+
+-spec migrate_sec_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_sec_entries(Ledger) ->
+    SecuritiesCF = securities_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        SecuritiesCF,
+        fun({Address, Binary}, ok) ->
+            EntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            case ?MODULE:find_entry(Address, Ledger) of
+                {ok, EntryV2} ->
+                    %% There's already an EntryV2 possibly from doing the entry migration,
+                    %% To consolidate:
+                    %% - Add the two nonces (sec_nonce_v1 + nonce_entry_v2)
+                    %% - Update hst balance in EntryV2
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
+                    EntryV2Nonce = blockchain_ledger_entry_v2:nonce(EntryV2),
+                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        EntryV2, SecEntryV1Balance, hst),
+                      EntryV2Nonce + SecEntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                {error, address_entry_not_found} ->
+                    %% This address only has security tokens, credit accordingly
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
+                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        blockchain_ledger_entry_v2:new(), SecEntryV1Balance, hst),
+                      SecEntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                _ ->
+                    %% Unexpected, abort!
+                    {error, sec_entry_migration_aborted}
+            end
+        end,
+        ok
+    ).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -3026,7 +3104,7 @@ find_entry_(Address, EntryMod, EntriesCF, Ledger) ->
 
 -spec versioned_entry_mod_and_entries_cf(Ledger :: ledger()) -> {atom(), tagged_cf()}.
 versioned_entry_mod_and_entries_cf(Ledger) ->
-    case ?MODULE:config(?protocol_version, Ledger) of
+    case ?MODULE:config(?token_version, Ledger) of
         {ok, 2} ->
             {blockchain_ledger_entry_v2, entries_v2_cf(Ledger)};
         _ ->
@@ -3054,7 +3132,7 @@ credit_account(Address, Amount, Ledger) ->
 
 -spec credit_account(Address :: libp2p_crypto:pubkey_bin(),
                      Amount :: integer(),
-                     TT :: blockchain_token_type_v1:token(),
+                     TT :: blockchain_token_v1:type(),
                      Ledger :: ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, TT, Ledger) ->
     EntriesCF = entries_v2_cf(Ledger),
@@ -3104,7 +3182,7 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrA
             end
     end;
 debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
-    %% TODO: Maybe also check that protocol_version = 2 is set here? Although amounts being
+    %% TODO: Maybe also check that token_version = 2 is set here? Although amounts being
     %% a map only ever should occur with the multi token payment txn, so maybe it's okay?
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -3116,7 +3194,7 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmoun
                       fun(TT) ->
                               blockchain_ledger_entry_v2:balance(Entry, TT) >= maps:get(TT, AmountOrAmounts, 0)
                       end,
-                      blockchain_token_type_v1:supported_tokens())
+                      blockchain_token_v1:supported_tokens())
                     of
                         true ->
                             Entry0 = maps:fold(

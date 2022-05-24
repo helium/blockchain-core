@@ -12,7 +12,9 @@
     credit/3,
     debit/3,
     serialize/1,
-    deserialize/1
+    deserialize/1,
+
+    from_v1/2
 ]).
 
 -ifdef(TEST).
@@ -35,8 +37,8 @@ new() ->
         nonce = 0,
         hnt_balance = 0,
         hst_balance = 0,
-        hgt_balance = 0,
-        hlt_balance = 0
+        mobile_balance = 0,
+        iot_balance = 0
     }.
 
 -spec nonce(Entry :: entry()) -> non_neg_integer().
@@ -59,43 +61,43 @@ balance(Entry) ->
 %% @doc Return requested token balance.
 %% @end
 %%--------------------------------------------------------------------
--spec balance(Entry :: entry(), TT :: blockchain_token_type_v1:token_type()) -> non_neg_integer().
+-spec balance(Entry :: entry(), TT :: blockchain_token_v1:type()) -> non_neg_integer().
 balance(Entry, hnt) ->
     hnt_balance(Entry);
 balance(Entry, hst) ->
     hst_balance(Entry);
-balance(Entry, hgt) ->
-    hgt_balance(Entry);
-balance(Entry, hlt) ->
-    hlt_balance(Entry).
+balance(Entry, mobile) ->
+    mobile_balance(Entry);
+balance(Entry, iot) ->
+    iot_balance(Entry).
 
 -spec credit(
     Entry :: entry(),
     Amount :: non_neg_integer(),
-    TT :: blockchain_token_type_v1:token_type()
+    TT :: blockchain_token_v1:type()
 ) -> entry().
 credit(Entry, Amount, hnt) ->
     credit_hnt(Entry, Amount);
 credit(Entry, Amount, hst) ->
     credit_hst(Entry, Amount);
-credit(Entry, Amount, hgt) ->
-    credit_hgt(Entry, Amount);
-credit(Entry, Amount, hlt) ->
-    credit_hlt(Entry, Amount).
+credit(Entry, Amount, mobile) ->
+    credit_mobile(Entry, Amount);
+credit(Entry, Amount, iot) ->
+    credit_iot(Entry, Amount).
 
 -spec debit(
     Entry :: entry(),
     Amount :: non_neg_integer(),
-    TT :: blockchain_token_type_v1:token_type()
+    TT :: blockchain_token_v1:type()
 ) -> entry().
 debit(Entry, Amount, hnt) ->
     debit_hnt(Entry, Amount);
 debit(Entry, Amount, hst) ->
     debit_hst(Entry, Amount);
-debit(Entry, Amount, hgt) ->
-    debit_hgt(Entry, Amount);
-debit(Entry, Amount, hlt) ->
-    debit_hlt(Entry, Amount).
+debit(Entry, Amount, mobile) ->
+    debit_mobile(Entry, Amount);
+debit(Entry, Amount, iot) ->
+    debit_iot(Entry, Amount).
 
 -spec serialize(Entry :: entry()) -> binary().
 serialize(Entry) ->
@@ -104,6 +106,29 @@ serialize(Entry) ->
 -spec deserialize(EntryBin :: binary()) -> entry().
 deserialize(EntryBin) ->
     blockchain_ledger_entry_v2_pb:decode_msg(EntryBin, blockchain_ledger_entry_v2_pb).
+
+-spec from_v1(
+    V1 :: blockchain_ledger_entry_v1:entry() | blockchain_ledger_security_entry_v1:entry(),
+    Type :: entry | security
+) -> entry().
+from_v1(V1, entry) ->
+    from_entry_v1(V1);
+from_v1(V1, security) ->
+    from_sec_v1(V1).
+
+-spec from_entry_v1(EntryV1 :: blockchain_ledger_entry_v1:entry()) -> entry().
+from_entry_v1(EntryV1) ->
+    Balance = blockchain_ledger_entry_v1:balance(EntryV1),
+    Nonce = blockchain_ledger_entry_v1:nonce(EntryV1),
+    Entry0 = new(),
+    nonce(credit(Entry0, Balance, hnt), Nonce).
+
+-spec from_sec_v1(SecEntryV1 :: blockchain_ledger_security_entry_v1:entry()) -> entry().
+from_sec_v1(SecEntryV1) ->
+    Balance = blockchain_ledger_security_entry_v1:balance(SecEntryV1),
+    Nonce = blockchain_ledger_security_entry_v1:nonce(SecEntryV1),
+    Entry0 = new(),
+    nonce(credit(Entry0, Balance, hst), Nonce).
 
 %% ==================================================================
 %% Internal Functions
@@ -117,13 +142,13 @@ credit_hnt(Entry, Amount) ->
 credit_hst(Entry, Amount) ->
     Entry#blockchain_ledger_entry_v2_pb{hst_balance = hst_balance(Entry) + Amount}.
 
--spec credit_hlt(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
-credit_hlt(Entry, Amount) ->
-    Entry#blockchain_ledger_entry_v2_pb{hlt_balance = hlt_balance(Entry) + Amount}.
+-spec credit_iot(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
+credit_iot(Entry, Amount) ->
+    Entry#blockchain_ledger_entry_v2_pb{iot_balance = iot_balance(Entry) + Amount}.
 
--spec credit_hgt(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
-credit_hgt(Entry, Amount) ->
-    Entry#blockchain_ledger_entry_v2_pb{hgt_balance = hgt_balance(Entry) + Amount}.
+-spec credit_mobile(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
+credit_mobile(Entry, Amount) ->
+    Entry#blockchain_ledger_entry_v2_pb{mobile_balance = mobile_balance(Entry) + Amount}.
 
 -spec debit_hnt(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
 debit_hnt(Entry, Amount) ->
@@ -133,13 +158,13 @@ debit_hnt(Entry, Amount) ->
 debit_hst(Entry, Amount) ->
     Entry#blockchain_ledger_entry_v2_pb{hst_balance = hst_balance(Entry) - Amount}.
 
--spec debit_hgt(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
-debit_hgt(Entry, Amount) ->
-    Entry#blockchain_ledger_entry_v2_pb{hgt_balance = hgt_balance(Entry) - Amount}.
+-spec debit_mobile(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
+debit_mobile(Entry, Amount) ->
+    Entry#blockchain_ledger_entry_v2_pb{mobile_balance = mobile_balance(Entry) - Amount}.
 
--spec debit_hlt(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
-debit_hlt(Entry, Amount) ->
-    Entry#blockchain_ledger_entry_v2_pb{hlt_balance = hlt_balance(Entry) - Amount}.
+-spec debit_iot(Entry :: entry(), Amount :: non_neg_integer()) -> entry().
+debit_iot(Entry, Amount) ->
+    Entry#blockchain_ledger_entry_v2_pb{iot_balance = iot_balance(Entry) - Amount}.
 
 -spec hnt_balance(Entry :: entry()) -> non_neg_integer().
 hnt_balance(#blockchain_ledger_entry_v2_pb{hnt_balance = Balance}) ->
@@ -149,10 +174,10 @@ hnt_balance(#blockchain_ledger_entry_v2_pb{hnt_balance = Balance}) ->
 hst_balance(#blockchain_ledger_entry_v2_pb{hst_balance = Balance}) ->
     Balance.
 
--spec hgt_balance(Entry :: entry()) -> non_neg_integer().
-hgt_balance(#blockchain_ledger_entry_v2_pb{hgt_balance = Balance}) ->
+-spec mobile_balance(Entry :: entry()) -> non_neg_integer().
+mobile_balance(#blockchain_ledger_entry_v2_pb{mobile_balance = Balance}) ->
     Balance.
 
--spec hlt_balance(Entry :: entry()) -> non_neg_integer().
-hlt_balance(#blockchain_ledger_entry_v2_pb{hlt_balance = Balance}) ->
+-spec iot_balance(Entry :: entry()) -> non_neg_integer().
+iot_balance(#blockchain_ledger_entry_v2_pb{iot_balance = Balance}) ->
     Balance.

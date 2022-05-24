@@ -52,8 +52,8 @@ new(Payee, max) ->
       }.
 
 -spec new(Payee :: libp2p_crypto:pubkey_bin(),
-          Amount :: non_neg_integer() | max ,
-          Memo :: non_neg_integer()) -> payment().
+          Amount :: non_neg_integer() | max,
+          MemoOrTT :: non_neg_integer() | blockchain_token_v1:type()) -> payment().
 new(Payee, Amount, Memo) when is_integer(Memo) andalso is_integer(Amount) ->
     #payment_pb{
        payee=Payee,
@@ -61,24 +61,48 @@ new(Payee, Amount, Memo) when is_integer(Memo) andalso is_integer(Amount) ->
        memo=Memo,
        max=false
       };
-new(Payee, Amount, TT) when is_integer(Amount) ->
+new(Payee, max, Memo) when is_integer(Memo) ->
+    #payment_pb{
+       payee=Payee,
+       amount=0,
+       memo=Memo,
+       max=true
+      };
+new(Payee, Amount, TT) when is_integer(Amount) andalso is_atom(TT) ->
     #payment_pb{
        payee=Payee,
        amount=Amount,
        memo=0,
        max=false,
        token_type=TT
+      };
+new(Payee, max, TT) when is_atom(TT) ->
+    #payment_pb{
+       payee=Payee,
+       amount=0,
+       memo=0,
+       max=true,
+       token_type=TT
       }.
 
 -spec new(Payee :: libp2p_crypto:pubkey_bin(),
-          Amount :: non_neg_integer(),
+          Amount :: non_neg_integer() | max,
           Memo :: non_neg_integer(),
-          TT :: blockchain_token_type_v1:token_type()) -> payment().
-new(Payee, Amount, Memo, TT) ->
+          TT :: blockchain_token_v1:type()) -> payment().
+new(Payee, Amount, Memo, TT) when is_integer(Amount) ->
     #payment_pb{
        payee=Payee,
        amount=Amount,
        memo=Memo,
+       max=false,
+       token_type=TT
+      };
+new(Payee, max, Memo, TT) ->
+    #payment_pb{
+       payee=Payee,
+       amount=0,
+       memo=Memo,
+       max=true,
        token_type=TT
       }.
 
@@ -102,11 +126,11 @@ memo(Payment, Memo) ->
 max(Payment) ->
     Payment#payment_pb.max.
 
--spec token_type(Payment :: payment()) -> blockchain_token_type_v1:token_type().
+-spec token_type(Payment :: payment()) -> blockchain_token_v1:type().
 token_type(Payment) ->
     Payment#payment_pb.token_type.
 
--spec token_type(Payment :: payment(), TT :: blockchain_token_type_v1:token_type()) -> payment().
+-spec token_type(Payment :: payment(), TT :: blockchain_token_v1:type()) -> payment().
 token_type(Payment, TT) ->
     Payment#payment_pb{token_type=TT}.
 
@@ -125,19 +149,19 @@ is_valid_max(#payment_pb{amount=Amount, max=false}) when Amount > 0 -> true;
 is_valid_max(#payment_pb{amount=0, max=true}) -> true;
 is_valid_max(_) -> false.
 
-print(undefined) ->
-    <<"type=payment undefined">>;
-print(#payment_pb{payee=Payee, amount=Amount, memo=Memo, max=Max, token_type=TT}) ->
-    io_lib:format("type=payment payee: ~p amount: ~p, memo: ~p, max: ~p, token_type: ~p", [?TO_B58(Payee), Amount, Memo, Max, TT]).
-
 -spec is_valid_token_type(Payment :: payment()) -> boolean().
 is_valid_token_type(#payment_pb{token_type = TT}) ->
     try
-        lists:member(TT, blockchain_token_type_v1:supported_tokens())
+        lists:member(TT, blockchain_token_v1:supported_tokens())
     catch _:_ ->
             %% we can't do this, invalid
             false
     end.
+
+print(undefined) ->
+    <<"type=payment undefined">>;
+print(#payment_pb{payee=Payee, amount=Amount, memo=Memo, max=Max, token_type=TT}) ->
+    io_lib:format("type=payment payee: ~p amount: ~p, memo: ~p, max: ~p, token_type: ~p", [?TO_B58(Payee), Amount, Memo, Max, TT]).
 
 json_type() ->
     undefined.
@@ -190,6 +214,12 @@ token_type_test() ->
     ?assertEqual(hnt, ?MODULE:token_type(P1)),
     P2 = new(<<"payee">>, 100, hst),
     ?assertEqual(hst, ?MODULE:token_type(P2)).
+
+is_valid_token_type_test() ->
+    P1 = new(<<"payee">>, 100, mobile),
+    ?assertEqual(true, ?MODULE:is_valid_token_type(P1)),
+    P2 = new(<<"payee">>, 100, doge),
+    ?assertEqual(false, ?MODULE:is_valid_token_type(P2)).
 
 to_json_test() ->
     Payment = new(<<"payee">>, 100),

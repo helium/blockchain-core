@@ -745,6 +745,10 @@ var_hook(?poc_challenger_type, Type, Ledger) ->
     end,
     purge_pocs(Ledger),
     ok;
+var_hook(?ledger_entry_version, 2, Ledger) ->
+    %% Migrate to new style ledger entries
+    blockchain_ledger_v1:migrate_entries(Ledger),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
@@ -1206,6 +1210,11 @@ validate_var(?deprecate_payment_v1, Value) ->
         Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalidate_deprecate_payment_v1, Value}})
     end;
+validate_var(?deprecate_security_exchange_v1, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_security_exchange_v1, Value}})
+    end;
 
 validate_var(?allow_payment_v2_memos, Value) ->
     case Value of
@@ -1520,12 +1529,19 @@ validate_var(?discard_zero_freq_witness, Value) ->
 validate_var(?block_size_limit, Value) ->
     validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
 
-validate_var(?protocol_version, Value) ->
+validate_var(?token_version, Value) ->
     case Value of
         undefined -> ok;
         2 -> ok;                    %% Add support for multiple tokens
         _ ->
-            throw({error, {invalid_protocol_version, Value}})
+            throw({error, {invalid_token_version, Value}})
+    end;
+validate_var(?ledger_entry_version, Value) ->
+    case Value of
+        undefined -> ok;
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_ledger_entry_version, Value}})
     end;
 
 validate_var(Var, Value) ->

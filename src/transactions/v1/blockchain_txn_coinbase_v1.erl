@@ -52,7 +52,7 @@ new(Payee, Amount) ->
 %%--------------------------------------------------------------------
 -spec new(Payee :: libp2p_crypto:pubkey_bin(),
           Amount :: non_neg_integer(),
-          TokenType :: blockchain_token_type_v1:token_type()) -> txn_coinbase().
+          TokenType :: blockchain_token_v1:type()) -> txn_coinbase().
 new(Payee, Amount, TokenType) ->
     #blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount, token_type=TokenType}.
 
@@ -106,7 +106,7 @@ fee_payer(_Txn, _Ledger) ->
 %% Get token_type associated with coinbase txn
 %% @end
 %%--------------------------------------------------------------------
--spec token_type(txn_coinbase()) -> blockchain_token_type_v1:token_type().
+-spec token_type(txn_coinbase()) -> blockchain_token_v1:type().
 token_type(Txn) ->
     Txn#blockchain_txn_coinbase_v1_pb.token_type.
 
@@ -141,7 +141,7 @@ absorb(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
 
-    case blockchain:config(?protocol_version, Ledger) of
+    case blockchain:config(?token_version, Ledger) of
         {ok, 2} ->
             TokenType = ?MODULE:token_type(Txn),
             blockchain_ledger_v1:credit_account(Payee, Amount, TokenType, Ledger);
