@@ -1524,12 +1524,12 @@ validate_var(?discard_zero_freq_witness, Value) ->
 validate_var(?block_size_limit, Value) ->
     validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
 
-validate_var(?protocol_version, Value) ->
+validate_var(?token_version, Value) ->
     case Value of
         undefined -> ok;
         2 -> ok;                    %% Add support for multiple tokens
         _ ->
-            throw({error, {invalid_protocol_version, Value}})
+            throw({error, {invalid_token_version, Value}})
     end;
 validate_var(?ledger_entry_version, Value) ->
     case Value of
