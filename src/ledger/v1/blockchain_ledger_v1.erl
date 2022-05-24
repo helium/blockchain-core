@@ -93,6 +93,7 @@
     update_public_poc/2,
     pocs/2,
     delete_poc/3,
+    poc_gc_interval/1,
     purge_pocs/1,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
@@ -277,7 +278,6 @@
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
-
 
 -ifdef(TEST).
 -export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
@@ -2318,6 +2318,27 @@ pocs_(CF, Ledger) ->
       []
      ).
 
+%%--------------------------------------------------------------------
+%% @doc  return the interval, in blocks, by which pocs are garbage
+%% collected.
+%%
+%% default gc point is set off by 1 so as not to align with other
+%% gc processes.
+%%
+%% if validators are providing challenges, but the window check is
+%% not enabled, we are tied to the current default for replay reasons.
+%% if it is set, it can be adjusted freely and safely from the app
+%% env
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec poc_gc_interval(ledger()) -> integer().
+poc_gc_interval(Ledger) ->
+    case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+        {ok, true} -> application:get_env(blockchain, poc_gc_interval_size, ?DEFAULT_POC_GC_INTERVAL);
+        _ -> ?DEFAULT_POC_GC_INTERVAL
+    end.
+
 -spec purge_pocs(ledger()) -> ok.
 purge_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
@@ -2357,20 +2378,9 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
     %% has been absorbed or would have been expected
     %% to be absorbed
     {ok, CurHeight} = current_height(Ledger),
-    %%  set GC point off by one so it doesnt align with so many other gc processes
 
-    %% if we're in the validator challenges, but the window check is not in place, we are tied
-    %% to 101 for replay reasons. if it's set, then we can change it however we'd like and we
-    %% should be safe
-    Interval =
-        case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
-            {ok, true} ->
-                %% make any needed interval changes here
-                application:get_env(blockchain, poc_gc_interval_size, 101); % <---- this one
+    Interval = poc_gc_interval(Ledger),
 
-            %% don't change this one!
-            _ -> 101
-        end,
     case CurHeight rem Interval == 0 of
         true ->
             PoCsCF = pocs_cf(Ledger),
