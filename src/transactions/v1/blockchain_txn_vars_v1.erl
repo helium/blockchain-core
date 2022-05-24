@@ -745,6 +745,10 @@ var_hook(?poc_challenger_type, Type, Ledger) ->
     end,
     purge_pocs(Ledger),
     ok;
+var_hook(?ledger_entry_version, 2, Ledger) ->
+    %% Migrate to new style ledger entries
+    blockchain_ledger_v1:migrate_entries(Ledger),
+    ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
 
@@ -1526,6 +1530,13 @@ validate_var(?protocol_version, Value) ->
         2 -> ok;                    %% Add support for multiple tokens
         _ ->
             throw({error, {invalid_protocol_version, Value}})
+    end;
+validate_var(?ledger_entry_version, Value) ->
+    case Value of
+        undefined -> ok;
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_ledger_entry_version, Value}})
     end;
 
 validate_var(Var, Value) ->

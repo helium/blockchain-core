@@ -12,7 +12,9 @@
     credit/3,
     debit/3,
     serialize/1,
-    deserialize/1
+    deserialize/1,
+
+    from_v1/2
 ]).
 
 -ifdef(TEST).
@@ -104,6 +106,29 @@ serialize(Entry) ->
 -spec deserialize(EntryBin :: binary()) -> entry().
 deserialize(EntryBin) ->
     blockchain_ledger_entry_v2_pb:decode_msg(EntryBin, blockchain_ledger_entry_v2_pb).
+
+-spec from_v1(
+    V1 :: blockchain_ledger_entry_v1:entry() | blockchain_ledger_security_entry_v1:entry(),
+    Type :: entry | security
+) -> entry().
+from_v1(V1, entry) ->
+    from_entry_v1(V1);
+from_v1(V1, security) ->
+    from_sec_v1(V1).
+
+-spec from_entry_v1(EntryV1 :: blockchain_ledger_entry_v1:entry()) -> entry().
+from_entry_v1(EntryV1) ->
+    Balance = blockchain_ledger_entry_v1:balance(EntryV1),
+    Nonce = blockchain_ledger_entry_v1:nonce(EntryV1),
+    Entry0 = new(),
+    nonce(credit(Entry0, Balance, hnt), Nonce).
+
+-spec from_sec_v1(SecEntryV1 :: blockchain_ledger_security_entry_v1:entry()) -> entry().
+from_sec_v1(SecEntryV1) ->
+    Balance = blockchain_ledger_security_entry_v1:balance(SecEntryV1),
+    Nonce = blockchain_ledger_security_entry_v1:nonce(SecEntryV1),
+    Entry0 = new(),
+    nonce(credit(Entry0, Balance, hst), Nonce).
 
 %% ==================================================================
 %% Internal Functions
