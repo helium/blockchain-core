@@ -292,10 +292,10 @@ entry_migration_test(Config) ->
         maps:values(Entries)
     ),
 
-    %% Send var txn with ledger_entry_version = 2 and protocol_version = 2
+    %% Send var txn with ledger_entry_version = 2 and token_version = 2
     %% to trigger ledger entry migration
 
-    Vars = #{ledger_entry_version => 2, protocol_version => 2},
+    Vars = #{ledger_entry_version => 2, token_version => 2},
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
@@ -325,7 +325,7 @@ entry_migration_test(Config) ->
 extra_vars(entry_migration_test) ->
     #{?max_payments => 20, ?allow_zero_amount => false};
 extra_vars(_) ->
-    #{?protocol_version => 2, ?max_payments => 20, ?allow_zero_amount => false}.
+    #{?token_version => 2, ?max_payments => 20, ?allow_zero_amount => false}.
 
 token_allocations(entry_migration_test, _Config) ->
     undefined;

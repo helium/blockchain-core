@@ -35,7 +35,7 @@
           txn :: blockchain_txn:txn(),
           member :: libp2p_crypto:pubkey_bin(),
           timeout = make_ref() :: reference(),
-          protocol_version :: undefined | string() % set at dial
+          token_version :: undefined | string() % set at dial
          }).
 
 %% ------------------------------------------------------------------

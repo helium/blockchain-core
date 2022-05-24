@@ -37,19 +37,19 @@
 
 groups() ->
     [
-        {without_protocol_version, [], without_protocol_version_tests()},
-        {with_protocol_version, [], with_protocol_version_tests()}
+        {without_token_version, [], without_token_version_tests()},
+        {with_token_version, [], with_token_version_tests()}
     ].
 
-without_protocol_version_tests() ->
+without_token_version_tests() ->
     test_cases().
 
-with_protocol_version_tests() ->
+with_token_version_tests() ->
     test_cases().
 
-init_per_group(with_protocol_version, Config) ->
+init_per_group(with_token_version, Config) ->
     [
-        {group_vars, #{?protocol_version => 2}},
+        {group_vars, #{?token_version => 2}},
         {balance, 5000},
         {token_allocations, #{hnt => 5000, hst => 1000, hgt => 100, hlt => 10}}
         | Config
@@ -62,8 +62,8 @@ end_per_group(_, _Config) ->
 
 all() ->
     [
-        {group, without_protocol_version},
-        {group, with_protocol_version}
+        {group, without_token_version},
+        {group, with_token_version}
     ].
 
 test_cases() ->
@@ -140,7 +140,7 @@ init_per_testcase(TestCase, Config) ->
     Ledger = blockchain:ledger(Chain),
 
     %% NOTE: Get the current ledger entry module depending on the Ledger
-    %% For testing (chain var: protocol_version = 2)
+    %% For testing (chain var: token_version = 2)
     {EntryMod, _} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
     ct:pal("EntryMod: ~p", [EntryMod]),
 
@@ -701,7 +701,7 @@ negative_memo_test(Config) ->
     ct:pal("InvalidReason: ~p", [InvalidReason]),
 
     case ?config(group_vars, Config) of
-        #{?protocol_version := 2} ->
+        #{?token_version := 2} ->
             {invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
                 {token_check, ok}} = InvalidReason,
             ok;
@@ -777,7 +777,7 @@ invalid_memo_not_set_test(Config) ->
     ct:pal("InvalidReason: ~p", [InvalidReason]),
 
     case ?config(group_vars, Config) of
-        #{?protocol_version := 2} ->
+        #{?token_version := 2} ->
             {invalid_transaction, {amount_check, ok},
                 {memo_check, {error, invalid_memo_before_var}}, {token_check, ok}} = InvalidReason,
             ok;
@@ -843,7 +843,7 @@ big_memo_invalid_test(Config) ->
     ct:pal("InvalidReason: ~p", [InvalidReason]),
 
     case ?config(group_vars, Config) of
-        #{?protocol_version := 2} ->
+        #{?token_version := 2} ->
             {invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
                 {token_check, ok}} = InvalidReason,
             ok;
