@@ -84,6 +84,20 @@ pmap_to_bag(T, F, J) when is_function(T), is_function(F), is_integer(J), J > 0 -
                 end,
             Producer =
                 fun () ->
+                    %% XXX Producer is racing against consumers.
+                    %%
+                    %% This hasn't (yet) caused a problem, but in theory it is
+                    %% bad: producer is pouring into the scheduler's queue as
+                    %% fast as possible, potentially faster than consumers can
+                    %% pull from it, so heap usage could explode.
+                    %%
+                    %% Solution ideas:
+                    %% A. have the scheduler call the producer whenever more
+                    %%    work is asked for, but ... that can block the
+                    %%    scheduler, starving consumers;
+                    %% B. produce in (configurable size) batches, pausing
+                    %%    production when batch is full and resuming when not
+                    %%    (this is probably the way to go).
                     ok = iter(fun (X) -> SchedPid ! {SchedID, producer_output, X} end, T)
                 end,
             Ys =
