@@ -270,7 +270,9 @@
     txn_fee_multiplier/1,
 
     dc_to_hnt/2,
-    hnt_to_dc/2
+    hnt_to_dc/2,
+
+    migrate_entries/1
 
 ]).
 
@@ -2883,6 +2885,48 @@ hnt_to_dc(HNTAmount, Ledger)->
         {ok, OracleHNTPrice} ->
             hnt_to_dc(HNTAmount, OracleHNTPrice)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Migrate ledger entries
+%% @end
+%%--------------------------------------------------------------------
+-spec migrate_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_entries(Ledger) ->
+    migrate_reg_entries(Ledger),
+    migrate_sec_entries(Ledger).
+
+-spec migrate_reg_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_reg_entries(Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        EntriesCF,
+        fun({Address, Binary}, ok) ->
+            EntryV1 = blockchain_ledger_entry_v1:deserialize(Binary),
+            EntryV2 = blockchain_ledger_entry_v2:from_v1(EntryV1, entry),
+            Bin = blockchain_ledger_entry_v2:serialize(EntryV2),
+            cache_put(Ledger, EntriesV2CF, Address, Bin)
+        end,
+        ok
+    ).
+
+-spec migrate_sec_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_sec_entries(Ledger) ->
+    SecuritiesCF = securities_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        SecuritiesCF,
+        fun({Address, Binary}, ok) ->
+            SecEntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            EntryV2 = blockchain_ledger_entry_v2:from_v1(SecEntryV1, security),
+            Bin = blockchain_ledger_entry_v2:serialize(EntryV2),
+            cache_put(Ledger, EntriesV2CF, Address, Bin)
+        end,
+        ok
+    ).
 
 
 %%--------------------------------------------------------------------
