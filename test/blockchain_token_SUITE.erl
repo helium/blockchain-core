@@ -8,7 +8,8 @@
 
 -export([
     multi_token_coinbase_test/1,
-    multi_token_payment_test/1
+    multi_token_payment_test/1,
+    entry_migration_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -24,7 +25,8 @@
 all() ->
     [
         multi_token_coinbase_test,
-        multi_token_payment_test
+        multi_token_payment_test,
+        entry_migration_test
     ].
 
 %%--------------------------------------------------------------------
@@ -39,9 +41,18 @@ init_per_testcase(TestCase, Config) ->
     HGTBal = 1000,
     HLTBal = 100,
 
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
+    Config1 = [
+        {hnt_bal, HNTBal},
+        {hst_bal, HSTBal},
+        {hgt_bal, HGTBal},
+        {hlt_bal, HLTBal}
+        | Config0
+    ],
+
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config1)),
 
     ExtraVars = extra_vars(TestCase),
+    TokenAllocations = token_allocations(TestCase, Config1),
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain_with_opts(
@@ -57,19 +68,23 @@ init_per_testcase(TestCase, Config) ->
                 extra_vars =>
                     ExtraVars,
                 token_allocations =>
-                    #{hnt => HNTBal, hst => HSTBal, hgt => HGTBal, hlt => HLTBal}
+                    TokenAllocations
             }
         ),
 
     Chain = blockchain_worker:blockchain(),
+    Ledger = blockchain:ledger(Chain),
     Swarm = blockchain_swarm:tid(),
     N = length(ConsensusMembers),
+
+    {EntryMod, _} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
 
     [
         {hnt_bal, HNTBal},
         {hst_bal, HSTBal},
         {hgt_bal, HGTBal},
         {hlt_bal, HLTBal},
+        {entry_mod, EntryMod},
         {sup, Sup},
         {pubkey, PubKey},
         {privkey, PrivKey},
@@ -80,7 +95,7 @@ init_per_testcase(TestCase, Config) ->
         {consensus_members, ConsensusMembers},
         {genesis_members, GenesisMembers},
         Keys
-        | Config0
+        | Config1
     ].
 
 %%--------------------------------------------------------------------
@@ -111,20 +126,23 @@ multi_token_coinbase_test(Config) ->
     HSTBal = ?config(hst_bal, Config),
     HGTBal = ?config(hgt_bal, Config),
     HLTBal = ?config(hlt_bal, Config),
+    EntryMod = ?config(entry_mod, Config),
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
-    Entries = blockchain_ledger_v1:entries_v2(Ledger),
+
+    Entries = get_entries(EntryMod, Ledger),
+
     _ = lists:foreach(
         fun(Entry) ->
-            HNTBal = blockchain_ledger_entry_v2:balance(Entry, hnt),
-            0 = blockchain_ledger_entry_v2:nonce(Entry),
-            HSTBal = blockchain_ledger_entry_v2:balance(Entry, hst),
-            0 = blockchain_ledger_entry_v2:nonce(Entry),
-            HGTBal = blockchain_ledger_entry_v2:balance(Entry, hgt),
-            0 = blockchain_ledger_entry_v2:nonce(Entry),
-            HLTBal = blockchain_ledger_entry_v2:balance(Entry, hlt),
-            0 = blockchain_ledger_entry_v2:nonce(Entry)
+            HNTBal = EntryMod:balance(Entry),
+            0 = EntryMod:nonce(Entry),
+            HSTBal = EntryMod:balance(Entry, hst),
+            0 = EntryMod:nonce(Entry),
+            HGTBal = EntryMod:balance(Entry, hgt),
+            0 = EntryMod:nonce(Entry),
+            HLTBal = EntryMod:balance(Entry, hlt),
+            0 = EntryMod:nonce(Entry)
         end,
         maps:values(Entries)
     ),
@@ -137,6 +155,7 @@ multi_token_payment_test(Config) ->
     HSTBal = ?config(hst_bal, Config),
     HGTBal = ?config(hgt_bal, Config),
     HLTBal = ?config(hlt_bal, Config),
+    EntryMod = ?config(entry_mod, Config),
     Ledger = blockchain:ledger(Chain),
 
     %% Test a payment transaction, add a block and check balances
@@ -154,12 +173,12 @@ multi_token_payment_test(Config) ->
     HGTAmt2 = 100,
     HLTAmt2 = 10,
 
-    P1 = blockchain_payment_v2:new(Recipient1, HNTAmt1, hnt),
+    P1 = blockchain_payment_v2:new(Recipient1, HNTAmt1),
     P2 = blockchain_payment_v2:new(Recipient1, HSTAmt1, hst),
     P3 = blockchain_payment_v2:new(Recipient1, HGTAmt1, hgt),
     P4 = blockchain_payment_v2:new(Recipient1, HLTAmt1, hlt),
 
-    P5 = blockchain_payment_v2:new(Recipient2, HNTAmt2, hnt),
+    P5 = blockchain_payment_v2:new(Recipient2, HNTAmt2),
     P6 = blockchain_payment_v2:new(Recipient2, HSTAmt2, hst),
     P7 = blockchain_payment_v2:new(Recipient2, HGTAmt2, hgt),
     P8 = blockchain_payment_v2:new(Recipient2, HLTAmt2, hlt),
@@ -182,22 +201,22 @@ multi_token_payment_test(Config) ->
     {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
     {ok, RecipientEntry2} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
 
-    ?assertEqual(HNTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hnt)),
-    ?assertEqual(HSTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hst)),
-    ?assertEqual(HGTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hgt)),
-    ?assertEqual(HLTAmt1, blockchain_ledger_entry_v2:balance(RecipientEntry1, hlt)),
+    ?assertEqual(HNTAmt1, EntryMod:balance(RecipientEntry1)),
+    ?assertEqual(HSTAmt1, EntryMod:balance(RecipientEntry1, hst)),
+    ?assertEqual(HGTAmt1, EntryMod:balance(RecipientEntry1, hgt)),
+    ?assertEqual(HLTAmt1, EntryMod:balance(RecipientEntry1, hlt)),
 
-    ?assertEqual(HNTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hnt)),
-    ?assertEqual(HSTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hst)),
-    ?assertEqual(HGTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hgt)),
-    ?assertEqual(HLTAmt2, blockchain_ledger_entry_v2:balance(RecipientEntry2, hlt)),
+    ?assertEqual(HNTAmt2, EntryMod:balance(RecipientEntry2)),
+    ?assertEqual(HSTAmt2, EntryMod:balance(RecipientEntry2, hst)),
+    ?assertEqual(HGTAmt2, EntryMod:balance(RecipientEntry2, hgt)),
+    ?assertEqual(HLTAmt2, EntryMod:balance(RecipientEntry2, hlt)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(1, blockchain_ledger_entry_v2:nonce(PayerEntry)),
-    ?assertEqual(HNTBal - (HNTAmt1 + HNTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hnt)),
-    ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hst)),
-    ?assertEqual(HGTBal - (HGTAmt1 + HGTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hgt)),
-    ?assertEqual(HLTBal - (HLTAmt1 + HLTAmt2), blockchain_ledger_entry_v2:balance(PayerEntry, hlt)),
+    ?assertEqual(1, EntryMod:nonce(PayerEntry)),
+    ?assertEqual(HNTBal - (HNTAmt1 + HNTAmt2), EntryMod:balance(PayerEntry)),
+    ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), EntryMod:balance(PayerEntry, hst)),
+    ?assertEqual(HGTBal - (HGTAmt1 + HGTAmt2), EntryMod:balance(PayerEntry, hgt)),
+    ?assertEqual(HLTBal - (HLTAmt1 + HLTAmt2), EntryMod:balance(PayerEntry, hlt)),
 
     %% Do another payment
 
@@ -229,31 +248,95 @@ multi_token_payment_test(Config) ->
 
     {ok, RecipientEntry3} = blockchain_ledger_v1:find_entry(Recipient3, Ledger),
 
-    ?assertEqual(HNTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hnt)),
-    ?assertEqual(HSTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hst)),
-    ?assertEqual(HGTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hgt)),
-    ?assertEqual(HLTAmt3, blockchain_ledger_entry_v2:balance(RecipientEntry3, hlt)),
+    ?assertEqual(HNTAmt3, EntryMod:balance(RecipientEntry3)),
+    ?assertEqual(HSTAmt3, EntryMod:balance(RecipientEntry3, hst)),
+    ?assertEqual(HGTAmt3, EntryMod:balance(RecipientEntry3, hgt)),
+    ?assertEqual(HLTAmt3, EntryMod:balance(RecipientEntry3, hlt)),
 
     {ok, PayerEntry3} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(2, blockchain_ledger_entry_v2:nonce(PayerEntry3)),
+    ?assertEqual(2, EntryMod:nonce(PayerEntry3)),
     ?assertEqual(
         HNTBal - (HNTAmt1 + HNTAmt2 + HNTAmt3),
-        blockchain_ledger_entry_v2:balance(PayerEntry3, hnt)
+        EntryMod:balance(PayerEntry3)
     ),
     ?assertEqual(
         HSTBal - (HSTAmt1 + HSTAmt2 + HSTAmt3),
-        blockchain_ledger_entry_v2:balance(PayerEntry3, hst)
+        EntryMod:balance(PayerEntry3, hst)
     ),
     ?assertEqual(
         HGTBal - (HGTAmt1 + HGTAmt2 + HGTAmt3),
-        blockchain_ledger_entry_v2:balance(PayerEntry3, hgt)
+        EntryMod:balance(PayerEntry3, hgt)
     ),
     ?assertEqual(
         HLTBal - (HLTAmt1 + HLTAmt2 + HLTAmt3),
-        blockchain_ledger_entry_v2:balance(PayerEntry3, hlt)
+        EntryMod:balance(PayerEntry3, hlt)
     ),
 
     ok.
 
+entry_migration_test(Config) ->
+    Chain = ?config(chain, Config),
+    HNTBal = ?config(hnt_bal, Config),
+    EntryMod = ?config(entry_mod, Config),
+    {Priv, _} = ?config(master_key, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain:ledger(Chain),
+    Entries = get_entries(EntryMod, Ledger),
+    _ = lists:foreach(
+        fun(Entry) ->
+            HNTBal = EntryMod:balance(Entry),
+            0 = EntryMod:nonce(Entry)
+        end,
+        maps:values(Entries)
+    ),
+
+    %% Send var txn with ledger_entry_version = 2 and protocol_version = 2
+    %% to trigger ledger entry migration
+
+    Vars = #{ledger_entry_version => 2, protocol_version => 2},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:tid()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
+
+    %% At this point we should switch to v2 style entries
+
+    NewEntryMod = blockchain_ledger_entry_v2,
+    NewEntries = get_entries(NewEntryMod, Ledger),
+    _ = lists:foreach(
+        fun(Entry) ->
+            HNTBal = NewEntryMod:balance(Entry),
+            0 = NewEntryMod:nonce(Entry)
+        end,
+        maps:values(NewEntries)
+    ),
+
+    ok.
+
+extra_vars(entry_migration_test) ->
+    #{?max_payments => 20, ?allow_zero_amount => false};
 extra_vars(_) ->
     #{?protocol_version => 2, ?max_payments => 20, ?allow_zero_amount => false}.
+
+token_allocations(entry_migration_test, _Config) ->
+    undefined;
+token_allocations(_, Config) ->
+    HNTBal = ?config(hnt_bal, Config),
+    HSTBal = ?config(hst_bal, Config),
+    HGTBal = ?config(hgt_bal, Config),
+    HLTBal = ?config(hlt_bal, Config),
+    #{hnt => HNTBal, hst => HSTBal, hgt => HGTBal, hlt => HLTBal}.
+
+get_entries(blockchain_ledger_entry_v1, Ledger) ->
+    blockchain_ledger_v1:entries(Ledger);
+get_entries(blockchain_ledger_entry_v2, Ledger) ->
+    blockchain_ledger_v1:entries_v2(Ledger).

@@ -619,3 +619,7 @@
 %% Protocol version (aka support multiple tokens)
 %% Testing for now, set to 2
 -define(protocol_version, protocol_version).
+%% Ledger entry migration variable
+%% Will be used to hook and switch the old style ledger entries
+%% to new style ledger entries
+-define(ledger_entry_version, ledger_entry_version).
