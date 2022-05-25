@@ -41,7 +41,6 @@
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
     versioned_entry_mod_and_entries_cf/1,
     entries/1,
-    entries_v2/1,
     htlcs/1,
 
     master_key/1, master_key/2,
@@ -1339,27 +1338,20 @@ write_gw_denorm_values(Address, Old, Gw, Ledger) ->
             _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain))
     end.
 
--spec entries(ledger()) -> entries().
+-spec entries(ledger()) -> entries() | entries_v2().
 entries(Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    entries_(EntryMod, EntriesCF, Ledger).
+
+-spec entries_(EntryMod :: blockchain_ledger_entry_v1 | blockchain_ledger_entry_v2,
+               EntriesCF :: tagged_cf(),
+               Ledger :: ledger()) -> entries() | entries_v2().
+entries_(EntryMod, EntriesCF, Ledger) ->
     cache_fold(
         Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_entry_v1:deserialize(Binary),
-            maps:put(Address, Entry, Acc)
-        end,
-        #{}
-    ).
-
--spec entries_v2(ledger()) -> entries_v2().
-entries_v2(Ledger) ->
-    EntriesV2CF = entries_v2_cf(Ledger),
-    cache_fold(
-        Ledger,
-        EntriesV2CF,
-        fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_entry_v2:deserialize(Binary),
+            Entry = EntryMod:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
         #{}
@@ -2893,8 +2885,9 @@ hnt_to_dc(HNTAmount, Ledger)->
 %%--------------------------------------------------------------------
 -spec migrate_entries(Ledger :: ledger()) -> ok | {error, any()}.
 migrate_entries(Ledger) ->
-    migrate_reg_entries(Ledger),
-    migrate_sec_entries(Ledger).
+    ok = migrate_reg_entries(Ledger),
+    ok = migrate_sec_entries(Ledger),
+    ok.
 
 -spec migrate_reg_entries(Ledger :: ledger()) -> ok | {error, any()}.
 migrate_reg_entries(Ledger) ->
@@ -2905,9 +2898,24 @@ migrate_reg_entries(Ledger) ->
         EntriesCF,
         fun({Address, Binary}, ok) ->
             EntryV1 = blockchain_ledger_entry_v1:deserialize(Binary),
-            EntryV2 = blockchain_ledger_entry_v2:from_v1(EntryV1, entry),
-            Bin = blockchain_ledger_entry_v2:serialize(EntryV2),
-            cache_put(Ledger, EntriesV2CF, Address, Bin)
+            case ?MODULE:find_entry(Address, Ledger) of
+                {error, address_entry_not_found} ->
+                    %% This should _always_ occur as we assume no entries_v2 exist
+                    %% on ledger yet
+                    EntryV1Balance = blockchain_ledger_entry_v1:balance(EntryV1),
+                    EntryV1Nonce = blockchain_ledger_entry_v1:nonce(EntryV1),
+                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        blockchain_ledger_entry_v2:new(), EntryV1Balance, hnt),
+                      EntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                _ ->
+                    %% NOTE: This should never happen due to the order
+                    %% in which the migration is applied
+                    {error, entry_migration_aborted}
+            end
+
         end,
         ok
     ).
@@ -2920,10 +2928,36 @@ migrate_sec_entries(Ledger) ->
         Ledger,
         SecuritiesCF,
         fun({Address, Binary}, ok) ->
-            SecEntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
-            EntryV2 = blockchain_ledger_entry_v2:from_v1(SecEntryV1, security),
-            Bin = blockchain_ledger_entry_v2:serialize(EntryV2),
-            cache_put(Ledger, EntriesV2CF, Address, Bin)
+            EntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            case ?MODULE:find_entry(Address, Ledger) of
+                {ok, EntryV2} ->
+                    %% There's already an EntryV2 possibly from doing the entry migration,
+                    %% To consolidate:
+                    %% - Add the two nonces (sec_nonce_v1 + nonce_entry_v2)
+                    %% - Update hst balance in EntryV2
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
+                    EntryV2Nonce = blockchain_ledger_entry_v2:nonce(EntryV2),
+                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        EntryV2, SecEntryV1Balance, hst),
+                      EntryV2Nonce + SecEntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                {error, address_entry_not_found} ->
+                    %% This address only has security tokens, credit accordingly
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
+                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        blockchain_ledger_entry_v2:new(), SecEntryV1Balance, hst),
+                      SecEntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                _ ->
+                    %% Unexpected, abort!
+                    {error, sec_entry_migration_aborted}
+            end
         end,
         ok
     ).
