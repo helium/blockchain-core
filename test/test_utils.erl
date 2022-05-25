@@ -87,6 +87,7 @@ init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsens
 
 init_chain_with_opts(Opts) when is_map(Opts) ->
     Balance = maps:get(balance, Opts, 5000),
+    SecBalance = maps:get(sec_balance, Opts, 5000),
     ExtraVars = maps:get(extra_vars, Opts, #{}),
     TokenAllocations = maps:get(token_allocations, Opts, undefined),
     GenesisMembers =
@@ -126,7 +127,7 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
             maps:get(have_init_dc, Opts, false)
         ],
 
-    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
+    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, SecBalance)
                      || {Addr, _} <- GenesisMembers],
 
     Addresses = [Addr || {Addr, _} <- GenesisMembers],
