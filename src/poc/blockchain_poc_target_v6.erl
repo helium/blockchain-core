@@ -254,7 +254,7 @@ is_active(true, undefined, _MaxActivityAge, _Height) ->
     false;
 is_active(true, LastActivity, MaxActivityAge, Height) ->
     (Height - LastActivity) < MaxActivityAge;
-is_active(_ActivityFilterEnabled, _Gateway, _Height, _Vars) ->
+is_active(_ActivityFilterEnabled, _LastActivity, _MaxActivityAge, _Height) ->
     true.
 
 -spec max_activity_age(Vars :: map()) -> pos_integer().
