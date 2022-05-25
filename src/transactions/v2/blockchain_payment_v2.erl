@@ -74,7 +74,7 @@ new(Payee, Amount, TT) when is_integer(Amount) ->
           Amount :: non_neg_integer(),
           Memo :: non_neg_integer(),
           TT :: blockchain_token_v1:type()) -> payment().
-new(Payee, Amount, Memo, TT) ->
+new(Payee, Amount, Memo, TT) when is_integer(Memo) andalso is_integer(Amount) ->
     #payment_pb{
        payee=Payee,
        amount=Amount,
