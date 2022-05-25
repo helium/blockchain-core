@@ -3088,7 +3088,7 @@ credit_account(Address, Amount, Ledger) ->
 
 -spec credit_account(Address :: libp2p_crypto:pubkey_bin(),
                      Amount :: integer(),
-                     TT :: blockchain_token_type_v1:token(),
+                     TT :: blockchain_token_v1:type(),
                      Ledger :: ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, TT, Ledger) ->
     EntriesCF = entries_v2_cf(Ledger),
@@ -3150,7 +3150,7 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmoun
                       fun(TT) ->
                               blockchain_ledger_entry_v2:balance(Entry, TT) >= maps:get(TT, AmountOrAmounts, 0)
                       end,
-                      blockchain_token_type_v1:supported_tokens())
+                      blockchain_token_v1:supported_tokens())
                     of
                         true ->
                             Entry0 = maps:fold(

@@ -42,7 +42,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type total_amounts() :: #{blockchain_token_type_v1:token_type() => non_neg_integer()}.
+-type total_amounts() :: #{blockchain_token_v1:type() => non_neg_integer()}.
 -type txn_payment_v2() :: #blockchain_txn_payment_v2_pb{}.
 
 -export_type([txn_payment_v2/0, total_amounts/0]).
@@ -487,7 +487,7 @@ amount_check_v2(Txn, Ledger) ->
               PayerTTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, TT),
               PayerTTBalance >= maps:get(TT, TotAmounts, 0)
       end,
-      blockchain_token_type_v1:supported_tokens()),
+      blockchain_token_v1:supported_tokens()),
 
     case blockchain:config(?allow_zero_amount, Ledger) of
         {ok, false} ->
