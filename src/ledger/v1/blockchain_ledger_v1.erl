@@ -302,7 +302,7 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
--type tagged_cf() :: tagged_cf().
+-type tagged_cf() :: {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
 
 -export_type([ledger/0]).
 
