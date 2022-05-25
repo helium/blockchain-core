@@ -94,6 +94,7 @@
     pocs/2,
     delete_poc/3,
     purge_pocs/1,
+    purge_poc_proposals/1,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
     maybe_gc_h3dex/1,
@@ -2321,7 +2322,6 @@ pocs_(CF, Ledger) ->
 -spec purge_pocs(ledger()) -> ok.
 purge_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    ProposedPoCsCF = proposed_pocs_cf(Ledger),
     PurgeFun = fun(CF) ->
                        cache_fold(
                          Ledger,
@@ -2333,6 +2333,21 @@ purge_pocs(Ledger) ->
                         )
                end,
     PurgeFun(PoCsCF),
+    ok.
+
+-spec purge_poc_proposals(ledger()) -> ok.
+purge_poc_proposals(Ledger) ->
+    ProposedPoCsCF = proposed_pocs_cf(Ledger),
+    PurgeFun = fun(CF) ->
+                       cache_fold(
+                         Ledger,
+                         CF,
+                         fun({KeyHash, _}, _Acc) ->
+                                 cache_delete(Ledger, CF, KeyHash)
+                         end,
+                         []
+                        )
+               end,
     PurgeFun(ProposedPoCsCF),
     ok.
 

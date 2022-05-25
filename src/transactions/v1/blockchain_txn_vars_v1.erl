@@ -689,14 +689,14 @@ process_hooks(Vars, Unsets, Ledger) ->
 -spec var_hook(Var :: atom(), Value :: any(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 var_hook(?poc_targeting_version, 6, Ledger) ->
     %% purge any active POCs
-    purge_pocs(Ledger),
+    blockchain_ledger_v1:purge_pocs(Ledger),
     %% build the h3dex lookup
     {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
     blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
     ok;
 var_hook(?poc_targeting_version, 5, Ledger) ->
     %% purge any active POCs
-    purge_pocs(Ledger),
+    blockchain_ledger_v1:purge_pocs(Ledger),
     %% v3 targeting enabled, remove the h3dex lookup
     blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
     ok;
@@ -743,7 +743,8 @@ var_hook(?poc_challenger_type, Type, Ledger) ->
             blockchain_ledger_v1:validator_count(Ct, Ledger);
         _ -> ok
     end,
-    purge_pocs(Ledger),
+    blockchain_ledger_v1:purge_pocs(Ledger),
+    blockchain_ledger_v1:purge_poc_proposals(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
@@ -758,7 +759,8 @@ unset_hook(?poc_hexing_type, Ledger) ->
     blockchain:bootstrap_hexes(Ledger),
     ok;
 unset_hook(?poc_challenger_type, Ledger) ->
-    purge_pocs(Ledger),
+    blockchain_ledger_v1:purge_pocs(Ledger),
+    blockchain_ledger_v1:purge_poc_proposals(Ledger),
     ok;
 unset_hook(_Var, _Ledger) ->
     ok.
@@ -1635,9 +1637,6 @@ validate_region_params(Var, Value) when is_binary(Value) ->
     end;
 validate_region_params(Var, Value) ->
     throw({error, {invalid_region_param_not_binary, Var, Value}}).
-
-purge_pocs(Ledger) ->
-    blockchain_ledger_v1:purge_pocs(Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
