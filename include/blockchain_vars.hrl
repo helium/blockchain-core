@@ -623,3 +623,5 @@
 %% Will be used to hook and switch the old style ledger entries
 %% to new style ledger entries
 -define(ledger_entry_version, ledger_entry_version).
+%% Var to switch off legacy security_exchange txn
+-define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).
