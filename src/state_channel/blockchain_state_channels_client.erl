@@ -62,6 +62,14 @@
 -type waiting() :: #{waiting_key() => [waiting_packet()]}.
 -type netid_to_oui() :: {pos_integer(), pos_integer()}.
 
+-ifdef(TEST).
+-export([set_routers/2, get_routers/1, handle_route_by_netid/6]).
+-spec set_routers(list(string()), blockchain:blockchain()) -> state().
+set_routers(Routers, Chain) -> #state{chain=Chain, routers=Routers}.
+-spec get_routers(state()) -> list(netid_to_oui()).
+get_routers(State) -> State#state.routers.
+-endif.
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------

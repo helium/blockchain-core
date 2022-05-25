@@ -4,6 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain.hrl").
+-include("blockchain_ct_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
@@ -1345,15 +1346,11 @@ routing_test(Config) ->
     ok.
 
 routing_netid_to_oui_test(Config) ->
-    %% Fake 24 bit NetIDs and fake OUIs:
-    PeerNetIdToOUIs = [{16#001000, 201}, {16#010000, 202}, {16#011000, 203}],
-
     %% Mostly same as routing_test()...
     ConsensusMembers = ?config(consensus_members, Config),
     Chain = ?config(chain, Config),
     Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
-    {Priv, _} = ?config(master_key, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1383,57 +1380,60 @@ routing_netid_to_oui_test(Config) ->
 
     %% Diverging from routing_test()...
 
-    %% Populate chain var with routing table of roaming peers.
-    Vars = #{routers_by_netid_to_oui => term_to_binary(PeerNetIdToOUIs)},
-    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
-    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
-    {ok, VarBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:tid()),
-    %% wait for the chain var to take effect
-    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
-    {ok, Height} = blockchain:height(Chain),
-    CommitHeight = Height + Delay,
-    ct:pal("Var commit height=~p", [CommitHeight]),
-    %% Add some blocks up until the commit height
-    lists:foreach(
-        fun(_) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
-                {ok, CurHeight} = blockchain:height(Chain),
-                case blockchain:config(routers_by_netid_to_oui, Ledger) of % ignore "?"
-                    {error, not_found} when CurHeight < CommitHeight ->
-                        ok;
-                    {ok, validator} ->
-                        ok;
-                    Res ->
-                        %% FIXME landing here
-                        throw({error, {chain_var_wrong_height, Res, CurHeight}})
-                end
+    PeerRouters =
+        case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+            {ok, Bin} -> binary_to_term(Bin);
+            _ -> []
         end,
-        lists:seq(1, CommitHeight)
-    ),
+    ?assertNotEqual([], PeerRouters),
+    State = blockchain_state_channels_client:set_routers(PeerRouters, Chain),
+    Region = 'US915',
+    Now = erlang:system_time(seconds),
+    %% FIXME: may need to strip "/p2p/1" prefix
+    DefaultRouters = ["/p2p/11w77YQLhgUt8HUJrMtntGGr97RyXmot1ofs5Ct2ELTmbFoYsQa",
+                      "/p2p/11afuQSrmk52mgxLu91AdtDXbJ9wmqWBUxC3hvjejoXkxEZfPvY"],
 
-    %% FIXME send packet using devaddr within each of our test netids,
-    %% and confirm results of route_by_netid().  Repeat with devaddr
-    %% outside of our netids.
+    %% Send packet using devaddr outside any of our test netids.
+    DevAddr0 = 16#ffffffff,
+    Payload0 = crypto:strong_rand_bytes(120),
+    Packet0 = blockchain_helium_packet_v1:new({devaddr, DevAddr0}, Payload0),
+    NewState0 =
+        blockchain_state_channels_client:handle_route_by_netid(
+          Packet0, DevAddr0, DefaultRouters, Region, Now, State
+         ),
+    Routers0 = blockchain_state_channels_client:get_routers(NewState0),
+    ?assertEqual(DefaultRouters, Routers0),
 
-    %% %% Send a packet.
-    %% Packet = fixme,
-    %% DevAddr = fixme,
-    %% DefaultRouters = fixme,
-    %% Region = fixme,
-    %% ReceivedTime = fixme,
+    %% Send packet using devaddr within each of our test netids,
+    %% and confirm results of route_by_netid().
+    lists:map(fun({NetID, OUI}) ->
+                      DevAddr = NetID bsl 8 bor 123,
+                      Payload = crypto:strong_rand_bytes(120),
+                      Packet = blockchain_helium_packet_v1:new({devaddr, DevAddr}, Payload),
+                      NewState =
+                          blockchain_state_channels_client:handle_route_by_netid(
+                            Packet, DevAddr, DefaultRouters, Region, Now, State
+                           ),
+                      Routers = blockchain_state_channels_client:get_routers(NewState),
+                      ct:pal("FOUND ROUTERS=~p", [Routers]), %DELETE ME
+                      P2P = OUI, % FIXME: resolve OUI to P2P address
+                      ?assert(lists:member(P2P, Routers))
+              end,
+              PeerRouters),
 
-    %% PeerRouters =
-    %%     case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
-    %%         {ok, Bin} -> binary_to_term(Bin);
-    %%         _ -> []
-    %%     end,
-    %% State = #state{chain=Chain, routers=PeerRouters},
-    %% blockchain_state_channels_client:route_by_netid(Packet, DevAddr, DefaultRouters,
-    %%                                                 Region, ReceivedTime, State),
-
+    %% Repeat with Joins
+    lists:map(fun({NetID, _OUI}) ->
+                      DevAddr = NetID bsl 8 bor 123,
+                      DevNonce = crypto:strong_rand_bytes(2),
+                      Packet = blockchain_ct_utils:join_packet(?APPKEY, DevNonce, 0.0),
+                      NewState =
+                          blockchain_state_channels_client:handle_route_by_netid(
+                            Packet, DevAddr, DefaultRouters, Region, Now, State
+                           ),
+                      Routers = blockchain_state_channels_client:get_routers(NewState),
+                      ?assertEqual(lists:sort(DefaultRouters), lists:sort(Routers))
+              end,
+              PeerRouters),
     ok.
 
 max_subnet_test(Config) ->
