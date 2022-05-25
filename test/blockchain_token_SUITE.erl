@@ -59,6 +59,8 @@ init_per_testcase(TestCase, Config) ->
             #{
                 balance =>
                     HNTBal,
+                sec_balance =>
+                    HSTBal,
                 keys =>
                     {PrivKey, PubKey},
                 in_consensus =>
@@ -131,7 +133,7 @@ multi_token_coinbase_test(Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
 
-    Entries = get_entries(EntryMod, Ledger),
+    Entries = blockchain_ledger_v1:entries(Ledger),
 
     _ = lists:foreach(
         fun(Entry) ->
@@ -277,19 +279,36 @@ multi_token_payment_test(Config) ->
 entry_migration_test(Config) ->
     Chain = ?config(chain, Config),
     HNTBal = ?config(hnt_bal, Config),
+    HSTBal = ?config(hst_bal, Config),
     EntryMod = ?config(entry_mod, Config),
     {Priv, _} = ?config(master_key, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
-    Entries = get_entries(EntryMod, Ledger),
-    _ = lists:foreach(
+    Entries = blockchain_ledger_v1:entries(Ledger),
+    ct:pal("BEFORE Entries: ~p", [Entries]),
+
+    Securities = blockchain_ledger_v1:securities(Ledger),
+    ct:pal("BEFORE Securities: ~p", [Securities]),
+
+    %% Ensure we are on v1 style entries
+    ?assertEqual(blockchain_ledger_entry_v1, EntryMod),
+
+    ok = lists:foreach(
         fun(Entry) ->
             HNTBal = EntryMod:balance(Entry),
             0 = EntryMod:nonce(Entry)
         end,
         maps:values(Entries)
+    ),
+
+    ok = lists:foreach(
+        fun(Entry) ->
+            HSTBal = blockchain_ledger_security_entry_v1:balance(Entry),
+            0 = blockchain_ledger_security_entry_v1:nonce(Entry)
+        end,
+        maps:values(Securities)
     ),
 
     %% Send var txn with ledger_entry_version = 2 and token_version = 2
@@ -310,17 +329,26 @@ entry_migration_test(Config) ->
 
     %% At this point we should switch to v2 style entries
 
-    NewEntryMod = blockchain_ledger_entry_v2,
-    NewEntries = get_entries(NewEntryMod, Ledger),
-    _ = lists:foreach(
+    AfterEntries = blockchain_ledger_v1:entries(Ledger),
+    ct:pal("AFTER Entries: ~p", [AfterEntries]),
+
+    %% Ensure we are on v2 style entries after the var
+    {NewEntryMod, _} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+    ?assertEqual(blockchain_ledger_entry_v2, NewEntryMod),
+
+    ok = lists:foreach(
         fun(Entry) ->
             HNTBal = NewEntryMod:balance(Entry),
-            0 = NewEntryMod:nonce(Entry)
+            0 = NewEntryMod:nonce(Entry),
+            HSTBal = NewEntryMod:balance(Entry, hst)
         end,
-        maps:values(NewEntries)
+        maps:values(AfterEntries)
     ),
 
     ok.
+
+%% TODO: Add another migration test with payments and sec_exchange
+%% and ensure that the nonces line up
 
 extra_vars(entry_migration_test) ->
     #{?max_payments => 20, ?allow_zero_amount => false};
@@ -335,8 +363,3 @@ token_allocations(_, Config) ->
     HGTBal = ?config(hgt_bal, Config),
     HLTBal = ?config(hlt_bal, Config),
     #{hnt => HNTBal, hst => HSTBal, hgt => HGTBal, hlt => HLTBal}.
-
-get_entries(blockchain_ledger_entry_v1, Ledger) ->
-    blockchain_ledger_v1:entries(Ledger);
-get_entries(blockchain_ledger_entry_v2, Ledger) ->
-    blockchain_ledger_v1:entries_v2(Ledger).
