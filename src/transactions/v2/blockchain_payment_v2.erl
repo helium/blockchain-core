@@ -73,7 +73,7 @@ new(Payee, Amount, TT) when is_integer(Amount) ->
 -spec new(Payee :: libp2p_crypto:pubkey_bin(),
           Amount :: non_neg_integer(),
           Memo :: non_neg_integer(),
-          TT :: blockchain_token_type_v1:token_type()) -> payment().
+          TT :: blockchain_token_v1:type()) -> payment().
 new(Payee, Amount, Memo, TT) ->
     #payment_pb{
        payee=Payee,
@@ -102,11 +102,11 @@ memo(Payment, Memo) ->
 max(Payment) ->
     Payment#payment_pb.max.
 
--spec token_type(Payment :: payment()) -> blockchain_token_type_v1:token_type().
+-spec token_type(Payment :: payment()) -> blockchain_token_v1:type().
 token_type(Payment) ->
     Payment#payment_pb.token_type.
 
--spec token_type(Payment :: payment(), TT :: blockchain_token_type_v1:token_type()) -> payment().
+-spec token_type(Payment :: payment(), TT :: blockchain_token_v1:type()) -> payment().
 token_type(Payment, TT) ->
     Payment#payment_pb{token_type=TT}.
 
@@ -133,7 +133,7 @@ print(#payment_pb{payee=Payee, amount=Amount, memo=Memo, max=Max, token_type=TT}
 -spec is_valid_token_type(Payment :: payment()) -> boolean().
 is_valid_token_type(#payment_pb{token_type = TT}) ->
     try
-        lists:member(TT, blockchain_token_type_v1:supported_tokens())
+        lists:member(TT, blockchain_token_v1:supported_tokens())
     catch _:_ ->
             %% we can't do this, invalid
             false

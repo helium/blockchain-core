@@ -61,7 +61,7 @@ balance(Entry) ->
 %% @doc Return requested token balance.
 %% @end
 %%--------------------------------------------------------------------
--spec balance(Entry :: entry(), TT :: blockchain_token_type_v1:token_type()) -> non_neg_integer().
+-spec balance(Entry :: entry(), TT :: blockchain_token_v1:type()) -> non_neg_integer().
 balance(Entry, hnt) ->
     hnt_balance(Entry);
 balance(Entry, hst) ->
@@ -74,7 +74,7 @@ balance(Entry, hlt) ->
 -spec credit(
     Entry :: entry(),
     Amount :: non_neg_integer(),
-    TT :: blockchain_token_type_v1:token_type()
+    TT :: blockchain_token_v1:type()
 ) -> entry().
 credit(Entry, Amount, hnt) ->
     credit_hnt(Entry, Amount);
@@ -88,7 +88,7 @@ credit(Entry, Amount, hlt) ->
 -spec debit(
     Entry :: entry(),
     Amount :: non_neg_integer(),
-    TT :: blockchain_token_type_v1:token_type()
+    TT :: blockchain_token_v1:type()
 ) -> entry().
 debit(Entry, Amount, hnt) ->
     debit_hnt(Entry, Amount);
