@@ -1210,6 +1210,11 @@ validate_var(?deprecate_payment_v1, Value) ->
         Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalidate_deprecate_payment_v1, Value}})
     end;
+validate_var(?deprecate_security_exchange_v1, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_security_exchange_v1, Value}})
+    end;
 
 validate_var(?allow_payment_v2_memos, Value) ->
     case Value of
