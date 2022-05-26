@@ -5535,7 +5535,13 @@ snapshot_raw(CF, L) ->
     %% Since rocks folds are lexicographic - we can just reverse:
     lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
 
--spec load_raw([{binary(), binary()}] | function(), rocksdb:cf_handle(), ledger()) -> ok.
+-spec load_raw([{binary(), binary()}] | function(), CFSpec, ledger()) -> ok when
+        CFSpec ::
+        {
+            CFName :: atom(),
+            DB :: rocksdb:db_handle(),
+            CF :: rocksdb:cf_handle()
+        }.
 load_raw(Iter, {Name, DB, CF}, Ledger) when is_function(Iter, 0) ->
     case Iter() of
         {K, V, NewIter} ->
@@ -5771,7 +5777,7 @@ load_hexes(Hexes0, Ledger) ->
 snapshot_h3dex(Ledger) ->
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
-            {_Name, _DB, H3CF} = h3dex_cf(Ledger),
+            H3CF = h3dex_cf(Ledger),
             snapshot_raw(H3CF, Ledger);
         _ ->
             lists:sort(
@@ -5783,7 +5789,7 @@ snapshot_h3dex(Ledger) ->
 load_h3dex(H3DexList, Ledger) ->
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
-            {_Name, _DB, H3CF} = h3dex_cf(Ledger),
+            H3CF = h3dex_cf(Ledger),
             load_raw(H3DexList, H3CF, Ledger);
         _ ->
             {_Name, DB, H3CF} = h3dex_cf(Ledger),
