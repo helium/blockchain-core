@@ -9,7 +9,8 @@
 -export([
     multi_token_coinbase_test/1,
     multi_token_payment_test/1,
-    entry_migration_test/1
+    entry_migration_test/1,
+    entry_migration_with_payment_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -26,7 +27,8 @@ all() ->
     [
         multi_token_coinbase_test,
         multi_token_payment_test,
-        entry_migration_test
+        entry_migration_test,
+        entry_migration_with_payment_test
     ].
 
 %%--------------------------------------------------------------------
@@ -347,14 +349,114 @@ entry_migration_test(Config) ->
 
     ok.
 
-%% TODO: Add another migration test with payments and sec_exchange
-%% and ensure that the nonces line up
+entry_migration_with_payment_test(Config) ->
+    Chain = ?config(chain, Config),
+    HNTBal = ?config(hnt_bal, Config),
+    HSTBal = ?config(hst_bal, Config),
+    {Priv, _} = ?config(master_key, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
 
+    Ledger = blockchain:ledger(Chain),
+
+    BeforeEntries = blockchain_ledger_v1:entries(Ledger),
+    ct:pal("BEFORE Entries: ~p", [BeforeEntries]),
+
+    %% Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
+
+    %% Create a payment to a single payee
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Amount = 2500,
+    Payment1 = blockchain_payment_v2:new(Recipient, Amount),
+
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+
+    ct:pal("~s", [blockchain_txn:print(SignedTx)]),
+
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+
+    %% Create a security exchange transaction
+
+    SecAmount = 100,
+    STx = blockchain_txn_security_exchange_v1:new(
+        Payer,
+        Recipient,
+        SecAmount,
+        1
+    ),
+    SignedSTx = blockchain_txn_security_exchange_v1:sign(STx, SigFun),
+    ct:pal("~s", [blockchain_txn:print(SignedSTx)]),
+
+    {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedSTx]),
+    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+
+    %% Send var txn with ledger_entry_version = 2 and token_version = 2
+    %% to trigger ledger entry migration
+
+    Vars = #{ledger_entry_version => 2, token_version => 2},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+
+    {ok, Block4} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(Block4, Chain, self(), blockchain_swarm:tid()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block4)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block4}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 4}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block4}, blockchain:get_block(4, Chain)),
+
+    %% At this point we should switch to v2 style entries
+    AfterEntries = blockchain_ledger_v1:entries(Ledger),
+    ct:pal("AFTER Entries: ~p", [AfterEntries]),
+
+    %% Ensure we are on v2 style entries after the var
+    {NewEntryMod, _} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+    ?assertEqual(blockchain_ledger_entry_v2, NewEntryMod),
+
+    {ok, RecipientEntry} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
+    ct:pal("RecipientEntry: ~p", [RecipientEntry]),
+    ?assertEqual(0, NewEntryMod:nonce(RecipientEntry)),
+    ?assertEqual(Amount, NewEntryMod:balance(RecipientEntry)),
+    ?assertEqual(SecAmount, NewEntryMod:balance(RecipientEntry, hst)),
+
+    {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ct:pal("RecipientEntry: ~p", [RecipientEntry]),
+
+    %% +1 from hnt payment +1 from security payment
+    ?assertEqual(2, NewEntryMod:nonce(PayerEntry)),
+    ?assertEqual(HNTBal - Amount, NewEntryMod:balance(PayerEntry)),
+    ?assertEqual(HSTBal - SecAmount, NewEntryMod:balance(PayerEntry, hst)),
+
+    ok.
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+extra_vars(entry_migration_with_payment_test) ->
+    #{?max_payments => 20, ?allow_zero_amount => false};
 extra_vars(entry_migration_test) ->
     #{?max_payments => 20, ?allow_zero_amount => false};
 extra_vars(_) ->
     #{?token_version => 2, ?max_payments => 20, ?allow_zero_amount => false}.
 
+token_allocations(entry_migration_with_payment_test, _Config) ->
+    undefined;
 token_allocations(entry_migration_test, _Config) ->
     undefined;
 token_allocations(_, Config) ->
