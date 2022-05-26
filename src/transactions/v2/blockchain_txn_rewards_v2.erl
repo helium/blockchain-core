@@ -359,6 +359,10 @@ calculate_rewards_metadata(Start, End, Chain) ->
         perf_report(PerfTab),
         catch ets:delete(PerfTab),
         erlang:erase({Me, '$rwd_perf'}),
+        PDict = erlang:get(),
+        lists:foreach(fun({{vw, _, _} = K, _}) ->
+                              erlang:erase(K)
+                      end, PDict),
         {ok, Results}
     catch
         C:Error:Stack ->
@@ -1221,10 +1225,10 @@ poc_witness_reward(Txn, AccIn,
                         WitStart = erlang:monotonic_time(microsecond),
                         ElemHash = erlang:phash2(Elem),
                         ValidWitnesses =
-                            case get({KeyHash, ElemHash}) of
+                            case get({vw, KeyHash, ElemHash}) of
                                 undefined ->
                                     VW = TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
-                                    put({KeyHash, ElemHash}, VW),
+                                    put({vw, KeyHash, ElemHash}, VW),
                                     VW;
                                 VW -> VW
                             end,
@@ -1565,10 +1569,10 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
                 KeyHash = TxnType:onion_key_hash(Txn),
                 ElemHash = erlang:phash2(Elem),
                 ValidWitnesses =
-                    case get({KeyHash, ElemHash}) of
+                    case get({vw, KeyHash, ElemHash}) of
                         undefined ->
                             VW = TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
-                            put({KeyHash, ElemHash}, VW),
+                            put({vw, KeyHash, ElemHash}, VW),
                             VW;
                         VW -> VW
                     end,
