@@ -51,7 +51,7 @@ init_per_group(with_token_version, Config) ->
     [
         {group_vars, #{?token_version => 2}},
         {balance, 5000},
-        {token_allocations, #{hnt => 5000, hst => 1000, hgt => 100, hlt => 10}}
+        {token_allocations, #{hnt => 5000, hst => 1000, mobile => 100, iot => 10}}
         | Config
     ];
 init_per_group(_, Config) ->
