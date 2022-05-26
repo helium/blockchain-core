@@ -40,14 +40,14 @@ init_per_testcase(TestCase, Config) ->
 
     HNTBal = 50000,
     HSTBal = 10000,
-    HGTBal = 1000,
-    HLTBal = 100,
+    MobileBal = 1000,
+    IOTBal = 100,
 
     Config1 = [
         {hnt_bal, HNTBal},
         {hst_bal, HSTBal},
-        {hgt_bal, HGTBal},
-        {hlt_bal, HLTBal}
+        {mobile_bal, MobileBal},
+        {iot_bal, IOTBal}
         | Config0
     ],
 
@@ -86,8 +86,8 @@ init_per_testcase(TestCase, Config) ->
     [
         {hnt_bal, HNTBal},
         {hst_bal, HSTBal},
-        {hgt_bal, HGTBal},
-        {hlt_bal, HLTBal},
+        {mobile_bal, MobileBal},
+        {iot_bal, IOTBal},
         {entry_mod, EntryMod},
         {sup, Sup},
         {pubkey, PubKey},
@@ -128,8 +128,8 @@ multi_token_coinbase_test(Config) ->
     Chain = ?config(chain, Config),
     HNTBal = ?config(hnt_bal, Config),
     HSTBal = ?config(hst_bal, Config),
-    HGTBal = ?config(hgt_bal, Config),
-    HLTBal = ?config(hlt_bal, Config),
+    MobileBal = ?config(mobile_bal, Config),
+    IOTBal = ?config(iot_bal, Config),
     EntryMod = ?config(entry_mod, Config),
 
     % Check ledger to make sure everyone has the right balance
@@ -143,9 +143,9 @@ multi_token_coinbase_test(Config) ->
             0 = EntryMod:nonce(Entry),
             HSTBal = EntryMod:balance(Entry, hst),
             0 = EntryMod:nonce(Entry),
-            HGTBal = EntryMod:balance(Entry, hgt),
+            MobileBal = EntryMod:balance(Entry, mobile),
             0 = EntryMod:nonce(Entry),
-            HLTBal = EntryMod:balance(Entry, hlt),
+            IOTBal = EntryMod:balance(Entry, iot),
             0 = EntryMod:nonce(Entry)
         end,
         maps:values(Entries)
@@ -157,8 +157,8 @@ multi_token_payment_test(Config) ->
     Chain = ?config(chain, Config),
     HNTBal = ?config(hnt_bal, Config),
     HSTBal = ?config(hst_bal, Config),
-    HGTBal = ?config(hgt_bal, Config),
-    HLTBal = ?config(hlt_bal, Config),
+    MobileBal = ?config(mobile_bal, Config),
+    IOTBal = ?config(iot_bal, Config),
     EntryMod = ?config(entry_mod, Config),
     Ledger = blockchain:ledger(Chain),
 
@@ -170,22 +170,22 @@ multi_token_payment_test(Config) ->
 
     HNTAmt1 = 20000,
     HSTAmt1 = 2000,
-    HGTAmt1 = 200,
-    HLTAmt1 = 20,
+    MobileAmt1 = 200,
+    IOTAmt1 = 20,
     HNTAmt2 = 10000,
     HSTAmt2 = 1000,
-    HGTAmt2 = 100,
-    HLTAmt2 = 10,
+    MobileAmt2 = 100,
+    IOTAmt2 = 10,
 
     P1 = blockchain_payment_v2:new(Recipient1, HNTAmt1),
     P2 = blockchain_payment_v2:new(Recipient1, HSTAmt1, hst),
-    P3 = blockchain_payment_v2:new(Recipient1, HGTAmt1, hgt),
-    P4 = blockchain_payment_v2:new(Recipient1, HLTAmt1, hlt),
+    P3 = blockchain_payment_v2:new(Recipient1, MobileAmt1, mobile),
+    P4 = blockchain_payment_v2:new(Recipient1, IOTAmt1, iot),
 
     P5 = blockchain_payment_v2:new(Recipient2, HNTAmt2),
     P6 = blockchain_payment_v2:new(Recipient2, HSTAmt2, hst),
-    P7 = blockchain_payment_v2:new(Recipient2, HGTAmt2, hgt),
-    P8 = blockchain_payment_v2:new(Recipient2, HLTAmt2, hlt),
+    P7 = blockchain_payment_v2:new(Recipient2, MobileAmt2, mobile),
+    P8 = blockchain_payment_v2:new(Recipient2, IOTAmt2, iot),
 
     Payments = [P1, P2, P3, P4, P5, P6, P7, P8],
 
@@ -207,20 +207,20 @@ multi_token_payment_test(Config) ->
 
     ?assertEqual(HNTAmt1, EntryMod:balance(RecipientEntry1)),
     ?assertEqual(HSTAmt1, EntryMod:balance(RecipientEntry1, hst)),
-    ?assertEqual(HGTAmt1, EntryMod:balance(RecipientEntry1, hgt)),
-    ?assertEqual(HLTAmt1, EntryMod:balance(RecipientEntry1, hlt)),
+    ?assertEqual(MobileAmt1, EntryMod:balance(RecipientEntry1, mobile)),
+    ?assertEqual(IOTAmt1, EntryMod:balance(RecipientEntry1, iot)),
 
     ?assertEqual(HNTAmt2, EntryMod:balance(RecipientEntry2)),
     ?assertEqual(HSTAmt2, EntryMod:balance(RecipientEntry2, hst)),
-    ?assertEqual(HGTAmt2, EntryMod:balance(RecipientEntry2, hgt)),
-    ?assertEqual(HLTAmt2, EntryMod:balance(RecipientEntry2, hlt)),
+    ?assertEqual(MobileAmt2, EntryMod:balance(RecipientEntry2, mobile)),
+    ?assertEqual(IOTAmt2, EntryMod:balance(RecipientEntry2, iot)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(1, EntryMod:nonce(PayerEntry)),
     ?assertEqual(HNTBal - (HNTAmt1 + HNTAmt2), EntryMod:balance(PayerEntry)),
     ?assertEqual(HSTBal - (HSTAmt1 + HSTAmt2), EntryMod:balance(PayerEntry, hst)),
-    ?assertEqual(HGTBal - (HGTAmt1 + HGTAmt2), EntryMod:balance(PayerEntry, hgt)),
-    ?assertEqual(HLTBal - (HLTAmt1 + HLTAmt2), EntryMod:balance(PayerEntry, hlt)),
+    ?assertEqual(MobileBal - (MobileAmt1 + MobileAmt2), EntryMod:balance(PayerEntry, mobile)),
+    ?assertEqual(IOTBal - (IOTAmt1 + IOTAmt2), EntryMod:balance(PayerEntry, iot)),
 
     %% Do another payment
 
@@ -228,13 +228,13 @@ multi_token_payment_test(Config) ->
 
     HNTAmt3 = 2000,
     HSTAmt3 = 200,
-    HGTAmt3 = 20,
-    HLTAmt3 = 2,
+    MobileAmt3 = 20,
+    IOTAmt3 = 2,
 
     P9 = blockchain_payment_v2:new(Recipient3, HNTAmt3, hnt),
     P10 = blockchain_payment_v2:new(Recipient3, HSTAmt3, hst),
-    P11 = blockchain_payment_v2:new(Recipient3, HGTAmt3, hgt),
-    P12 = blockchain_payment_v2:new(Recipient3, HLTAmt3, hlt),
+    P11 = blockchain_payment_v2:new(Recipient3, MobileAmt3, mobile),
+    P12 = blockchain_payment_v2:new(Recipient3, IOTAmt3, iot),
 
     Payments3 = [P9, P10, P11, P12],
 
@@ -254,8 +254,8 @@ multi_token_payment_test(Config) ->
 
     ?assertEqual(HNTAmt3, EntryMod:balance(RecipientEntry3)),
     ?assertEqual(HSTAmt3, EntryMod:balance(RecipientEntry3, hst)),
-    ?assertEqual(HGTAmt3, EntryMod:balance(RecipientEntry3, hgt)),
-    ?assertEqual(HLTAmt3, EntryMod:balance(RecipientEntry3, hlt)),
+    ?assertEqual(MobileAmt3, EntryMod:balance(RecipientEntry3, mobile)),
+    ?assertEqual(IOTAmt3, EntryMod:balance(RecipientEntry3, iot)),
 
     {ok, PayerEntry3} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(2, EntryMod:nonce(PayerEntry3)),
@@ -268,12 +268,12 @@ multi_token_payment_test(Config) ->
         EntryMod:balance(PayerEntry3, hst)
     ),
     ?assertEqual(
-        HGTBal - (HGTAmt1 + HGTAmt2 + HGTAmt3),
-        EntryMod:balance(PayerEntry3, hgt)
+        MobileBal - (MobileAmt1 + MobileAmt2 + MobileAmt3),
+        EntryMod:balance(PayerEntry3, mobile)
     ),
     ?assertEqual(
-        HLTBal - (HLTAmt1 + HLTAmt2 + HLTAmt3),
-        EntryMod:balance(PayerEntry3, hlt)
+        IOTBal - (IOTAmt1 + IOTAmt2 + IOTAmt3),
+        EntryMod:balance(PayerEntry3, iot)
     ),
 
     ok.
@@ -462,6 +462,6 @@ token_allocations(entry_migration_test, _Config) ->
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),
     HSTBal = ?config(hst_bal, Config),
-    HGTBal = ?config(hgt_bal, Config),
-    HLTBal = ?config(hlt_bal, Config),
-    #{hnt => HNTBal, hst => HSTBal, hgt => HGTBal, hlt => HLTBal}.
+    MobileBal = ?config(mobile_bal, Config),
+    IOTBal = ?config(iot_bal, Config),
+    #{hnt => HNTBal, hst => HSTBal, mobile => MobileBal, iot => IOTBal}.
