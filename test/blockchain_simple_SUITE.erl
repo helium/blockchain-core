@@ -1394,7 +1394,11 @@ routing_netid_to_oui_test(Config) ->
                       "/p2p/11afuQSrmk52mgxLu91AdtDXbJ9wmqWBUxC3hvjejoXkxEZfPvY"],
 
     %% Send packet using devaddr outside any of our test netids.
-    DevAddr0 = 16#ffffffff,
+
+    %% FIXME: using Network Byte Order returns entire roaming list, and
+    %% without that crashes `find_routing_via_devaddr' with bad arg.
+    DevAddr0 =
+        binary:decode_unsigned(<<16#F0F0F0:25/integer-unsigned-little, $Z:7/integer>>),
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, DevAddr0}, Payload0),
     NewState0 =
@@ -1416,7 +1420,8 @@ routing_netid_to_oui_test(Config) ->
                            ),
                       Routers = blockchain_state_channels_client:get_routers(NewState),
                       ct:pal("FOUND ROUTERS=~p", [Routers]), %DELETE ME
-                      P2P = OUI, % FIXME: resolve OUI to P2P address
+                      P2P = blockchain_ledger_v1:find_routing(OUI, Ledger),
+                      ct:pal("FOUND P2P=~p", [P2P]), %DELETE ME
                       ?assert(lists:member(P2P, Routers))
               end,
               PeerRouters),

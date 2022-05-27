@@ -1121,8 +1121,12 @@ handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, Sta
                  end,
             RoutesOrAddresses =
                 case lists:foldl(Fn, [], RoamingRouters) of
-                    [] -> DefaultRouters;
-                    RoamingSubset -> RoamingSubset
+                    [] ->
+                        DefaultRouters;
+                    RoamingSubset ->
+                        %% FIXME: returns list of OUIs; whereas,
+                        %% others are lists of P2P addresses.
+                        RoamingSubset
                 end,
             handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, State);
         _ ->
