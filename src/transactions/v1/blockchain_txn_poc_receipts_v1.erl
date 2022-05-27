@@ -365,37 +365,40 @@ check_is_valid_poc(Txn, Chain) ->
                                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                                             StartV = maybe_log_duration(packet_construction, StartP),
 
-                                            case blockchain:config(?poc_version, OldLedger) of
-                                                {ok, POCVer} when POCVer >= 9 ->
-                                                    %% errors get checked lower
-                                                    Channels = get_channels_(OldLedger, Path, LayerData, POCVer, no_prefetch),
-                                                    %% We are on poc v9
-                                                    %% %% run validations
-                                                    Ret = case POCVer >= 10 of
-                                                                true ->
-                                                                    %% check the block hash in the receipt txn is correct
-                                                                    case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
-                                                                        true ->
-                                                                            validate(Txn, Path, LayerData, LayerHashes, OldLedger);
-                                                                        false ->
-                                                                            blockchain_ledger_v1:delete_context(OldLedger),
-                                                                            {error, bad_poc_request_block_hash}
-                                                                    end;
-                                                                false ->
-                                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
-                                                            end,
-                                                    maybe_log_duration(receipt_validation, StartV),
-                                                    case Ret of
-                                                        ok ->
-                                                            {ok, Channels};
-                                                        {error, _}=E -> E
-                                                    end;
-                                                _ ->
-                                                    %% We are not on poc v9, just do old behavior
-                                                    Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
-                                                    maybe_log_duration(receipt_validation, StartV),
-                                                    Ret
-                                            end
+                                            Result =
+                                                case blockchain:config(?poc_version, OldLedger) of
+                                                    {ok, POCVer} when POCVer >= 9 ->
+                                                        %% errors get checked lower
+                                                        Channels = get_channels_(OldLedger, Path, LayerData, POCVer, no_prefetch),
+                                                        %% We are on poc v9
+                                                        %% %% run validations
+                                                        Ret = case POCVer >= 10 of
+                                                                    true ->
+                                                                        %% check the block hash in the receipt txn is correct
+                                                                        case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
+                                                                            true ->
+                                                                                validate(Txn, Path, LayerData, LayerHashes, OldLedger);
+                                                                            false ->
+                                                                                blockchain_ledger_v1:delete_context(OldLedger),
+                                                                                {error, bad_poc_request_block_hash}
+                                                                        end;
+                                                                    false ->
+                                                                        validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                                end,
+                                                        maybe_log_duration(receipt_validation, StartV),
+                                                        case Ret of
+                                                            ok ->
+                                                                {ok, Channels};
+                                                            {error, _}=E -> E
+                                                        end;
+                                                    _ ->
+                                                        %% We are not on poc v9, just do old behavior
+                                                        Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
+                                                        maybe_log_duration(receipt_validation, StartV),
+                                                        Ret
+                                                end,
+                                            _ = blockchain_ledger_v1:delete_context(OldLedger),
+                                            Result
                                     end
                             end
                     end
