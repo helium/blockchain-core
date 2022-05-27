@@ -162,7 +162,7 @@ handle_cast({submit, Txn, Key, Callback}, State=#state{chain = undefined}) ->
     end,
     {noreply, State};
 
-handle_cast({submit, Txn, Key, Callback}, State=#state{cur_block_height = H}) ->
+handle_cast({submit, Txn, Key, Callback}, State=#state{cur_block_height = H, chain = Chain, submit_f = SubmitF}) ->
     %% add the txn to the cache
     %% provided key will be utilised
     lager:debug("adding txn to cache: ~s", [blockchain_txn:print(Txn)]),
@@ -171,7 +171,9 @@ handle_cast({submit, Txn, Key, Callback}, State=#state{cur_block_height = H}) ->
         {ok,_} ->
             ok = invoke_callback(Callback, {error, duplicate_key});
         {error, txn_not_found} ->
-            ok = cache_txn(Key, Txn, #txn_data{callback = Callback, recv_block_height = H})
+            TxnData = #txn_data{callback = Callback, recv_block_height = H},
+            ok = cache_txn(Key, Txn, TxnData),
+            process_valid_txn(Chain, [Txn],{Key, Txn, TxnData}, SubmitF, [], H, false)
     end,
     {noreply, State};
 
