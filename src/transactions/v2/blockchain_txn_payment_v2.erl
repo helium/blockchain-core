@@ -199,7 +199,7 @@ absorb_v2_(Txn, Ledger, Chain) ->
                             PayeePubkeyBin = blockchain_payment_v2:payee(Payment),
                             TT = blockchain_payment_v2:token_type(Payment),
                             PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                              0 -> maps:get(TT, MaxPaymentsMap);
+                                              0 -> maps:get(TT, MaxPaymentsMap, 0);
                                               Amount when Amount > 0 -> Amount
                                           end,
                             blockchain_ledger_v1:credit_account(PayeePubkeyBin, PayeeAmount, TT, Ledger)
@@ -212,8 +212,8 @@ absorb_v2_(Txn, Ledger, Chain) ->
 -spec absorb_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_(Txn, Ledger, Chain) ->
     {_, SpecifiedAmounts} = split_payment_amounts(Txn, Ledger),
-    TotalAmount = lists:sum([TAmt || {_, TAmt} <- ?MODULE:amounts(Txn, Ledger)]),
-    SpecifiedSubTotal = lists:sum([SAmt || {_, SAmt} <- SpecifiedAmounts]),
+    TotalAmount = lists:foldl(fun({_, TAmt}, Acc) -> TAmt + Acc end, 0, ?MODULE:amounts(Txn, Ledger)),
+    SpecifiedSubTotal = lists:foldl(fun({_, SAmt}, Acc) -> SAmt + Acc end, 0, SpecifiedAmounts),
     MaxPayment = TotalAmount - SpecifiedSubTotal,
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
@@ -344,12 +344,11 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                                                             MemoCheck = memo_check(Txn, Ledger),
 
                                                             case {AmountCheck, MemoCheck} of
-                                                                {false, _} ->
-                                                                    {error, invalid_transaction};
-                                                                {_, {error, _} = E} ->
-                                                                    E;
-                                                                {ok, ok} ->
-                                                                    fee_check(Txn, Chain, Ledger)
+                                                                {ok, ok} -> fee_check(Txn, Chain, Ledger);
+                                                                _ ->
+                                                                    {error, {invalid_transaction,
+                                                                             {amount_check, AmountCheck},
+                                                                             {memo_check, MemoCheck}}}
                                                             end
                                                     end;
                                                 true ->
@@ -493,7 +492,7 @@ amount_check_v2(Txn, Ledger) ->
             amount_check(Txn, Ledger)
     end.
 
--spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+-spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, amount_check_failed}.
 amount_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
     AmtCheck = case blockchain:config(?enable_balance_clearing, Ledger) of
@@ -508,7 +507,7 @@ amount_check(Txn, Ledger) ->
                                has_non_zero_amounts(Payments);
                            _ ->
                                %% if undefined or true, use the old check
-                               lists:sum(maps:value(?MODULE:total_amounts(Txn, Ledger))) >= 0
+                               lists:sum(maps:values(?MODULE:total_amounts(Txn, Ledger))) >= 0
                        end
                end,
     case AmtCheck of
@@ -519,21 +518,26 @@ amount_check(Txn, Ledger) ->
 -spec split_payment_amounts(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> {[{TT, Amt}], [{TT, Amt}]} when TT :: blockchain_token_v1:type(), Amt :: pos_integer().
 split_payment_amounts(#blockchain_txn_payment_v2_pb{payer=Payer, fee=Fee}=Txn, Ledger) ->
     {MaxPayments, SpecifiedPayments} = split_max_payments(?MODULE:payments(Txn)),
-    SpecifiedPayments1 = [{blockchain_payment_v2:token_type(Payment), blockchain_payment_v2:amount(Payment)} || Payment <- SpecifiedPayments],
-    case MaxPayments of
-        [] ->
+    SpecifiedPayments1 = lists:map(fun(Pmt) -> {blockchain_payment_v2:token_type(Pmt), blockchain_payment_v2:amount(Pmt)} end, SpecifiedPayments),
+    case length(MaxPayments) of
+        0 ->
             {MaxPayments, SpecifiedPayments1};
-        [_ | _] ->
+        _ ->
             case blockchain:config(?token_version, Ledger) of
                 {ok, 2} ->
                     {ok, PayerEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
                     MaxPayments1 = lists:map(fun(MaxPayment) ->
                                                  TokenType = blockchain_payment_v2:token_type(MaxPayment),
                                                  TypeBalance = blockchain_ledger_entry_v2:balance(PayerEntry2, TokenType),
-                                                 TypeSpecifiedAmts = [ Val || {Type, Val} <- SpecifiedPayments1, Type =:= TokenType],
+                                                 TypeSpecifiedAmt = lists:foldl(fun({Type, Val}, Acc) ->
+                                                                                     case Type =:= TokenType of
+                                                                                         true -> Val + Acc;
+                                                                                         false -> Acc
+                                                                                     end
+                                                                                 end, 0, SpecifiedPayments1),
                                                  MaxPaymentAmt = case TokenType of
-                                                                     hnt -> TypeBalance - lists:sum(TypeSpecifiedAmts) - Fee;
-                                                                     _ -> TypeBalance - lists:sum(TypeSpecifiedAmts)
+                                                                     hnt -> TypeBalance - TypeSpecifiedAmt - Fee;
+                                                                     _ -> TypeBalance - TypeSpecifiedAmt
                                                                  end,
                                                  {TokenType, MaxPaymentAmt}
                                              end, MaxPayments),
@@ -543,8 +547,8 @@ split_payment_amounts(#blockchain_txn_payment_v2_pb{payer=Payer, fee=Fee}=Txn, L
                     %% `max` payment per txn
                     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
                     Balance = blockchain_ledger_entry_v1:balance(PayerEntry),
-                    SpecifiedAmts = [Val || {_, Val} <- SpecifiedPayments1],
-                    MaxPaymentAmt = Balance - lists:sum(SpecifiedAmts) - Fee,
+                    SpecifiedAmts = lists:foldl(fun({_, Val}, Acc) -> Val + Acc end, 0, SpecifiedPayments1),
+                    MaxPaymentAmt = Balance - SpecifiedAmts - Fee,
                     {[{hnt, MaxPaymentAmt}], SpecifiedPayments1}
             end
     end.
