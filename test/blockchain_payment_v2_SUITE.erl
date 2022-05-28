@@ -702,11 +702,11 @@ negative_memo_test(Config) ->
 
     case ?config(group_vars, Config) of
         #{?token_version := 2} ->
-            {invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
-                {token_check, ok}} = InvalidReason,
-            ok;
+            ?assertEqual({invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
+                {token_check, ok}}, InvalidReason);
         #{} ->
-            ?assertEqual(invalid_memo, InvalidReason)
+            ?assertEqual({invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}}},
+                InvalidReason)
     end,
 
     ok.
@@ -778,11 +778,11 @@ invalid_memo_not_set_test(Config) ->
 
     case ?config(group_vars, Config) of
         #{?token_version := 2} ->
-            {invalid_transaction, {amount_check, ok},
-                {memo_check, {error, invalid_memo_before_var}}, {token_check, ok}} = InvalidReason,
-            ok;
+            ?assertEqual({invalid_transaction, {amount_check, ok},
+                {memo_check, {error, invalid_memo_before_var}}, {token_check, ok}}, InvalidReason);
         #{} ->
-            ?assertEqual(invalid_memo_before_var, InvalidReason)
+            ?assertEqual({invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo_before_var}}},
+                InvalidReason)
     end,
 
     ok.
@@ -844,11 +844,11 @@ big_memo_invalid_test(Config) ->
 
     case ?config(group_vars, Config) of
         #{?token_version := 2} ->
-            {invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
-                {token_check, ok}} = InvalidReason,
-            ok;
+            ?assertEqual({invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}},
+                {token_check, ok}}, InvalidReason);
         #{} ->
-            ?assertEqual(invalid_memo, InvalidReason)
+            ?assertEqual({invalid_transaction, {amount_check, ok}, {memo_check, {error, invalid_memo}}},
+                InvalidReason)
     end,
     ok.
 
