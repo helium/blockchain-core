@@ -528,7 +528,7 @@ invalid_balance_clearing_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    {error, {invalid_txns, [{BadTx, invalid_transaction}]}} = test_utils:create_block(
+    {error, {invalid_txns, [{BadTx, validation_failed}]}} = test_utils:create_block(
         ConsensusMembers,
         [SignedTx]
     ),
@@ -566,7 +566,7 @@ balance_clearing_disabled_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    {error, {invalid_txns, [{BadTx, invalid_transaction}]}} = test_utils:create_block(
+    {error, {invalid_txns, [{BadTx, validation_failed}]}} = test_utils:create_block(
         ConsensusMembers,
         [SignedTx]
     ),

@@ -216,7 +216,7 @@ token_type_test() ->
     ?assertEqual(hst, ?MODULE:token_type(P2)).
 
 is_valid_token_type_test() ->
-    P1 = new(<<"payee">>, 100, hgt),
+    P1 = new(<<"payee">>, 100, mobile),
     ?assertEqual(true, ?MODULE:is_valid_token_type(P1)),
     P2 = new(<<"payee">>, 100, doge),
     ?assertEqual(false, ?MODULE:is_valid_token_type(P2)).

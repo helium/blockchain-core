@@ -187,12 +187,12 @@ absorb_v2_(Txn, Ledger, Chain) ->
         {error, _Reason}=Error ->
             Error;
         ok ->
+            {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
             case blockchain_ledger_v1:debit_account(Payer, TotalAmounts, Nonce, Ledger) of
                 {error, _Reason} = Error ->
                     Error;
                 ok ->
                     Payments = ?MODULE:payments(Txn),
-                    {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
                     MaxPaymentsMap = maps:from_list(MaxAmounts),
                     ok = lists:foreach(
                         fun(Payment) ->
@@ -348,7 +348,7 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                                                                     {error, invalid_transaction};
                                                                 {_, {error, _} = E} ->
                                                                     E;
-                                                                {true, ok} ->
+                                                                {ok, ok} ->
                                                                     fee_check(Txn, Chain, Ledger)
                                                             end
                                                     end;
@@ -474,7 +474,6 @@ memo_check(Txn, Ledger) ->
 amount_check_v2(Txn, Ledger) ->
     TotAmounts = ?MODULE:total_amounts(Txn, Ledger),
     Payer = ?MODULE:payer(Txn),
-    Payments = ?MODULE:payments(Txn),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
 
@@ -486,43 +485,35 @@ amount_check_v2(Txn, Ledger) ->
       end,
       blockchain_token_v1:supported_tokens()),
 
-    case blockchain:config(?allow_zero_amount, Ledger) of
-        {ok, false} ->
-            %% check that none of the payments have a zero amount
-            case has_non_zero_amounts(Payments) of
-                false -> false;
-                true ->
-                    case PayerHasEnoughTTBalance of
-                        false ->
-                            {error, amount_check_v2_failed};
-                        true ->
-                            ok
-                    end
-            end;
-        _ ->
-            {error, allow_zero_amount_not_set}
+    case PayerHasEnoughTTBalance of
+        false -> {error, amount_check_v2_failed};
+        true ->
+            %% If the txn amounts have successfully validated to this point
+            %% perform the same checks previously done prior to token_version 2
+            amount_check(Txn, Ledger)
     end.
 
 -spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
 amount_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
-    case blockchain:config(?enable_balance_clearing, Ledger) of
-        {ok, true} ->
-            %% calculate all payment amounts, factoring in any balance-clearing `max = true` payments
-            %% all payments will post with a positive integer value
-            %% Splitting the max payments have already validated any non-max payments have non-zero
-            %% values since zero-amount payments and balance-clearing max payments are mutually exclusive
-            {MaxPayments, _OtherPayments} = split_payment_amounts(Txn, Ledger),
-            lists:all(fun({_, Amt}) -> Amt > 0 end, MaxPayments);
-        _ ->
-            case blockchain:config(?allow_zero_amount, Ledger) of
-                {ok, false} ->
-                    %% check that none of the payments have a zero amount
-                    has_non_zero_amounts(Payments);
-                _ ->
-                    %% if undefined or true, use the old check
-                    lists:sum(maps:value(?MODULE:total_amounts(Txn, Ledger))) >= 0
-            end
+    AmtCheck = case blockchain:config(?enable_balance_clearing, Ledger) of
+                   {ok, true} ->
+                       %% See above note in amount_check_v2
+                       {MaxPayments, _OtherPayments} = split_payment_amounts(Txn, Ledger),
+                       lists:all(fun({_, Amt}) -> Amt > 0 end, MaxPayments);
+                   _ ->
+                       case blockchain:config(?allow_zero_amount, Ledger) of
+                           {ok, false} ->
+                               %% check that none of the payments have a zero amount
+                               has_non_zero_amounts(Payments);
+                           _ ->
+                               %% if undefined or true, use the old check
+                               lists:sum(maps:value(?MODULE:total_amounts(Txn, Ledger))) >= 0
+                       end
+               end,
+    case AmtCheck of
+        true -> ok;
+        false -> {error, amount_check_failed}
     end.
 
 -spec split_payment_amounts(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> {[{TT, Amt}], [{TT, Amt}]} when TT :: blockchain_token_v1:type(), Amt :: pos_integer().
@@ -613,7 +604,7 @@ split_max_payments(Payments) ->
                              end, MaxPayments),
             case length(UniqMaxPayments) =:= length(MaxPayments) of
                 true -> SplitPayments;
-                false -> throw({error, invalid_payment_txns})
+                false -> throw({error, invalid_payment_txn})
             end;
         false -> throw({error, invalid_payment_txn})
     end.
@@ -740,15 +731,14 @@ total_amount_with_max_test() ->
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger1),
-    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 50, mobile, Ledger1),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
     Payments = [
         blockchain_payment_v2:new(<<"x">>, 20),
-        blockchain_payment_v2:new(<<"y">>, max, mobile),
+        blockchain_payment_v2:new(<<"y">>, max),
         blockchain_payment_v2:new(<<"z">>, 40)
     ],
     Tx = new(<<"payer">>, Payments, 1),
-    ?assertEqual(#{hnt => 60, mobile => 50}, total_amounts(Tx, Ledger)).
+    ?assertEqual(#{hnt => 100}, total_amounts(Tx, Ledger)).
 
 reject_multi_max_test() ->
     BaseDir = test_utils:tmp_dir("reject_multi_max_test"),
