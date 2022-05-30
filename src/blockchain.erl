@@ -1228,8 +1228,9 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                                 );
                             {ok, Blocks} ->
                                 Infos = blockchain_ledger_snapshot_v1:get_infos(Blockchain),
+                                SnapStart = erlang:monotonic_time(millisecond),
                                 case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos) of
-                                    {ok, Snap} ->
+                                    {ok, #{version := SnapVersion} = Snap} ->
                                         case blockchain_ledger_snapshot_v1:hash(Snap) of
                                             ConsensusHash ->
                                                 {ok, _, ConsensusHash} = add_snapshot(Snap, ConsensusHash, Blockchain);
@@ -1239,7 +1240,10 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                                                 case application:get_env(blockchain, save_bad_snapshot, false) of
                                                     true ->
                                                         lager:info("saving bad snapshot ~p", [OtherHash]),
-                                                        {ok, _, OtherHash} = add_snapshot(Snap, OtherHash, Blockchain);
+                                                        {ok, _, OtherHash} = SnapResult = add_snapshot(Snap, OtherHash, Blockchain),
+                                                        telemetry:execute([blockchain, snapshot, generate], #{duration => erlang:monotonic_time(millisecond) - SnapStart},
+                                                                                                            #{blocks => length(Blocks), mode => delayed, version => SnapVersion}),
+                                                        SnapResult;
                                                     false ->
                                                         ok
                                                 end,
@@ -2672,8 +2676,9 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
             case get_snapshot(Hash, Blockchain) of
                {ok, BinSnapOrFile} ->
                   case blockchain_ledger_snapshot_v1:deserialize(BinSnapOrFile) of
-                      {ok, Snap} ->
+                      {ok, #{version := Version} = Snap} ->
                           lager:info("Got snapshot for height ~p - attempting install", [Height0]),
+                          LoadStart = erlang:monotonic_time(millisecond),
                           %% do the install in-line here vs making a blocking call to
                           %% blockchain_worker
                           OldLedger = blockchain:ledger(Blockchain),
@@ -2698,6 +2703,12 @@ init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary
                                   blockchain_ledger_v1:clean(OldLedger),
                                   %% TODO proper error checking and recovery/retry
                                   NewLedger = blockchain_ledger_snapshot_v1:import(Blockchain, SnapHeight, Hash, Snap, BinSnapOrFile),
+                                  {SnapSource, ByteSize} = case BinSnapOrFile of
+                                                               {file, Filename} -> {file, filelib:file_size(Filename)};
+                                                               Bin when is_binary(Bin) -> {binary, byte_size(Bin)}
+                                                           end,
+                                  telemetry:execute([blockchain, snapshot, load], #{duration => erlang:monotonic_time(millisecond) - LoadStart, size => ByteSize},
+                                                                                  #{height => SnapHeight, hash => Hash, version => Version, source => SnapSource}),
                                   blockchain:ledger(NewLedger, Blockchain)
                           end;
                         Other ->

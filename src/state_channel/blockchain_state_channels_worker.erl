@@ -123,6 +123,8 @@ init(Args) ->
     {_, OwnerSigFun} = Owner,
     ok = blockchain_event:add_handler(self()),
     lager:info("started ~p", [blockchain_state_channel_v1:name(SC)]),
+    telemetry:execute([blockchain, state_channel, open], #{amount => Amount, time => erlang:monotonic_time(millisecond)},
+                                                         #{id => ID, sc_version => SCVer}),
     State = #state{
         parent = Parent,
         id = ID,
@@ -197,11 +199,14 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(Reason, #state{id=ID, state_channel=SC, skewed=Skewed, db=DB, owner={_Owner, OwnerSigFun}}=_State) ->
+terminate(Reason, #state{id=ID, state_channel=SC, sc_version=SCVersion,
+                         skewed=Skewed, db=DB, owner={_Owner, OwnerSigFun}}=_State) ->
     SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
     ok = blockchain_state_channels_server:update_state_channel(SignedSC),
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed),
     Deleted = blockchain_state_channels_cache:delete_pids(self()),
+    telemetry:execute([blockchain, state_channel, close], #{time => erlang:monotonic_time(millisecond)},
+                                                          #{id => ID, sc_version => SCVersion}),
     lager:info("terminate ~p for : ~p, deleted ~p from cache", [blockchain_utils:addr2name(ID), Reason, Deleted]),
     ok.
 

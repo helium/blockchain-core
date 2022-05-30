@@ -477,7 +477,7 @@ handle_call({install_snapshot_from_file, Filename}, From, State) ->
     Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
     Height = blockchain_ledger_snapshot_v1:height(Snapshot),
     handle_call({install_snapshot, Height, Hash, Snapshot, {file, Filename}}, From, State);
-handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
+handle_call({install_snapshot, Height, Hash, #{version := Version} = Snapshot, BinSnap}, _From,
             #state{blockchain = Chain, mode = Mode, swarm_tid = SwarmTID} = State) ->
     lager:info("installing snapshot ~p", [Hash]),
     %% I don't think that we want to auto-repair right now, do default
@@ -486,6 +486,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
     Halt = application:get_env(blockchain, halt_on_reset, true),
     case Mode == reset andalso Halt of
         false ->
+            LoadStart = erlang:monotonic_time(millisecond),
             ok = blockchain_lock:acquire(),
             OldLedger = blockchain:ledger(Chain),
             blockchain_ledger_v1:clean(OldLedger),
@@ -526,6 +527,12 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
             end,
             blockchain_lock:release(),
             true = ets:insert(?CACHE, {?CHAIN, NewChain}),
+            {SnapSource, ByteSize} = case BinSnap of
+                                         {file, Filename} -> {file, filelib:file_size(Filename)};
+                                         Bin when is_binary(Bin) -> {binary, byte_size(Bin)}
+                                     end,
+            telemetry:execute([blockchain, snapshot, load], #{duration => erlang:monotonic_time(millisecond) - LoadStart, size => ByteSize},
+                                                            #{height => Height, hash => Hash, version => Version, source => SnapSource}),
             {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
                                                blockchain = NewChain, gossip_ref = GossipRef})};
         true ->
