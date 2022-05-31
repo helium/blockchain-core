@@ -1134,11 +1134,10 @@ handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, Sta
             RoutesOrAddresses =
                 case lists:foldl(FoldFn, [], RoamingRouters) of
                     [] ->
-                        lager:notice("no routes found in ~p", [RoamingRouters]),
-                        lager:notice("no routes found for netid ~p", [ExtractedNetID]),
+                        lager:debug("no routes found for netid ~p", [ExtractedNetID]),
                         DefaultRouters;
                     Routes ->
-                        lager:notice("found ~p for netid ~p", [[blockchain_ledger_routing_v1:oui(R) || R <- Routes], ExtractedNetID]),
+                        lager:debug("found ~p for netid ~p", [[blockchain_ledger_routing_v1:oui(R) || R <- Routes], ExtractedNetID]),
                         Routes
                 end,
             handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, State);
