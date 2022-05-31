@@ -1380,13 +1380,13 @@ routing_netid_to_oui_test(Config) ->
 
     %% Diverging from routing_test()...
 
-    PeerRouters =
+    RoamingRouters =
         case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
             {ok, Bin} -> binary_to_term(Bin);
             _ -> []
         end,
-    ?assertNotEqual([], PeerRouters),
-    State = blockchain_state_channels_client:set_routers(PeerRouters, Chain),
+    ?assertNotEqual([], RoamingRouters),
+    State = blockchain_state_channels_client:set_routers(RoamingRouters, Chain),
     Region = 'US915',
     Now = erlang:system_time(seconds),
     %% FIXME: may need to strip "/p2p/1" prefix
@@ -1405,40 +1405,34 @@ routing_netid_to_oui_test(Config) ->
         blockchain_state_channels_client:handle_route_by_netid(
           Packet0, DevAddr0, DefaultRouters, Region, Now, State
          ),
-    Routers0 = blockchain_state_channels_client:get_routers(NewState0),
-    ?assertEqual(DefaultRouters, Routers0),
+
+    %% Checking packets rdy to be sent it should route them to default Routers 
+    %% as the net id $Z is unknown to us.
+    Waiting0 = blockchain_state_channels_client:get_waiting(NewState0),
+    lists:foreach(
+        fun(K) ->
+            ?assert(lists:member(K, DefaultRouters))
+        end,
+        maps:keys(Waiting0)
+    ),
 
     %% Send packet using devaddr within each of our test netids,
     %% and confirm results of route_by_netid().
-    lists:map(fun({NetID, OUI}) ->
-                      DevAddr = NetID bsl 8 bor 123,
-                      Payload = crypto:strong_rand_bytes(120),
-                      Packet = blockchain_helium_packet_v1:new({devaddr, DevAddr}, Payload),
-                      NewState =
-                          blockchain_state_channels_client:handle_route_by_netid(
-                            Packet, DevAddr, DefaultRouters, Region, Now, State
-                           ),
-                      Routers = blockchain_state_channels_client:get_routers(NewState),
-                      ct:pal("FOUND ROUTERS=~p", [Routers]), %DELETE ME
-                      P2P = blockchain_ledger_v1:find_routing(OUI, Ledger),
-                      ct:pal("FOUND P2P=~p", [P2P]), %DELETE ME
-                      ?assert(lists:member(P2P, Routers))
-              end,
-              PeerRouters),
-
-    %% Repeat with Joins
-    lists:map(fun({NetID, _OUI}) ->
-                      DevAddr = NetID bsl 8 bor 123,
-                      DevNonce = crypto:strong_rand_bytes(2),
-                      Packet = blockchain_ct_utils:join_packet(?APPKEY, DevNonce, 0.0),
-                      NewState =
-                          blockchain_state_channels_client:handle_route_by_netid(
-                            Packet, DevAddr, DefaultRouters, Region, Now, State
-                           ),
-                      Routers = blockchain_state_channels_client:get_routers(NewState),
-                      ?assertEqual(lists:sort(DefaultRouters), lists:sort(Routers))
-              end,
-              PeerRouters),
+    lists:foreach(
+        fun({NetID, OUI}) ->
+            DevAddr = lora_subnet:devaddr_from_subnet(1, [NetID]),
+            Payload = crypto:strong_rand_bytes(120),
+            Packet = blockchain_helium_packet_v1:new({devaddr, DevAddr}, Payload),
+            NewState =
+                blockchain_state_channels_client:handle_route_by_netid(
+                Packet, DevAddr, DefaultRouters, Region, Now, State
+                ),
+            Waiting = blockchain_state_channels_client:get_waiting(NewState),
+            {ok, Route} = blockchain_ledger_v1:find_routing(OUI, Ledger),
+            ?assertEqual([blockchain_ledger_routing_v1:oui(Route)], maps:keys(Waiting))
+        end,
+        RoamingRouters
+    ),
     ok.
 
 max_subnet_test(Config) ->

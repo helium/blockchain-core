@@ -63,11 +63,23 @@
 -type netid_to_oui() :: {pos_integer(), pos_integer()}.
 
 -ifdef(TEST).
--export([set_routers/2, get_routers/1, handle_route_by_netid/6]).
+
+-export([
+    set_routers/2,
+    get_routers/1,
+    get_waiting/1,
+    handle_route_by_netid/6
+]).
+
 -spec set_routers(list(string()), blockchain:blockchain()) -> state().
 set_routers(Routers, Chain) -> #state{chain=Chain, routers=Routers}.
+
 -spec get_routers(state()) -> list(netid_to_oui()).
 get_routers(State) -> State#state.routers.
+
+-spec get_waiting(state()) ->  waiting().
+get_waiting(State) -> State#state.waiting.
+
 -endif.
 
 %% ------------------------------------------------------------------
@@ -164,14 +176,16 @@ handle_cast({banner, Banner, HandlerPid}, #state{sc_client_transport_handler = H
                     {noreply, maybe_send_packets(AddressOrOUI, HandlerPid, State)}
             end
     end;
+%% Handle Uplink packets
 handle_cast({packet,
-             #packet_pb{routing = #routing_information_pb{data = {devaddr,DevAddr}}}=Packet,
+             #packet_pb{routing = #routing_information_pb{data = {devaddr, DevAddr}}} = Packet,
              DefaultRouters, Region, ReceivedTime},
             State)
   when is_integer(DevAddr) andalso DevAddr > 0 ->
     State2 =
         handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, State),
     {noreply, State2};
+%% Handle Join packets
 handle_cast({packet, Packet, DefaultRouters, Region, ReceivedTime}, #state{chain=Chain}=State) ->
     State2 =
         handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State),
@@ -1102,35 +1116,35 @@ chain_var_ledger_routers_by_netid_to_oui(Ledger, State) ->
        ) -> State1 :: state().
 handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, State) ->
     #state{chain=Chain, routers=RoamingRouters} = State,
-    OurNetID = application:get_env(router, netid, 0),
+    OurNetID = application:get_env(blockchain, devaddr_prefix, $H),
     case lora_subnet:parse_netid(DevAddr) of
         {ok, OurNetID} ->
             handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State);
         {ok, ExtractedNetID} ->
-            Fn = fun({NetID, OUI}, Accumulator) ->
-                         case ExtractedNetID of
-                             NetID ->
-                                 Ledger = blockchain:ledger(Chain),
-                                 case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-                                     {ok, Route} -> [Route|Accumulator];
-                                     _ -> Accumulator
-                                 end;
-                             _ ->
-                                 Accumulator
-                         end
-                 end,
+            FoldFn = 
+                fun({NetID, OUI}, Acc) when NetID == ExtractedNetID ->
+                    Ledger = blockchain:ledger(Chain),
+                    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+                        {ok, Route} -> [Route|Acc];
+                        _ -> Acc
+                    end;
+                ({_OtherNetID, _}, Acc) ->
+                    Acc
+                end,
             RoutesOrAddresses =
-                case lists:foldl(Fn, [], RoamingRouters) of
+                case lists:foldl(FoldFn, [], RoamingRouters) of
                     [] ->
+                        lager:notice("no routes found in ~p", [RoamingRouters]),
+                        lager:notice("no routes found for netid ~p", [ExtractedNetID]),
                         DefaultRouters;
-                    RoamingSubset ->
-                        %% FIXME: returns list of OUIs; whereas,
-                        %% others are lists of P2P addresses.
-                        RoamingSubset
+                    Routes ->
+                        lager:notice("found ~p for netid ~p", [[blockchain_ledger_routing_v1:oui(R) || R <- Routes], ExtractedNetID]),
+                        Routes
                 end,
             handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, State);
-        _ ->
+        _Error ->
             %% Drop undeliverable packet
+            lager:warning("failed to route ~p with devaddr=~p", [_Error, DevAddr]),
             State
     end.
 
@@ -1145,13 +1159,13 @@ handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, Sta
 handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State) ->
     case find_routing(Packet, Chain) of
         {error, _Reason} ->
-            lager:notice(
-              "failed to find router for join packet with routing information ~p:~p, trying default routers",
-              [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
-             ),
+            lager:warning(
+                "failed to find router for join packet with routing information ~p:~p, trying default routers",
+                [blockchain_helium_packet_v1:routing_info(Packet), _Reason]
+            ),
             handle_packet(Packet, DefaultRouters, Region, ReceivedTime, State);
         {ok, Routes} ->
-            lager:notice("found routes ~p", [Routes]),
+            lager:debug("found routes ~p", [Routes]),
             handle_packet(Packet, Routes, Region, ReceivedTime, State)
     end.
 

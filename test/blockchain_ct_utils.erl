@@ -441,8 +441,8 @@ raw_vars(Vars) ->
                 ?max_subnet_num => 20,
                 ?dc_payload_size => 24,
                 ?routers_by_netid_to_oui =>
-                    term_to_binary([{16#000009, 115}, {16#600025, 120},
-                                    {16#000037, 116}, {16#60003A, 55}])
+                    term_to_binary([{16#000009, 1}, {16#600025, 1},
+                                    {16#000037, 1}, {16#60003A, 1}])
                },
 
     maps:merge(DefVars, Vars).
