@@ -84,7 +84,7 @@ new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency) ->
           SNR :: float(),
           Frequency :: float(),
           Channel :: non_neg_integer(),
-          DataRate :: binary()) -> poc_receipt().
+          DataRate :: list()) -> poc_receipt().
 new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency, Channel, DataRate) ->
     #blockchain_poc_receipt_v1_pb{
         gateway=Address,
