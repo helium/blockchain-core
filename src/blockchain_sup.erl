@@ -61,6 +61,7 @@ start_link(Args) ->
 init(Args) ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
+    application:ensure_all_started(telemetry),
     application:ensure_all_started(clique),
     application:ensure_all_started(throttle),
     %% start http client and ssl here
