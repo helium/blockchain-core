@@ -72,19 +72,21 @@ gateways_for_zone(
     Ledger,
     Vars,
     HexList,
-    [{Hex, HexRandState0} | Tail] = _Attempted,
+    [{Hex, HexRandState} | Tail] = _Attempted,
     NumAttempts
 ) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% Get a list of gateway pubkeys within this hex
     AddrMap = blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger),
-    AddrList0 = lists:flatten(maps:values(AddrMap)),
-    lager:debug("gateways for hex ~p: ~p", [Hex, AddrList0]),
+    AddrList = lists:flatten(maps:values(AddrMap)),
+    lager:debug("gateways for hex ~p: ~p", [Hex, AddrList]),
     %% Limit max number of potential targets in the zone
-    {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
-
-    %% filter the selected hex
-    case filter(AddrList, Height, Ledger, Vars) of
+    #{?poc_witness_consideration_limit := Limit} = Vars,
+    {ok, ActivityFilterEnabled} = blockchain:config(poc_activity_filter_enabled, Ledger),
+    MaxActivityAge = blockchain_utils:max_activity_age(Vars),
+    %% limit our pool to a max of N active gateways
+    case limit_and_filter_gateways(ActivityFilterEnabled, MaxActivityAge, Limit, HexRandState,
+            AddrList, Height, Ledger) of
         FilteredList when length(FilteredList) >= 1 ->
             lager:debug("*** filtered gateways for hex ~p: ~p", [Hex, FilteredList]),
             {ok, FilteredList};
@@ -166,39 +168,6 @@ target_(
             {ok, {TargetPubkeybin, TargetRandState}}
         end.
 
-
-
-%% @doc Filter gateways based on these conditions:
-%% - gateways which do not have the relevant capability
-%% - gateways which are inactive
--spec filter(
-    AddrList :: [libp2p_crypto:pubkey_bin()],
-    Height :: non_neg_integer(),
-    Ledger :: blockchain_ledger_v1:ledger(),
-    Vars :: map()
-) -> [libp2p_crypto:pubkey_bin()].
-filter(AddrList, Height, Ledger, Vars) ->
-    ActivityFilterEnabled =
-        case blockchain:config(poc_activity_filter_enabled, Ledger) of
-            {ok, V} -> V;
-            _ -> false
-        end,
-    MaxActivityAge = max_activity_age(Vars),
-    lists:filter(
-            fun(A) ->
-                {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
-                Mode = blockchain_ledger_gateway_v2:mode(Gateway),
-                LastActivity = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
-                 is_active(ActivityFilterEnabled, LastActivity, MaxActivityAge, Height) andalso
-                    blockchain_ledger_gateway_v2:is_valid_capability(
-                        Mode,
-                        ?GW_CAPABILITY_POC_CHALLENGEE,
-                        Ledger
-                    )
-            end,
-            AddrList
-        ).
-
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
@@ -206,7 +175,8 @@ filter(AddrList, Height, Ledger, Vars) ->
 prob_randomness_wt(Vars) ->
     maps:get(poc_v5_target_prob_randomness_wt, Vars).
 
--spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
+-spec hex_list(Ledger :: blockchain_ledger_v1:ledger(),
+    RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
 hex_list(Ledger, RandState) ->
     {ok, Count} = blockchain:config(?poc_target_pool_size, Ledger),
     hex_list(Ledger, RandState, Count, []).
@@ -241,25 +211,125 @@ choose_zone(RandState, HexList) ->
             {ok, {Hex, HexRandState}}
     end.
 
-limit_addrs(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses) ->
-    blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
-limit_addrs(_Vars, RandState, Witnesses) ->
-    {RandState, Witnesses}.
-
--spec is_active(ActivityFilterEnabled :: boolean(),
-                LastActivity :: pos_integer(),
-                MaxActivityAge :: pos_integer(),
-                Height :: pos_integer()) -> boolean().
-is_active(true, undefined, _MaxActivityAge, _Height) ->
-    false;
-is_active(true, LastActivity, MaxActivityAge, Height) ->
-    (Height - LastActivity) < MaxActivityAge;
-is_active(_ActivityFilterEnabled, _Gateway, _Height, _Vars) ->
-    true.
-
--spec max_activity_age(Vars :: map()) -> pos_integer().
-max_activity_age(Vars) ->
-    case maps:get(harmonize_activity_on_hip17_interactivity_blocks, Vars, false) of
-        true -> maps:get(hip17_interactivity_blocks, Vars);
-        false -> maps:get(poc_v4_target_challenge_age, Vars)
+-spec limit_and_filter_gateways(
+    ActivityFilterEnabled :: boolean(),
+    MaxActivityAge :: pos_integer(),
+    Limit :: pos_integer(),
+    RandState :: rand:state(),
+    GWs :: [libp2p_crypto:pubkey_bin()],
+    Height :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> [libp2p_crypto:pubkey_bin()].
+limit_and_filter_gateways(ActivityFilterEnabled, MaxActivityAge, Limit, _RandState,
+    GWs, Height, Ledger) when length(GWs) =< Limit ->
+    %% if the number of available GWs is less than or equal to our limit,
+    %% no need to do a subset, just filter for inactives
+    filter(ActivityFilterEnabled, MaxActivityAge, GWs, Height, Ledger);
+limit_and_filter_gateways(ActivityFilterEnabled, MaxActivityAge, Limit, RandState,
+    GWs, Height, Ledger) ->
+    %% get a subset of all GWs
+    {NewRandState, SelectedGWs0} =
+        blockchain_utils:deterministic_subset(Limit, RandState, GWs),
+    %% filter out any inactive GWs
+    SelectedGWs1 = filter(ActivityFilterEnabled, MaxActivityAge, SelectedGWs0, Height, Ledger),
+    SelectedGWCount = length(SelectedGWs1),
+    %% check if we have enough GWs in our available pool
+    case SelectedGWCount of
+        X when X < Limit ->
+            %% we dont have enough GWs in the filtered list
+            %% need to find additional actives
+            %% remove our current filtered GWs from the original list
+            %% shuffle and then attempt to find the extra ones we need
+            OrigGWs1 = GWs -- SelectedGWs1,
+            ShuffledGWs = blockchain_utils:shuffle(NewRandState, OrigGWs1),
+            AdditionalGWs = find_more_active_gws(ActivityFilterEnabled, MaxActivityAge,
+                ShuffledGWs, Height, Ledger, Limit - SelectedGWCount),
+            SelectedGWs1 ++ AdditionalGWs;
+        _ ->
+            SelectedGWs1
     end.
+
+-spec find_more_active_gws(
+    ActivityFilterEnabled :: boolean(),
+    MaxActivityAge :: pos_integer(),
+    ShuffledGWs :: [libp2p_crypto:pubkey_bin()],
+    Height :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger(),
+    NumGWstoFind :: pos_integer()
+) -> [libp2p_crypto:pubkey_bin()].
+find_more_active_gws(ActivityFilterEnabled, MaxActivityAge,
+        ShuffledGWs, Height, Ledger, NumGWstoFind) ->
+    find_more_active_gws(ActivityFilterEnabled, MaxActivityAge, ShuffledGWs,
+        Height, Ledger, NumGWstoFind, []).
+
+-spec find_more_active_gws(
+    ActivityFilterEnabled :: boolean(),
+    MaxActivityAge :: pos_integer(),
+    ShuffledGWs :: [libp2p_crypto:pubkey_bin()],
+    Height :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger(),
+    NumGWstoFind :: pos_integer(),
+    FoundGWs :: [libp2p_crypto:pubkey_bin()]
+) -> [libp2p_crypto:pubkey_bin()].
+find_more_active_gws(_ActivityFilterEnabled, _MaxActivityAge,
+        [] = _ShuffledGWs, _Height, _Ledger, _NumGWstoFind, FoundGWs) ->
+    FoundGWs;
+find_more_active_gws(_ActivityFilterEnabled, _MaxActivityAge,
+    _ShuffledGWs, _Height, _Ledger, NumGWstoFind, FoundGWs)
+        when length(FoundGWs) == NumGWstoFind ->
+    FoundGWs;
+find_more_active_gws(ActivityFilterEnabled, MaxActivityAge,
+        [H | T] = _ShuffledGWs, Height, Ledger, NumGWstoFind, FoundGWs) ->
+    {ok, LastActivity} = blockchain_ledger_v1:find_gateway_last_challenge(H, Ledger),
+    {ok, Mode} = blockchain_ledger_v1:find_gateway_mode(H, Ledger),
+    case is_active_and_valid(ActivityFilterEnabled, Height, LastActivity,
+            MaxActivityAge, Mode, Ledger) of
+        true ->
+            find_more_active_gws(ActivityFilterEnabled, MaxActivityAge, T, Height,
+                    Ledger, NumGWstoFind, [H | FoundGWs]);
+        false ->
+            find_more_active_gws(ActivityFilterEnabled, MaxActivityAge, T, Height,
+                    Ledger, NumGWstoFind, FoundGWs)
+    end.
+
+%% @doc Filter gateways based on these conditions:
+%% - gateways which do not have the relevant capability
+%% - gateways which are inactive
+-spec filter(
+    ActivityFilterEnabled :: boolean(),
+    MaxActivityAge :: pos_integer(),
+    AddrList :: [libp2p_crypto:pubkey_bin()],
+    Height :: non_neg_integer(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> [libp2p_crypto:pubkey_bin()].
+filter(ActivityFilterEnabled, MaxActivityAge, AddrList, Height, Ledger) ->
+    lists:filter(
+        fun(A) ->
+            {ok, Mode} = blockchain_ledger_v1:find_gateway_mode(A, Ledger),
+            {ok, LastActivity} = blockchain_ledger_v1:find_gateway_last_challenge(A, Ledger),
+            is_active_and_valid(ActivityFilterEnabled, Height, LastActivity,
+                MaxActivityAge, Mode, Ledger)
+        end,
+        AddrList
+    ).
+
+-spec is_active_and_valid(ActivityFilterEnabled :: boolean(),
+                Height :: pos_integer(),
+                LastActivity :: undefined | pos_integer(),
+                MaxActivityAge :: pos_integer(),
+                Mode :: blockchain_ledger_gateway_v2:mode(),
+                Ledger :: blockchain_ledger_v1:ledger()
+               ) -> boolean().
+is_active_and_valid(false, _Height, _LastActivity, _MaxActivityAge, Mode, Ledger) ->
+    blockchain_ledger_gateway_v2:is_valid_capability(
+        Mode,
+        ?GW_CAPABILITY_POC_CHALLENGEE,
+        Ledger
+    );
+is_active_and_valid(true, Height, LastActivity, MaxActivityAge, Mode, Ledger) ->
+    blockchain_utils:is_gw_active(Height, LastActivity, MaxActivityAge)
+        andalso blockchain_ledger_gateway_v2:is_valid_capability(
+            Mode,
+            ?GW_CAPABILITY_POC_CHALLENGEE,
+            Ledger
+        ).
