@@ -11,7 +11,7 @@
 
 -export([
     shuffle_from_hash/2,
-    shuffle/1,
+    shuffle/1, shuffle/2,
     rand_from_hash/1, rand_state/1,
     normalize_float/1,
     challenge_interval/1,
@@ -121,6 +121,18 @@ shuffle_from_hash(Hash, L) ->
 -spec shuffle([A]) -> [A].
 shuffle(Xs) ->
     [X || {_, X} <- lists:sort([{rand:uniform(), X} || X <- Xs])].
+
+-spec shuffle([A], rand:state()) -> {[A], rand:state()}.
+shuffle(Xs, RandState) ->
+    {Shuffled, RandState1} =
+        lists:foldl(
+          fun(X, {A, St}) ->
+                  {R, St1} = rand:uniform_s(St),
+                  {[{R, X} | A ], St1}
+          end, {[], RandState},
+          Xs),
+    {_Rands, Positions} = lists:unzip(lists:sort(Shuffled)),
+    {Positions, RandState1}.
 
 %%--------------------------------------------------------------------
 %% @doc
