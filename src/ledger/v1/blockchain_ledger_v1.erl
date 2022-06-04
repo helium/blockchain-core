@@ -271,8 +271,12 @@
     dc_to_hnt/2,
     hnt_to_dc/2,
 
-    migrate_entries/1
+    migrate_entries/1,
 
+    add_subnetwork/6,
+    update_subnetwork/2,
+    subnetworks_v1/1,
+    find_subnetwork_v1/2
 ]).
 
 -include("blockchain.hrl").
@@ -290,6 +294,7 @@
 
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type entries_v2() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v2:entry()}.
+-type subnetworks_v1() :: #{blockchain_token_v1:type() => blockchain_ledger_subnetwork_v1:subnetwork_v1()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -351,11 +356,11 @@ new(Dir, ReadOnly, Options) ->
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, ProposedPoCsCF,
      SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, EntriesV2CF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, EntriesV2CF, SubnetworksV1CF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedProposedPoCsCF,
      DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF,
-     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF, DelayedEntriesV2CF] = CFs,
+     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF, DelayedEntriesV2CF, DelayedSubnetworksV1CF] = CFs,
     Ledger =
     #ledger_v1{
         dir=Dir,
@@ -377,7 +382,8 @@ new(Dir, ReadOnly, Options) ->
             state_channels=SCsCF,
             h3dex=H3DexCF,
             validators=ValidatorsCF,
-            entries_v2=EntriesV2CF
+            entries_v2=EntriesV2CF,
+            subnetworks_v1=SubnetworksV1CF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -394,7 +400,8 @@ new(Dir, ReadOnly, Options) ->
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF,
             validators=DelayedValidatorsCF,
-            entries_v2=DelayedEntriesV2CF
+            entries_v2=DelayedEntriesV2CF,
+            subnetworks_v1=DelayedSubnetworksV1CF
         }
     },
     Ledger.
@@ -912,7 +919,8 @@ atom_to_cf(Atom, Ledger) ->
             state_channels -> SL#sub_ledger_v1.state_channels;
             h3dex -> SL#sub_ledger_v1.h3dex;
             validators -> SL#sub_ledger_v1.validators;
-            entries_v2 -> SL#sub_ledger_v1.entries_v2
+            entries_v2 -> SL#sub_ledger_v1.entries_v2;
+            subnetworks_v1 -> SL#sub_ledger_v1.subnetworks_v1
         end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
@@ -1336,6 +1344,33 @@ write_gw_denorm_values(Address, Old, Gw, Ledger) ->
     case Gain == OldGain of
         true -> ok;
             _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain))
+    end.
+
+-spec subnetworks_v1(ledger()) -> subnetworks_v1().
+subnetworks_v1(Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    cache_fold(
+        Ledger,
+        SubnetworksV1CF,
+        fun({TT, Binary}, Acc) ->
+            SN = blockchain_ledger_subnetwork_v1:deserialize(Binary),
+            maps:put(binary_to_atom(TT, utf8), SN, Acc)
+        end,
+        #{}
+    ).
+
+-spec find_subnetwork_v1(TT :: blockchain_token_v1:type(), Ledger :: ledger()) ->
+    {ok, blockchain_ledger_subnetwork_v1:subnetwork_v1()}
+    | {error, any()}.
+find_subnetwork_v1(TT, Ledger) ->
+    SNCF = subnetworks_v1_cf(Ledger),
+    case cache_get(Ledger, SNCF, atom_to_binary(TT, utf8), []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_subnetwork_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, subnetwork_not_found};
+        Error ->
+            Error
     end.
 
 -spec entries(ledger()) -> entries() | entries_v2().
@@ -2952,6 +2987,39 @@ migrate_sec_entries(Ledger) ->
         ok
     ).
 
+-spec add_subnetwork(TT :: blockchain_token_v1:type(),
+                     TokenTreasury :: non_neg_integer(),
+                     HNTTreasury :: non_neg_integer(),
+                     SNKey :: libp2p_crypto:pubkey_bin(),
+                     RewardServerKeys :: [libp2p_crypto:pubkey_bin()],
+                     Ledger :: ledger()) -> ok | {error, any()}.
+add_subnetwork(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys, Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    case ?MODULE:find_subnetwork_v1(TT, Ledger) of
+        {error, subnetwork_not_found} ->
+            case lists:member(TT, blockchain_token_v1:supported_tokens()) of
+                false ->
+                    %% We do not support this token type
+                    {error, {unsupported_subnetwork, TT}};
+                true ->
+                    %% Only add subnetwork if it is not found on ledger
+                    SN = blockchain_ledger_subnetwork_v1:new(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys),
+                    Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+                    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin)
+            end;
+        {ok, _SN} ->
+            {error, subnetwork_already_exists};
+        {error, _}=Error ->
+            Error
+    end.
+
+-spec update_subnetwork(SN :: blockchain_ledger_subnetwork_v1:subnetwork_v1(),
+                        Ledger :: ledger()) -> ok.
+update_subnetwork(SN, Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    TT = blockchain_ledger_subnetwork_v1:type(SN),
+    Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -4320,6 +4388,11 @@ entries_v2_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries_v2, db(Ledger), SL#sub_ledger_v1.entries_v2}.
 
+-spec subnetworks_v1_cf(ledger()) -> tagged_cf().
+subnetworks_v1_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {subnetworks_v1, db(Ledger), SL#sub_ledger_v1.subnetworks_v1}.
+
 -spec dc_entries_cf(ledger()) -> tagged_cf().
 dc_entries_cf(Ledger) ->
     SL = subledger(Ledger),
@@ -4668,7 +4741,7 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
 default_cfs() ->
     ["default", "active_gateways", "entries", "dc_entries", "htlcs",
      "pocs", "proposed_pocs", "securities", "routing", "subnets",
-     "state_channels", "h3dex", "gw_denorm", "validators", "entries_v2"].
+     "state_channels", "h3dex", "gw_denorm", "validators", "entries_v2", "subnetworks_v1"].
 
 -spec delayed_cfs() -> list().
 delayed_cfs() ->

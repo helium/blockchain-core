@@ -1234,6 +1234,14 @@ validate_var(?enable_balance_clearing, Value) ->
         _ -> throw({error, {invalid_enable_balance_clearing, Value}})
     end;
 
+validate_var(?allowed_num_reward_server_keys, Value) ->
+    case Value of
+        N when N == 1 ->
+            %% only supported one reward server for now
+            ok;
+        _ -> throw({error, {invalid_allowed_num_reward_server_keys, Value}})
+    end;
+
 %% general txn vars
 
 validate_var(?txn_field_validation_version, Value) ->

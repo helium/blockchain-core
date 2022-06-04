@@ -41,7 +41,8 @@
     validators :: rocksdb:cf_handle(),
     cache :: undefined | direct | ets:tid(),
     gateway_cache :: undefined | ets:tid(),
-    entries_v2 :: rocksdb:cf_handle()
+    entries_v2 :: rocksdb:cf_handle(),
+    subnetworks_v1 :: rocksdb:cf_handle()
 }).
 
 -record(aux_ledger_v1, {
