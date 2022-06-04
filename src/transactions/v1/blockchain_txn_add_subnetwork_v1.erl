@@ -1,0 +1,158 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Blockchain Txn to add a subnetwork token to the network ==
+%% @end
+%%%-------------------------------------------------------------------
+-module(blockchain_txn_add_subnetwork_v1).
+
+-behavior(blockchain_txn).
+
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+-include("blockchain_utils.hrl").
+
+-include_lib("helium_proto/include/blockchain_txn_add_subnetwork_v1_pb.hrl").
+
+-export([
+    new/4,
+    token_type/1,
+    subnetwork_key/1,
+    reward_server_keys/1,
+    premine/1,
+    network_signature/1,
+    subnetwork_signature/1,
+    sign/2,
+    sign_subnetwork/2,
+    hash/1,
+
+    fee/1,
+    fee_payer/2,
+    is_valid/2,
+    absorb/2,
+
+    print/1,
+    json_type/0,
+    to_json/2
+]).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
+-type txn_add_subnetwork() :: #blockchain_txn_add_subnetwork_v1_pb{}.
+-export_type([txn_add_subnetwork/0]).
+
+-spec new(
+    TT :: blockchain_token_v1:type(),
+    SubnetworkKey :: libp2p_crypto:pubkey_bin(),
+    RewardServerKeys :: [libp2p_crypto:pubkey_bin()],
+    PremineAmt :: non_neg_integer()
+) -> txn_add_subnetwork().
+new(TT, SubnetworkKey, RewardServerKeys, PremineAmt) ->
+    #blockchain_txn_add_subnetwork_v1_pb{
+        token_type = TT,
+        subnetwork_key = SubnetworkKey,
+        reward_server_keys = lists:sort(RewardServerKeys),
+        premine = PremineAmt,
+        network_signature = <<>>,
+        subnetwork_signature = <<>>
+    }.
+
+-spec token_type(Txn :: txn_add_subnetwork()) -> blockchain_token_v1:token_type().
+token_type(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb.token_type.
+
+-spec subnetwork_key(Txn :: txn_add_subnetwork()) -> libp2p_crypto:pubkey_bin().
+subnetwork_key(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb.subnetwork_key.
+
+-spec reward_server_keys(Txn :: txn_add_subnetwork()) -> [libp2p_crypto:pubkey_bin()].
+reward_server_keys(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb.reward_server_keys.
+
+-spec premine(Txn :: txn_add_subnetwork()) -> non_neg_integer().
+premine(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb.premine.
+
+-spec network_signature(txn_add_subnetwork()) -> binary().
+network_signature(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb.network_signature.
+
+-spec subnetwork_signature(txn_add_subnetwork()) -> binary().
+subnetwork_signature(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb.subnetwork_signature.
+
+-spec sign(txn_add_subnetwork(), libp2p_crypto:sig_fun()) -> txn_add_subnetwork().
+sign(Txn, SigFun) ->
+    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_add_subnetwork_v1_pb{network_signature = SigFun(EncodedTxn)}.
+
+-spec sign_subnetwork(txn_add_subnetwork(), libp2p_crypto:sig_fun()) -> txn_add_subnetwork().
+sign_subnetwork(Txn, SigFun) ->
+    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_add_subnetwork_v1_pb{subnetwork_signature = SigFun(EncodedTxn)}.
+
+-spec hash(txn_add_subnetwork()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#blockchain_txn_add_subnetwork_v1_pb{
+        network_signature = <<>>, subnetwork_signature = <<>>
+    },
+    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
+
+-spec fee(Txn :: txn_add_subnetwork()) -> non_neg_integer().
+fee(_Txn) ->
+    0.
+
+-spec fee_payer(Txn :: txn_add_subnetwork(), Ledger :: blockchain_ledger_v1:ledger()) -> undefined.
+fee_payer(_Txn, _Ledger) ->
+    undefined.
+
+-spec is_valid(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) ->
+    ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    %% TODO
+    ok.
+
+-spec absorb(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    %% TODO
+    ok.
+
+-spec print(txn_add_subnetwork()) -> iodata().
+print(undefined) ->
+    <<"type=add_subnetwork_v1, undefined">>;
+print(
+    #blockchain_txn_add_subnetwork_v1_pb{
+        token_type = TT,
+        subnetwork_key = SKey,
+        reward_server_keys = RKeys,
+        premine = PremineAmt,
+        network_signature = NS,
+        subnetwork_signature = SS
+    }
+) ->
+    io_lib:format(
+        "type=add_subnetwork_v1, token_type=~p, premine=~p, subnetwork_key=~p, reward_server_keys=~p, network_signature=~s~n subnetwork_signature: ~s",
+        [
+            atom_to_list(TT),
+            PremineAmt,
+            ?TO_B58(SKey),
+            [?TO_B58(RKey) || RKey <- RKeys],
+            ?TO_B58(NS),
+            ?TO_B58(SS)
+        ]
+    ).
+
+json_type() ->
+    <<"add_subnetwork_v1">>.
+
+-spec to_json(txn_add_subnetwork(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+        type => ?MODULE:json_type(),
+        hash => ?BIN_TO_B64(hash(Txn)),
+        token_type => atom_to_list(token_type(Txn)),
+        subnetwork_key => ?BIN_TO_B58(subnetwork_key(Txn)),
+        reward_server_keys => [?BIN_TO_B58(K) || K <- reward_server_keys(Txn)]
+    }.
