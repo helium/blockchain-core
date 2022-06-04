@@ -173,6 +173,14 @@
 %% from POC targets :: boolean()
 -define(poc_activity_filter_enabled, poc_activity_filter_enabled).
 
+%% enables or disables processing gateway reactivations regardless of
+%% consensus status (GH#1357)
+-define(poc_always_process_reactivations, poc_always_process_reactivations).
+
+%% Whether or not to always use hip17 interactivity blocks
+%% when determining if a GW is active or inactive: boolean
+-define(harmonize_activity_on_hip17_interactivity_blocks, harmonize_activity_on_hip17_interactivity_blocks).
+
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
 %% acceptable height.
@@ -217,6 +225,9 @@
 
 %% the number of random hexes to utilize when targeting: integer
 -define(poc_target_pool_size, poc_target_pool_size).
+
+%% whether or not to process validation of poc receipt witnesses
+-define(poc_receipt_witness_validation, poc_receipt_witness_validation).
 
 %%%
 %%% score vars
@@ -349,6 +360,9 @@
 
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
+
+%% Set this var to `true' to enable balance clearing txns
+-define(enable_balance_clearing, enable_balance_clearing). % boolean
 
 %% General txn vars
 

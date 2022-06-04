@@ -93,6 +93,7 @@
     update_public_poc/2,
     pocs/2,
     delete_poc/3,
+    poc_gc_interval/1,
     purge_pocs/1,
     maybe_gc_pocs/2,
     maybe_gc_scs/2,
@@ -277,7 +278,6 @@
 -include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
-
 
 -ifdef(TEST).
 -export([median/1, checkpoint_base/1, checkpoint_dir/2, clean_checkpoints/1]).
@@ -2318,6 +2318,27 @@ pocs_(CF, Ledger) ->
       []
      ).
 
+%%--------------------------------------------------------------------
+%% @doc  return the interval, in blocks, by which pocs are garbage
+%% collected.
+%%
+%% default gc point is set off by 1 so as not to align with other
+%% gc processes.
+%%
+%% if validators are providing challenges, but the window check is
+%% not enabled, we are tied to the current default for replay reasons.
+%% if it is set, it can be adjusted freely and safely from the app
+%% env
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec poc_gc_interval(ledger()) -> integer().
+poc_gc_interval(Ledger) ->
+    case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+        {ok, true} -> application:get_env(blockchain, poc_gc_interval_size, ?DEFAULT_POC_GC_INTERVAL);
+        _ -> ?DEFAULT_POC_GC_INTERVAL
+    end.
+
 -spec purge_pocs(ledger()) -> ok.
 purge_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
@@ -2357,20 +2378,9 @@ maybe_gc_pocs(_Chain, Ledger, validator) ->
     %% has been absorbed or would have been expected
     %% to be absorbed
     {ok, CurHeight} = current_height(Ledger),
-    %%  set GC point off by one so it doesnt align with so many other gc processes
 
-    %% if we're in the validator challenges, but the window check is not in place, we are tied
-    %% to 101 for replay reasons. if it's set, then we can change it however we'd like and we
-    %% should be safe
-    Interval =
-        case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
-            {ok, true} ->
-                %% make any needed interval changes here
-                application:get_env(blockchain, poc_gc_interval_size, 101); % <---- this one
+    Interval = poc_gc_interval(Ledger),
 
-            %% don't change this one!
-            _ -> 101
-        end,
     case CurHeight rem Interval == 0 of
         true ->
             PoCsCF = pocs_cf(Ledger),
@@ -4893,10 +4903,18 @@ maybe_gc_h3dex(Ledger) ->
     %% pick a random h3dex index and remove any inactive hotspots from it
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, Width} ->
-            InactivityThreshold =
+            InactivityThreshold0 =
               case ?MODULE:config(?poc_v4_target_challenge_age, Ledger) of
-                {ok, InActV} -> InActV;
+                {ok, V1} -> V1;
                 _ -> 10
+              end,
+            InactivityThreshold1 =
+              case ?MODULE:config(?harmonize_activity_on_hip17_interactivity_blocks, Ledger) of
+                {ok, true} ->
+                    {ok, V2} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
+                    V2;
+                _ ->
+                    InactivityThreshold0
               end,
             %% we need a fairly deterministic way to choose hexes to be GC'd
             %% that ideally is not tied to internal representations like rocksdb
@@ -4906,32 +4924,37 @@ maybe_gc_h3dex(Ledger) ->
             %% from the current block (which are sorted by *challenger* and GC the
             %% hexes the *challengee* is in.
             {ok, Height} = current_height(Ledger),
-            %% If we can't get the block, we will just crash here
-            {ok, Block} = get_block(Height, Ledger),
-            {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
-            RandState = blockchain_utils:rand_from_hash(BlockHash),
-            RequestFilter = fun(T) ->
-                                    blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
-                                    orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
-                            end,
-            case blockchain_utils:find_txn(Block, RequestFilter) of
-                [] ->
-                    %% no receipts, don't do any GC
-                    ok;
-                Txns ->
-                    %% take the first `Width` receipts and GC the parent hexes of the challengees
-                    {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
-                    lists:foreach(fun(T) ->
-                                          ReceiptType = blockchain_txn:type(T),
-                                          Path = ReceiptType:path(T),
-                                          Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
-                                          case find_gateway_location(Challengee, Ledger) of
-                                              {ok, Location} ->
-                                                  gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger);
-                                              _ ->
-                                                  ok
-                                          end
-                                  end, Selected)
+            %% note: handling block not being found here as not doing so
+            %% results in tests failing during genesis block load
+            case get_block(Height, Ledger) of
+                {ok, Block} ->
+                    {ok, #block_info_v2{hash = BlockHash}} = get_block_info(Height, Ledger),
+                    RandState = blockchain_utils:rand_from_hash(BlockHash),
+                    RequestFilter = fun(T) ->
+                                            blockchain_txn:type(T) == blockchain_txn_poc_receipts_v1
+                                            orelse blockchain_txn:type(T) == blockchain_txn_poc_receipts_v2
+                                    end,
+                    case blockchain_utils:find_txn(Block, RequestFilter) of
+                        [] ->
+                            %% no receipts, don't do any GC
+                            ok;
+                        Txns ->
+                            %% take the first `Width` receipts and GC the parent hexes of the challengees
+                            {_NewRand, Selected} = blockchain_utils:deterministic_subset(Width, RandState, Txns),
+                            lists:foreach(fun(T) ->
+                                                  ReceiptType = blockchain_txn:type(T),
+                                                  Path = ReceiptType:path(T),
+                                                  Challengee = blockchain_poc_path_element_v1:challengee(hd(Path)),
+                                                  case find_gateway_location(Challengee, Ledger) of
+                                                      {ok, Location} ->
+                                                          gc_h3dex_hex(Location, Height, InactivityThreshold1, Ledger);
+                                                      _ ->
+                                                          ok
+                                                  end
+                                          end, Selected)
+                    end;
+                _ ->
+                    ok
             end;
         _ ->
             ok
@@ -5522,7 +5545,13 @@ snapshot_raw(CF, L) ->
     %% Since rocks folds are lexicographic - we can just reverse:
     lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
 
--spec load_raw([{binary(), binary()}] | function(), rocksdb:cf_handle(), ledger()) -> ok.
+-spec load_raw([{binary(), binary()}] | function(), CFSpec, ledger()) -> ok when
+        CFSpec ::
+        {
+            CFName :: atom(),
+            DB :: rocksdb:db_handle(),
+            CF :: rocksdb:cf_handle()
+        }.
 load_raw(Iter, {Name, DB, CF}, Ledger) when is_function(Iter, 0) ->
     case Iter() of
         {K, V, NewIter} ->
@@ -5758,7 +5787,7 @@ load_hexes(Hexes0, Ledger) ->
 snapshot_h3dex(Ledger) ->
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
-            {_Name, _DB, H3CF} = h3dex_cf(Ledger),
+            H3CF = h3dex_cf(Ledger),
             snapshot_raw(H3CF, Ledger);
         _ ->
             lists:sort(
@@ -5770,7 +5799,7 @@ snapshot_h3dex(Ledger) ->
 load_h3dex(H3DexList, Ledger) ->
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
-            {_Name, _DB, H3CF} = h3dex_cf(Ledger),
+            H3CF = h3dex_cf(Ledger),
             load_raw(H3DexList, H3CF, Ledger);
         _ ->
             {_Name, DB, H3CF} = h3dex_cf(Ledger),

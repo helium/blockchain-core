@@ -444,6 +444,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
+            telemetry:execute([blockchain, block, absorb], #{duration => End - Start}, #{stage => validation}),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2, KeysPayload} ->
@@ -453,6 +454,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             End2 = erlang:monotonic_time(millisecond),
+                            telemetry:execute([blockchain, block, absorb], #{duration => End2 - End}, #{stage => absorb}),
                             ok = handle_absorb_delayed_result(AbsordDelayedRef),
                             case absorb_aux(Block, Chain0) of
                                 ok -> ok;
@@ -461,6 +463,8 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                                     ok
                             end,
                             End3 = erlang:monotonic_time(millisecond),
+                            telemetry:execute([blockchain, block, absorb], #{duration => End3 - End2}, #{stage => post}),
+                            telemetry:execute([blockchain, block, height], #{height => Height}, #{time => blockchain_block:time(Block)}),
                             lager:info("validation took ~p absorb took ~p post took ~p ms for block height ~p",
                                        [End - Start, End2 - End, End3 - End2, Height]),
                             {ok, KeysPayload};

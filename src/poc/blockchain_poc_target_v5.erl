@@ -152,10 +152,13 @@ filter(AddrList, Ledger, Height, Vars) ->
             {ok, V} -> V;
             _ -> false
         end,
+    MaxActivityAge = max_activity_age(Vars),
     lists:filter(
         fun(A) ->
-            {ok, Mode} = blockchain_ledger_v1:find_gateway_mode(A, Ledger),
-            is_active(ActivityFilterEnabled, A, Height, Vars, Ledger) andalso
+            {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
+            Mode = blockchain_ledger_gateway_v2:mode(Gateway),
+            LastActivity = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
+            is_active(ActivityFilterEnabled, LastActivity, MaxActivityAge, Height) andalso
                 blockchain_ledger_gateway_v2:is_valid_capability(
                     Mode,
                     ?GW_CAPABILITY_POC_CHALLENGEE,
@@ -201,22 +204,19 @@ limit_addrs(_Vars, RandState, Witnesses) ->
     {RandState, Witnesses}.
 
 -spec is_active(ActivityFilterEnabled :: boolean(),
-                Gateway :: libp2p_crypto:pubkey_bin(),
-                Height :: non_neg_integer(),
-                Vars :: map(),
-                Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
-is_active(true, Gateway, Height, Vars, Ledger) ->
-    case blockchain_ledger_v1:find_gateway_last_challenge(Gateway, Ledger) of
-        {ok, undefined} ->
-            %% No activity value set, default to inactive
-            false;
-        {ok, C} ->
-            %% Check activity age is recent depending on the set chain var
-            (Height - C) < max_activity_age(Vars)
-    end;
-is_active(_, _Gateway, _Height, _Vars, _Ledger) ->
+                LastActivity :: pos_integer(),
+                MaxActivityAge :: pos_integer(),
+                Height :: pos_integer()) -> boolean().
+is_active(true, undefined, _MaxActivityAge, _Height) ->
+    false;
+is_active(true, LastActivity, MaxActivityAge, Height) ->
+    (Height - LastActivity) < MaxActivityAge;
+is_active(_ActivityFilterEnabled, _Gateway, _Height, _Vars) ->
     true.
 
 -spec max_activity_age(Vars :: map()) -> pos_integer().
 max_activity_age(Vars) ->
-    maps:get(poc_v4_target_challenge_age, Vars).
+    case maps:get(harmonize_activity_on_hip17_interactivity_blocks, Vars, false) of
+        true -> maps:get(hip17_interactivity_blocks, Vars);
+        false -> maps:get(poc_v4_target_challenge_age, Vars)
+    end.

@@ -253,8 +253,18 @@ get_path(_POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Led
     POCPrivKeyHash = crypto:hash(sha256, PrivKeyBin),
     ZoneRandState = blockchain_utils:rand_state(Entropy),
     InitTargetRandState = blockchain_utils:rand_state(POCPrivKeyHash),
-    TargetMod = blockchain_utils:target_v_to_mod(blockchain:config(?poc_targeting_version, Ledger)),
-    {ok, {Target, TargetRandState}} =  TargetMod:target(Challenger, InitTargetRandState, ZoneRandState, Ledger, Vars),
+    {ok, TargetV} = TargetResp = blockchain:config(?poc_targeting_version, Ledger),
+    TargetMod = blockchain_utils:target_v_to_mod(TargetResp),
+    %% if v6 targeting or newer in use then use the correct ledger for pathing
+    %% this addresses an issue whereby the current ledger was in use when
+    %% identifying the target rather than the ledger from the point the
+    %% poc was initialized
+    PathingLedger =
+        case TargetV of
+            N when N >= 6 -> OldLedger;
+            _ -> Ledger
+        end,
+    {ok, {Target, TargetRandState}} =  TargetMod:target(Challenger, InitTargetRandState, ZoneRandState, PathingLedger, Vars),
     %% Path building phase
     StartB = maybe_log_duration(target, StartT),
     RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
@@ -326,7 +336,13 @@ poc_particpants(Txn, Chain) ->
                                     _ ->
                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                 end,
-                            Witnesses = valid_witness_addrs(Element, WitnessChannel, Ledger),
+                            Witnesses = case blockchain:config(?poc_receipt_witness_validation, Ledger) of
+                                            {ok, false} ->
+                                                UnvalidatedWitnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
+                                                [W#blockchain_poc_witness_v1_pb.gateway || W <- UnvalidatedWitnesses];
+                                            _ ->
+                                                valid_witness_addrs(Element, WitnessChannel, Ledger)
+                                        end,
                             %% only include the challengee in the poc participants list
                             %% if we have received a receipt
                             ElemParticipants =
@@ -855,8 +871,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                       Channel :: non_neg_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
 valid_witnesses(Element, Channel, Ledger) ->
-    TaggedWitnesses = tagged_witnesses(Element, Channel, Ledger),
-    [ W || {true, _, W} <- TaggedWitnesses ].
+    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
+    valid_witnesses(Element, Channel, RegionVars, Ledger).
 
 valid_witnesses(Element, Channel, RegionVars, Ledger) ->
     TaggedWitnesses = tagged_witnesses(Element, Channel, RegionVars, Ledger),
@@ -866,8 +882,8 @@ valid_witnesses(Element, Channel, RegionVars, Ledger) ->
                       Channel :: non_neg_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> [libp2p_crypto:pubkey_bin()].
 valid_witness_addrs(Element, Channel, Ledger) ->
-    TaggedWitnesses = tagged_witnesses(Element, Channel, Ledger),
-    [ W#blockchain_poc_witness_v1_pb.gateway || {true, _, W} <- TaggedWitnesses ].
+    ValidWitnesses = valid_witnesses(Element, Channel, Ledger),
+    [W#blockchain_poc_witness_v1_pb.gateway || W <- ValidWitnesses].
 
 -spec is_too_far(Limit :: any(),
                  SrcLoc :: h3:h3_index(),
@@ -943,7 +959,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     Limit = blockchain:config(?poc_distance_limit, Ledger),
     Version = poc_version(Ledger),
 
-    lists:foldl(fun(Witness, Acc) ->
+    TaggedWitnesses = lists:foldl(fun(Witness, Acc) ->
                          DstPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                          {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
 %%                            case blockchain_region_v1:h3_to_region(DestinationLoc, Ledger, RegionVars) of
@@ -1036,7 +1052,12 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
                                          end
                                  end
                          end
-                 end, [], Witnesses).
+                 end, [], Witnesses),
+    WitnessCount = length(Witnesses),
+    TaggedWitnessCount = length(TaggedWitnesses),
+    lager:debug("filtered ~p of ~p witnesses for receipt ~p", [(WitnessCount - TaggedWitnessCount),
+                                                               WitnessCount, blockchain_poc_path_element_v1:receipt(Element)]),
+    TaggedWitnesses.
 
 -spec get_channels(Txn :: txn_poc_receipts(),
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.

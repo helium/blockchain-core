@@ -199,7 +199,14 @@ absorb(Txn, Chain) ->
             {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
             case lists:member(Validator, ConsensusAddrs) of
                 true ->
-                    ok;
+                    %% gateway reactivation must be processed regardless of consensus status
+                    %% see GH#1357
+                    case blockchain_ledger_v1:config(?poc_always_process_reactivations, Ledger) of
+                        {ok, true} ->
+                            maybe_reactivate_gateways(Txn, Ledger),
+                            ok;
+                        _ -> ok
+                    end;
                 false ->
                     case blockchain:config(poc_challenger_type, Ledger) of
                         {ok, validator} ->
@@ -208,21 +215,7 @@ absorb(Txn, Chain) ->
                         _ ->
                             ok
                     end,
-                    %% process the reactivated GW list submitted in the heartbeat
-                    %% these are GWs which have fallen outside of the max activity span
-                    %% and thus wont be selected for POC
-                    %% to get on this reactivated list the GW must have connected
-                    %% to a validator over GRPC and subscribed to the poc stream
-                    %% as such it may have maybe come back to life
-                    %% so update it lasts activity tracking and allow it to be
-                    %% reselected for POC
-                    case blockchain:config(poc_activity_filter_enabled, Ledger) of
-                        {ok, true} ->
-                            ReactivatedGWs = reactivated_gws(Txn),
-                            reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
-                        _ ->
-                            ok
-                    end
+                    maybe_reactivate_gateways(Txn, Ledger)
             end,
             blockchain_ledger_v1:update_validator(Validator, V2, Ledger);
         Err -> Err
@@ -252,6 +245,28 @@ to_json(Txn, _Opts) ->
       poc_key_proposals => [?BIN_TO_B64(K) || K <- poc_key_proposals(Txn)],
       reactivated_gws => [?BIN_TO_B58(GW) || GW <- reactivated_gws(Txn)]
      }.
+
+maybe_reactivate_gateways(Txn, Ledger) ->
+    %% process the reactivated GW list submitted in the heartbeat
+    %%
+    %% these are GWs which have fallen outside of the max activity span
+    %% and thus wont be selected for POC
+    %%
+    %% to get on this reactivated list the GW must have connected
+    %% to a validator over GRPC and subscribed to the poc stream
+    %% as such it may have come back to life
+    %%
+    %% so update the last activity tracking and allow it to be
+    %% reselected for POC
+
+    TxnHeight = height(Txn),
+    case blockchain:config(poc_activity_filter_enabled, Ledger) of
+        {ok, true} ->
+            ReactivatedGWs = reactivated_gws(Txn),
+            reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
+        _ ->
+            ok
+    end.
 
 reactivate_gws(GWAddrs, Height, Ledger) ->
     lists:foreach(
