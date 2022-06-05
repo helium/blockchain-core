@@ -10,6 +10,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_add_subnetwork_v1_pb.hrl").
 
@@ -111,8 +112,34 @@ fee_payer(_Txn, _Ledger) ->
 -spec is_valid(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) ->
     ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    %% TODO
-    ok.
+    Ledger = blockchain:ledger(Chain),
+    PremineAmt = premine(Txn),
+    case PremineAmt > 0 of
+        false ->
+            {error, invalid_premine_amount};
+        true ->
+            case token_type(Txn) of
+                hst ->
+                    {error, invalid_token_hst};
+                hnt ->
+                    {error, invalid_token_hnt};
+                _ ->
+                    case blockchain:config(?allow_multiple_reward_server_keys, Ledger) of
+                        true ->
+                            %% FIXME
+                            {error, todo};
+                        _ ->
+                            %% NOTE: We are only allowing a single reward server key
+                            case length(reward_server_keys(Txn)) == 1 of
+                                false ->
+                                    {error, invalid_multiple_reward_server_keys};
+                                true ->
+                                    %% FIXME: Check master key and subnetwork key signatures
+                                    ok
+                            end
+                    end
+            end
+    end.
 
 -spec absorb(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
