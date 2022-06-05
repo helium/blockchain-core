@@ -25,6 +25,7 @@
     save_block/2,
     has_block/2,
     find_first_block_after/2,
+    get_block_sync_first_block_height/1, get_block_sync_first_block_height/2,
 
     add_blocks/2, add_blocks/3, add_block/2, add_block/3,
     delete_block/2, rocksdb_gc/2,
@@ -887,7 +888,6 @@ has_block(Block, Chain) ->
     Hash = blockchain_block:hash_block(Block),
     has_block(Hash, Chain).
 
-
 find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
     MinHeight = max(0, MinHeight0),
     {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
@@ -895,6 +895,8 @@ find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
     case rocksdb:iterator_move(Iter, next) of
         {ok, <<Height:64/integer-unsigned-big>>, Hash} ->
             {ok, Height, Hash};
+        {ok, _Hash, _Height} ->
+            {error, not_found};
         {error, _} ->
             {error, not_found}
     end.
@@ -910,6 +912,54 @@ find_first_block_after(MinHeight, Blockchain) ->
             end;
         {error, _} ->
             {error, not_found}
+    end.
+
+get_block_sync_first_block_height(Blockchain) ->
+    case find_first_height_after(1, Blockchain) of
+        {ok, Height, _Hash} ->
+            get_block_sync_first_block_height(Height, Blockchain);
+        {error, _} ->
+            {error, no_batch_found}
+    end.
+
+get_block_sync_first_block_height(IntHeight0, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
+    IntHeight = max(0, IntHeight0),
+    BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
+    MaxHeight = IntHeight + BatchSize,
+    {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_lower_bound, <<IntHeight:64/integer-unsigned-big>>}, {iterate_upper_bound, <<MaxHeight:64/integer-unsigned-big>>}]),
+    {ok, <<LastHeight:64/integer-unsigned-big>>, _LastHash} = rocksdb:iterator_move(Itr, last),
+    {ok, <<FirstHeight:64/integer-unsigned-big>>, _FirstHash} = rocksdb:iterator_move(Itr, first),
+    case LastHeight == MaxHeight - 1 of
+        true ->
+            get_block_sync_first_block_height(FirstHeight, Blockchain, Itr, rocksdb:iterator_move(Itr, next));
+        false ->
+            case find_first_height_after(LastHeight, Blockchain) of
+                {ok, Height, _Hash} ->
+                    get_block_sync_first_block_height(Height, Blockchain);
+                {error, _} ->
+                    {error, no_batch_found}
+            end
+    end.
+
+get_block_sync_first_block_height(IntHeight, Blockchain, Itr, Iteration) ->
+    case Iteration of
+        {ok, <<ItrHeight:64/integer-unsigned-big>>, _ItrHash} ->
+            case ItrHeight == IntHeight + 1 of
+                true ->
+                    get_block_sync_first_block_height(ItrHeight, Blockchain, Itr, rocksdb:iterator_move(Itr, next));
+                false ->
+                    case find_first_height_after(IntHeight, Blockchain) of
+                        {ok, Height, _Hash} ->
+                            get_block_sync_first_block_height(Height, Blockchain);
+                        {error, _} ->
+                            {error, no_batch_found}
+                    end
+            end;
+        {error, invalid_iterator} ->
+            {ok, <<FirstHeight:64/integer-unsigned-big>>, _FirstHash} = rocksdb:iterator_move(Itr, first),
+            {ok, FirstHeight};
+        {error, _} ->
+            {error, no_batch_found}
     end.
 
 %%--------------------------------------------------------------------
