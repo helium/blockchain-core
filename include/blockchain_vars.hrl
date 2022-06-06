@@ -624,5 +624,5 @@
 -define(ledger_entry_version, ledger_entry_version).
 %% Var to switch off legacy security_exchange txn
 -define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).
-%% Var to enable multiple reward server keys
--define(allow_multiple_reward_server_keys, allow_multiple_reward_server_keys).
+%% How many reward server keys to allow
+-define(allowed_reward_server_key_length, allowed_reward_server_key_length).
