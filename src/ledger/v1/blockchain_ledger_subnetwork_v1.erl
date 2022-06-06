@@ -6,6 +6,7 @@
 -module(blockchain_ledger_subnetwork_v1).
 
 -export([
+    new/5,
     type/1,
     subnetwork_treasury/1,
     hnt_treasury/1,
@@ -28,6 +29,22 @@
 %% ==================================================================
 %% API Functions
 %% ==================================================================
+
+-spec new(
+    TT :: blockchain_token_v1:type(),
+    SNTreasury :: non_neg_integer(),
+    HNTTreasury :: non_neg_integer(),
+    SNKey :: libp2p_crypto:pubkey_bin(),
+    RollupKeys :: [libp2p_crypto:pubkey_bin()]
+) -> subnetwork_v1().
+new(TT, SNTreasury, HNTTreasury, SNKey, RollupKeys) ->
+    #blockchain_ledger_subnetwork_v1_pb{
+        type = TT,
+        subnetwork_treasury = SNTreasury,
+        hnt_treasury = HNTTreasury,
+        subnetwork_key = SNKey,
+        rollup_server_keys = lists:sort(RollupKeys)
+    }.
 
 -spec type(SN :: subnetwork_v1()) -> blockchain_token_v1:type().
 type(#blockchain_ledger_subnetwork_v1_pb{type = Type}) ->

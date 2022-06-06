@@ -127,7 +127,7 @@ is_valid(Txn, Chain) ->
                     case blockchain:config(?allow_multiple_reward_server_keys, Ledger) of
                         true ->
                             %% FIXME
-                            {error, todo};
+                            {error, fixme};
                         _ ->
                             %% NOTE: We are only allowing a single reward server key
                             case length(reward_server_keys(Txn)) == 1 of
@@ -143,7 +143,7 @@ is_valid(Txn, Chain) ->
 
 -spec absorb(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
-    %% TODO
+    %% FIXME
     ok.
 
 -spec print(txn_add_subnetwork()) -> iodata().
