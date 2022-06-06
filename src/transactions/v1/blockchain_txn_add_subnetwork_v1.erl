@@ -114,7 +114,7 @@ fee_payer(_Txn, _Ledger) ->
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     PremineAmt = premine(Txn),
-    case PremineAmt > 0 of
+    case PremineAmt >= 0 of
         false ->
             {error, invalid_premine_amount};
         true ->
