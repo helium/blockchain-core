@@ -241,7 +241,7 @@ limit_and_filter_gateways(ActivityFilterEnabled, MaxActivityAge, Limit, RandStat
             %% remove our current filtered GWs from the original list
             %% shuffle and then attempt to find the extra ones we need
             OrigGWs1 = GWs -- SelectedGWs1,
-            ShuffledGWs = blockchain_utils:shuffle(NewRandState, OrigGWs1),
+            {_, ShuffledGWs} = blockchain_utils:shuffle(NewRandState, OrigGWs1),
             AdditionalGWs = find_more_active_gws(ActivityFilterEnabled, MaxActivityAge,
                 ShuffledGWs, Height, Ledger, Limit - SelectedGWCount),
             SelectedGWs1 ++ AdditionalGWs;

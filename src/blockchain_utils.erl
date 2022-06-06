@@ -124,9 +124,17 @@ shuffle_from_hash(Hash, L) ->
 shuffle(Xs) ->
     [X || {_, X} <- lists:sort([{rand:uniform(), X} || X <- Xs])].
 
--spec shuffle(rand:state(), [A]) -> [A].
-shuffle(RandState, Xs) ->
-    [X || {_, X} <- lists:sort([{rand:uniform_s(RandState), X} || X <- Xs])].
+-spec shuffle(rand:state(), list()) -> list().
+shuffle(InitialRandState, List) ->
+    {FinalRandState, TaggedList} =
+        lists:foldl(
+            fun(I, {RandStateAcc, ListAcc}) ->
+                {RandV, NewRandState} = rand:uniform_s(RandStateAcc),
+                {NewRandState, [{RandV, I} | ListAcc]}
+            end,
+        {InitialRandState, []}, List),
+    {_, FinalList} = lists:unzip(lists:keysort(1, TaggedList)),
+    {FinalRandState, FinalList}.
 
 %%--------------------------------------------------------------------
 %% @doc
