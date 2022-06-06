@@ -476,20 +476,27 @@ amount_check_v2(Txn, Ledger) ->
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
 
-    PayerHasEnoughTTBalance =
-    lists:all(
-      fun(TT) ->
+    BalanceList = lists:foldl(
+      fun(TT, Acc) ->
               PayerTTBalance = blockchain_ledger_entry_v2:balance(PayerEntry, TT),
-              PayerTTBalance >= maps:get(TT, TotAmounts, 0)
+              Amount = maps:get(TT, TotAmounts, 0),
+              IsSufficient = PayerTTBalance >= Amount,
+              [{TT, IsSufficient, PayerTTBalance, Amount} | Acc]
       end,
+      [],
       blockchain_token_v1:supported_tokens()),
 
-    case PayerHasEnoughTTBalance of
-        false -> {error, amount_check_v2_failed};
-        true ->
+    case lists:filter(
+           fun({_TT, IsSufficient, _PayerTTBalance, _Amount}) ->
+                   IsSufficient == false
+           end,
+           BalanceList) of
+        [ ] ->
             %% If the txn amounts have successfully validated to this point
             %% perform the same checks previously done prior to token_version 2
-            amount_check(Txn, Ledger)
+            amount_check(Txn, Ledger);
+        Failure ->
+            {error, {amount_check_v2_failed, Failure}}
     end.
 
 -spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, amount_check_failed}.
