@@ -14,7 +14,6 @@
 
 -export([
     target_zone/2,
-    gateways_for_zone/5,
     target/5
 ]).
 
