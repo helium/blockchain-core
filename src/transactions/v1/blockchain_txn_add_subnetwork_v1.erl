@@ -124,19 +124,27 @@ is_valid(Txn, Chain) ->
                 hnt ->
                     {error, invalid_token_hnt};
                 _ ->
-                    case blockchain:config(?allow_multiple_reward_server_keys, Ledger) of
-                        true ->
-                            %% FIXME
-                            {error, fixme};
-                        _ ->
-                            %% NOTE: We are only allowing a single reward server key
-                            case length(reward_server_keys(Txn)) == 1 of
-                                false ->
-                                    {error, invalid_multiple_reward_server_keys};
+                    case blockchain:config(?allowed_reward_server_key_length, Ledger) of
+                        {ok, 1} ->
+                            Artifact = create_artifact(Txn),
+                            SubnetworkKey = ?MODULE:subnetwork_key(Txn),
+                            SubnetworkSig = ?MODULE:subnetwork_signature(Txn),
+                            case verify_key(Artifact, SubnetworkKey, SubnetworkSig) of
                                 true ->
-                                    %% FIXME: Check master key and subnetwork key signatures
-                                    ok
-                            end
+                                    {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                                    NetworkSig = ?MODULE:network_signature(Txn),
+                                    case verify_key(Artifact, MasterKey, NetworkSig) of
+                                        true ->
+                                            ok;
+                                        _ ->
+                                            {error, invalid_network_signature}
+                                    end;
+                                _ ->
+                                    {error, invalid_subnetwork_signature}
+                            end;
+                        _ ->
+                            %% NOTE: Update here when more than one reward server keys are allowed
+                            {error, invalid_reward_server_key_length}
                     end
             end
     end.
@@ -183,3 +191,15 @@ to_json(Txn, _Opts) ->
         subnetwork_key => ?BIN_TO_B58(subnetwork_key(Txn)),
         reward_server_keys => [?BIN_TO_B58(K) || K <- reward_server_keys(Txn)]
     }.
+
+create_artifact(Txn) ->
+    Txn1 = unset_signatures(Txn),
+    blockchain_txn_add_subnetwork_v1_pb:encode_msg(Txn1).
+
+unset_signatures(Txn) ->
+    Txn#blockchain_txn_add_subnetwork_v1_pb{network_signature = <<>>, subnetwork_signature = <<>>}.
+
+verify_key(_Artifact, _Key, <<>>) ->
+    throw({error, no_signature});
+verify_key(Artifact, Key, Signature) ->
+    libp2p_crypto:verify(Artifact, Signature, libp2p_crypto:bin_to_pubkey(Key)).
