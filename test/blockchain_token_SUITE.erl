@@ -9,6 +9,7 @@
 -export([
     multi_token_coinbase_test/1,
     multi_token_payment_test/1,
+    multi_token_payment_failure_test/1,
     entry_migration_test/1,
     entry_migration_with_payment_test/1
 ]).
@@ -27,6 +28,7 @@ all() ->
     [
         multi_token_coinbase_test,
         multi_token_payment_test,
+        multi_token_payment_failure_test,
         entry_migration_test,
         entry_migration_with_payment_test
     ].
@@ -274,6 +276,40 @@ multi_token_payment_test(Config) ->
     ?assertEqual(
         IOTBal - (IOTAmt1 + IOTAmt2 + IOTAmt3),
         EntryMod:balance(PayerEntry3, iot)
+    ),
+
+    ok.
+
+multi_token_payment_failure_test(Config) ->
+    ConsensusMembers = ?config(consensus_members, Config),
+    MobileBal = ?config(mobile_bal, Config),
+    Chain = ?config(chain, Config),
+
+    %% Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}} | _] = ConsensusMembers,
+
+    %% Generate two random recipients
+    [{Recipient1, _}] = test_utils:generate_keys(1),
+
+    MobileAmt = 200 * 10000,
+
+    P1 = blockchain_payment_v2:new(Recipient1, MobileAmt, mobile),
+
+    Payments = [P1],
+
+    Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+
+    {error, InvalidReason} = blockchain_txn:is_valid(SignedTx, Chain),
+    ct:pal("InvalidReason: ~p", [InvalidReason]),
+
+    ?assertEqual(
+        {invalid_transaction,
+            {amount_check,
+                {error, {amount_check_v2_failed, [{mobile, false, MobileBal, MobileAmt}]}}},
+            {memo_check, ok}, {token_check, ok}},
+        InvalidReason
     ),
 
     ok.
