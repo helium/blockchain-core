@@ -58,7 +58,9 @@
     var_cache_stats/0,
     teardown_var_cache/0,
     init_var_cache/0,
-    target_v_to_mod/1
+    target_v_to_mod/1,
+    is_gw_active/3,
+    max_activity_age/1
 
 ]).
 
@@ -728,7 +730,38 @@ target_v_to_mod({ok, V}) when V =< 5 ->
 target_v_to_mod({ok, 6}) ->
     blockchain_poc_target_v6.
 
-%% ------------------------------------------------------------------
+
+-spec is_gw_active(
+    CurHeight :: pos_integer(),
+    LastActivity :: undefined | pos_integer(),
+    MaxActivityAge :: pos_integer()
+   ) -> boolean().
+is_gw_active(_CurHeight, undefined, _MaxActivityAge) ->
+    %% no activity, default to in active
+    false;
+is_gw_active(CurHeight, LastActivity, MaxActivityAge) ->
+    (CurHeight - LastActivity) < MaxActivityAge.
+
+-spec max_activity_age(Vars :: map() | blockchain_ledger_v1:ledger()) -> pos_integer().
+%% need to cater for deriving max activity age from ledger directly
+%% or from a supplied map containing required vars
+max_activity_age(Vars) when is_map(Vars)->
+    case maps:get(harmonize_activity_on_hip17_interactivity_blocks, Vars, false) of
+        true -> maps:get(hip17_interactivity_blocks, Vars);
+        false -> maps:get(poc_v4_target_challenge_age, Vars)
+    end;
+max_activity_age(Ledger) ->
+    {ok, MaxActivityAge} =
+        case
+            blockchain:config(
+                ?harmonize_activity_on_hip17_interactivity_blocks, Ledger
+            )
+        of
+            {ok, true} -> blockchain:config(?hip17_interactivity_blocks, Ledger);
+            _ -> blockchain:config(?poc_v4_target_challenge_age, Ledger)
+        end,
+    MaxActivityAge.
+    %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
