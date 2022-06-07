@@ -136,9 +136,6 @@ add_subnetwork_test(Config) ->
 
     NetworkSigfun = libp2p_crypto:mk_sig_fun(NetworkPriv),
 
-    ct:pal("subnetwork_sigfun: ~p", [SubnetworkSigFun]),
-    ct:pal("network_sigfun: ~p", [NetworkSigfun]),
-
     TT = mobile,
     Premine = 5000,
     T = blockchain_txn_add_subnetwork_v1:new(
@@ -159,7 +156,13 @@ add_subnetwork_test(Config) ->
 
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    ct:pal("subnetworks: ~p", [blockchain_ledger_v1:subnetworks_v1(Ledger)]),
+    LedgerSubnetworks = blockchain_ledger_v1:subnetworks_v1(Ledger),
+    LedgerSubnetwork = maps:get(mobile, LedgerSubnetworks),
+    ?assertEqual(mobile, blockchain_ledger_subnetwork_v1:type(LedgerSubnetwork)),
+    ?assertEqual(Premine, blockchain_ledger_subnetwork_v1:premine(LedgerSubnetwork)),
+    ?assertEqual([RewardServerPubkeyBin], blockchain_ledger_subnetwork_v1:reward_server_keys(LedgerSubnetwork)),
+    ?assertEqual(0, blockchain_ledger_subnetwork_v1:hnt_treasury(LedgerSubnetwork)),
+    ?assertEqual(0, blockchain_ledger_subnetwork_v1:nonce(LedgerSubnetwork)),
 
     ok.
 
