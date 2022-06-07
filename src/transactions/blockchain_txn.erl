@@ -1379,102 +1379,126 @@ txn_fees_oui_test() ->
     ok.
 
 txn_fees_routing_update_router_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:update_router_addresses(0, Owner, [?ADDRESS_KEY1, ?ADDRESS_KEY2],  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn00Fee),
-    ?assertEqual(0, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:update_router_addresses(0, Owner, [?ADDRESS_KEY1, ?ADDRESS_KEY2],  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn00Fee),
+         ?assertEqual(0, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn03Fee),
-    ?assertEqual(0, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn03Fee),
+         ?assertEqual(0, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_routing_new_xor_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
-    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
+         {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:new_xor(1, Owner, Filter,  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn00Fee),
-    ?assertEqual(0, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:new_xor(1, Owner, Filter,  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn00Fee),
+         ?assertEqual(0, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn03Fee),
-    ?assertEqual(0, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn03Fee),
+         ?assertEqual(0, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_routing_update_xor_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
-    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
+         {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:update_xor(1, Owner, 0, Filter,  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
-    ?assertEqual(45000, Txn00Fee),
-    ?assertEqual(0, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:update_xor(1, Owner, 0, Filter,  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
+         ?assertEqual(45000, Txn00Fee),
+         ?assertEqual(0, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
-    ?assertEqual(45000, Txn03Fee),
-    ?assertEqual(0, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
+         ?assertEqual(45000, Txn03Fee),
+         ?assertEqual(0, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_routing_request_subnet_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:request_subnet(1, Owner, 16,  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
-    ?assertEqual(25000, Txn00Fee),
-    ?assertEqual(160000000, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:request_subnet(1, Owner, 16,  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
+         ?assertEqual(25000, Txn00Fee),
+         ?assertEqual(160000000, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
-    ?assertEqual(25000, Txn03Fee),
-    ?assertEqual(160000000, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
+         ?assertEqual(25000, Txn03Fee),
+         ?assertEqual(160000000, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_security_exchange_v1_test() ->
     [{Payer, PayerSigFun}] = gen_payers(1),

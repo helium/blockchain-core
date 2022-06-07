@@ -750,13 +750,16 @@ pmap_test() ->
     ?assertEqual(Input, Results).
 
 get_pubkeybin_sigfun_test() ->
-    BaseDir = test_utils:tmp_dir("get_pubkeybin_sigfun_test"),
-    {ok, Swarm} = start_swarm(get_pubkeybin_sigfun_test, BaseDir),
-    {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    ?assertEqual({PubKeyBin, PayerSigFun}, get_pubkeybin_sigfun(Swarm)),
-    libp2p_swarm:stop(Swarm),
-    ok.
+    {timeout, 30000,
+     fun() ->
+         BaseDir = test_utils:tmp_dir("get_pubkeybin_sigfun_test"),
+         {ok, Swarm} = start_swarm(get_pubkeybin_sigfun_test, BaseDir),
+         {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
+         PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+         ?assertEqual({PubKeyBin, PayerSigFun}, get_pubkeybin_sigfun(Swarm)),
+         libp2p_swarm:stop(Swarm),
+         ok
+     end}.
 
 start_swarm(Name, BaseDir) ->
     SwarmOpts = [

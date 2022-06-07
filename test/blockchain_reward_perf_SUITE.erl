@@ -60,6 +60,7 @@ init_per_testcase(TestCase, Config) ->
     HtStr = integer_to_list(TgtHeight),
 
     {ok, _} = application:ensure_all_started(lager),
+    {ok, _} = application:ensure_all_started(telemetry),
 
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
