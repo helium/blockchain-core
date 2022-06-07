@@ -7,7 +7,8 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-    add_subnetwork_test/1
+    add_subnetwork_test/1,
+    failing_subnetwork_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -22,7 +23,8 @@
 %%--------------------------------------------------------------------
 all() ->
     [
-        add_subnetwork_test
+        add_subnetwork_test,
+        failing_subnetwork_test
     ].
 
 %%--------------------------------------------------------------------
@@ -158,6 +160,46 @@ add_subnetwork_test(Config) ->
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
     ct:pal("subnetworks: ~p", [blockchain_ledger_v1:subnetworks_v1(Ledger)]),
+
+    ok.
+
+failing_subnetwork_test(Config) ->
+    {NetworkPriv, _} = ?config(master_key, Config),
+    Chain = ?config(chain, Config),
+
+    %% Generate a random subnetwork signer
+    [{SubnetworkPubkeyBin, {_SubnetworkPub, _SubnetworkPriv, SubnetworkSigFun}}] = test_utils:generate_keys(
+        1
+    ),
+
+    %% Generate a random reward server
+    [{RewardServerPubkeyBin, _}] = test_utils:generate_keys(1),
+
+    NetworkSigfun = libp2p_crypto:mk_sig_fun(NetworkPriv),
+
+    ct:pal("subnetwork_sigfun: ~p", [SubnetworkSigFun]),
+    ct:pal("network_sigfun: ~p", [NetworkSigfun]),
+
+    TT = hst,
+    Premine = 5000,
+    T = blockchain_txn_add_subnetwork_v1:new(
+        TT, SubnetworkPubkeyBin, [RewardServerPubkeyBin], Premine
+    ),
+    ST0 = blockchain_txn_add_subnetwork_v1:sign_subnetwork(T, SubnetworkSigFun),
+    ST = blockchain_txn_add_subnetwork_v1:sign(ST0, NetworkSigfun),
+
+    IsValid = blockchain_txn:is_valid(ST, Chain),
+    ?assertEqual({error, invalid_token_hst}, IsValid),
+
+    TT2 = hnt,
+    T2 = blockchain_txn_add_subnetwork_v1:new(
+        TT2, SubnetworkPubkeyBin, [RewardServerPubkeyBin], Premine
+    ),
+    ST1 = blockchain_txn_add_subnetwork_v1:sign_subnetwork(T2, SubnetworkSigFun),
+    ST2 = blockchain_txn_add_subnetwork_v1:sign(ST1, NetworkSigfun),
+
+    IsValid2 = blockchain_txn:is_valid(ST2, Chain),
+    ?assertEqual({error, invalid_token_hnt}, IsValid2),
 
     ok.
 
