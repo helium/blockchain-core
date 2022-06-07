@@ -151,8 +151,22 @@ is_valid(Txn, Chain) ->
 
 -spec absorb(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
-    %% FIXME
-    ok.
+    Ledger = blockchain:ledger(Chain),
+    TT = ?MODULE:token_type(Txn),
+    PremineAmt = ?MODULE:premine(Txn),
+    HNTTreasury = 0,
+    SubnetworkKey = ?MODULE:subnetwork_key(Txn),
+    RewardServerKeys = ?MODULE:reward_server_keys(Txn),
+    case
+        blockchain_ledger_v1:add_subnetwork(
+            TT, PremineAmt, HNTTreasury, SubnetworkKey, RewardServerKeys, Ledger
+        )
+    of
+        ok ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec print(txn_add_subnetwork()) -> iodata().
 print(undefined) ->

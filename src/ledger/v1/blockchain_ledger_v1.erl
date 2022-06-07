@@ -2987,16 +2987,16 @@ migrate_sec_entries(Ledger) ->
     ).
 
 -spec add_subnetwork(TT :: blockchain_token_v1:type(),
-                     SNTreasury :: non_neg_integer(),
+                     Premine :: non_neg_integer(),
                      HNTTreasury :: non_neg_integer(),
                      SNKey :: libp2p_crypto:pubkey_bin(),
-                     RollupKeys :: [libp2p_crypto:pubkey_bin()],
+                     RewardServerKeys :: [libp2p_crypto:pubkey_bin()],
                      Ledger :: ledger()) -> ok | {error, any()}.
-add_subnetwork(TT, SNTreasury, HNTTreasury, SNKey, RollupKeys, Ledger) ->
+add_subnetwork(TT, Premine, HNTTreasury, SNKey, RewardServerKeys, Ledger) ->
     SubnetworksV1CF = subnetworks_v1_cf(Ledger),
     case ?MODULE:find_subnetwork_v1(TT, Ledger) of
         {error, address_entry_not_found} ->
-            SN = blockchain_ledger_subnetwork_v1:new(TT, SNTreasury, HNTTreasury, SNKey, RollupKeys),
+            SN = blockchain_ledger_subnetwork_v1:new(TT, Premine, HNTTreasury, SNKey, RewardServerKeys),
             Bin = blockchain_ledger_entry_v1:serialize(SN),
             cache_put(Ledger, SubnetworksV1CF, TT, Bin);
         {ok, _SN} ->
