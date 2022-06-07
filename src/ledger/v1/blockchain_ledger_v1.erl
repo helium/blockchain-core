@@ -1353,7 +1353,7 @@ subnetworks_v1(Ledger) ->
         SubnetworksV1CF,
         fun({TT, Binary}, Acc) ->
             SN = blockchain_ledger_subnetwork_v1:deserialize(Binary),
-            maps:put(TT, SN, Acc)
+            maps:put(binary_to_atom(TT), SN, Acc)
         end,
         #{}
     ).
@@ -1363,7 +1363,7 @@ subnetworks_v1(Ledger) ->
     | {error, any()}.
 find_subnetwork_v1(TT, Ledger) ->
     SNCF = subnetworks_v1_cf(Ledger),
-    case cache_get(Ledger, SNCF, TT, []) of
+    case cache_get(Ledger, SNCF, atom_to_binary(TT), []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_subnetwork_v1:deserialize(BinEntry)};
         not_found ->
@@ -3005,10 +3005,11 @@ migrate_sec_entries(Ledger) ->
 add_subnetwork(TT, Premine, HNTTreasury, SNKey, RewardServerKeys, Ledger) ->
     SubnetworksV1CF = subnetworks_v1_cf(Ledger),
     case ?MODULE:find_subnetwork_v1(TT, Ledger) of
-        {error, address_entry_not_found} ->
+        {error, subnetwork_not_found} ->
+            %% Only add subnetwork if it is not found on ledger
             SN = blockchain_ledger_subnetwork_v1:new(TT, Premine, HNTTreasury, SNKey, RewardServerKeys),
-            Bin = blockchain_ledger_entry_v1:serialize(SN),
-            cache_put(Ledger, SubnetworksV1CF, TT, Bin);
+            Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+            cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT), Bin);
         {ok, _SN} ->
             {error, subnetwork_already_exists};
         {error, _}=Error ->

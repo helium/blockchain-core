@@ -85,12 +85,14 @@ subnetwork_signature(Txn) ->
 
 -spec sign(txn_add_subnetwork(), libp2p_crypto:sig_fun()) -> txn_add_subnetwork().
 sign(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(Txn),
+    BaseTxn = unset_signatures(Txn),
+    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(BaseTxn),
     Txn#blockchain_txn_add_subnetwork_v1_pb{network_signature = SigFun(EncodedTxn)}.
 
 -spec sign_subnetwork(txn_add_subnetwork(), libp2p_crypto:sig_fun()) -> txn_add_subnetwork().
 sign_subnetwork(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(Txn),
+    BaseTxn = unset_signatures(Txn),
+    EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(BaseTxn),
     Txn#blockchain_txn_add_subnetwork_v1_pb{subnetwork_signature = SigFun(EncodedTxn)}.
 
 -spec hash(txn_add_subnetwork()) -> blockchain_txn:hash().
