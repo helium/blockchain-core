@@ -49,7 +49,7 @@
     RewardServerKeys :: [libp2p_crypto:pubkey_bin()],
     PremineAmt :: non_neg_integer()
 ) -> txn_add_subnetwork().
-new(TT, SubnetworkKey, RewardServerKeys, PremineAmt) ->
+new(TT, SubnetworkKey, RewardServerKeys, PremineAmt) when PremineAmt >= 0 ->
     #blockchain_txn_add_subnetwork_v1_pb{
         token_type = TT,
         subnetwork_key = SubnetworkKey,
@@ -115,39 +115,33 @@ fee_payer(_Txn, _Ledger) ->
     ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    PremineAmt = premine(Txn),
-    case PremineAmt >= 0 of
-        false ->
-            {error, invalid_premine_amount};
-        true ->
-            case token_type(Txn) of
-                hst ->
-                    {error, invalid_token_hst};
-                hnt ->
-                    {error, invalid_token_hnt};
-                _ ->
-                    case blockchain:config(?allowed_reward_server_key_length, Ledger) of
-                        {ok, 1} ->
-                            Artifact = create_artifact(Txn),
-                            SubnetworkKey = ?MODULE:subnetwork_key(Txn),
-                            SubnetworkSig = ?MODULE:subnetwork_signature(Txn),
-                            case verify_key(Artifact, SubnetworkKey, SubnetworkSig) of
+    case token_type(Txn) of
+        hst ->
+            {error, invalid_token_hst};
+        hnt ->
+            {error, invalid_token_hnt};
+        _ ->
+            case blockchain:config(?allowed_reward_server_key_length, Ledger) of
+                {ok, 1} ->
+                    Artifact = create_artifact(Txn),
+                    SubnetworkKey = ?MODULE:subnetwork_key(Txn),
+                    SubnetworkSig = ?MODULE:subnetwork_signature(Txn),
+                    case verify_key(Artifact, SubnetworkKey, SubnetworkSig) of
+                        true ->
+                            {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                            NetworkSig = ?MODULE:network_signature(Txn),
+                            case verify_key(Artifact, MasterKey, NetworkSig) of
                                 true ->
-                                    {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-                                    NetworkSig = ?MODULE:network_signature(Txn),
-                                    case verify_key(Artifact, MasterKey, NetworkSig) of
-                                        true ->
-                                            ok;
-                                        _ ->
-                                            {error, invalid_network_signature}
-                                    end;
+                                    ok;
                                 _ ->
-                                    {error, invalid_subnetwork_signature}
+                                    {error, invalid_network_signature}
                             end;
                         _ ->
-                            %% NOTE: Update here when more than one reward server keys are allowed
-                            {error, invalid_reward_server_key_length}
-                    end
+                            {error, invalid_subnetwork_signature}
+                    end;
+                _ ->
+                    %% NOTE: Update here when more than one reward server keys are allowed
+                    {error, invalid_reward_server_key_length}
             end
     end.
 
