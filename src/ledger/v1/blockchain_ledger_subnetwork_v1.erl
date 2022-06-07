@@ -8,9 +8,9 @@
 -export([
     new/5,
     type/1,
-    subnetwork_treasury/1,
+    premine/1,
     hnt_treasury/1,
-    rollup_server_keys/1,
+    reward_server_keys/1,
     nonce/1, nonce/2,
     serialize/1,
     deserialize/1
@@ -35,31 +35,31 @@
     SNTreasury :: non_neg_integer(),
     HNTTreasury :: non_neg_integer(),
     SNKey :: libp2p_crypto:pubkey_bin(),
-    RollupKeys :: [libp2p_crypto:pubkey_bin()]
+    RewardServerKeys :: [libp2p_crypto:pubkey_bin()]
 ) -> subnetwork_v1().
-new(TT, SNTreasury, HNTTreasury, SNKey, RollupKeys) ->
+new(TT, SNTreasury, HNTTreasury, SNKey, RewardServerKeys) ->
     #blockchain_ledger_subnetwork_v1_pb{
         type = TT,
-        subnetwork_treasury = SNTreasury,
+        premine = SNTreasury,
         hnt_treasury = HNTTreasury,
         subnetwork_key = SNKey,
-        rollup_server_keys = lists:sort(RollupKeys)
+        reward_server_keys = lists:sort(RewardServerKeys)
     }.
 
 -spec type(SN :: subnetwork_v1()) -> blockchain_token_v1:type().
 type(#blockchain_ledger_subnetwork_v1_pb{type = Type}) ->
     Type.
 
--spec subnetwork_treasury(SN :: subnetwork_v1()) -> non_neg_integer().
-subnetwork_treasury(#blockchain_ledger_subnetwork_v1_pb{subnetwork_treasury = SNT}) ->
+-spec premine(SN :: subnetwork_v1()) -> non_neg_integer().
+premine(#blockchain_ledger_subnetwork_v1_pb{premine = SNT}) ->
     SNT.
 
 -spec hnt_treasury(SN :: subnetwork_v1()) -> non_neg_integer().
 hnt_treasury(#blockchain_ledger_subnetwork_v1_pb{hnt_treasury = SNHT}) ->
     SNHT.
 
--spec rollup_server_keys(SN :: subnetwork_v1()) -> [libp2p_crypto:pubkey_bin()].
-rollup_server_keys(#blockchain_ledger_subnetwork_v1_pb{rollup_server_keys = Keys}) ->
+-spec reward_server_keys(SN :: subnetwork_v1()) -> [libp2p_crypto:pubkey_bin()].
+reward_server_keys(#blockchain_ledger_subnetwork_v1_pb{reward_server_keys = Keys}) ->
     Keys.
 
 -spec nonce(SN :: subnetwork_v1()) -> non_neg_integer().
