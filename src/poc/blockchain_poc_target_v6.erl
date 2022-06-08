@@ -184,7 +184,7 @@ find_active_addr_([Addr | Tail], FilterEnabled, Height, MaxActivityAge, Ledger) 
           Ledger
          ) of
         true ->
-            Addr;
+            {ok, Addr};
         _ ->
             find_active_addr_(Tail, FilterEnabled, Height, MaxActivityAge, Ledger)
     end.
