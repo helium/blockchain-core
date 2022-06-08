@@ -52,7 +52,7 @@
 -type kv_stream() ::
     kv_stream(binary(), binary()).
 
-%% TODO Should be: -type stream(A) :: fun(() -> none | {some, {A, t(A)}}).
+%% TODO Convert to data_stream:t/1
 -type kv_stream(K, V) ::
     fun(() -> ok | {K, V, kv_stream()}).
 
@@ -660,13 +660,13 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     Infos =
         case maps:find(infos, Snapshot) of
             {ok, Is} when is_binary(Is) ->
-                stream_from_list(binary_to_term(Is));
+                data_stream:from_list(binary_to_term(Is));
             {ok, {_, _, _}=InfoFileHandle} ->
                 blockchain_term:from_file_stream_bin_list(InfoFileHandle);
             error ->
-                stream_from_list([])
+                data_stream:from_list([])
         end,
-    stream_iter(
+    data_stream:iter(
       fun(Bin) ->
               case binary_to_term(Bin) of
                   ({Ht, #block_info{hash = Hash} = Info}) ->
@@ -687,11 +687,11 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                 print_memory(),
                 %% use a custom decoder here to preserve sub binary references
                 {ok, Blocks0} = blockchain_term:from_bin(Bs),
-                stream_from_list(Blocks0);
+                data_stream:from_list(Blocks0);
             {ok, {_, _, _}=FileHandle} ->
                 blockchain_term:from_file_stream_bin_list(FileHandle);
             error ->
-                stream_from_list([])
+                data_stream:from_list([])
         end,
 
     print_memory(),
@@ -699,7 +699,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
 
-    stream_iter(
+    data_stream:iter(
       fun(Res) ->
             Block0 =
                 case Res of
@@ -743,22 +743,6 @@ load_blocks(Ledger0, Chain, Snapshot) ->
               end
       end,
       BlockStream).
-
--spec stream_iter(fun((A) -> ok), blockchain_term:stream(A)) -> ok.
-stream_iter(F, S0) ->
-    case S0() of
-        none ->
-            ok;
-        {some, {X, S1}} ->
-            F(X),
-            stream_iter(F, S1)
-    end.
-
--spec stream_from_list([A]) -> blockchain_term:stream(A).
-stream_from_list([]) ->
-    fun () -> none end;
-stream_from_list([X | Xs]) ->
-    fun () -> {some, {X, stream_from_list(Xs)}} end.
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
@@ -1548,6 +1532,7 @@ bin_pair_to_iolist({<<K/binary>>, V}) ->
         V
     ].
 
+%% TODO Convert to data_stream:t/1
 mk_bin_iterator(<<>>) ->
     fun() -> ok end;
 mk_bin_iterator(<<SizK:32/little-unsigned-integer, K:SizK/binary,
@@ -1557,6 +1542,7 @@ mk_bin_iterator(<<SizK:32/little-unsigned-integer, K:SizK/binary,
             {K, V, mk_bin_iterator(Rest)}
     end.
 
+%% TODO Convert to data_stream:t/1
 mk_file_iterator(_FD, End, End) ->
     fun() -> ok end;
 mk_file_iterator(FD, Pos, End) when Pos < End ->
