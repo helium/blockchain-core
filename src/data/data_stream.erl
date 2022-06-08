@@ -1,19 +1,46 @@
+%%% TODO Normalize t-first or t-last!
 -module(data_stream).
 
 -export_type([
+    next/1,
     t/1
 ]).
 
 -export([
     next/1,
+    from_fun/1,
     from_list/1,
     to_list/1,
     iter/2,
+    fold/3,
+    lazy_map/2,
+    lazy_filter/2,
     pmap_to_bag/2,
     pmap_to_bag/3
-    %% TODO map
-    %% TODO fold
 ]).
+
+-define(T, ?MODULE).
+
+-type filter(A, B)
+    :: {map, fun((A) -> B)}
+    |  {test, fun((A) -> boolean())}
+    .
+
+-type next(A) :: fun(() -> none | {some, {A, next(A)}}).
+
+-record(?T, {
+    next :: next(any()),
+    filters :: [filter(any(), any())]
+}).
+
+-opaque t(A) ::
+    %% XXX Records to do not support type parameters.
+    %% XXX Ensure the field order is the same as in the corresponding record.
+    {
+        ?T,
+        next(A),
+        [filter(A, any())]
+    }.
 
 -record(sched, {
     id             :: reference(),
@@ -26,11 +53,44 @@
 
 %% API ========================================================================
 
--type t(A) :: fun(() -> none | {some, {A, t(A)}}).
+-spec from_fun(next(A)) -> t(A).
+from_fun(Next) ->
+    #?T{
+        next = Next,
+        filters = []
+    }.
 
 -spec next(t(A)) -> none | {some, {A, t(A)}}.
-next(T) when is_function(T) ->
-    T().
+next(#?T{next=Next0, filters=Filters}=T0) when is_function(Next0) ->
+    case Next0() of
+        none ->
+            none;
+        {some, {X, Next1}} when is_function(Next1) ->
+            T1 = T0#?T{next=Next1},
+            case filters_apply(X, Filters) of
+                none ->
+                    next(T1);
+                {some, Y} ->
+                    {some, {Y, T1}}
+            end
+    end.
+
+-spec lazy_map(t(A), fun((A) -> B)) -> t(B).
+lazy_map(#?T{filters=Filters}=T, F) ->
+    T#?T{filters=Filters ++ [{map, F}]}.
+
+-spec lazy_filter(t(A), fun((A) -> boolean())) -> t(A).
+lazy_filter(#?T{filters=Filters}=T, F) ->
+    T#?T{filters=Filters ++ [{test, F}]}.
+
+-spec fold(t(A), B, fun((A, B) -> B)) -> B.
+fold(T0, Acc, F) ->
+    case next(T0) of
+        none ->
+            Acc;
+        {some, {X, T1}} ->
+            fold(T1, F(X, Acc), F)
+    end.
 
 -spec iter(fun((A) -> ok), t(A)) -> ok.
 iter(F, T0) ->
@@ -43,13 +103,17 @@ iter(F, T0) ->
     end.
 
 -spec from_list([A]) -> t(A).
-from_list([]) ->
+from_list(Xs) ->
+    from_fun(from_list_(Xs)).
+
+-spec from_list_([A]) -> next(A).
+from_list_([]) ->
     fun () -> none end;
-from_list([X | Xs]) ->
-    fun () -> {some, {X, from_list(Xs)}} end.
+from_list_([X | Xs]) ->
+    fun () -> {some, {X, from_list_(Xs)}} end.
 
 -spec to_list(t(A)) -> [A].
-to_list(T0) when is_function(T0) ->
+to_list(T0) ->
     case next(T0) of
         none ->
             [];
@@ -59,11 +123,11 @@ to_list(T0) when is_function(T0) ->
 
 %% A pmap which doesn't preserve order.
 -spec pmap_to_bag(t(A), fun((A) -> B)) -> [B].
-pmap_to_bag(Xs, F) when is_function(Xs), is_function(F) ->
+pmap_to_bag(Xs, F) when is_function(F) ->
     pmap_to_bag(Xs, F, blockchain_utils:cpus()).
 
 -spec pmap_to_bag(t(A), fun((A) -> B), non_neg_integer()) -> [B].
-pmap_to_bag(T, F, J) when is_function(T), is_function(F), is_integer(J), J > 0 ->
+pmap_to_bag(T, F, J) when is_function(F), is_integer(J), J > 0 ->
     CallerPid = self(),
     SchedID = make_ref(),
     Scheduler =
@@ -171,6 +235,28 @@ sched_assign(#sched{consumers_free=[C | Cs], work=[X | Xs], id=ID}=S) ->
     C ! {ID, job, X},
     sched_assign(S#sched{consumers_free=Cs, work=Xs}).
 
+-spec filters_apply(A, [filter(A, B)]) -> none | {some, B}.
+filters_apply(X, Filters) ->
+    lists:foldl(
+        fun (_, none) ->
+                none;
+            (F, {some, Y}) ->
+                case F of
+                    {map, Map} ->
+                        {some, Map(Y)};
+                    {test, Test} ->
+                        case Test(Y) of
+                            true ->
+                                {some, Y};
+                            false ->
+                                none
+                        end
+                end
+        end,
+        {some, X},
+        Filters
+    ).
+
 %% Tests ======================================================================
 
 -ifdef(TEST).
@@ -180,16 +266,8 @@ pmap_to_bag_test_() ->
     NonDeterminism = fun (N) -> timer:sleep(rand:uniform(N)) end,
     FromListWithNonDeterminism =
         fun (N) ->
-            fun Stream (Xs) ->
-                fun () ->
-                    case Xs of
-                        [] ->
-                            none;
-                        [X | Xs1] ->
-                            NonDeterminism(N),
-                            {some, {X, Stream(Xs1)}}
-                    end
-                end
+            fun (Xs) ->
+                lazy_map(from_list(Xs), fun (X) -> NonDeterminism(N), X end)
             end
         end,
     Tests =
@@ -243,6 +321,78 @@ round_trip_test_() ->
             [1, 2, 3],
             [a, b, c],
             [<<>>, <<"foo">>, <<"bar">>, <<"baz">>, <<"qux">>]
+        ]
+    ].
+
+lazy_map_test_() ->
+    Double = fun (X) -> X * 2 end,
+    [
+        ?_assertEqual(
+            lists:map(Double, Xs),
+            to_list(lazy_map(from_list(Xs), Double))
+        )
+    ||
+        Xs <- [
+            [1, 2, 3, 4, 5]
+        ]
+    ].
+
+lazy_filter_test_() ->
+    IsEven = fun (X) -> 0 =:= X rem 2 end,
+    [
+        ?_assertEqual(
+            lists:filter(IsEven, Xs),
+            to_list(lazy_filter(from_list(Xs), IsEven))
+        )
+    ||
+        Xs <- [
+            [1, 2, 3, 4, 5]
+        ]
+    ].
+
+lazy_filters_compose_test_() ->
+    IsMultOf = fun (M) -> fun (N) -> 0 =:= N rem M end end,
+    Double = fun (N) -> N * 2 end,
+    [
+        ?_assertEqual(
+            begin
+                L0 = Xs,
+                L1 = lists:filter(IsMultOf(2), L0),
+                L2 = lists:map(Double, L1),
+                L3 = lists:filter(IsMultOf(3), L2),
+                L3
+            end,
+            to_list(
+                begin
+                    S0 = from_list(Xs),
+                    S1 = lazy_filter(S0, IsMultOf(2)),
+                    S2 = lazy_map(S1, Double),
+                    S3 = lazy_filter(S2, IsMultOf(3)),
+                    S3
+                end
+            )
+        )
+    ||
+        Xs <- [
+            lists:seq(1, 10),
+            lists:seq(1, 100),
+            lists:seq(1, 100, 3)
+        ]
+    ].
+
+fold_test_() ->
+    [
+        ?_assertEqual(
+            lists:foldl(F, Acc, Xs),
+            fold(from_list(Xs), Acc, F)
+        )
+    ||
+        {Acc, F} <- [
+            {0, fun erlang:'+'/2},
+            {[], fun (X, Xs) -> [X | Xs] end}
+        ],
+        Xs <- [
+            [1, 2, 3, 4, 5]
         ]
     ].
 
