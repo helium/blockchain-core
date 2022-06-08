@@ -93,7 +93,7 @@ h3_to_region(H3, Ledger, RegionBins) ->
             Hash = e2qc:cache(?H3_TO_REGION_CACHE,
                               {bin_hash, HasAux, VarsNonce},
                               fun() ->
-                                      crypto:hash(sha256, list_to_binary(Bins))
+                                      crypto:hash(sha256, term_to_binary(Bins))
                               end),
             e2qc:cache(
               ?H3_TO_REGION_CACHE,
