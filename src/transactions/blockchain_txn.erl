@@ -1378,7 +1378,6 @@ txn_fees_oui_test() ->
     ?assertEqual(1, Txn04LegacyStakingFee),
     ok.
 
--ifdef(FIXME).
 txn_fees_routing_update_router_test() ->
     {timeout, 30000,
      fun() ->
