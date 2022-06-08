@@ -38,21 +38,28 @@ get_all_regions(Ledger) ->
 -spec get_all_region_bins(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}.
 get_all_region_bins(Ledger) ->
-    case get_all_regions(Ledger) of
-        {ok, Regions} ->
-            Map = lists:foldl(
-                    fun(Reg, Acc) ->
-                            case blockchain:config(Reg, Ledger) of
-                                {ok, Bin} ->
-                                    [{Reg, Bin}|Acc];
-                                _ ->
-                                    [{error, {region_var_not_set, Reg}}|Acc]
-                            end
-                    end, [], Regions),
-            {ok, lists:reverse(Map)};
-        Error ->
-            Error
-    end.
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    HasAux = blockchain_ledger_v1:has_aux(Ledger),
+    e2qc:cache(
+      ?H3_TO_REGION_CACHE,
+      {region_bins, HasAux, VarsNonce},
+      fun() ->
+              case get_all_regions(Ledger) of
+                  {ok, Regions} ->
+                      Map = lists:foldl(
+                              fun(Reg, Acc) ->
+                                      case blockchain:config(Reg, Ledger) of
+                                          {ok, Bin} ->
+                                              [{Reg, Bin}|Acc];
+                                          _ ->
+                                              [{error, {region_var_not_set, Reg}}|Acc]
+                                      end
+                              end, [], Regions),
+                      {ok, lists:reverse(Map)};
+                  Error ->
+                      Error
+              end
+      end).
 
 -spec h3_to_region(H3 :: h3:h3_index(), Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, atom()} | {error, any()}.
@@ -69,23 +76,33 @@ h3_to_region(H3, Ledger, RegionBins) ->
     Res = polyfill_resolution(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     Parent = h3:parent(H3, Res),
-    e2qc:cache(
-        ?H3_TO_REGION_CACHE,
-        {HasAux, VarsNonce, Parent},
-        fun() ->
-                MaybeBins =
-                    case RegionBins of
-                        no_prefetch -> get_all_region_bins(Ledger);
-                        {error, _} = Err -> Err;
-                        B -> {ok, B}
-                    end,
-                case MaybeBins of
-                    {ok, Bins} ->
-                        h3_to_region_(Parent, Bins);
-                    {error, _} = Error -> Error
-                end
-        end
-     ).
+    MaybeBins =
+    case RegionBins of
+        no_prefetch -> get_all_region_bins(Ledger);
+        {error, _} = Err -> Err;
+        B -> {ok, B}
+    end,
+    case MaybeBins of
+        {error, _} = Error -> Error;
+        {ok, Bins} ->
+            %% use a hash of the region bins as the cache key
+            %% so if any region changes the lookup will be recalculated
+            %%
+            %% We can cache the hash of the bins because that
+            %% is much cheaper to recalculate if invalidated
+            Hash = e2qc:cache(?H3_TO_REGION_CACHE,
+                              {bin_hash, HasAux, VarsNonce},
+                              fun() ->
+                                      crypto:hash(sha256, term_to_binary(Bins))
+                              end),
+            e2qc:cache(
+              ?H3_TO_REGION_CACHE,
+              {HasAux, Hash, Parent},
+              fun() ->
+                      h3_to_region_(Parent, Bins)
+              end
+             )
+    end.
 
 -spec h3_in_region(
     H3 :: h3:h3_index(),

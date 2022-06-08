@@ -5930,21 +5930,24 @@ active_gateways_test() ->
     test_utils:cleanup_tmp_dir(BaseDir).
 
 add_gateway_test() ->
-    BaseDir = test_utils:tmp_dir("add_gateway_test"),
-    Ledger = new(BaseDir),
-    Ledger1 = new_context(Ledger),
-    meck:new(blockchain, [passthrough]),
-    meck:expect(blockchain, config, fun(?election_version, _) -> {ok, 4} end),
+    {timeout, 30000,
+     fun() ->
+         BaseDir = test_utils:tmp_dir("add_gateway_test"),
+         Ledger = new(BaseDir),
+         Ledger1 = new_context(Ledger),
+         meck:new(blockchain, [passthrough]),
+         meck:expect(blockchain, config, fun(?election_version, _) -> {ok, 4} end),
 
-    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
-    ok = commit_context(Ledger1),
-    ?assertMatch(
-        {ok, _},
-        find_gateway_info(<<"gw_address">>, Ledger)
-    ),
-    ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)),
-    meck:unload(blockchain),
-    test_utils:cleanup_tmp_dir(BaseDir).
+         ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
+         ok = commit_context(Ledger1),
+         ?assertMatch(
+             {ok, _},
+             find_gateway_info(<<"gw_address">>, Ledger)
+         ),
+         ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)),
+         meck:unload(blockchain),
+         test_utils:cleanup_tmp_dir(BaseDir)
+     end}.
 
 add_gateway_location_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_location_test"),
@@ -6122,107 +6125,109 @@ fold_test() ->
 
 
 poc_test() ->
-    BaseDir = test_utils:tmp_dir("poc_test"),
-    Ledger = new(BaseDir),
+    {timeout, 30000,
+     fun() ->
+         BaseDir = test_utils:tmp_dir("poc_test"),
+         Ledger = new(BaseDir),
 
-    Challenger0 = <<"challenger0">>,
-    Challenger1 = <<"challenger1">>,
+         Challenger0 = <<"challenger0">>,
+         Challenger1 = <<"challenger1">>,
 
-    OnionKeyHash0 = <<"onion_key_hash0">>,
-    OnionKeyHash1 = <<"onion_key_hash1">>,
+         OnionKeyHash0 = <<"onion_key_hash0">>,
+         OnionKeyHash1 = <<"onion_key_hash1">>,
 
-    BlockHash = <<"block_hash">>,
+         BlockHash = <<"block_hash">>,
 
-    OwnerAddr = <<"owner_address">>,
-    Location = h3:from_geo({37.78101, -122.465372}, 12),
-    Nonce = 1,
+         OwnerAddr = <<"owner_address">>,
+         Location = h3:from_geo({37.78101, -122.465372}, 12),
+         Nonce = 1,
 
-    SecretHash = <<"secret_hash">>,
+         SecretHash = <<"secret_hash">>,
 
+         meck:new(blockchain_swarm, [passthrough]),
+         meck:expect(blockchain,
+                     config,
+                     fun(min_score, _) ->
+                             {ok, 0.2};
+                     (h3_exclusion_ring_dist, _) ->
+                             {ok, 3};
+                     (h3_max_grid_distance, _) ->
+                             {ok, 60};
+                     (h3_neighbor_res, _) ->
+                             {ok, 12};
+                     (election_version, _) ->
+                             {ok, 4};
+                         (full_gateway_capabilities_mask, _) ->
+                             {ok, ?GW_CAPABILITIES_FULL_GATEWAY_V1}
+                     end),
 
-    meck:new(blockchain_swarm, [passthrough]),
-    meck:expect(blockchain,
-                config,
-                fun(min_score, _) ->
-                        {ok, 0.2};
-                   (h3_exclusion_ring_dist, _) ->
-                        {ok, 3};
-                   (h3_max_grid_distance, _) ->
-                        {ok, 60};
-                   (h3_neighbor_res, _) ->
-                        {ok, 12};
-                   (election_version, _) ->
-                        {ok, 4};
-                    (full_gateway_capabilities_mask, _) ->
-                        {ok, ?GW_CAPABILITIES_FULL_GATEWAY_V1}
-                end),
+         ?assertEqual({error, not_found}, find_pocs(OnionKeyHash0, Ledger)),
 
-    ?assertEqual({error, not_found}, find_pocs(OnionKeyHash0, Ledger)),
+         commit(
+             fun(L) ->
+                 ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, full, L),
+                 ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, full, L),
+                 ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
+             end,
+             Ledger
+         ),
+         PoC0 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash0, Challenger0, BlockHash),
+         ?assertEqual({ok, [PoC0]} ,find_pocs(OnionKeyHash0, Ledger)),
+         ?assertEqual({ok, PoC0} ,find_poc(OnionKeyHash0, Challenger0, Ledger)),
+         {ok, GwInfo0} = find_gateway_info(Challenger0, Ledger),
+         ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo0)),
+         ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo0)),
 
-    commit(
-        fun(L) ->
-            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, full, L),
-            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, full, L),
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
-        end,
-        Ledger
-    ),
-    PoC0 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash0, Challenger0, BlockHash),
-    ?assertEqual({ok, [PoC0]} ,find_pocs(OnionKeyHash0, Ledger)),
-    ?assertEqual({ok, PoC0} ,find_poc(OnionKeyHash0, Challenger0, Ledger)),
-    {ok, GwInfo0} = find_gateway_info(Challenger0, Ledger),
-    ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo0)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo0)),
+         commit(
+             fun(L) ->
+                 ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, BlockHash, 0, L)
+             end,
+             Ledger
+         ),
+         PoC1 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash0, Challenger1, BlockHash),
+         ?assertEqual({ok, [PoC1, PoC0]}, find_pocs(OnionKeyHash0, Ledger)),
 
-    commit(
-        fun(L) ->
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, BlockHash, 0, L)
-        end,
-        Ledger
-    ),
-    PoC1 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash0, Challenger1, BlockHash),
-    ?assertEqual({ok, [PoC1, PoC0]}, find_pocs(OnionKeyHash0, Ledger)),
+         commit(
+             fun(L) ->
+                 ok = delete_poc(OnionKeyHash0, Challenger0, L)
+             end,
+             Ledger
+         ),
+         ?assertEqual({ok, [PoC1]} ,find_pocs(OnionKeyHash0, Ledger)),
 
-    commit(
-        fun(L) ->
-            ok = delete_poc(OnionKeyHash0, Challenger0, L)
-        end,
-        Ledger
-    ),
-    ?assertEqual({ok, [PoC1]} ,find_pocs(OnionKeyHash0, Ledger)),
+         commit(
+             fun(L) ->
+                 ok = delete_poc(OnionKeyHash0, Challenger1, L)
+             end,
+             Ledger
+         ),
+         ?assertEqual({error, not_found} ,find_pocs(OnionKeyHash0, Ledger)),
 
-    commit(
-        fun(L) ->
-            ok = delete_poc(OnionKeyHash0, Challenger1, L)
-        end,
-        Ledger
-    ),
-    ?assertEqual({error, not_found} ,find_pocs(OnionKeyHash0, Ledger)),
+         commit(
+             fun(L) ->
+                 ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
+             end,
+             Ledger
+         ),
+         ?assertEqual({ok, [PoC0]} ,find_pocs(OnionKeyHash0, Ledger)),
 
-    commit(
-        fun(L) ->
-            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, BlockHash, 0, L)
-        end,
-        Ledger
-    ),
-    ?assertEqual({ok, [PoC0]} ,find_pocs(OnionKeyHash0, Ledger)),
-
-    commit(
-        fun(L) ->
-            ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, BlockHash, 0, L)
-        end,
-        Ledger
-    ),
-    ?assertEqual({error, not_found} ,find_pocs(OnionKeyHash0, Ledger)),
-    PoC2 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash1, Challenger0, BlockHash),
-    ?assertEqual({ok, [PoC2]}, find_pocs(OnionKeyHash1, Ledger)),
-    {ok, GwInfo1} = find_gateway_info(Challenger0, Ledger),
-    ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo1)),
-    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo1)),
-    meck:unload(blockchain_swarm),
-    meck:unload(blockchain),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
+         commit(
+             fun(L) ->
+                 ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, BlockHash, 0, L)
+             end,
+             Ledger
+         ),
+         ?assertEqual({error, not_found} ,find_pocs(OnionKeyHash0, Ledger)),
+         PoC2 = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash1, Challenger0, BlockHash),
+         ?assertEqual({ok, [PoC2]}, find_pocs(OnionKeyHash1, Ledger)),
+         {ok, GwInfo1} = find_gateway_info(Challenger0, Ledger),
+         ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo1)),
+         ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo1)),
+         meck:unload(blockchain_swarm),
+         meck:unload(blockchain),
+         test_utils:cleanup_tmp_dir(BaseDir),
+         ok
+     end}.
 
 commit(Fun, Ledger0) ->
     Ledger1 = new_context(Ledger0),

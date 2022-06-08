@@ -3325,7 +3325,7 @@ block_info_upgrade_test() ->
     ExpV2BlockInfo = #block_info_v2{height = 1,
                                     time = 1,
                                     hash = <<"blockhash">>,
-                                    pocs = [],
+                                    pocs = #{},
                                     hbbft_round = 1,
                                     election_info = {1, 0},
                                     penalties = {<<>>, []}},

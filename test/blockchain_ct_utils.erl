@@ -177,6 +177,7 @@ init_per_suite(Config) ->
     application:ensure_all_started(lager),
     lager:set_loglevel(lager_console_backend, debug),
     application:ensure_all_started(throttle),
+    application:ensure_all_started(telemetry),
     Config.
 
 init_per_testcase(TestCase, Config) ->

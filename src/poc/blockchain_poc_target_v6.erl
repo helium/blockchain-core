@@ -14,7 +14,6 @@
 
 -export([
     target_zone/2,
-    gateways_for_zone/5,
     target/5
 ]).
 
@@ -39,7 +38,7 @@ target_zone(RandState, Ledger) ->
     Vars :: map(),
     HexList :: [h3:h3_index()],
     Attempted :: [{h3:h3_index(), rand:state()}]
-) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
+) -> {ok, libp2p_crypto:pubkey_bin(), rand:state()} | {error, any()}.
 gateways_for_zone(
     ChallengerPubkeyBin,
     Ledger,
@@ -57,7 +56,7 @@ gateways_for_zone(
     HexList :: [h3:h3_index()],
     Attempted :: [{h3:h3_index(), rand:state()}],
     NumAttempts :: integer()
-) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
+) -> {ok, libp2p_crypto:pubkey_bin(), rand:state()} | {error, any()}.
 gateways_for_zone(
     _ChallengerPubkeyBin,
     _Ledger,
@@ -66,7 +65,7 @@ gateways_for_zone(
     _Attempted,
     0
 )->
-    {ok, []};
+    {error, no_gateways_found};
 gateways_for_zone(
     ChallengerPubkeyBin,
     Ledger,
@@ -75,20 +74,15 @@ gateways_for_zone(
     [{Hex, HexRandState0} | Tail] = _Attempted,
     NumAttempts
 ) ->
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% Get a list of gateway pubkeys within this hex
     AddrMap = blockchain_ledger_v1:lookup_gateways_from_hex(Hex, Ledger),
     AddrList0 = lists:flatten(maps:values(AddrMap)),
     lager:debug("gateways for hex ~p: ~p", [Hex, AddrList0]),
     %% Limit max number of potential targets in the zone
-    {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
-
-    %% filter the selected hex
-    case filter(AddrList, Height, Ledger, Vars) of
-        FilteredList when length(FilteredList) >= 1 ->
-            lager:debug("*** filtered gateways for hex ~p: ~p", [Hex, FilteredList]),
-            {ok, FilteredList};
-        _ ->
+    case find_active_addr(Vars, HexRandState0, AddrList0, Ledger) of
+        {ok, Addr, HexRandState} ->
+            {ok, Addr, HexRandState};
+        {no_target, HexRandState} ->
             lager:debug("*** failed to find any filtered gateways for hex ~p, trying again", [Hex]),
             %% no eligible target in this zone
             %% find a new zone
@@ -112,15 +106,14 @@ target(ChallengerPubkeyBin, InitTargetRandState, ZoneRandState, Ledger, Vars) ->
     case target_zone(ZoneRandState, Ledger) of
         {error, _} = ErrorResp ->
             ErrorResp;
-        {ok, {HexList, Hex, HexRandState}} ->
+        {ok, {HexList, Hex, _HexRandState}} ->
             target_(
                 ChallengerPubkeyBin,
                 InitTargetRandState,
                 Ledger,
                 Vars,
                 HexList,
-                Hex,
-                HexRandState
+                Hex
             )
     end.
 
@@ -131,8 +124,7 @@ target(ChallengerPubkeyBin, InitTargetRandState, ZoneRandState, Ledger, Vars) ->
     Ledger :: blockchain_ledger_v1:ledger(),
     Vars :: map(),
     HexList :: [h3:h3_index()],
-    InitHex :: h3:h3_index(),
-    InitHexRandState :: rand:state()
+    InitHex :: h3:h3_index()
 ) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}} | {error, any()}.
 target_(
     ChallengerPubkeyBin,
@@ -140,71 +132,66 @@ target_(
     Ledger,
     Vars,
     HexList,
-    InitHex,
-    InitHexRandState
+    InitHex
 ) ->
-    case gateways_for_zone(ChallengerPubkeyBin,
-        Ledger, Vars, HexList, [{InitHex, InitHexRandState}]) of
-
-        {ok, []} ->
+    case gateways_for_zone(
+           ChallengerPubkeyBin,
+           Ledger, Vars, HexList,
+           [{InitHex, InitTargetRandState}]) of
+        {error, no_gateways_found} ->
             {error, no_gateways_found};
-        {ok, ZoneGWs} ->
-            %% Assign probabilities to each of these gateways
-            Prob = blockchain_utils:normalize_float(prob_randomness_wt(Vars) * 1.0),
-            ProbTargets = lists:map(
-                fun(A) ->
-                    {A, Prob}
-                end,
-                ZoneGWs),
-            %% Sort the scaled probabilities in default order by gateway pubkey_bin
-            %% make sure that we carry the rand_state through for determinism
-            {RandVal, TargetRandState} = rand:uniform_s(InitTargetRandState),
-            {ok, TargetPubkeybin} = blockchain_utils:icdf_select(
-                lists:keysort(1, ProbTargets),
-                RandVal
-            ),
-            {ok, {TargetPubkeybin, TargetRandState}}
+        {error, empty_hex_list} ->
+            {error, no_gateways_found};
+        {ok, TargetPubkeyBin, RandState} ->
+            {ok, {TargetPubkeyBin, RandState}}
         end.
 
-
-
-%% @doc Filter gateways based on these conditions:
-%% - gateways which do not have the relevant capability
-%% - gateways which are inactive
--spec filter(
+-spec find_active_addr(
+    Vars :: map(),
+    RandState :: rand:state(),
     AddrList :: [libp2p_crypto:pubkey_bin()],
-    Height :: non_neg_integer(),
-    Ledger :: blockchain_ledger_v1:ledger(),
-    Vars :: map()
-) -> [libp2p_crypto:pubkey_bin()].
-filter(AddrList, Height, Ledger, Vars) ->
+    Ledger :: blockchain_ledger_v1:ledger()
+) -> {ok, libp2p_crypto:pubkey_bin(), rand:state()} |
+          {no_target, rand:state()}.
+find_active_addr(Vars, RandState, AddrList, Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ActivityFilterEnabled =
         case blockchain:config(poc_activity_filter_enabled, Ledger) of
             {ok, V} -> V;
             _ -> false
         end,
     MaxActivityAge = max_activity_age(Vars),
-    lists:filter(
-            fun(A) ->
-                {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
-                Mode = blockchain_ledger_gateway_v2:mode(Gateway),
-                LastActivity = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
-                 is_active(ActivityFilterEnabled, LastActivity, MaxActivityAge, Height) andalso
-                    blockchain_ledger_gateway_v2:is_valid_capability(
-                        Mode,
-                        ?GW_CAPABILITY_POC_CHALLENGEE,
-                        Ledger
-                    )
-            end,
-            AddrList
-        ).
+    {ShuffledList, RandState1} = blockchain_utils:shuffle(AddrList, RandState),
+
+    case find_active_addr_(ShuffledList, ActivityFilterEnabled,
+                           Height, MaxActivityAge, Ledger) of
+        {ok, Addr} ->
+            {ok, Addr, RandState1};
+        not_found ->
+            {no_target, RandState1}
+    end.
+
+find_active_addr_([], _Filter, _Height, _MaxAge, _Ledger) ->
+    not_found;
+find_active_addr_([Addr | Tail], FilterEnabled, Height, MaxActivityAge, Ledger) ->
+    {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+    Mode = blockchain_ledger_gateway_v2:mode(Gateway),
+    LastActivity = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
+    case is_active(FilterEnabled, LastActivity, MaxActivityAge, Height) andalso
+        blockchain_ledger_gateway_v2:is_valid_capability(
+          Mode,
+          ?GW_CAPABILITY_POC_CHALLENGEE,
+          Ledger
+         ) of
+        true ->
+            {ok, Addr};
+        _ ->
+            find_active_addr_(Tail, FilterEnabled, Height, MaxActivityAge, Ledger)
+    end.
 
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
--spec prob_randomness_wt(Vars :: map()) -> float().
-prob_randomness_wt(Vars) ->
-    maps:get(poc_v5_target_prob_randomness_wt, Vars).
 
 -spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
 hex_list(Ledger, RandState) ->
@@ -240,11 +227,6 @@ choose_zone(RandState, HexList) ->
             lager:debug("choose hex success, found hex ~p", [Hex]),
             {ok, {Hex, HexRandState}}
     end.
-
-limit_addrs(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses) ->
-    blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
-limit_addrs(_Vars, RandState, Witnesses) ->
-    {RandState, Witnesses}.
 
 -spec is_active(ActivityFilterEnabled :: boolean(),
                 LastActivity :: pos_integer(),

@@ -61,6 +61,7 @@ start_link(Args) ->
 init(Args) ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
+    application:ensure_all_started(telemetry),
     application:ensure_all_started(clique),
     application:ensure_all_started(throttle),
     %% start http client and ssl here
@@ -94,6 +95,7 @@ init(Args) ->
           [{signed_metadata_fun, MetadataFun},
            {notify_peer_gossip_limit, application:get_env(blockchain, gossip_width, 100)},
            {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))},
+           {force_network_id, application:get_env(blockchain, force_network_id, undefined)},
            {allow_rfc1918, application:get_env(blockchain, peerbook_allow_rfc1918, false)}
           ]},
          {libp2p_group_gossip,

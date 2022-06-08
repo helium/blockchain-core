@@ -90,6 +90,7 @@ init_per_suite(Config) ->
     blockchain_ledger_v1:compact(Ledger),
 
     application:ensure_all_started(lager),
+    application:ensure_all_started(telemetry),
 
     %% Check that the pinned ledger is at the height we expect it to be
     {ok, 632627} = blockchain_ledger_v1:current_height(Ledger),

@@ -18,6 +18,7 @@
 
 init_per_suite(Cfg) ->
     {ok, _} = application:ensure_all_started(lager),
+    {ok, _} = application:ensure_all_started(telemetry),
     Cfg.
 
 end_per_suite(_) ->
