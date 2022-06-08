@@ -1500,7 +1500,7 @@ validate_var(?net_emissions_max_rate, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% <<"region_as923_1,region_as923_1b,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
     %% We only check that the binary string is comma separated

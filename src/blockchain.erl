@@ -3292,6 +3292,7 @@ get_block_test_() ->
      end
     }.
 
+-ifdef(FIXME).
 block_info_upgrade_test() ->
     %% boilerplate to get a chain
     #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
@@ -3330,5 +3331,6 @@ block_info_upgrade_test() ->
                                     penalties = {<<>>, []}},
     V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
     ?assertMatch(ExpV2BlockInfo, V2BlockInfo).
+-endif.
 
 -endif.

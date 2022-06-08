@@ -6,6 +6,7 @@
     serialized_eu868/0,
     serialized_au915/0,
     serialized_as923_1/0,
+    serialized_as923_1b/0,
     serialized_as923_2/0,
     serialized_as923_3/0,
     serialized_as923_4/0,
@@ -32,6 +33,10 @@ serialized_au915() ->
 -spec serialized_as923_1() -> binary().
 serialized_as923_1() ->
     blockchain_region_params_v1:serialize(fetch(as923_1)).
+
+-spec serialized_as923_1b() -> binary().
+serialized_as923_1b() ->
+    blockchain_region_params_v1:serialize(fetch(as923_1b)).
 
 -spec serialized_as923_2() -> binary().
 serialized_as923_2() ->
@@ -77,6 +82,9 @@ fetch(au915) ->
     blockchain_region_params_v1:new(Params);
 fetch(as923_1) ->
     Params = make_params(?REGION_PARAMS_AS923_1),
+    blockchain_region_params_v1:new(Params);
+fetch(as923_1b) ->
+    Params = make_params(?REGION_PARAMS_AS923_1B),
     blockchain_region_params_v1:new(Params);
 fetch(as923_2) ->
     Params = make_params(?REGION_PARAMS_AS923_2),
