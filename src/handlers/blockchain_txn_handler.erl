@@ -107,8 +107,9 @@ handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
                 {stop, normal, State, encode_response(Path, txn_rejected, Reason, undefined, undefined, Height)}
         end
     catch _What:Why ->
-            lager:notice("transaction_handler got bad data: ~p", [Why]),
-            {stop, normal, State, encode_response(Path, txn_failed, exception, undefined, undefined, 0)}
+        lager:notice("transaction_handler got bad data: ~p", [Why]),
+        %% TODO: make response more meaningful
+        {stop, normal, State, encode_response(Path, txn_failed, exception, undefined, undefined, 0)}
     end.
 
 %% marshall v1 response formats
@@ -159,10 +160,11 @@ decode_response(?TX_PROTOCOL_V3, Resp) when is_binary(Resp) ->
 decode_response(?TX_PROTOCOL_V3,
     #blockchain_txn_info_pb{result = <<"txn_accepted">>, height=Height,
         queue_pos=QueuePos, queue_len=QueueLen}) ->
-    {txn_accepted, {Height, QueuePos, QueueLen}};
+    {txn_updated, {Height, QueuePos, QueueLen}};
 decode_response(?TX_PROTOCOL_V3,
-    #blockchain_txn_info_pb{result = <<"txn_update">>, height=Height, queue_pos=QueuePos}) ->
-    {txn_update, {Height, QueuePos}};
+    #blockchain_txn_info_pb{result = <<"txn_updated">>, height=Height,
+        queue_pos=QueuePos, queue_len=QueueLen}) ->
+    {txn_updated, {Height, QueuePos, QueueLen}};
 decode_response(?TX_PROTOCOL_V3,
     #blockchain_txn_info_pb{result = <<"txn_failed">>, details=FailReason}) ->
     {txn_failed, {FailReason}};

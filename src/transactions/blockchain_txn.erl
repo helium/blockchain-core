@@ -617,6 +617,7 @@ is_valid(Txn, Chain) ->
             catch
                 _What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),
+                    %% TODO: make error reason more descriptive
                     {error, validation_failed}
             end;
         false ->

@@ -756,13 +756,13 @@ updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
     case cached_txn(TxnKey) of
         {error, _} ->
             %% We no longer have this txn, do nothing
-            lager:debug("cannot find accepted txn ~p with dialer ~p", [Txn, Dialer]),
+            lager:debug("cannot find updated txn ~p with dialer ~p", [Txn, Dialer]),
             ok;
         {ok, {TxnKey, Txn, #txn_data{acceptions = Acceptions, dialers = Dialers} = TxnData}} ->
             case lists:keymember(Dialer, 1, Dialers) of
                 false ->
                     %% some kind of orphaned dialer
-                    lager:warning("got accept response from orphaned dialer ~p", [Dialer]),
+                    lager:warning("got updated response from orphaned dialer ~p", [Dialer]),
                     ok;
                 true ->
                     %% replace the acceptor data
