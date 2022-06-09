@@ -6,7 +6,7 @@
 -module(blockchain_ledger_entry_v2).
 
 -export([
-    new/0,
+    new/0, new/2,
     nonce/1, nonce/2,
     balance/1, balance/2,
     credit/3,
@@ -40,6 +40,11 @@ new() ->
         mobile_balance = 0,
         iot_balance = 0
     }.
+
+%% NOTE: This function is for 1:1 correspondence entry_v1
+-spec new(Nonce :: non_neg_integer(), HNTBalance :: non_neg_integer()) -> entry().
+new(Nonce, HNTBalance) when Nonce /= undefined andalso HNTBalance /= undefined ->
+    #blockchain_ledger_entry_v2_pb{nonce=Nonce, hnt_balance=HNTBalance}.
 
 -spec nonce(Entry :: entry()) -> non_neg_integer().
 nonce(#blockchain_ledger_entry_v2_pb{nonce = Nonce}) ->

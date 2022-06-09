@@ -3221,11 +3221,13 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmoun
 
 -spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), blockchain_txn:hash(), blockchain:blockchain()) -> ok | {error, any()}.
 debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = EntryMod:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
                     case application:get_env(blockchain, store_implicit_burns, false) of
@@ -3238,12 +3240,8 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
                         false ->
                             ok
                     end,
-                    Entry1 = blockchain_ledger_entry_v1:new(
-                        blockchain_ledger_entry_v1:nonce(Entry),
-                        (Balance - Fee)
-                    ),
-                    EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    EntriesCF = entries_cf(Ledger),
+                    Entry1 = EntryMod:new(EntryMod:nonce(Entry), (Balance - Fee)),
+                    EntryBin = EntryMod:serialize(Entry1),
                     cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
@@ -3252,11 +3250,12 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
 
 -spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 check_balance(Address, Amount, Ledger) ->
+    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = EntryMod:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
                     {error, {insufficient_balance, {Amount, Balance}}};
@@ -5320,12 +5319,13 @@ get_cooldown_stake(Val, Ledger) ->
 
 -spec query_circulating_hnt(Ledger :: ledger()) -> non_neg_integer().
 query_circulating_hnt(Ledger) ->
+    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     cache_fold(
       Ledger,
       entries_cf(Ledger),
       fun({_Addr, BinEnt}, Acc) ->
-              Ent = blockchain_ledger_entry_v1:deserialize(BinEnt),
-              Acc + blockchain_ledger_entry_v1:balance(Ent)
+              Ent = EntryMod:deserialize(BinEnt),
+              Acc + EntryMod:balance(Ent)
       end,
       0
      ).
@@ -5791,10 +5791,10 @@ snapshot_accounts(Ledger) ->
     lists:sort(maps:to_list(entries(Ledger))).
 
 load_accounts(Accounts, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     maps:map(
       fun(Address, Entry) ->
-              BEntry = blockchain_ledger_entry_v1:serialize(Entry),
+              BEntry = EntryMod:serialize(Entry),
               cache_put(Ledger, EntriesCF, Address, BEntry)
       end,
       maps:from_list(Accounts)),
