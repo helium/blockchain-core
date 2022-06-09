@@ -53,7 +53,8 @@
     {
         Member :: libp2p_crypto:pubkey_bin(),
         Height :: non_neg_integer() | undefined,
-        QueuePos :: atom() | undefined
+        QueuePos :: non_neg_integer() | undefined,
+        QueueLen :: non_neg_integer() | undefined
     }.
 
 -type deferred_rejection() ::
@@ -270,9 +271,9 @@ handle_info({send_failed, {Dialer, TxnKey, Txn, Member}}, State) ->
     {noreply, State};
 
 %% dialed CG member related failures
-handle_info({txn_accepted, {Dialer, TxnKey, Txn, Member, Height, QueuePos}}, State) ->
-    lager:debug("txn: ~s, accepted_by: ~p, Dialer: ~p at height: ~p and queuepos: ~p", [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos]),
-    ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos),
+handle_info({txn_accepted, {Dialer, TxnKey, Txn, Member, Height, QueuePos, QueueLen}}, State) ->
+    lager:debug("txn: ~s, accepted_by: ~p, Dialer: ~p at height: ~p and queuepos: ~p", [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
+    ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
     {noreply, State};
 handle_info({txn_failed, {Dialer, TxnKey, Txn, Member, FailReason}}, State) ->
     lager:info("txn: ~s, failed with reason: ~p, member: ~p Dialer: ~p", [blockchain_txn:print(Txn), FailReason, Member, Dialer]),
@@ -718,8 +719,9 @@ purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers) ->
     Rejections = [ {M, H, R} || {M, H, R} <- NewGroupMembers, lists:key_member(M, 1, Rejections0) == true ],
     {Acceptions, Rejections}.
 
--spec accepted(txn_key(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(), pos_integer() | undefined, non_neg_integer() | undefined) -> ok.
-accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos) ->
+-spec accepted(txn_key(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(),
+    pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer()) -> ok.
+accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
     %% stop the dialer which accepted the txn, we dont have any further use for it
     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     case cached_txn(TxnKey) of
@@ -735,7 +737,7 @@ accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos) ->
                     ok;
                 true ->
                     %% add the member to the accepted list, so we avoid potentially resubmitting to same one again later
-                    cache_txn(TxnKey, Txn, TxnData#txn_data{ acceptions = lists:keysort(1, [{Member, Height, QueuePos} |Acceptions]),
+                    cache_txn(TxnKey, Txn, TxnData#txn_data{ acceptions = lists:keysort(1, [{Member, Height, QueuePos, QueueLen} |Acceptions]),
                                                     dialers = lists:keydelete(Dialer, 1, Dialers)})
             end
     end.

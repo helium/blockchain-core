@@ -69,9 +69,9 @@ handle_cast(dial, State=#state{}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({blockchain_txn_response, {txn_accepted, {Height, QueuePos}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {txn_accepted, {Height, QueuePos, QueueLen}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {txn_accepted, {self(), TxnKey, Txn, Member, Height, QueuePos}},
+    Parent ! {txn_accepted, {self(), TxnKey, Txn, Member, Height, QueuePos, QueueLen}},
     {stop, normal, State};
 handle_info({blockchain_txn_response, {txn_rejected, {Height, RejectReason}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
