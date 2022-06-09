@@ -3113,21 +3113,26 @@ versioned_entry_mod_and_entries_cf(Ledger) ->
 
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
-    case ?MODULE:find_entry(Address, Ledger) of
-        {error, address_entry_not_found} ->
-            Entry = blockchain_ledger_entry_v1:new(0, Amount),
-            Bin = blockchain_ledger_entry_v1:serialize(Entry),
-            cache_put(Ledger, EntriesCF, Address, Bin);
-        {ok, Entry} ->
-            Entry1 = blockchain_ledger_entry_v1:new(
-                blockchain_ledger_entry_v1:nonce(Entry),
-                blockchain_ledger_entry_v1:balance(Entry) + Amount
-            ),
-            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-            cache_put(Ledger, EntriesCF, Address, Bin);
-        {error, _}=Error ->
-            Error
+    case versioned_entry_mod_and_entries_cf(Ledger) of
+        {blockchain_ledger_entry_v2, _V2CF} ->
+            %% Just credit HNT
+            credit_account(Address, Amount, hnt, Ledger);
+        {blockchain_ledger_entry_v1, V1CF} ->
+            case ?MODULE:find_entry(Address, Ledger) of
+                {error, address_entry_not_found} ->
+                    Entry = blockchain_ledger_entry_v1:new(0, Amount),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry),
+                    cache_put(Ledger, V1CF, Address, Bin);
+                {ok, Entry} ->
+                    Entry1 = blockchain_ledger_entry_v1:new(
+                               blockchain_ledger_entry_v1:nonce(Entry),
+                               blockchain_ledger_entry_v1:balance(Entry) + Amount
+                              ),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    cache_put(Ledger, V1CF, Address, Bin);
+                {error, _}=Error ->
+                    Error
+            end
     end.
 
 -spec credit_account(Address :: libp2p_crypto:pubkey_bin(),
