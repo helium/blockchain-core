@@ -1531,14 +1531,12 @@ validate_var(?block_size_limit, Value) ->
 
 validate_var(?token_version, Value) ->
     case Value of
-        undefined -> ok;
         2 -> ok;                    %% Add support for multiple tokens
         _ ->
             throw({error, {invalid_token_version, Value}})
     end;
 validate_var(?ledger_entry_version, Value) ->
     case Value of
-        undefined -> ok;
         2 -> ok;
         _ ->
             throw({error, {invalid_ledger_entry_version, Value}})

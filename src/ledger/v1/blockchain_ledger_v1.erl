@@ -2902,12 +2902,7 @@ migrate_reg_entries(Ledger) ->
                 {error, address_entry_not_found} ->
                     %% This should _always_ occur as we assume no entries_v2 exist
                     %% on ledger yet
-                    EntryV1Balance = blockchain_ledger_entry_v1:balance(EntryV1),
-                    EntryV1Nonce = blockchain_ledger_entry_v1:nonce(EntryV1),
-                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
-                      blockchain_ledger_entry_v2:credit(
-                        blockchain_ledger_entry_v2:new(), EntryV1Balance, hnt),
-                      EntryV1Nonce),
+                    NewEntryV2 = blockchain_ledger_entry_v2:from_v1(EntryV1, entry),
                     Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
                     cache_put(Ledger, EntriesV2CF, Address, Bin);
                 _ ->
@@ -2928,31 +2923,26 @@ migrate_sec_entries(Ledger) ->
         Ledger,
         SecuritiesCF,
         fun({Address, Binary}, ok) ->
-            EntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            SecEntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
             case ?MODULE:find_entry(Address, Ledger) of
                 {ok, EntryV2} ->
                     %% There's already an EntryV2 possibly from doing the entry migration,
                     %% To consolidate:
                     %% - Add the two nonces (sec_nonce_v1 + nonce_entry_v2)
                     %% - Update hst balance in EntryV2
-                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
-                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(SecEntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(SecEntryV1),
                     EntryV2Nonce = blockchain_ledger_entry_v2:nonce(EntryV2),
-                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                    NewSecEntryV2 = blockchain_ledger_entry_v2:nonce(
                       blockchain_ledger_entry_v2:credit(
                         EntryV2, SecEntryV1Balance, hst),
                       EntryV2Nonce + SecEntryV1Nonce),
-                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewSecEntryV2),
                     cache_put(Ledger, EntriesV2CF, Address, Bin);
                 {error, address_entry_not_found} ->
                     %% This address only has security tokens, credit accordingly
-                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
-                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
-                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
-                      blockchain_ledger_entry_v2:credit(
-                        blockchain_ledger_entry_v2:new(), SecEntryV1Balance, hst),
-                      SecEntryV1Nonce),
-                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    NewSecEntryV2 = blockchain_ledger_entry_v2:from_v1(SecEntryV1, security),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewSecEntryV2),
                     cache_put(Ledger, EntriesV2CF, Address, Bin);
                 _ ->
                     %% Unexpected, abort!
@@ -3113,21 +3103,26 @@ versioned_entry_mod_and_entries_cf(Ledger) ->
 
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
-    case ?MODULE:find_entry(Address, Ledger) of
-        {error, address_entry_not_found} ->
-            Entry = blockchain_ledger_entry_v1:new(0, Amount),
-            Bin = blockchain_ledger_entry_v1:serialize(Entry),
-            cache_put(Ledger, EntriesCF, Address, Bin);
-        {ok, Entry} ->
-            Entry1 = blockchain_ledger_entry_v1:new(
-                blockchain_ledger_entry_v1:nonce(Entry),
-                blockchain_ledger_entry_v1:balance(Entry) + Amount
-            ),
-            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-            cache_put(Ledger, EntriesCF, Address, Bin);
-        {error, _}=Error ->
-            Error
+    case versioned_entry_mod_and_entries_cf(Ledger) of
+        {blockchain_ledger_entry_v2, _V2CF} ->
+            %% Just credit HNT
+            credit_account(Address, Amount, hnt, Ledger);
+        {blockchain_ledger_entry_v1, V1CF} ->
+            case ?MODULE:find_entry(Address, Ledger) of
+                {error, address_entry_not_found} ->
+                    Entry = blockchain_ledger_entry_v1:new(0, Amount),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry),
+                    cache_put(Ledger, V1CF, Address, Bin);
+                {ok, Entry} ->
+                    Entry1 = blockchain_ledger_entry_v1:new(
+                               blockchain_ledger_entry_v1:nonce(Entry),
+                               blockchain_ledger_entry_v1:balance(Entry) + Amount
+                              ),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    cache_put(Ledger, V1CF, Address, Bin);
+                {error, _}=Error ->
+                    Error
+            end
     end.
 
 -spec credit_account(Address :: libp2p_crypto:pubkey_bin(),
@@ -3158,69 +3153,74 @@ credit_account(Address, Amount, TT, Ledger) ->
                     Nonce :: integer(),
                     Ledger :: ledger()) -> ok | {error, any()}.
 debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrAmounts) ->
+    %% debit_account being called with an Amount can occur in two situations:
+    %% - token_version is not set
+    %% - token_version is set but for aux ledger
+    %% - we're in some weird transitionary state
+    %% - payment_v1 is active on chain (and those only work with HNT token)
+    %% It's best to make sure that the right ledger entry mod is being invoked
+
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
+            case Nonce =:= EntryMod:nonce(Entry) + 1 of
                 true ->
-                    Balance = blockchain_ledger_entry_v1:balance(Entry),
+                    Balance = EntryMod:balance(Entry),
                     case (Balance - AmountOrAmounts) >= 0 of
                         true ->
-                            Entry1 = blockchain_ledger_entry_v1:new(
-                                Nonce,
-                                (Balance - AmountOrAmounts)
-                            ),
-                            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                            EntriesCF = entries_cf(Ledger),
+                            Entry1 = EntryMod:new( Nonce, (Balance - AmountOrAmounts)),
+                            Bin = EntryMod:serialize(Entry1),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
                             {error, {insufficient_balance, {AmountOrAmounts, Balance}}}
                     end;
                 false ->
-                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
+                    {error, {bad_nonce, {payment, Nonce, EntryMod:nonce(Entry)}}}
             end
     end;
 debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
-    %% TODO: Maybe also check that token_version = 2 is set here? Although amounts being
-    %% a map only ever should occur with the multi token payment txn, so maybe it's okay?
+    %% For consistency sake we'll get the entry mod here as well (it should ideally always be v2)
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            case Nonce =:= blockchain_ledger_entry_v2:nonce(Entry) + 1 of
+            case Nonce =:= EntryMod:nonce(Entry) + 1 of
                 true ->
                     case lists:all(
                       fun(TT) ->
-                              blockchain_ledger_entry_v2:balance(Entry, TT) >= maps:get(TT, AmountOrAmounts, 0)
+                              EntryMod:balance(Entry, TT) >= maps:get(TT, AmountOrAmounts, 0)
                       end,
                       blockchain_token_v1:supported_tokens())
                     of
                         true ->
                             Entry0 = maps:fold(
                                        fun(TT, Amt, Acc) ->
-                                               blockchain_ledger_entry_v2:debit(Acc, Amt, TT)
+                                               EntryMod:debit(Acc, Amt, TT)
                                        end, Entry, AmountOrAmounts),
-                            Entry1 = blockchain_ledger_entry_v2:nonce(Entry0, Nonce),
-                            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
-                            EntriesCF = entries_v2_cf(Ledger),
+                            Entry1 = EntryMod:nonce(Entry0, Nonce),
+                            Bin = EntryMod:serialize(Entry1),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
                             {error, {insufficient_balance, {libp2p_crypto:bin_to_b58(Address), AmountOrAmounts}}}
                     end;
                 false ->
-                    {error, {bad_nonce, {payment_v2, Nonce, blockchain_ledger_entry_v2:nonce(Entry)}}}
+                    {error, {bad_nonce, {payment_v2, Nonce, EntryMod:nonce(Entry)}}}
             end
     end.
 
 
 -spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), blockchain_txn:hash(), blockchain:blockchain()) -> ok | {error, any()}.
 debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = EntryMod:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
                     case application:get_env(blockchain, store_implicit_burns, false) of
@@ -3233,12 +3233,8 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
                         false ->
                             ok
                     end,
-                    Entry1 = blockchain_ledger_entry_v1:new(
-                        blockchain_ledger_entry_v1:nonce(Entry),
-                        (Balance - Fee)
-                    ),
-                    EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    EntriesCF = entries_cf(Ledger),
+                    Entry1 = EntryMod:new(EntryMod:nonce(Entry), (Balance - Fee)),
+                    EntryBin = EntryMod:serialize(Entry1),
                     cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
@@ -3247,11 +3243,12 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
 
 -spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 check_balance(Address, Amount, Ledger) ->
+    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = EntryMod:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
                     {error, {insufficient_balance, {Amount, Balance}}};
@@ -5315,12 +5312,13 @@ get_cooldown_stake(Val, Ledger) ->
 
 -spec query_circulating_hnt(Ledger :: ledger()) -> non_neg_integer().
 query_circulating_hnt(Ledger) ->
+    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     cache_fold(
       Ledger,
       entries_cf(Ledger),
       fun({_Addr, BinEnt}, Acc) ->
-              Ent = blockchain_ledger_entry_v1:deserialize(BinEnt),
-              Acc + blockchain_ledger_entry_v1:balance(Ent)
+              Ent = EntryMod:deserialize(BinEnt),
+              Acc + EntryMod:balance(Ent)
       end,
       0
      ).
@@ -5786,10 +5784,10 @@ snapshot_accounts(Ledger) ->
     lists:sort(maps:to_list(entries(Ledger))).
 
 load_accounts(Accounts, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     maps:map(
       fun(Address, Entry) ->
-              BEntry = blockchain_ledger_entry_v1:serialize(Entry),
+              BEntry = EntryMod:serialize(Entry),
               cache_put(Ledger, EntriesCF, Address, BEntry)
       end,
       maps:from_list(Accounts)),

@@ -616,12 +616,11 @@
 -define(block_size_limit, block_size_limit).
 
 %% ------------------------------------------------------------------
-%% Token version (aka support multiple tokens)
-%% Testing for now, set to 2
+%% Token version (aka support multiple tokens). Set to 2 (pos_integer).
 -define(token_version, token_version).
 %% Ledger entry migration variable
 %% Will be used to hook and switch the old style ledger entries
-%% to new style ledger entries
+%% to new style ledger entries. Set to 2 (pos_integer).
 -define(ledger_entry_version, ledger_entry_version).
-%% Var to switch off legacy security_exchange txn
+%% Var to switch off legacy security_exchange txn. Boolean.
 -define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).

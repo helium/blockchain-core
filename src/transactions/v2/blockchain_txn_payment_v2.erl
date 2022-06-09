@@ -182,17 +182,17 @@ absorb_v2_(Txn, Ledger, Chain) ->
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     TotalAmounts = ?MODULE:total_amounts(Txn, Ledger),
-    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
+    ShouldImplicitBurn = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, ShouldImplicitBurn, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
         ok ->
-            {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
             case blockchain_ledger_v1:debit_account(Payer, TotalAmounts, Nonce, Ledger) of
                 {error, _Reason} = Error ->
                     Error;
                 ok ->
                     Payments = ?MODULE:payments(Txn),
+                    {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
                     MaxPaymentsMap = maps:from_list(MaxAmounts),
                     ok = lists:foreach(
                         fun(Payment) ->
@@ -219,8 +219,8 @@ absorb_(Txn, Ledger, Chain) ->
     Hash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled, Hash, Chain) of
+    ShouldImplicitBurn = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, ShouldImplicitBurn, Hash, Chain) of
         {error, _Reason} = Error ->
             Error;
         ok ->
@@ -543,7 +543,7 @@ split_payment_amounts(#blockchain_txn_payment_v2_pb{payer=Payer, fee=Fee}=Txn, L
                                                                                      end
                                                                                  end, 0, SpecifiedPayments1),
                                                  MaxPaymentAmt = case TokenType of
-                                                                     hnt -> TypeBalance - TypeSpecifiedAmt - Fee;
+                                                                     hnt -> TypeBalance - TypeSpecifiedAmt - calculate_hnt_fee(Payer, Fee, Ledger);
                                                                      _ -> TypeBalance - TypeSpecifiedAmt
                                                                  end,
                                                  {TokenType, MaxPaymentAmt}
@@ -555,8 +555,25 @@ split_payment_amounts(#blockchain_txn_payment_v2_pb{payer=Payer, fee=Fee}=Txn, L
                     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
                     Balance = blockchain_ledger_entry_v1:balance(PayerEntry),
                     SpecifiedAmts = lists:foldl(fun({_, Val}, Acc) -> Val + Acc end, 0, SpecifiedPayments1),
-                    MaxPaymentAmt = Balance - SpecifiedAmts - Fee,
+                    MaxPaymentAmt = Balance - SpecifiedAmts - calculate_hnt_fee(Payer, Fee, Ledger),
                     {[{hnt, MaxPaymentAmt}], SpecifiedPayments1}
+            end
+    end.
+
+-spec calculate_hnt_fee(Payer :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+calculate_hnt_fee(_, 0, _) -> 0;
+calculate_hnt_fee(Payer, Fee, Ledger) when Fee > 0 ->
+    case blockchain_ledger_v1:find_dc_entry(Payer, Ledger) of
+        {error, dc_entry_not_found} ->
+            {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger),
+            FeeInHNT;
+        {ok, Entry} ->
+            DCBalance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
+            case (DCBalance - Fee >= 0) of
+                true -> 0;
+                false ->
+                    {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger),
+                    FeeInHNT
             end
     end.
 
