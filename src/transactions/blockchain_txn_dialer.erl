@@ -31,6 +31,7 @@
 
 -record(state, {
           parent :: pid(),
+          request_type :: atom(),
           txn_key :: blockchain_txn_mgr:txn_key(),
           txn :: blockchain_txn:txn(),
           member :: libp2p_crypto:pubkey_bin(),
@@ -52,9 +53,9 @@ dial(Pid) ->
 %% ------------------------------------------------------------------
 init(Args) ->
     lager:debug("blockchain_txn_dialer started with ~p", [Args]),
-    [Parent, TxnKey, Txn, Member] = Args,
+    [Parent, RequestType, TxnKey, Txn, Member] = Args,
     Ref = erlang:send_after(30000, Parent, {dial_timeout, {self(), TxnKey, Txn, Member}}),
-    {ok, #state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}}.
+    {ok, #state{parent=Parent, request_type = RequestType, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}}.
 
 handle_call(_, _, State) ->
     {reply, ok, State}.
@@ -69,15 +70,23 @@ handle_cast(dial, State=#state{}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({blockchain_txn_response, {txn_accepted, {Height, QueuePos, QueueLen}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {txn_accepted, {Height, QueuePos, QueueLen}}},
+    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
     Parent ! {txn_accepted, {self(), TxnKey, Txn, Member, Height, QueuePos, QueueLen}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {txn_rejected, {Height, RejectReason}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {txn_updated, {Height, QueuePos, QueueLen}}},
+    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+    erlang:cancel_timer(Ref),
+    Parent ! {txn_updated, {self(), TxnKey, Txn, Member, Height, QueuePos, QueueLen}},
+    {stop, normal, State};
+handle_info({blockchain_txn_response, {txn_rejected, {Height, RejectReason}}},
+    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
     Parent ! {txn_rejected, {self(), TxnKey, Txn, Member, Height, RejectReason}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {txn_failed, {FailReason}}}, State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+handle_info({blockchain_txn_response, {txn_failed, {FailReason}}},
+    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
     Parent ! {txn_failed, {self(), TxnKey, Txn, Member, FailReason}},
     {stop, normal, State};
@@ -94,7 +103,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal ===================================================================
 
 -spec dial_(#state{}) -> ok | {error, _}.
-dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Ref}) ->
+dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Ref}) ->
     SwarmTID = blockchain_swarm:tid(),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
     TxnHash = blockchain_txn:hash(Txn),
@@ -129,8 +138,8 @@ dial_(#state{member=Member, txn_key = TxnKey, txn=Txn, parent=Parent, timeout=Re
                     Parent ! {dial_failed, {self(), TxnKey, Txn, Member}},
                     Error;
                 {ok, Stream} ->
-                    DataToSend = blockchain_txn:serialize(Txn),
-                    case libp2p_framed_stream:send(Stream, DataToSend) of
+                    EncodedMsg = blockchain_txn_handler:encode_request(ProtocolVersion, TxnKey, Txn, RequestType),
+                    case libp2p_framed_stream:send(Stream, EncodedMsg) of
                         {error, Reason}=Error ->
                             erlang:cancel_timer(Ref),
                             lager:error(

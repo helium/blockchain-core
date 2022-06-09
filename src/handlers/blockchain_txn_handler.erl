@@ -16,7 +16,9 @@
 
 -export([
     server/4,
-    client/2
+    client/2,
+    encode_request/4,
+    decode_request/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -44,6 +46,35 @@ server(Connection, Path, _TID, Args) ->
     lager:warning("server with ~p", [Path]),
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
+-spec encode_request(
+    string(),
+    blockchain_txn_mgr:txn_key(),
+    blockchain_txn:txn(),
+    blockchain_txn_mgr:txn_request_type()) -> binary().
+encode_request(?TX_PROTOCOL_V1 = _Path, _TxnKey, Txn, _RequestType) ->
+    blockchain_txn:serialize(Txn);
+encode_request(?TX_PROTOCOL_V2 = _Path, _TxnKey, Txn, _RequestType) ->
+    blockchain_txn:serialize(Txn);
+encode_request(?TX_PROTOCOL_V3 = _Path, TxnKey, Txn, RequestType) ->
+    Req = #blockchain_txn_request_pb{
+        type = RequestType,
+        key = TxnKey,
+        txn = Txn
+    },
+    blockchain_txn_handler_pb:encode_msg(Req).
+
+-spec decode_request(
+    string(),
+    binary()) -> #blockchain_txn_request_pb{}.
+decode_request(?TX_PROTOCOL_V1 = _Path, Bin) ->
+    Txn = blockchain_txn:deserialize(Bin),
+    #blockchain_txn_request_pb{type = submit, txn = Txn};
+decode_request(?TX_PROTOCOL_V2 = _Path, Bin) ->
+    Txn = blockchain_txn:deserialize(Bin),
+    #blockchain_txn_request_pb{type = submit, txn = Txn};
+decode_request(?TX_PROTOCOL_V3 = _Path, Bin) ->
+    blockchain_txn_handler_pb:decode_msg(blockchain_txn_request_pb, Bin).
+
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
@@ -58,11 +89,16 @@ handle_data(client, ResponseBin, State=#state{path=Path, parent=Parent}) ->
     {stop, normal, State};
 handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
     try
-        Txn = blockchain_txn:deserialize(Data),
+        #blockchain_txn_request_pb{type = ReqType, txn = Txn} = ?MODULE:decode_request(Path, Data),
         lager:debug("Got ~p type transaction: ~s", [blockchain_txn:type(Txn), blockchain_txn:print(Txn)]),
-        case Callback(Txn) of
+        case Callback(ReqType, Txn) of
             {ok, QueuePos, QueueLen, Height} ->
-                {stop, normal, State, encode_response(Path, txn_accepted, undefined, QueuePos, QueueLen, Height)};
+                case ReqType of
+                    submit ->
+                        {stop, normal, State, encode_response(Path, txn_accepted, undefined, QueuePos, QueueLen, Height)};
+                    update ->
+                        {stop, normal, State, encode_response(Path, txn_updated, undefined, QueuePos, QueueLen, Height)}
+                end;
             {{error, no_group}, Height} ->
                 {stop, normal, State, encode_response(Path, txn_failed, no_group, undefined, undefined, Height)};
             {{error, {Reason, _}}, Height} when is_atom(Reason)->
@@ -93,7 +129,7 @@ encode_response(?TX_PROTOCOL_V2, txn_failed, _Details, _PosInQueue, _QueueLen, H
     <<"error", Height/integer>>;
 %% marshall v3 response format
 encode_response(?TX_PROTOCOL_V3, Resp, Details, QueuePos, QueueLen, Height)  ->
-    Msg = #blockchain_txn_submit_result_pb{
+    Msg = #blockchain_txn_info_pb{
         result = atom_to_binary(Resp, utf8),
         details = atom_to_binary(Details, utf8),
         height = Height,
@@ -121,12 +157,15 @@ decode_response(?TX_PROTOCOL_V2, <<"error", Height/integer>>) ->
 decode_response(?TX_PROTOCOL_V3, Resp) when is_binary(Resp) ->
     decode_response(?TX_PROTOCOL_V3, blockchain_txn_handler_pb:decode_msg(Resp));
 decode_response(?TX_PROTOCOL_V3,
-    #blockchain_txn_submit_result_pb{result = <<"txn_accepted">>, height=Height,
+    #blockchain_txn_info_pb{result = <<"txn_accepted">>, height=Height,
         queue_pos=QueuePos, queue_len=QueueLen}) ->
     {txn_accepted, {Height, QueuePos, QueueLen}};
 decode_response(?TX_PROTOCOL_V3,
-    #blockchain_txn_submit_result_pb{result = <<"txn_failed">>, details=FailReason}) ->
+    #blockchain_txn_info_pb{result = <<"txn_update">>, height=Height, queue_pos=QueuePos}) ->
+    {txn_update, {Height, QueuePos}};
+decode_response(?TX_PROTOCOL_V3,
+    #blockchain_txn_info_pb{result = <<"txn_failed">>, details=FailReason}) ->
     {txn_failed, {FailReason}};
 decode_response(?TX_PROTOCOL_V3,
-    #blockchain_txn_submit_result_pb{result = <<"txn_rejected">>, details=RejectReason, height=Height}) ->
+    #blockchain_txn_info_pb{result = <<"txn_rejected">>, details=RejectReason, height=Height}) ->
     {txn_rejected, {Height, RejectReason}}.
