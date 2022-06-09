@@ -12,6 +12,7 @@
     hnt_treasury/1,
     reward_server_keys/1,
     nonce/1, nonce/2,
+    last_rewarded_block/1, last_rewarded_block/2,
     serialize/1,
     deserialize/1
 ]).
@@ -61,6 +62,14 @@ hnt_treasury(#blockchain_ledger_subnetwork_v1_pb{hnt_treasury = SNHT}) ->
 -spec reward_server_keys(SN :: subnetwork_v1()) -> [libp2p_crypto:pubkey_bin()].
 reward_server_keys(#blockchain_ledger_subnetwork_v1_pb{reward_server_keys = Keys}) ->
     Keys.
+
+-spec last_rewarded_block(SN :: subnetwork_v1()) -> non_neg_integer().
+last_rewarded_block(#blockchain_ledger_subnetwork_v1_pb{last_rewarded_block = LRB}) ->
+    LRB.
+
+-spec last_rewarded_block(SN :: subnetwork_v1(), LRB :: non_neg_integer()) -> subnetwork_v1().
+last_rewarded_block(SN, LRB) ->
+    SN#blockchain_ledger_subnetwork_v1_pb{last_rewarded_block = LRB}.
 
 -spec nonce(SN :: subnetwork_v1()) -> non_neg_integer().
 nonce(#blockchain_ledger_subnetwork_v1_pb{nonce = Nonce}) ->

@@ -274,6 +274,7 @@
     migrate_entries/1,
 
     add_subnetwork/6,
+    update_subnetwork/2,
     subnetworks_v1/1,
     find_subnetwork_v1/2
 ]).
@@ -3006,6 +3007,11 @@ add_subnetwork(TT, Premine, HNTTreasury, SNKey, RewardServerKeys, Ledger) ->
             Error
     end.
 
+update_subnetwork(SN, Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    TT = blockchain_ledger_subnetwork_v1:type(SN),
+    Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT), Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
