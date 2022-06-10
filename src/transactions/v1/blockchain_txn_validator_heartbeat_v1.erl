@@ -131,17 +131,26 @@ is_valid(Txn, Chain) ->
                         ok;
                     _ -> throw(unsupported_txn)
                 end,
-                %% make sure that this validator exists and is staked
+                %% make sure that this validator exists and is staked, and that the transaction height is
+                %% not too soon after previous HB, not in the future, and (if chain var set) not too old
                 case blockchain_ledger_v1:get_validator(Validator, Ledger) of
                     {ok, V} ->
                         {ok, Interval} = ?get_var(?validator_liveness_interval, Ledger),
+                        {ok, GracePeriod} = ?get_var(?validator_liveness_grace_period, Ledger),
+                        NotStaleCheck =
+                            %% if chain var set, check for too old of heartbeat
+                            case ?get_var(?validator_stale_heartbeat_check, Ledger) of
+                                {ok, true} -> TxnHeight > (Height - (Interval + GracePeriod));
+                                _ -> true
+                            end,
                         Status = blockchain_ledger_validator_v1:status(V),
                         HB = blockchain_ledger_validator_v1:last_heartbeat(V),
                         case Status == staked
-                            andalso TxnHeight >= (Interval + HB)
-                            andalso TxnHeight =< Height of
+                            andalso TxnHeight >= (Interval + HB)   %% not too soon after last HB
+                            andalso TxnHeight =< Height            %% not in the future
+                            andalso NotStaleCheck of               %% not too old
                             true -> ok;
-                            _ -> throw({bad_height, prev, HB, height, Height, got, TxnHeight})
+                            _ -> throw({bad_height, previous_hb, HB, current_height, Height, got, TxnHeight})
                         end;
                     {error, not_found} -> throw(nonexistent_validator);
                     {error, Reason} -> throw({validator_fetch_error, Reason})

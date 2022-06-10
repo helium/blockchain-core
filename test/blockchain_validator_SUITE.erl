@@ -20,7 +20,9 @@
     unstake_fail_already_unstaked/1,
     transfer_ok_in_account/1,
     transfer_ok/1,
-    unstake_ok_at_same_height/1
+    unstake_ok_at_same_height/1,
+    heartbeat_ok/1,
+    heartbeat_fail_too_old/1
 ]).
 
 all() ->
@@ -37,7 +39,9 @@ all() ->
         unstake_fail_already_unstaked,
         transfer_ok_in_account,
         transfer_ok,
-        unstake_ok_at_same_height
+        unstake_ok_at_same_height,
+        heartbeat_ok,
+        heartbeat_fail_too_old
     ].
 
 %%--------------------------------------------------------------------
@@ -63,6 +67,7 @@ init_per_testcase(TestCase, Config) ->
                     ?validator_liveness_grace_period => 10,
                     ?validator_liveness_interval => 5,
                     ?validator_key_check => true,
+                    ?validator_stale_heartbeat_check => true,
                     ?stake_withdrawal_cooldown => 10,
                     ?stake_withdrawal_max => 500,
                     ?dkg_penalty => 1.0,
@@ -487,7 +492,7 @@ unstake_ok_at_same_height(Config) ->
     {ok, Block} = test_utils:create_block(Consensus, [SignedTxn1, SignedTxn2]),
     _ = blockchain:add_block(Block, Chain),
 
-    _ = lists:map(
+    ok = lists:foreach(
           fun(_) ->
                   {ok, B} = test_utils:create_block(Consensus, []),
                   _ = blockchain:add_block(B, Chain)
@@ -511,3 +516,127 @@ unstake_ok_at_same_height(Config) ->
     {ok, LedgerEntry2} = blockchain_ledger_v1:find_entry(Owner2PubkeyBin, Ledger),
     ?assertEqual(?bones(25000), blockchain_ledger_entry_v1:balance(LedgerEntry2)),
     ok.
+
+heartbeat_ok(Config) ->
+    ValVersion = 1000000, %MMMmmmPPPP
+
+    Chain = ?config(chain, Config),
+    Consensus = ?config(consensus_members, Config),
+
+    [{OwnerPubkeyBin, {_OwnerPub, _OwnerPriv, OwnerSigFun}} | _] = ?config(genesis_members, Config),
+
+    %% make a validator
+    [{ValPubkeyBin, {_ValPub, _ValPriv, ValSigFun}}] = test_utils:generate_keys(1),
+
+    ct:pal("ValPubkeyBin: ~p~nOwnerPubkeyBin: ~p", [ValPubkeyBin, OwnerPubkeyBin]),
+
+    %% stake the validator
+    Txn = blockchain_txn_stake_validator_v1:new(
+        ValPubkeyBin,
+        OwnerPubkeyBin,
+        ?bones(10000),
+        ?bones(5)
+    ),
+    SignedStakeTxn = blockchain_txn_stake_validator_v1:sign(Txn, OwnerSigFun),
+    {ok, Block} = test_utils:create_block(Consensus, [SignedStakeTxn]),
+    ok = blockchain:add_block(Block, Chain), 
+
+    %% add HB interval (10 blocks) to chain before heartbeating
+    ok = lists:foreach(
+          fun(_) ->
+                  {ok, B} = test_utils:create_block(Consensus, []),
+                  _ = blockchain:add_block(B, Chain)
+          end,
+          lists:seq(1, 10)),
+
+    %% make heartbeat transaction
+    {ok, Height} = blockchain:height(Chain),
+    HeartbeatTxn = blockchain_txn_validator_heartbeat_v1:new(
+        ValPubkeyBin, 
+        Height, 
+        ValVersion,
+        [],
+        []
+    ),
+    ct:pal("HeartbeatTxn: ~p", [HeartbeatTxn]),
+    SignedHeartbeatTxn = blockchain_txn_validator_heartbeat_v1:sign(HeartbeatTxn, ValSigFun),
+    ct:pal("SignedHeartbeatTxn: ~p", [SignedHeartbeatTxn]),
+
+    case blockchain_txn_validator_heartbeat_v1:is_valid(SignedHeartbeatTxn, Chain) of
+        ok -> ok;
+        Error -> ct:fail("error: ~p", [Error])
+    end.
+
+
+heartbeat_fail_too_old(Config) ->
+    ValVersion = 1000000, %MMMmmmPPPP
+
+    Chain = ?config(chain, Config),
+    Consensus = ?config(consensus_members, Config),
+
+    [{OwnerPubkeyBin, {_OwnerPub, _OwnerPriv, OwnerSigFun}} | _] = ?config(genesis_members, Config),
+
+    %% make a validator
+    [{ValPubkeyBin, {_ValPub, _ValPriv, ValSigFun}}] = test_utils:generate_keys(1),
+
+    ct:pal("ValPubkeyBin: ~p~nOwnerPubkeyBin: ~p", [ValPubkeyBin, OwnerPubkeyBin]),
+
+    %% stake the validator
+    Txn = blockchain_txn_stake_validator_v1:new(
+        ValPubkeyBin,
+        OwnerPubkeyBin,
+        ?bones(10000),
+        ?bones(5)
+    ),
+    SignedStakeTxn = blockchain_txn_stake_validator_v1:sign(Txn, OwnerSigFun),
+    ct:pal("SignedStakeTxn: ~p", [SignedStakeTxn]),
+
+    %% add stake transaction to chain
+    {ok, Block} = test_utils:create_block(Consensus, [SignedStakeTxn]),
+    ok = blockchain:add_block(Block, Chain), %% new height = 2
+
+     %% add HB interval (10 blocks) to chain before heartbeating
+    ok = lists:foreach(
+          fun(_) ->
+                  {ok, B} = test_utils:create_block(Consensus, []),
+                  _ = blockchain:add_block(B, Chain)
+          end,
+          lists:seq(1, 10)), %% new height = 12
+
+    %% make heartbeat transaction
+    {ok, Height} = blockchain:height(Chain),
+    HeartbeatTxn = blockchain_txn_validator_heartbeat_v1:new(
+        ValPubkeyBin, 
+        Height, 
+        ValVersion,
+        [],
+        []
+    ),
+    ct:pal("HeartbeatTxn: ~p", [HeartbeatTxn]),
+    SignedHeartbeatTxn = blockchain_txn_validator_heartbeat_v1:sign(HeartbeatTxn, ValSigFun),
+
+    %% assert that heartbeat is valid with txn height = current height = 12
+    ?assertEqual(blockchain:height(Chain), {ok, 12}),
+    ?assertEqual(blockchain_txn_validator_heartbeat_v1:is_valid(SignedHeartbeatTxn, Chain), ok),
+
+    %% add 15 blocks
+    ok = lists:foreach(
+          fun(_) ->
+                  {ok, B} = test_utils:create_block(Consensus, []),
+                  _ = blockchain:add_block(B, Chain)
+          end,
+          lists:seq(1, 14)), %% new height = 26
+
+    %% assert that heartbeat is valid with txn height = 11, current height = 26
+    ?assertEqual(blockchain:height(Chain), {ok, 26}),
+    ?assertEqual(blockchain_txn_validator_heartbeat_v1:is_valid(SignedHeartbeatTxn, Chain), ok),
+
+    %% add 1 block
+    {ok, B} = test_utils:create_block(Consensus, []),
+    _ = blockchain:add_block(B, Chain), %% new height = 27
+
+    %% confirm that heartbeat is invalid with txn height = 12, current height = 27
+    ?assertMatch(
+        {error,{bad_height, previous_hb, 1, current_height, 27, got, 12}},
+        blockchain_txn_validator_heartbeat_v1:is_valid(SignedHeartbeatTxn, Chain)
+    ).
