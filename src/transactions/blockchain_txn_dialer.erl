@@ -8,6 +8,7 @@
 -behavior(gen_server).
 
 -include("blockchain.hrl").
+-include_lib("helium_proto/include/blockchain_txn_handler_pb.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -70,26 +71,26 @@ handle_cast(dial, State=#state{}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({blockchain_txn_response, {txn_accepted, {Height, QueuePos, QueueLen}}},
+handle_info({blockchain_txn_response, Resp},
     State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {txn_accepted, {self(), TxnKey, Txn, Member, Height, QueuePos, QueueLen}},
+    Parent ! {blockchain_txn_response, self(), Member, TxnKey, Txn, Resp},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {txn_updated, {Height, QueuePos, QueueLen}}},
-    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
-    erlang:cancel_timer(Ref),
-    Parent ! {txn_updated, {self(), TxnKey, Txn, Member, Height, QueuePos, QueueLen}},
-    {stop, normal, State};
-handle_info({blockchain_txn_response, {txn_rejected, {Height, RejectReason}}},
-    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
-    erlang:cancel_timer(Ref),
-    Parent ! {txn_rejected, {self(), TxnKey, Txn, Member, Height, RejectReason}},
-    {stop, normal, State};
-handle_info({blockchain_txn_response, {txn_failed, {FailReason}}},
-    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
-    erlang:cancel_timer(Ref),
-    Parent ! {txn_failed, {self(), TxnKey, Txn, Member, FailReason}},
-    {stop, normal, State};
+%%handle_info({blockchain_txn_response, {txn_updated, {Height, QueuePos, QueueLen}}},
+%%    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+%%    erlang:cancel_timer(Ref),
+%%    Parent ! {txn_updated, {self(), TxnKey, Txn, Member, Height, QueuePos, QueueLen}},
+%%    {stop, normal, State};
+%%handle_info({blockchain_txn_response, {txn_rejected, {Height, RejectReason}}},
+%%    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+%%    erlang:cancel_timer(Ref),
+%%    Parent ! {txn_rejected, {self(), TxnKey, Txn, Member, Height, RejectReason}},
+%%    {stop, normal, State};
+%%handle_info({blockchain_txn_response, {txn_failed, FailReason}},
+%%    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+%%    erlang:cancel_timer(Ref),
+%%    Parent ! {txn_failed, {self(), TxnKey, Txn, Member, FailReason}},
+%%    {stop, normal, State};
 handle_info(_Msg, State) ->
     lager:info("txn dialer got unexpected info ~p", [_Msg]),
     {noreply, State}.

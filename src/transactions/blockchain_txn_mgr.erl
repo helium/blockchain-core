@@ -8,7 +8,10 @@
 -behavior(gen_server).
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
--define(TXN_CACHE, txn_cache).
+-include_lib("helium_proto/include/blockchain_txn_handler_pb.hrl").
+
+-define(TXN_MGR_CACHE, txn_cache).
+-define(CUR_HEIGHT, cur_height).
 -define(RECENT_BLOCK_AGE, 30 * 60).  %% 30 mins
 
 %% ------------------------------------------------------------------
@@ -21,7 +24,8 @@
          set_chain/1,
          txn_list/0,
          txn_status/1,
-         make_ets_table/0
+         make_ets_table/0,
+         current_height/0
         ]).
 
 %% Testing backdoors for CT
@@ -115,6 +119,14 @@ start_link(Args) when is_map(Args) ->
             Other
     end.
 
+-spec current_height() -> pos_integer() | undefined.
+current_height() ->
+    try ets:lookup_element(?TXN_MGR_CACHE, ?CUR_HEIGHT, 2) of
+        X -> X
+    catch
+        _:_ -> undefined
+    end.
+
 -spec submit(Txn :: blockchain_txn:txn(), Callback :: fun()) -> ok.
 submit(Txn, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, get_txn_key(), Callback}).
@@ -123,7 +135,7 @@ submit(Txn, Callback) ->
 grpc_submit(Txn) ->
     TxnKey = get_txn_key(),
     gen_server:cast(?MODULE, {submit, Txn, TxnKey, fun()-> ok end}),
-    {ok, TxnKey}.
+    {ok, TxnKey, ?MODULE:current_height()}.
 
 -spec submit(Txn :: blockchain_txn:txn(), Key :: txn_key(), Callback :: fun()) -> ok.
 submit(Txn, Key, Callback) ->
@@ -145,16 +157,18 @@ txn_status(TxnKey) ->
             rejections = Rejections,
             recv_block_height = RecvBlockHeight} = _TxnData}} ->
             {ok, pending,
-                #{  recv_block_height => RecvBlockHeight,
+                #{  key => TxnKey,
+                    recv_block_height => RecvBlockHeight,
+                    height => ?MODULE:current_height(),
                     acceptors => Acceptions,
                     rejectors => Rejections}};
-        {error, txn_not_found} = Error ->
-            Error
+        {error, txn_not_found} ->
+            {error, txn_not_found, ?MODULE:current_height()}
 
     end.
 
 make_ets_table() ->
-    ets:new(?TXN_CACHE,
+    ets:new(?TXN_MGR_CACHE,
             [named_table,
              protected,
              {heir, self(), undefined}]).
@@ -264,31 +278,52 @@ handle_info({send_failed, {Dialer, TxnKey, Txn, Member}}, State) ->
     {noreply, State};
 
 %% dialed CG member related failures
-handle_info({txn_accepted, {Dialer, TxnKey, Txn, Member, Height, QueuePos, QueueLen}}, State) ->
+handle_info({blockchain_txn_response, Dialer, Member, TxnKey, Txn,
+    #blockchain_txn_info_v1_pb{
+        result = Status,
+        height = Height,
+        queue_pos = QueuePos,
+        queue_len = QueueLen
+    }}, State)  when Status == <<"txn_accepted">> ->
     lager:debug("txn: ~s, accepted_by: ~p, Dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
         [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
     ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
     {noreply, State};
 
-handle_info({txn_updated, {Dialer, TxnKey, Txn, Member, Height, QueuePos, QueueLen}}, State) ->
-    lager:debug("txn: ~s, updated_by: ~p, Dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
+handle_info({blockchain_txn_response, Dialer, Member, TxnKey, Txn,
+    #blockchain_txn_info_v1_pb{
+        result = Status,
+        height = Height,
+        queue_pos = QueuePos,
+        queue_len = QueueLen
+    }}, State)  when Status == <<"txn_updated">> ->
+    lager:debug("txn: ~s, updated: ~p, Dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
         [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
     ok = updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
     {noreply, State};
 
-handle_info({txn_failed, {Dialer, TxnKey, Txn, Member, FailReason}}, State) ->
-    lager:info("txn: ~s, failed with reason: ~p, member: ~p Dialer: ~p", [blockchain_txn:print(Txn), FailReason, Member, Dialer]),
+handle_info({blockchain_txn_response, Dialer, Member, TxnKey, Txn,
+    #blockchain_txn_info_v1_pb{
+        result = Status,
+        details = FailReason,
+        trace = Trace
+    }}, State)  when Status == <<"txn_failed">> ->
+    lager:info("txn: ~s, failed with reason: ~p, member: ~p Dialer: ~p Trace ~p",
+        [blockchain_txn:print(Txn), FailReason, Member, Dialer, binary_to_term(Trace)]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 
-handle_info(
-    {{txn_rejected, {Dialer, TxnKey, Txn, Member, Height, RejectReason}} = Rejection},
-    #state{
+handle_info({blockchain_txn_response, Dialer, Member, TxnKey, Txn,
+    #blockchain_txn_info_v1_pb{
+        result = Status,
+        details = RejectReason,
+        height = Height
+    }} = Rejection, #state{
         cur_block_height = CurBlockHeight,
         reject_f = RejectF,
         rejections_deferred = Deferred0
-    } = State0
-) ->
+    } = State0 )  when Status == <<"txn_rejected">> ->
+
     RejectorHeight =
         case Height of
             %% txn protocol v1 - no height
@@ -395,6 +430,8 @@ initialize_with_chain(State, Chain)->
     lists:foreach(F, cached_txns()),
     %% initialise submit_f and reject_f with current ledger value
     {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+    %% cache current height
+    ets:insert(?TXN_MGR_CACHE, {?CUR_HEIGHT, Height}),
     State#state{chain=Chain, cur_block_height = Height, submit_f = submit_f(N), reject_f = reject_f(N)}.
 
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
@@ -419,7 +456,11 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             %% only update the current block height if its not a sync block
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
+            %% cache the current height
+            ets:insert(?TXN_MGR_CACHE, {?CUR_HEIGHT, NewCurBlockHeight}),
             State1 = State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced},
+            %% cache the current height
+            ets:insert(?TXN_MGR_CACHE, {?CUR_HEIGHT, NewCurBlockHeight}),
             State2 = process_deferred_rejections(State1),
             {noreply, State2};
         _ ->
@@ -846,28 +887,28 @@ maybe_query_acceptors([{M, H, _QPos, _QLen} | Rest], TxnKey, Txn, CurBlockHeight
 
 -spec cache_txn(txn_key(), blockchain_txn:txn(), #txn_data{}) -> ok.
 cache_txn(Key, Txn, TxnDataRec) ->
-    true = ets:insert(?TXN_CACHE, {Key, Txn, TxnDataRec}),
+    true = ets:insert(?TXN_MGR_CACHE, {Key, Txn, TxnDataRec}),
     ok.
 
 -spec delete_cached_txn(txn_key())-> ok.
 delete_cached_txn(Key) ->
-    true = ets:delete(?TXN_CACHE, Key),
+    true = ets:delete(?TXN_MGR_CACHE, Key),
     ok.
 
 -spec cached_txn(txn_key())-> {ok, cached_txn_type()} | {error, txn_not_found}.
 cached_txn(Key)->
-    case ets:lookup(?TXN_CACHE, Key) of
+    case ets:lookup(?TXN_MGR_CACHE, Key) of
         [Res] -> {ok, Res};
         _ -> {error, txn_not_found}
     end.
 
 -spec cached_txns()-> [cached_txn_type()].
 cached_txns()->
-    ets:tab2list(?TXN_CACHE).
+    ets:tab2list(?TXN_MGR_CACHE).
 
 -spec sorted_cached_txns()-> [] | [cached_txn_type()].
 sorted_cached_txns()->
-    TxnList = ets:tab2list(?TXN_CACHE),
+    TxnList = ets:tab2list(?TXN_MGR_CACHE),
     sort_txns(TxnList).
 
 -spec sort_txns([cached_txn_type()]) -> [cached_txn_type()].

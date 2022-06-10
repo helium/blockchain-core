@@ -323,7 +323,7 @@ addr2uri(PubKeyBin) ->
                 {error, _} -> undefined;
                 {ok, IP} ->
                     {Port, SSL} = grpc_port(PubKeyBin),
-                    format_uri(IP, SSL Port)
+                    format_uri(IP, SSL, Port)
             end
     end.
 
@@ -357,7 +357,6 @@ check_for_public_uri(PubKeyBin) ->
 
 -spec check_for_alias(libp2p_crypto:pubkey_bin()) -> {ok, binary()} | {error, atom()}.
 check_for_alias(PubKeyBin) ->
-    SwarmTID = blockchain_swarm:tid(),
     MAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
     Aliases = application:get_env(libp2p, node_aliases, []),
     case lists:keyfind(MAddr, 1, Aliases) of
@@ -373,7 +372,7 @@ check_for_alias(PubKeyBin) ->
 
 -spec has_addr_public_ip({non_neg_integer(), string()}) -> {ok, binary()} | {error, atom()}.
 has_addr_public_ip({1, Addr}) ->
-    [_, _, IP, _, _Port = re:split(Addr, "/")],
+    [_, _, IP, _, _Port] = re:split(Addr, "/"),
     {ok, IP};
 has_addr_public_ip({_, _Addr}) -> {error, no_public_ip}.
 
@@ -389,7 +388,7 @@ grpc_port(PubKeyBin) ->
     end.
 
 -spec format_uri(binary(), boolean(), non_neg_integer()) -> binary().
-format_uri(IP, true, Port) ->
+format_uri(IP, SSL, Port) ->
     Scheme = case SSL of
                  true -> "https";
                  false -> "http"
