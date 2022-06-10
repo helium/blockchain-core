@@ -71,7 +71,7 @@
         TxnKey :: txn_key(),
         Txn    :: blockchain_txn:txn(),
         Member :: libp2p_crypto:pubkey_bin(),
-        Rejection :: blockchain_txn_info_v1_pb() | undefined
+        Rejection :: transaction_pb:blockchain_txn_info_v1_pb() | undefined
     }.
 -type deferred_rejections() :: [deferred_rejection()].
 
