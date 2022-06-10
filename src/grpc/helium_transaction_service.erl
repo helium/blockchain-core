@@ -23,7 +23,6 @@ submit(Ctx, #txn_submit_req_v1_pb{txn = WrappedTxn}) ->
                                   recv_height = CurHeight,
                                   signature = <<>>},
     SignedResp = sign_resp(Resp, txn_submit_resp_v1_pb),
-
     {ok, Resp#txn_submit_resp_v1_pb{signature = SignedResp}, Ctx}.
 
 -spec query(ctx:ctx(), transaction_pb:txn_query_req_v1_pb()) ->
@@ -52,7 +51,6 @@ query(Ctx, #txn_query_req_v1_pb{key = Key}) ->
                        signature = <<>>
                    }
            end,
-
     SignedResp = sign_resp(Resp, txn_query_resp_v1_pb),
     {ok, Resp#txn_query_resp_v1_pb{signature = SignedResp}, Ctx}.
 

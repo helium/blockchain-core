@@ -74,7 +74,7 @@ handle_cast(_Msg, State) ->
 handle_info({blockchain_txn_response, Resp},
     State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {blockchain_txn_response, self(), Member, TxnKey, Txn, Resp},
+    Parent ! {blockchain_txn_response, {self(), Member, TxnKey, Txn, Resp}},
     {stop, normal, State};
 %%handle_info({blockchain_txn_response, {txn_updated, {Height, QueuePos, QueueLen}}},
 %%    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
