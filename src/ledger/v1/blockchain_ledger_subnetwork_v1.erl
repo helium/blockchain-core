@@ -8,7 +8,7 @@
 -export([
     new/5,
     type/1,
-    premine/1,
+    token_treasury/1,
     hnt_treasury/1,
     reward_server_keys/1,
     nonce/1, nonce/2,
@@ -41,7 +41,7 @@
 new(TT, SNTreasury, HNTTreasury, SNKey, RewardServerKeys) ->
     #blockchain_ledger_subnetwork_v1_pb{
         type = TT,
-        premine = SNTreasury,
+        token_treasury = SNTreasury,
         hnt_treasury = HNTTreasury,
         subnetwork_key = SNKey,
         reward_server_keys = lists:sort(RewardServerKeys)
@@ -51,8 +51,8 @@ new(TT, SNTreasury, HNTTreasury, SNKey, RewardServerKeys) ->
 type(#blockchain_ledger_subnetwork_v1_pb{type = Type}) ->
     Type.
 
--spec premine(SN :: subnetwork_v1()) -> non_neg_integer().
-premine(#blockchain_ledger_subnetwork_v1_pb{premine = SNT}) ->
+-spec token_treasury(SN :: subnetwork_v1()) -> non_neg_integer().
+token_treasury(#blockchain_ledger_subnetwork_v1_pb{token_treasury = SNT}) ->
     SNT.
 
 -spec hnt_treasury(SN :: subnetwork_v1()) -> non_neg_integer().
