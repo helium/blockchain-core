@@ -73,7 +73,10 @@ decode_request(?TX_PROTOCOL_V2 = _Path, Bin) ->
     Txn = blockchain_txn:deserialize(Bin),
     #blockchain_txn_request_v1_pb{type = submit, txn = Txn};
 decode_request(?TX_PROTOCOL_V3 = _Path, Bin) ->
-    blockchain_txn_handler_pb:decode_msg(Bin, blockchain_txn_request_v1_pb).
+    #blockchain_txn_request_v1_pb{txn = WrappedTxn} =
+        Msg = blockchain_txn_handler_pb:decode_msg(Bin, blockchain_txn_request_v1_pb),
+    Msg#blockchain_txn_request_v1_pb{txn = blockchain_txn:unwrap_txn(WrappedTxn)}.
+
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
