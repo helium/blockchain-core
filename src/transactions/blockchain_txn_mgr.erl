@@ -11,6 +11,7 @@
 -include_lib("helium_proto/include/blockchain_txn_handler_pb.hrl").
 
 -define(TXN_MGR_CACHE, txn_cache).
+-define(HEIGHT_CACHE, height_cache).
 -define(CUR_HEIGHT, cur_height).
 -define(RECENT_BLOCK_AGE, 30 * 60).  %% 30 mins
 
@@ -24,7 +25,7 @@
          set_chain/1,
          txn_list/0,
          txn_status/1,
-         make_ets_table/0,
+         make_ets_tables/0,
          current_height/0
         ]).
 
@@ -112,8 +113,9 @@ start_link(Args) when is_map(Args) ->
             case maps:find(ets, Args) of
                 error ->
                     ok;
-                {ok, Tab} ->
-                    true = ets:give_away(Tab, Pid, undefined)
+                {ok, #{txns := TxnCache, height := HtCache}} ->
+                    true = ets:give_away(TxnCache, Pid, undefined),
+                    true = ets:give_away(HtCache, Pid, undefined)
             end,
             {ok, Pid};
         Other ->
@@ -122,7 +124,7 @@ start_link(Args) when is_map(Args) ->
 
 -spec current_height() -> pos_integer() | undefined.
 current_height() ->
-    try ets:lookup_element(?TXN_MGR_CACHE, ?CUR_HEIGHT, 2) of
+    try ets:lookup_element(?HEIGHT_CACHE, ?CUR_HEIGHT, 2) of
         X -> X
     catch
         _:_ -> undefined
@@ -168,11 +170,15 @@ txn_status(TxnKey) ->
 
     end.
 
-make_ets_table() ->
-    ets:new(?TXN_MGR_CACHE,
+make_ets_tables() ->
+    #{txns => ets:new(?TXN_MGR_CACHE,
             [named_table,
              protected,
-             {heir, self(), undefined}]).
+             {heir, self(), undefined}]),
+      height => ets:new(?HEIGHT_CACHE,
+            [named_table,
+             protected,
+             {heir, self(), undefined}])}.
 
 -spec get_rejections_deferred() -> [deferred_rejection()].
 get_rejections_deferred() ->
@@ -187,12 +193,12 @@ force_process_cached_txns() ->
 init(Args) ->
     lager:info("txn mgr starting...",[]),
     erlang:process_flag(trap_exit, true),
-    TxnCache = case maps:find(ets, Args) of
-                   error ->
-                       make_ets_table();
-                   {ok, Tab} ->
-                       Tab
-               end,
+    #{txns := TxnCache} = case maps:find(ets, Args) of
+                              error ->
+                                  make_ets_tables();
+                              {ok, Tabs} ->
+                                  Tabs
+                          end,
     ok = blockchain_event:add_handler(self()),
     {ok, #state{txn_cache = TxnCache, rejections_deferred = []}}.
 
@@ -432,7 +438,7 @@ initialize_with_chain(State, Chain)->
     %% initialise submit_f and reject_f with current ledger value
     {ok, N} = blockchain:config(?num_consensus_members, Ledger),
     %% cache current height
-    ets:insert(?TXN_MGR_CACHE, {?CUR_HEIGHT, Height}),
+    ets:insert(?HEIGHT_CACHE, {?CUR_HEIGHT, Height}),
     State#state{chain=Chain, cur_block_height = Height, submit_f = submit_f(N), reject_f = reject_f(N)}.
 
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
@@ -458,10 +464,8 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
             %% cache the current height
-            ets:insert(?TXN_MGR_CACHE, {?CUR_HEIGHT, NewCurBlockHeight}),
+            ets:insert(?HEIGHT_CACHE, {?CUR_HEIGHT, NewCurBlockHeight}),
             State1 = State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced},
-            %% cache the current height
-            ets:insert(?TXN_MGR_CACHE, {?CUR_HEIGHT, NewCurBlockHeight}),
             State2 = process_deferred_rejections(State1),
             {noreply, State2};
         _ ->

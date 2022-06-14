@@ -205,21 +205,7 @@ decode_response(?TX_PROTOCOL_V2, <<"error", Height/integer>>) ->
     v2_to_v3(txn_rejected, <<"error">>, Height);
 %% v3 -> v3
 decode_response(?TX_PROTOCOL_V3, Resp) when is_binary(Resp) ->
-    decode_response(?TX_PROTOCOL_V3, blockchain_txn_handler_pb:decode_msg(Resp)).
-%%decode_response(?TX_PROTOCOL_V3,
-%%    #blockchain_txn_info_v1_pb{result = <<"txn_accepted">>, height=Height,
-%%        queue_pos=QueuePos, queue_len=QueueLen}) ->
-%%    {txn_accepted, {Height, QueuePos, QueueLen}};
-%%decode_response(?TX_PROTOCOL_V3,
-%%    #blockchain_txn_info_v1_pb{result = <<"txn_updated">>, height=Height,
-%%        queue_pos=QueuePos, queue_len=QueueLen}) ->
-%%    {txn_updated, {Height, QueuePos, QueueLen}};
-%%decode_response(?TX_PROTOCOL_V3,
-%%    #blockchain_txn_info_v1_pb{result = <<"txn_failed">>, details=FailReason}) ->
-%%    {txn_failed, FailReason};
-%%decode_response(?TX_PROTOCOL_V3,
-%%    #blockchain_txn_info_v1_pb{result = <<"txn_rejected">>, details=RejectReason, height=Height}) ->
-%%    {txn_rejected, {Height, RejectReason}}.
+    blockchain_txn_handler_pb:decode_msg(Resp, blockchain_txn_info_v1_pb).
 
 v1_to_v3(Status, Details) when is_atom(Status)->
     #blockchain_txn_info_v1_pb{
