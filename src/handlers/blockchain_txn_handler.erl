@@ -59,7 +59,7 @@ encode_request(?TX_PROTOCOL_V3 = _Path, TxnKey, Txn, RequestType) ->
     Req = #blockchain_txn_request_v1_pb{
         type = RequestType,
         key = TxnKey,
-        txn = Txn
+        txn = blockchain_txn:serialize(Txn)
     },
     blockchain_txn_handler_pb:encode_msg(Req).
 
@@ -73,7 +73,10 @@ decode_request(?TX_PROTOCOL_V2 = _Path, Bin) ->
     Txn = blockchain_txn:deserialize(Bin),
     #blockchain_txn_request_v1_pb{type = submit, txn = Txn};
 decode_request(?TX_PROTOCOL_V3 = _Path, Bin) ->
-    blockchain_txn_handler_pb:decode_msg(blockchain_txn_request_v1_pb, Bin).
+    #blockchain_txn_request_v1_pb{txn = TxnBin} = Msg =
+        blockchain_txn_handler_pb:decode_msg(blockchain_txn_request_v1_pb, Bin),
+    Txn = blockchain_txn:deserialize(TxnBin),
+    Msg#blockchain_txn_request_v1_pb{txn = Txn}.
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
