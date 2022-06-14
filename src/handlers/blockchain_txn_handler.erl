@@ -59,7 +59,7 @@ encode_request(?TX_PROTOCOL_V3 = _Path, TxnKey, Txn, RequestType) ->
     Req = #blockchain_txn_request_v1_pb{
         type = RequestType,
         key = TxnKey,
-        txn = blockchain_txn:serialize(Txn)
+        txn = blockchain_txn:wrap_txn(Txn)
     },
     blockchain_txn_handler_pb:encode_msg(Req).
 
@@ -73,11 +73,7 @@ decode_request(?TX_PROTOCOL_V2 = _Path, Bin) ->
     Txn = blockchain_txn:deserialize(Bin),
     #blockchain_txn_request_v1_pb{type = submit, txn = Txn};
 decode_request(?TX_PROTOCOL_V3 = _Path, Bin) ->
-    #blockchain_txn_request_v1_pb{txn = TxnBin} = Msg =
-        blockchain_txn_handler_pb:decode_msg(blockchain_txn_request_v1_pb, Bin),
-    Txn = blockchain_txn:deserialize(TxnBin),
-    Msg#blockchain_txn_request_v1_pb{txn = Txn}.
-
+    blockchain_txn_handler_pb:decode_msg(Bin, blockchain_txn_request_v1_pb).
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
@@ -151,7 +147,7 @@ handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
         end
     catch _What:Why:Stack ->
         lager:notice("transaction_handler got bad data: ~p", [Why]),
-        {stop, normal, State, encode_response(Path, txn_failed, Why, Stack, undefined, undefined, 0)}
+        {stop, normal, State, encode_response(Path, txn_failed, format_crash_reason(Why), Stack, undefined, undefined, 0)}
     end.
 
 %% marshall v1 response formats
@@ -228,3 +224,7 @@ v2_to_v3(Status, Details, Height) when is_atom(Status)->
         queue_len = 0
     }.
 
+format_crash_reason(R) when is_atom(R) ->
+    R;
+format_crash_reason({R, _}) ->
+    R.
