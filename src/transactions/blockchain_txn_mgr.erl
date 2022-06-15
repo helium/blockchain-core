@@ -729,7 +729,8 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
             %% eligible members will be those members which have accepted the dependant upon txn or if its not yet
             %% accepted the members to which it has been submitted ( the dialled list )
             {Dep1TxnKey, _Dep1Txn, _Dep1TxnData0} = hd(Dependencies),
-            {ok, {_, _, #txn_data{acceptions = Dep1TxnAcceptions, dialers = Dep1TxnDialers} = _Dep1TxnData1}} = cached_txn(Dep1TxnKey),
+            {ok, {_, _, #txn_data{acceptions = Dep1TxnAcceptions0, dialers = Dep1TxnDialers} = _Dep1TxnData1}} = cached_txn(Dep1TxnKey),
+            Dep1TxnAcceptions = [M || {M, _H, _QP, _QL} <- Dep1TxnAcceptions0],
             A0 =
                 case Dep1TxnAcceptions  of
                     [] ->
@@ -739,27 +740,29 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                 end,
 
             ElegibleMembers = sets:to_list(lists:foldl(fun({Dep2TxnKey, _Dep2Txn, _Dep2TxnData}, Acc) ->
-                                                                {ok, {_, _, #txn_data{acceptions = Dep2TxnAcceptions, dialers = Dep2TxnDialers} = _Dep2TxnData1}} = cached_txn(Dep2TxnKey),
+                                                                {ok, {_, _, #txn_data{acceptions = Dep2TxnAcceptions0, dialers = Dep2TxnDialers} = _Dep2TxnData1}} = cached_txn(Dep2TxnKey),
+                                                                Dep2TxnAcceptions = [M || {M, _H, _QP, _QL} <- Dep2TxnAcceptions0],
                                                                 A1 =
                                                                     case Dep2TxnAcceptions  of
                                                                         [] ->
                                                                             [Dep2TxnDialedMember || {_, Dep2TxnDialedMember} <- Dep2TxnDialers];
-                                                                        Dep2TxnAccs ->
-                                                                            Dep2TxnAccs
+                                                                        _ ->
+                                                                            Dep2TxnAcceptions
                                                                     end,
                                                                sets:intersection(Acc, sets:from_list(A1))
                                                        end, sets:from_list(A0), tl(Dependencies))),
-            lager:debug("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
+            lager:info("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
             {_, ExistingDialers} = lists:unzip(Dialers),
+            AcceptionsDialers = [M || {M, _H, _QP, _QL} <- Acceptions],
             %% remove any CG members from the elegible list which have already accepted the txn and also
             %% those which we are already dialling
             %% dont exclude any previous rejectors as the reason rejected may no longer be valid
             %% previous rejectors may include members which dependant upon txn has now been accepted by
-            ElegibleMembers1 = (ElegibleMembers -- Acceptions) -- ExistingDialers,
+            ElegibleMembers1 = (ElegibleMembers -- AcceptionsDialers) -- ExistingDialers,
             %% determine max number of new diallers we need to start and then use this to get our target list to dial
-            MaxNewDiallersCount = SubmitF - length(Acceptions) - length(Dialers),
+            MaxNewDiallersCount = SubmitF - length(AcceptionsDialers) - length(Dialers),
             NewDialers = dial_members(lists:sublist(ElegibleMembers1, MaxNewDiallersCount), Chain, TxnKey, Txn),
-            lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p",
+            lager:info("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p",
                 [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers1), length(NewDialers)]),
             cache_txn(TxnKey, Txn, TxnData#txn_data{dialers =  Dialers ++ NewDialers})
     end.
