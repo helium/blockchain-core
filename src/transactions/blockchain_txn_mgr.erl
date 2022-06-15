@@ -29,11 +29,13 @@
          current_height/0
         ]).
 
-%% Testing backdoors for CT
+-ifdef(TEST).
 -export([
     force_process_cached_txns/0,
-    get_rejections_deferred/0
+    get_rejections_deferred/0,
+    signatory_rand_members/5
 ]).
+-endif.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
