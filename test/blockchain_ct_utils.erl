@@ -291,7 +291,7 @@ init_per_testcase(TestCase, Config) ->
                                        false
                                end
                        end, Nodes)
-             end, 200, 150),
+             end, 200, 300),
 
     %% to enable the tests to run over grpc we need to deterministically set the grpc listen addr
     %% with libp2p all the port data is in the peer entries
@@ -305,8 +305,9 @@ init_per_testcase(TestCase, Config) ->
     %% retrieve the libp2p port and derive the grpc port from that
 
     GRPCServerConfigFun = fun(PeerPort)->
-         [#{grpc_opts => #{service_protos => [state_channel_pb],
-                           services => #{'helium.state_channel' => blockchain_grpc_sc_server_handler}
+         [#{grpc_opts => #{service_protos => [state_channel_pb, transaction_pb],
+                           services => #{'helium.state_channel' => blockchain_grpc_sc_server_handler,
+                                         'helium.transaction' => helium_transaction_service}
                             },
 
             transport_opts => #{ssl => false},
