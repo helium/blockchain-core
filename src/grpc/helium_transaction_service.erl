@@ -6,7 +6,7 @@
 -module(helium_transaction_service).
 
 -behaviour(helium_transaction_bhvr).
--include("../grpc/autogen/server/transaction_pb.hrl").
+-include("autogen/server/transaction_pb.hrl").
 
 -export([submit/2, query/2]).
 

@@ -14,6 +14,11 @@
 -define(HEIGHT_CACHE, height_cache).
 -define(CUR_HEIGHT, cur_height).
 -define(RECENT_BLOCK_AGE, 30 * 60).  %% 30 mins
+-ifdef(TEST).
+-define(TABLE_MODE, public).
+-else.
+-define(TABLE_MODE, protected).
+-endif.
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -175,11 +180,11 @@ txn_status(TxnKey) ->
 make_ets_tables() ->
     #{txns => ets:new(?TXN_MGR_CACHE,
             [named_table,
-             protected,
+             ?TABLE_MODE,
              {heir, self(), undefined}]),
       height => ets:new(?HEIGHT_CACHE,
             [named_table,
-             protected,
+             ?TABLE_MODE,
              {heir, self(), undefined}])}.
 
 -spec get_rejections_deferred() -> [deferred_rejection()].
