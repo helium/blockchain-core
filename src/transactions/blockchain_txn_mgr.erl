@@ -268,24 +268,24 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 %% dial related failures
-handle_info({dial_failed, {Dialer, TxnKey, Txn, Member}}, State) ->
+handle_info({dial_failed, {submit, Dialer, TxnKey, Txn, Member}}, State) ->
     lager:debug("txn: ~s, dial_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 
-handle_info({dial_timeout, {Dialer, TxnKey, Txn, Member}}, State) ->
+handle_info({dial_timeout, {submit, Dialer, TxnKey, Txn, Member}}, State) ->
     lager:debug("txn: ~s, timeout: ~p, Dialer: ~p. Dialer will be stopped", [blockchain_txn:print(Txn), Member, Dialer]),
     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 
-handle_info({send_failed, {Dialer, TxnKey, Txn, Member}}, State) ->
+handle_info({send_failed, {submit, Dialer, TxnKey, Txn, Member}}, State) ->
     lager:debug("txn: ~s, send_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 
 %% dialed CG member related failures
-handle_info({blockchain_txn_response, {Dialer, Member, TxnKey, Txn,
+handle_info({blockchain_txn_response, {submit, Dialer, Member, TxnKey, Txn,
     #blockchain_txn_info_v1_pb{
         result = Status,
         height = Height,
@@ -297,7 +297,7 @@ handle_info({blockchain_txn_response, {Dialer, Member, TxnKey, Txn,
     ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
     {noreply, State};
 
-handle_info({blockchain_txn_response, {Dialer, Member, TxnKey, Txn,
+handle_info({blockchain_txn_response, {update, Dialer, Member, TxnKey, Txn,
     #blockchain_txn_info_v1_pb{
         result = Status,
         height = Height,
@@ -309,18 +309,18 @@ handle_info({blockchain_txn_response, {Dialer, Member, TxnKey, Txn,
     ok = updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
     {noreply, State};
 
-handle_info({blockchain_txn_response, {Dialer, Member, TxnKey, Txn,
+handle_info({blockchain_txn_response, {submit, Dialer, Member, TxnKey, Txn,
     #blockchain_txn_info_v1_pb{
         result = Status,
         details = FailReason,
         trace = Trace
     }}}, State)  when Status == <<"txn_failed">> ->
-    lager:info("txn: ~s, failed with reason: ~p, member: ~p Dialer: ~p Trace ~p",
+    lager:debug("txn: ~s, failed with reason: ~p, member: ~p Dialer: ~p Trace ~p",
         [blockchain_txn:print(Txn), FailReason, Member, Dialer, binary_to_term(Trace)]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 
-handle_info({blockchain_txn_response, {Dialer, Member, TxnKey, Txn,
+handle_info({blockchain_txn_response, {submit, Dialer, Member, TxnKey, Txn,
     #blockchain_txn_info_v1_pb{
         result = Status,
         details = RejectReason,
@@ -679,7 +679,7 @@ process_valid_txn(Chain, CachedTxns, {TxnKey, Txn, TxnData}, SubmitF, NewGroupMe
     ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
     %% remove any acceptions and rejections from members no longer in the consensus group
     {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
-    %% maybe query any existing acceptors, get an update on the submitted txn 
+    %% maybe query any existing acceptors, get an update on the submitted txn
     maybe_query_acceptors(NewAcceptions, TxnKey, Txn, CurBlockHeight),
     %% check if the txn has any dependencies and resubmit as required
     check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF,
@@ -694,7 +694,7 @@ process_valid_txn(Chain, CachedTxns, {TxnKey, Txn, TxnData}, SubmitF, _NewGroupM
     lager:debug("txn with key ~p is valid and there is NO new election: ~p.  Checking if it needs to be resubmitted", [TxnKey, blockchain_txn:hash(Txn)]),
     #txn_data{acceptions = Acceptions, rejections = Rejections,
               recv_block_height = RecvBlockHeight, dialers = Dialers} = TxnData,
-    %% maybe query any existing acceptors, get an update on the submitted txn 
+    %% maybe query any existing acceptors, get an update on the submitted txn
     maybe_query_acceptors(Acceptions, TxnKey, Txn, CurBlockHeight),
     %% check if we need to submit to any additional members
     case length(Dialers) < (SubmitF - length(Acceptions)) of
@@ -809,18 +809,12 @@ updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
             %% We no longer have this txn, do nothing
             lager:debug("cannot find updated txn ~p with dialer ~p", [Txn, Dialer]),
             ok;
-        {ok, {TxnKey, Txn, #txn_data{acceptions = Acceptions, dialers = Dialers} = TxnData}} ->
-            case lists:keymember(Dialer, 1, Dialers) of
-                false ->
-                    %% some kind of orphaned dialer
-                    lager:warning("got updated response from orphaned dialer ~p", [Dialer]),
-                    ok;
-                true ->
-                    %% replace the acceptor data
-                    cache_txn(TxnKey, Txn, TxnData#txn_data{
-                        acceptions = lists:keyreplace(Member, 1, Acceptions, {Member, Height, QueuePos, QueueLen}),
-                                                    dialers = lists:keydelete(Dialer, 1, Dialers)})
-            end
+        {ok, {TxnKey, Txn, #txn_data{acceptions = Acceptions} = TxnData}} ->
+            %% replace the acceptor data
+            lager:debug("updating acceptions ~p", [Acceptions]),
+            lager:debug("update data ~p", [{Member, Height, QueuePos, QueueLen}]),
+            cache_txn(TxnKey, Txn, TxnData#txn_data{
+                acceptions = lists:keyreplace(Member, 1, Acceptions, {Member, Height, QueuePos, QueueLen})})
     end.
 
 -spec rejected(txn_key(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(),
@@ -887,6 +881,13 @@ dial_members([Member | Rest], Chain, TxnKey, Txn, AccDialers)->
 maybe_query_acceptors([], _TxnKey, _Txn, _CurBlockHeight) ->
     ok;
 maybe_query_acceptors([{M, H, _QPos, _QLen} | Rest], TxnKey, Txn, CurBlockHeight)->
+    %% NOTE: we deliberately are not saving dialers for updates
+    %% ie we dont add them to the txn data's list of dialers
+    %% as doing so would throw off the calculations to
+    %% determine if we have submitted to sufficient CG members
+    %% we also dont want to retry failed dials for update requests
+    %% they will be auto run again in N blocks
+    %% TODO: is there a better approach?
     case (CurBlockHeight - H) rem 5 == 0 of
         true ->
             {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), update, TxnKey, Txn, M]),
@@ -895,6 +896,7 @@ maybe_query_acceptors([{M, H, _QPos, _QLen} | Rest], TxnKey, Txn, CurBlockHeight
             ok
     end,
     maybe_query_acceptors(Rest, TxnKey, Txn, CurBlockHeight).
+
 
 -spec cache_txn(txn_key(), blockchain_txn:txn(), #txn_data{}) -> ok.
 cache_txn(Key, Txn, TxnDataRec) ->

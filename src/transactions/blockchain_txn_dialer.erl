@@ -53,7 +53,7 @@ dial(Pid) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    lager:debug("blockchain_txn_dialer started with ~p", [Args]),
+    lager:info("blockchain_txn_dialer started with ~p", [Args]),
     [Parent, RequestType, TxnKey, Txn, Member] = Args,
     Ref = erlang:send_after(30000, Parent, {dial_timeout, {self(), TxnKey, Txn, Member}}),
     {ok, #state{parent=Parent, request_type = RequestType, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}}.
@@ -72,9 +72,9 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({blockchain_txn_response, Resp},
-    State=#state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
+    State=#state{parent=Parent, request_type = ReqType, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {blockchain_txn_response, {self(), Member, TxnKey, Txn, Resp}},
+    Parent ! {blockchain_txn_response, {ReqType, self(), Member, TxnKey, Txn, Resp}},
     {stop, normal, State};
 handle_info(_Msg, State) ->
     lager:info("txn dialer got unexpected info ~p", [_Msg]),
@@ -95,7 +95,7 @@ dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Tx
     TxnHash = blockchain_txn:hash(Txn),
     (fun
         Dial ([]) ->
-            lager:debug("txn dialing failed - no compatible protocol versions"),
+            lager:info("txn dialing failed - no compatible protocol versions"),
             {error, no_supported_protocols};
         Dial ([ProtocolVersion | SupportedProtocolVersions]) ->
             case
@@ -108,7 +108,7 @@ dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Tx
                 )
             of
                 {error, protocol_unsupported} ->
-                    lager:debug(
+                    lager:info(
                         "txn dialing failed with protocol version: ~p, "
                         "trying next supported protocol version.",
                         [ProtocolVersion]
@@ -121,7 +121,7 @@ dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Tx
                         "Reason: ~p, To: ~p, TxnHash: ~p",
                         [Reason, P2PAddress, TxnHash]
                     ),
-                    Parent ! {dial_failed, {self(), TxnKey, Txn, Member}},
+                    Parent ! {dial_failed, {RequestType, self(), TxnKey, Txn, Member}},
                     Error;
                 {ok, Stream} ->
                     EncodedMsg = blockchain_txn_handler:encode_request(ProtocolVersion, TxnKey, Txn, RequestType),
@@ -133,7 +133,7 @@ dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Tx
                                 "Reason: ~p, To: ~p, TxnHash: ~p",
                                 [Reason, P2PAddress, TxnHash]
                             ),
-                            Parent ! {send_failed, {self(), TxnKey, Txn, Member}},
+                            Parent ! {send_failed, {RequestType, self(), TxnKey, Txn, Member}},
                             Error;
                         _ ->
                             ok
