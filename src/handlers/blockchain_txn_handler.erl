@@ -92,7 +92,6 @@ handle_data(client, ResponseBin, State=#state{path=Path, parent=Parent}) ->
 handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
     try
         #blockchain_txn_request_v1_pb{type = ReqType, txn = Txn} = ?MODULE:decode_request(Path, Data),
-        lager:debug("Got ~p type transaction: ~s", [blockchain_txn:type(Txn), blockchain_txn:print(Txn)]),
         case Callback(ReqType, Txn) of
             {{ok, QueuePos, QueueLen}, Height} ->
                 case ReqType of
@@ -176,6 +175,8 @@ encode_response(?TX_PROTOCOL_V2, txn_accepted, _Details, _Trace, _PosInQueue, _Q
     <<"ok">>;
 encode_response(?TX_PROTOCOL_V2, txn_failed, _Details = no_group, _Trace, _PosInQueue, _QueueLen, _Height)  ->
     <<"no_group">>;
+encode_response(?TX_PROTOCOL_V2, txn_failed, Details, _Trace, _PosInQueue, _QueueLen, _Height)  ->
+    Details;
 encode_response(?TX_PROTOCOL_V2, txn_rejected, _Details, _Trace, _PosInQueue, _QueueLen, Height) ->
     <<"error", Height/integer>>;
 %% marshall v3 response format

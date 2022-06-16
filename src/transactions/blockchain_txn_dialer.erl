@@ -74,7 +74,7 @@ handle_cast(_Msg, State) ->
 handle_info({blockchain_txn_response, Resp},
     State=#state{parent=Parent, request_type = ReqType, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    Parent ! {blockchain_txn_response, {ReqType, self(), Member, TxnKey, Txn, Resp}},
+    Parent ! {blockchain_txn_response, {ReqType, {self(), Member, TxnKey, Txn, Resp}}},
     {stop, normal, State};
 handle_info(_Msg, State) ->
     lager:info("txn dialer got unexpected info ~p", [_Msg]),
@@ -121,7 +121,7 @@ dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Tx
                         "Reason: ~p, To: ~p, TxnHash: ~p",
                         [Reason, P2PAddress, TxnHash]
                     ),
-                    Parent ! {dial_failed, {RequestType, self(), TxnKey, Txn, Member}},
+                    Parent ! {dial_failed, {RequestType, {self(), TxnKey, Txn, Member}}},
                     Error;
                 {ok, Stream} ->
                     EncodedMsg = blockchain_txn_handler:encode_request(ProtocolVersion, TxnKey, Txn, RequestType),
@@ -133,7 +133,7 @@ dial_(#state{member=Member, request_type = RequestType, txn_key = TxnKey, txn=Tx
                                 "Reason: ~p, To: ~p, TxnHash: ~p",
                                 [Reason, P2PAddress, TxnHash]
                             ),
-                            Parent ! {send_failed, {RequestType, self(), TxnKey, Txn, Member}},
+                            Parent ! {send_failed, {RequestType, {self(), TxnKey, Txn, Member}}},
                             Error;
                         _ ->
                             ok
