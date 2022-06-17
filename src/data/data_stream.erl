@@ -11,13 +11,13 @@
     from_fun/1,
     from_list/1,
     to_list/1,
-    iter/2,
+    iter/2,            % TODO Rename to "foreach"?
     fold/3,
-    lazy_map/2,
-    lazy_filter/2,
+    lazy_map/2,        % TODO Alias as "map"?
+    lazy_filter/2,     % TODO Alias as "filter"?
     pmap_to_bag/2,
     pmap_to_bag/3,
-    random_elements/2
+    sample/2
 ]).
 
 -define(T, ?MODULE).
@@ -193,9 +193,9 @@ pmap_to_bag(T, F, J) when is_function(F), is_integer(J), J > 0 ->
             error({data_stream_scheduler_crashed_before_sending_results, Reason})
     end.
 
--spec random_elements(t(A), non_neg_integer()) -> [A].
-random_elements(_, 0) -> [];
-random_elements(T, K) when K > 0 ->
+-spec sample(t(A), non_neg_integer()) -> [A].
+sample(_, 0) -> [];
+sample(T, K) when K > 0 ->
     {_N, Reservoir} = reservoir_sample(T, #{}, K),
     [X || {_, X} <- maps:to_list(Reservoir)].
 
@@ -481,14 +481,14 @@ fold_test_() ->
 random_elements_test_() ->
     TestCases =
         [
-            ?_assertMatch([a], random_elements(from_list([a]), 1)),
-            ?_assertEqual(0, length(random_elements(from_list([]), 1))),
-            ?_assertEqual(0, length(random_elements(from_list([]), 10))),
-            ?_assertEqual(0, length(random_elements(from_list([]), 100))),
-            ?_assertEqual(1, length(random_elements(from_list(lists:seq(1, 100)), 1))),
-            ?_assertEqual(2, length(random_elements(from_list(lists:seq(1, 100)), 2))),
-            ?_assertEqual(3, length(random_elements(from_list(lists:seq(1, 100)), 3))),
-            ?_assertEqual(5, length(random_elements(from_list(lists:seq(1, 100)), 5)))
+            ?_assertMatch([a], sample(from_list([a]), 1)),
+            ?_assertEqual(0, length(sample(from_list([]), 1))),
+            ?_assertEqual(0, length(sample(from_list([]), 10))),
+            ?_assertEqual(0, length(sample(from_list([]), 100))),
+            ?_assertEqual(1, length(sample(from_list(lists:seq(1, 100)), 1))),
+            ?_assertEqual(2, length(sample(from_list(lists:seq(1, 100)), 2))),
+            ?_assertEqual(3, length(sample(from_list(lists:seq(1, 100)), 3))),
+            ?_assertEqual(5, length(sample(from_list(lists:seq(1, 100)), 5)))
         |
             [
                 (fun () ->
@@ -498,7 +498,7 @@ random_elements_test_() ->
                     S = from_list(L),
                     Rands =
                         [
-                            random_elements(S, K)
+                            sample(S, K)
                         ||
                             _ <- lists:duplicate(Trials, {})
                         ],
