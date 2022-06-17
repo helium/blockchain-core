@@ -8,6 +8,7 @@
 -include("blockchain_vars.hrl").
 
 -export([
+         init_region_ets/0,
          get_all_regions/1, get_all_region_bins/1,
          h3_to_region/2, h3_to_region/3,
          h3_in_region/3, h3_in_region/4
@@ -21,9 +22,13 @@
 -define(H3_TO_REGION_CACHE, h3_to_region).
 -define(POLYFILL_RESOLUTION, 7).
 
+
 %%--------------------------------------------------------------------
 %% api
 %%--------------------------------------------------------------------
+
+init_region_ets() ->
+    ets:new(?H3_TO_REGION_CACHE, [public, named_table, {read_concurrency, true}]).
 
 -spec get_all_regions(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, regions()} | {error, any()}.
@@ -40,7 +45,7 @@ get_all_regions(Ledger) ->
 get_all_region_bins(Ledger) ->
     {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
-    e2qc:cache(
+    cache(
       ?H3_TO_REGION_CACHE,
       {region_bins, HasAux, VarsNonce},
       fun() ->
@@ -90,12 +95,12 @@ h3_to_region(H3, Ledger, RegionBins) ->
             %%
             %% We can cache the hash of the bins because that
             %% is much cheaper to recalculate if invalidated
-            Hash = e2qc:cache(?H3_TO_REGION_CACHE,
-                              {bin_hash, HasAux, VarsNonce},
-                              fun() ->
-                                      crypto:hash(sha256, term_to_binary(Bins))
-                              end),
-            e2qc:cache(
+            Hash = cache(?H3_TO_REGION_CACHE,
+                         {bin_hash, HasAux, VarsNonce},
+                         fun() ->
+                                 crypto:hash(sha256, term_to_binary(Bins))
+                         end),
+            cache(
               ?H3_TO_REGION_CACHE,
               {HasAux, Hash, Parent},
               fun() ->
@@ -181,4 +186,14 @@ polyfill_resolution(Ledger) ->
     case blockchain_ledger_v1:config(?polyfill_resolution, Ledger) of
         {ok, Res} -> Res;
         _ -> ?POLYFILL_RESOLUTION
+    end.
+
+cache(Tab, Key, Fun) ->
+    case ets:lookup(Tab, Key) of
+        [] ->
+            Res = Fun(),
+            ets:insert(Tab, {Key, Res}),
+            Res;
+        [{_Key, Res}] ->
+            Res
     end.
