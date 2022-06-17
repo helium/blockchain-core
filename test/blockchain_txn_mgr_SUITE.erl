@@ -44,10 +44,11 @@ init_per_testcase(TestCase, Config) ->
     GenPaymentTxns = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
     GenConsensusGroupTxn = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
 
-    %% GenGwTxns = [blockchain_txn_gen_gateway_v1:new(Addr, hd(ConsensusAddrs), h3:from_geo({37.780586, -122.469470}, 13), 0)
-    %%              || Addr <- Addrs],
+    Users = t_user:n_new(2),
+    AddrBalPairs = [{t_user:addr(U), Balance} || U <- Users],
+    GenUserTxns = [blockchain_txn_coinbase_v1:new(A, B) || {A, B} <- AddrBalPairs],
 
-    Txns = InitVars ++ GenPaymentTxns ++ [GenConsensusGroupTxn],
+    Txns = InitVars ++ GenPaymentTxns ++ GenUserTxns ++ [GenConsensusGroupTxn],
     GenesisBlock = blockchain_block:new_genesis_block(Txns),
 
     lists:foreach(
@@ -69,9 +70,22 @@ init_per_testcase(TestCase, Config) ->
     ok = check_genesis_block(Nodes, GenesisBlock),
     ConsensusMembers = get_consensus_members(Nodes, ConsensusAddrs),
 
-    Src = t_user:new(),
+    %% Add the txn stream handler with a bogus "accepted" return value
+    ok = lists:foreach(
+             fun(Node) ->
+                 ct_rpc:call(Node,
+                             libp2p_swarm,
+                             add_stream_handler,
+                             [ blockchain_swarm:tid(),
+                               ?TX_PROTOCOL_V3,
+                               {libp2p_framed_stream, server, [ blockchain_txn_handler,
+                                                                ?TX_PROTOCOL_V3,
+                                                                self(),
+                                                                fun(_, _) -> {{ok, 2, 4}, 1} end ]}
+                             ])
+             end, Nodes),
 
-    [{src_user, Src},
+    [{users, Users},
      {nodes, Nodes},
      {consensus_members, ConsensusMembers}
      | InitConfig].
@@ -84,78 +98,91 @@ end_per_testcase(TestCase, Config) ->
 submit_and_query_test(Cfg) ->
     [N1 | _Nodes] = ?config(nodes, Cfg),
 
-    Src = ?config(src_user, Cfg),
-    Dst = t_user:new(),
-    Txn = t_txn:pay(Src, Dst, 1000, 1),
+    [U1, U2] = ?config(users, Cfg),
+    Txn = t_txn:pay(U1, U2, 1000, 1),
 
-    {ok, Key, Height} = ct_rpc:call(N1, blockchain_txn_mgr, grpc_submit, [Txn]), %% blockchain_txn_mgr:grpc_submit(Txn),
+    {ok, Key, Height} = ct_rpc:call(N1, blockchain_txn_mgr, grpc_submit, [Txn]),
     ct:pal("Received ~p from txn submitted at height ~p", [Key, Height]),
 
     ?assert(is_integer(binary_to_integer(Key))),
     ?assertEqual(1, Height),
 
-    %% Accept = {CG1, 2, 3, 4},
-    %% Reject = {CG2, 2, fail},
+    ok = ct_rpc:call(N1, blockchain_txn_mgr, force_process_cached_txns, []),
 
-    %% [{Key, Txn, {txn_data, Callbk, RecHt, _, _, Dials}}] = ets:lookup(txn_cache, Key),
-    %% ets:insert(txn_cache, {Key, Txn, {txn_data, Callbk, RecHt, [Accept], [Reject], Dials}}),
-    %% ets:insert(height_cache, {cur_height, 2}),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+                                            {ok, pending, Status} = ct_rpc:call(N1, blockchain_txn_mgr, txn_status, [Key]),
+                                            length(maps:get(acceptors, Status, [])) > 0
+                                        end, 100, 200),
 
-    %% {ok, pending, #{key := Key,
-    %%                 recv_block_height := RecvHeight,
-    %%                 height := CurHeight,
-    %%                 acceptors := [Acc],
-    %%                 rejectors := [Rej]}} = blockchain_txn_mgr:txn_status(Key),
+    {ok, pending, #{key := Key,
+                    recv_block_height := RecvHeight,
+                    height := CurHeight,
+                    acceptors := [{_, AccH, QPos, QLen} = Acc | _],
+                    rejectors := []}} = ct_rpc:call(N1, blockchain_txn_mgr, txn_status, [Key]),
 
-    %% ct:pal("Accepted by : ~p, Rejected by : ~p", [Acc, Rej]),
-    %% ?assertEqual(1, RecvHeight),
-    %% ?assertEqual(2, CurHeight),
-    %% ?assertEqual(CG1, element(1, Acc)),
-    %% ?assertEqual(fail, element(3, Rej)).
-    Result = ct_rpc:call(N1, blockchain_txn_mgr, txn_status, [Key]),
-    ct:pal("Current Status ~p", [Result]),
-    ct:fail("Boom").
+    ct:pal("Accepted by : ~p", [Acc]),
+    ?assertEqual(Height, RecvHeight),
+    ?assert(CurHeight >= RecvHeight),
+    ?assertEqual(1, AccH),
+    ?assertEqual({2, 4}, {QPos, QLen}),
+    ok.
 
-grpc_submit_and_query_test(_) -> ok.
-%% grpc_submit_and_query_test(Cfg) ->
-%%     [_CG1 | _Group] = ?config(users_in_consensus, Cfg),
-%%     Chain = ?config(chain, Cfg),
-%%     Src = ?config(src_user, Cfg),
-%%     Dst = t_user:new(),
+grpc_submit_and_query_test(Cfg) ->
+    [N1 | _Nodes] = ?config(nodes, Cfg),
+    [U1, U2] = ?config(users, Cfg),
+    Amount = 1000,
 
-%%     Amount = 1000,
-%%     #blockchain_txn_payment_v1_pb{payer = SrcPub,
-%%                                   payee = DstPub,
-%%                                   amount = Amount,
-%%                                   fee = Fee,
-%%                                   nonce = Nonce,
-%%                                   signature = Sig} = t_txn:pay(Src, Dst, Amount, 1),
-%%     TxnMap = #{payer => SrcPub,
-%%                payee => DstPub,
-%%                amount => Amount,
-%%                fee => Fee,
-%%                nonce => Nonce,
-%%                signature => Sig},
+    #blockchain_txn_payment_v1_pb{payer = SrcPub,
+                                  payee = DstPub,
+                                  amount = Amount,
+                                  fee = Fee,
+                                  nonce = Nonce,
+                                  signature = Sig} = t_txn:pay(U1, U2, Amount, 1),
+    TxnMap = #{payer => SrcPub,
+               payee => DstPub,
+               amount => Amount,
+               fee => Fee,
+               nonce => Nonce,
+               signature => Sig},
 
-%%     ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
+    N1GrpcPort = node_grpc_port(N1),
+    ct:pal("Dialing node ~p on grpc port ~p", [N1, N1GrpcPort]),
 
-%%     Config = application:get_env(grpcbox, server),
-%%     ct:pal("GRPC BOX CONFIG ~p", [Config]),
-%%     {ok, GrpcConn} = grpc_client:connect(tcp, "127.0.0.1", 10001),
-%%     %% {ok, #{http_status := 200,
-%%     %%        result := #txn_submit_resp_v1_pb{recv_height = Height, key = Key}}} =
-%%     Result = grpc_client:unary(GrpcConn,
-%%                           #{txn => #{txn => {payment, TxnMap}}},
-%%                           'helium.transaction',
-%%                           submit,
-%%                           transaction_client_pb,
-%%                           [{timeout, 1000}]),
-%%     ct:pal("RESULT ~p", [Result]),
-%%     %% ct:pal("Received ~p from txn submitted at height ~p", [Key, Height]),
+    {ok, GrpcConn} = grpc_client:connect(tcp, "127.0.0.1", N1GrpcPort),
+    {ok, #{result := SubmitResult}} = grpc_client:unary(GrpcConn,
+                                                        #{txn => #{txn => {payment, TxnMap}}},
+                                                        'helium.transaction',
+                                                        submit,
+                                                        transaction_client_pb,
+                                                        [{timeout, 1000}]),
 
-%%     %% ?assert(is_integer(binary_to_integer(Key))),
-%%     %% ?assertEqual(1, Height).
-%%     ct:fail("Boom").
+    Key = maps:get(key, SubmitResult),
+    ?assert(is_integer(binary_to_integer(Key))),
+    ?assertEqual(1, maps:get(recv_height, SubmitResult)),
+    ct:pal("Submit txn request result ~p", [SubmitResult]),
+
+    ok = ct_rpc:call(N1, blockchain_txn_mgr, force_process_cached_txns, []),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+                                            {ok, pending, Status} = ct_rpc:call(N1, blockchain_txn_mgr, txn_status, [Key]),
+                                            length(maps:get(acceptors, Status, [])) > 0
+                                        end, 100, 200),
+
+    {ok, #{result := QueryResult}} = grpc_client:unary(GrpcConn,
+                                                       #{key => Key},
+                                                       'helium.transaction',
+                                                       query,
+                                                       transaction_client_pb,
+                                                       [{timeout, 1000}]),
+
+    ct:pal("Query txn request result ~p", [QueryResult]),
+
+    ?assertEqual(pending, maps:get(status, QueryResult)),
+    ?assertEqual([], maps:get(rejectors, QueryResult)),
+    [#{queue_pos := QPos, queue_len := QLen, height := AccH}] = maps:get(acceptors, QueryResult),
+    ?assertEqual({2, 4}, {QPos, QLen}),
+    ?assertEqual(1, AccH),
+    ok.
 
 %% --------------------------------------------------------------------
 
@@ -180,3 +207,13 @@ get_consensus_members(Nodes, ConsensusAddrs) ->
                                                  [{Addr, Pubkey, SigFun} | Acc]
                                          end
                                  end, [], Nodes)).
+
+node_grpc_port(Node)->
+    Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
+    SwarmTID = ct_rpc:call(Node, blockchain_swarm, tid, []),
+    ListenAddrs = ct_rpc:call(Node, libp2p_swarm, listen_addrs, [Swarm]),
+    [Addr | _] = ct_rpc:call(Node, libp2p_transport, sort_addrs, [SwarmTID, ListenAddrs]),
+    [_, _, _IP, _, Port] = re:split(Addr, "/"),
+    GrpcPort = list_to_integer(binary_to_list(Port)) + 1000,
+    ct:pal("peer p2p port ~p, grpc port ~p", [Port, GrpcPort]),
+    GrpcPort.
