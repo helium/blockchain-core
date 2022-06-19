@@ -4,6 +4,7 @@
     fold/3,
     fold/4,
     foreach/2,
+    foreach/3,
     stream/1,
     stream/2,
     sample/2,
@@ -31,6 +32,15 @@ fold(DB, CF, Acc, F) ->
     ok.
 foreach(DB, F) ->
     data_stream:foreach(stream(DB), F).
+
+-spec foreach(
+    rocksdb:db_handle(),
+    rocksdb:cf_handle(),
+    fun(({K :: binary(), V :: binary()}) -> ok)
+) ->
+    ok.
+foreach(DB, CF, F) ->
+    data_stream:foreach(stream(DB, CF), F).
 
 -spec stream(rocksdb:db_handle()) ->
     data_stream:t({K :: binary(), V :: binary()}).
