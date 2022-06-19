@@ -32,7 +32,7 @@ all() ->
     ].
 
 init_per_suite(Cfg) ->
-    NumRecords = 1000,
+    NumRecords = 10_000,
     DB = db_init(?MODULE, Cfg, NumRecords),
     [{db, DB}, {num_records, NumRecords} | Cfg].
 
@@ -53,45 +53,20 @@ t_sample_sanity_check(Cfg) ->
     DB = ?config(db, Cfg),
     Sample = blockchain_rocks:sample(DB, 1),
     ?assertMatch([{<<"k", V/binary>>, <<"v", V/binary>>}], Sample),
-    DBEmpty = db_init(?FUNCTION_NAME, Cfg, 0),
+    DBEmpty = db_init(list_to_atom(atom_to_list(?FUNCTION_NAME) ++ "__empty"), Cfg, 0),
     ?assertEqual([], blockchain_rocks:sample(DBEmpty, 1)),
     ?assertEqual([], blockchain_rocks:sample(DBEmpty, 5)),
     ?assertEqual([], blockchain_rocks:sample(DBEmpty, 10)).
 
 t_sample(Cfg) ->
     DB = ?config(db, Cfg),
-    K = 1,
+    K = 10,
     Trials = 100,
-    Samples =
-        [blockchain_rocks:sample(DB, K) || _ <- lists:duplicate(Trials, {})],
-
-    %% The samples are roughly what we expected, not something weird.
-    %% Technically this is sufficient at this level of abstraction, as
-    %% randomness is tested at the data_stream level.
-    lists:foreach(
-        fun (Sample) ->
-            lists:foreach(
-                fun (Record) ->
-                    ?assertMatch({<<"k", V/binary>>, <<"v", V/binary>>}, Record)
-                end,
-                Sample
-            )
-        end,
-        Samples
-    ),
-
-    % TODO Somekind of a distribution test. Then maybe move to stream tests.
-    Counts = [C || {_, C} <- count(Samples)],
-    ct:pal(">>> Counts: ~p", [Counts]),
-
+    Samples = [blockchain_rocks:sample(DB, K) || _ <- lists:duplicate(Trials, {})],
     NumUniqueSamples = length(lists:usort(Samples)),
     ProportionOfUnique = NumUniqueSamples / Trials,
-
     %% At least 1/2 the time a new record-set was sampled:
-    ?assert(ProportionOfUnique >= 0.5),
-
-    %% But some were picked more than once:
-    ?assert(ProportionOfUnique =< 1.0).
+    ?assert(ProportionOfUnique >= 0.5).
 
 t_sample_filtered(Cfg) ->
     DB = ?config(db, Cfg),
@@ -146,13 +121,3 @@ kv_to_int({<<"k", I/binary>>, <<"v", I/binary>>}) ->
 -spec kv_is_even({binary(), binary()}) -> boolean().
 kv_is_even(KV) ->
     kv_to_int(KV) rem 2 =:= 0.
-
--spec count([A]) -> [{A, non_neg_integer()}].
-count(Xs) ->
-    maps:to_list(lists:foldl(
-        fun (X, Counts) ->
-            maps:update_with(X, fun(C) -> C + 1 end, 1, Counts)
-        end,
-        #{},
-        Xs
-    )).
