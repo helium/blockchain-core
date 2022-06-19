@@ -51,19 +51,19 @@ t_foreach_sanity_check(Cfg) ->
 
 t_sample_sanity_check(Cfg) ->
     DB = ?config(db, Cfg),
-    Sample = blockchain_rocks:sample(DB, [], 1),
+    Sample = blockchain_rocks:sample(DB, 1),
     ?assertMatch([{<<"k", V/binary>>, <<"v", V/binary>>}], Sample),
     DBEmpty = db_init(?FUNCTION_NAME, Cfg, 0),
-    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 1)),
-    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 5)),
-    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 10)).
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, 1)),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, 5)),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, 10)).
 
 t_sample(Cfg) ->
     DB = ?config(db, Cfg),
     K = 1,
     Trials = 100,
     Samples =
-        [blockchain_rocks:sample(DB, [], K) || _ <- lists:duplicate(Trials, {})],
+        [blockchain_rocks:sample(DB, K) || _ <- lists:duplicate(Trials, {})],
 
     %% The samples are roughly what we expected, not something weird.
     %% Technically this is sufficient at this level of abstraction, as
@@ -95,7 +95,7 @@ t_sample(Cfg) ->
 
 t_sample_filtered(Cfg) ->
     DB = ?config(db, Cfg),
-    S0 = blockchain_rocks:stream(DB, []),
+    S0 = blockchain_rocks:stream(DB),
     S1 = data_stream:lazy_filter(S0, fun kv_is_even/1),
     lists:foreach(
         fun (KV) ->
@@ -108,7 +108,7 @@ t_sample_filtered(Cfg) ->
 
 t_stream_mapped_and_filtered(Cfg) ->
     DB = ?config(db, Cfg),
-    S0 = blockchain_rocks:stream(DB, []),
+    S0 = blockchain_rocks:stream(DB),
     S1 = data_stream:lazy_map(S0, fun kv_to_int/1),
     S2 = data_stream:lazy_filter(S1, fun (I) -> I rem 2 =:= 0 end),
     data_stream:iter(fun (I) -> ?assert(I rem 2 =:= 0) end, S2).

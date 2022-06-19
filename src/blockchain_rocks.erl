@@ -3,10 +3,10 @@
 -export([
     %% TODO fold
     foreach/2,
+    stream/1,
     stream/2,
-    stream/3,
-    sample/3,
-    sample/4
+    sample/2,
+    sample/3
 ]).
 
 -type stream() :: data_stream:t({K :: binary(), V :: binary()}).
@@ -35,33 +35,30 @@ foreach(DB, F) ->
             Move(first)
     end.
 
--spec stream(rocksdb:db_handle(), rocksdb:read_options()) ->
+-spec stream(rocksdb:db_handle()) ->
     stream().
-stream(DB, Opts) ->
+stream(DB) ->
+    Opts = [], % rocksdb:read_options()
     stream_(fun () -> rocksdb:iterator(DB, Opts) end).
 
--spec stream(rocksdb:db_handle(), rocksdb:cf_handle(), rocksdb:read_options()) ->
+-spec stream(rocksdb:db_handle(), rocksdb:cf_handle()) ->
     stream().
-stream(DB, CF, Opts) ->
+stream(DB, CF) ->
+    Opts = [], % rocksdb:read_options()
     stream_(fun () -> rocksdb:iterator(DB, CF, Opts) end).
 
 %% @doc Select K random records from database.
--spec sample(rocksdb:db_handle(), rocksdb:read_options(), pos_integer()) ->
+-spec sample(rocksdb:db_handle(), pos_integer()) ->
     [{K :: binary(), V :: binary()}].
-sample(DB, Opts, K) ->
-    Stream = stream(DB, Opts),
+sample(DB, K) ->
+    Stream = stream(DB),
     data_stream:sample(Stream, K).
 
 %% @doc Select K random records from CF.
--spec sample(
-    rocksdb:db_handle(),
-    rocksdb:cf_handle(),
-    rocksdb:read_options(),
-    pos_integer()
-) ->
+-spec sample(rocksdb:db_handle(), rocksdb:cf_handle(), pos_integer()) ->
     [{K :: binary(), V :: binary()}].
-sample(DB, CF, Opts, K) ->
-    Stream = stream(DB, CF, Opts),
+sample(DB, CF, K) ->
+    Stream = stream(DB, CF),
     data_stream:sample(Stream, K).
 
 %% Internal ===================================================================
