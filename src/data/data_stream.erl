@@ -1,4 +1,3 @@
-%%% TODO Normalize t-first or t-last!
 -module(data_stream).
 
 -export_type([
@@ -95,14 +94,14 @@ fold(T0, Acc, F) ->
             fold(T1, F(X, Acc), F)
     end.
 
--spec foreach(fun((A) -> ok), t(A)) -> ok.
-foreach(F, T0) ->
+-spec foreach(t(A), fun((A) -> ok)) -> ok.
+foreach(T0, F) ->
     case next(T0) of
         none ->
             ok;
         {some, {X, T1}} ->
             F(X),
-            foreach(F, T1)
+            foreach(T1, F)
     end.
 
 -spec from_list([A]) -> t(A).
@@ -165,7 +164,7 @@ pmap_to_bag(T, F, J) when is_function(F), is_integer(J), J > 0 ->
                     %% B. produce in (configurable size) batches, pausing
                     %%    production when batch is full and resuming when not
                     %%    (this is probably the way to go).
-                    ok = foreach(fun (X) -> SchedPid ! {SchedID, producer_output, X} end, T)
+                    ok = foreach(T, fun (X) -> SchedPid ! {SchedID, producer_output, X} end)
                 end,
             Ys =
                 sched(#sched{

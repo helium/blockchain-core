@@ -667,6 +667,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                 data_stream:from_list([])
         end,
     data_stream:foreach(
+      Infos,
       fun(Bin) ->
               case binary_to_term(Bin) of
                   ({Ht, #block_info{hash = Hash} = Info}) ->
@@ -676,8 +677,8 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       ok = blockchain:put_block_height(Hash, Ht, Chain),
                       ok = blockchain:put_block_info(Ht, Info, Chain)
               end
-      end,
-      Infos),
+      end
+    ),
     print_memory(),
     lager:info("loading blocks"),
     BlockStream =
@@ -700,6 +701,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
 
     data_stream:foreach(
+      BlockStream,
       fun(Res) ->
             Block0 =
                 case Res of
@@ -741,8 +743,8 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                   _ ->
                       ok
               end
-      end,
-      BlockStream).
+      end
+    ).
 
 -spec get_infos(blockchain:blockchain()) ->
     [binary()].
