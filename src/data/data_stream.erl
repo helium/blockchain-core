@@ -11,7 +11,7 @@
     from_fun/1,
     from_list/1,
     to_list/1,
-    iter/2,            % TODO Rename to "foreach"?
+    foreach/2,
     fold/3,
     lazy_map/2,        % TODO Alias as "map"?
     lazy_filter/2,     % TODO Alias as "filter"?
@@ -95,14 +95,14 @@ fold(T0, Acc, F) ->
             fold(T1, F(X, Acc), F)
     end.
 
--spec iter(fun((A) -> ok), t(A)) -> ok.
-iter(F, T0) ->
+-spec foreach(fun((A) -> ok), t(A)) -> ok.
+foreach(F, T0) ->
     case next(T0) of
         none ->
             ok;
         {some, {X, T1}} ->
             F(X),
-            iter(F, T1)
+            foreach(F, T1)
     end.
 
 -spec from_list([A]) -> t(A).
@@ -165,7 +165,7 @@ pmap_to_bag(T, F, J) when is_function(F), is_integer(J), J > 0 ->
                     %% B. produce in (configurable size) batches, pausing
                     %%    production when batch is full and resuming when not
                     %%    (this is probably the way to go).
-                    ok = iter(fun (X) -> SchedPid ! {SchedID, producer_output, X} end, T)
+                    ok = foreach(fun (X) -> SchedPid ! {SchedID, producer_output, X} end, T)
                 end,
             Ys =
                 sched(#sched{

@@ -666,7 +666,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
             error ->
                 data_stream:from_list([])
         end,
-    data_stream:iter(
+    data_stream:foreach(
       fun(Bin) ->
               case binary_to_term(Bin) of
                   ({Ht, #block_info{hash = Hash} = Info}) ->
@@ -699,7 +699,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
 
     lager:info("ledger height is ~p before absorbing snapshot", [Curr2]),
 
-    data_stream:iter(
+    data_stream:foreach(
       fun(Res) ->
             Block0 =
                 case Res of

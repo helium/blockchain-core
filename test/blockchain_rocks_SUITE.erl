@@ -122,7 +122,7 @@ t_stream_mapped_and_filtered(Cfg) ->
     S0 = blockchain_rocks:stream(DB),
     S1 = data_stream:lazy_map(S0, fun kv_to_int/1),
     S2 = data_stream:lazy_filter(S1, fun (I) -> I rem 2 =:= 0 end),
-    data_stream:iter(fun (I) -> ?assert(I rem 2 =:= 0) end, S2).
+    data_stream:foreach(fun (I) -> ?assert(I rem 2 =:= 0) end, S2).
 
 %% Internal ===================================================================
 
