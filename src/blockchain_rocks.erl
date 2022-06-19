@@ -12,7 +12,7 @@
 
 %% API ========================================================================
 
--spec fold(rocksdb:db_handle(), Acc, fun(({K :: binary()}, V :: binary()) -> Acc)) ->
+-spec fold(rocksdb:db_handle(), Acc, fun(({K :: binary(), V :: binary()}, Acc) -> Acc)) ->
     Acc.
 fold(DB, Acc, F) ->
     data_stream:fold(stream(DB), Acc, F).
@@ -21,7 +21,7 @@ fold(DB, Acc, F) ->
     rocksdb:db_handle(),
     rocksdb:cf_handle(),
     Acc,
-    fun(({K :: binary()}, V :: binary()) -> Acc)
+    fun(({K :: binary(), V :: binary()}, Acc) -> Acc)
 ) ->
     Acc.
 fold(DB, CF, Acc, F) ->
