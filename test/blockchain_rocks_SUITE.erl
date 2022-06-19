@@ -107,7 +107,7 @@ t_sample(Cfg) ->
 t_sample_filtered(Cfg) ->
     DB = ?config(db, Cfg),
     S0 = blockchain_rocks:stream(DB),
-    S1 = data_stream:lazy_filter(S0, fun kv_is_even/1),
+    S1 = data_stream:filter(S0, fun kv_is_even/1),
     lists:foreach(
         fun (KV) ->
             ?assertMatch({<<"k", IBin/binary>>, <<"v", IBin/binary>>}, KV),
@@ -120,8 +120,8 @@ t_sample_filtered(Cfg) ->
 t_stream_mapped_and_filtered(Cfg) ->
     DB = ?config(db, Cfg),
     S0 = blockchain_rocks:stream(DB),
-    S1 = data_stream:lazy_map(S0, fun kv_to_int/1),
-    S2 = data_stream:lazy_filter(S1, fun (I) -> I rem 2 =:= 0 end),
+    S1 = data_stream:map(S0, fun kv_to_int/1),
+    S2 = data_stream:filter(S1, fun (I) -> I rem 2 =:= 0 end),
     data_stream:foreach(S2, fun (I) -> ?assert(I rem 2 =:= 0) end).
 
 %% Internal ===================================================================

@@ -12,8 +12,10 @@
     to_list/1,
     foreach/2,
     fold/3,
-    lazy_map/2,        % TODO Alias as "map"?
-    lazy_filter/2,     % TODO Alias as "filter"?
+    map/2,     % Alias for lazy_map.
+    filter/2,  % Alias for lazy_filter.
+    lazy_map/2,
+    lazy_filter/2,
     pmap_to_bag/2,
     pmap_to_bag/3,
     sample/2
@@ -76,6 +78,12 @@ next(#?T{next=Next0, filters=Filters}=T0) when is_function(Next0) ->
                     {some, {Y, T1}}
             end
     end.
+
+map(T, F) ->
+    lazy_map(T, F).
+
+filter(T, F) ->
+    lazy_filter(T, F).
 
 -spec lazy_map(t(A), fun((A) -> B)) -> t(B).
 lazy_map(#?T{filters=Filters}=T, F) ->
