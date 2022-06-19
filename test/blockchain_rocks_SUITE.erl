@@ -9,6 +9,7 @@
 
 %% Test cases
 -export([
+    t_fold/1,
     t_foreach_sanity_check/1,
     t_sample_sanity_check/1,
     t_sample/1,
@@ -24,6 +25,7 @@
 
 all() ->
     [
+        t_fold,
         t_foreach_sanity_check,
         t_sample_sanity_check,
         t_sample,
@@ -32,13 +34,22 @@ all() ->
     ].
 
 init_per_suite(Cfg) ->
-    DB = db_init(?MODULE, Cfg, 1000),
-    [{db, DB} | Cfg].
+    NumRecords = 1000,
+    DB = db_init(?MODULE, Cfg, NumRecords),
+    [{db, DB}, {num_records, NumRecords} | Cfg].
 
 end_per_suite(_) ->
     ok.
 
 %% Test cases =================================================================
+
+t_fold(Cfg) ->
+    DB = ?config(db, Cfg),
+    N = ?config(num_records, Cfg),
+    ?assertEqual(
+        lists:foldl(fun (X, Sum) -> X + Sum end, 0, lists:seq(1, N)),
+        blockchain_rocks:fold(DB, 0, fun(KV, Sum) -> kv_to_int(KV) + Sum end)
+    ).
 
 t_foreach_sanity_check(Cfg) ->
     DB = ?config(db, Cfg),

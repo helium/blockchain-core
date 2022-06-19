@@ -1,7 +1,8 @@
 -module(blockchain_rocks).
 
 -export([
-    %% TODO fold
+    fold/3,
+    fold/4,
     foreach/2,
     stream/1,
     stream/2,
@@ -9,9 +10,22 @@
     sample/3
 ]).
 
--type stream() :: data_stream:t({K :: binary(), V :: binary()}).
-
 %% API ========================================================================
+
+-spec fold(rocksdb:db_handle(), Acc, fun(({K :: binary()}, V :: binary()) -> Acc)) ->
+    Acc.
+fold(DB, Acc, F) ->
+    data_stream:fold(stream(DB), Acc, F).
+
+-spec fold(
+    rocksdb:db_handle(),
+    rocksdb:cf_handle(),
+    Acc,
+    fun(({K :: binary()}, V :: binary()) -> Acc)
+) ->
+    Acc.
+fold(DB, CF, Acc, F) ->
+    data_stream:fold(stream(DB, CF), Acc, F).
 
 -spec foreach(rocksdb:db_handle(), fun((K :: binary(), V :: binary()) -> ok)) ->
     ok.
@@ -36,13 +50,13 @@ foreach(DB, F) ->
     end.
 
 -spec stream(rocksdb:db_handle()) ->
-    stream().
+    data_stream:t({K :: binary(), V :: binary()}).
 stream(DB) ->
     Opts = [], % rocksdb:read_options()
     stream_(fun () -> rocksdb:iterator(DB, Opts) end).
 
 -spec stream(rocksdb:db_handle(), rocksdb:cf_handle()) ->
-    stream().
+    data_stream:t({K :: binary(), V :: binary()}).
 stream(DB, CF) ->
     Opts = [], % rocksdb:read_options()
     stream_(fun () -> rocksdb:iterator(DB, CF, Opts) end).
@@ -64,7 +78,7 @@ sample(DB, CF, K) ->
 %% Internal ===================================================================
 
 -spec stream_(fun(() -> {ok, rocksdb:itr_handle()} | {error, term()})) ->
-    stream().
+    data_stream:t({K :: binary(), V :: binary()}).
 stream_(IterOpen) ->
     case IterOpen() of
         {error, Reason} ->
