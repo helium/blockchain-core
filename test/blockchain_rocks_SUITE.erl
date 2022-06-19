@@ -52,7 +52,11 @@ t_foreach_sanity_check(Cfg) ->
 t_sample_sanity_check(Cfg) ->
     DB = ?config(db, Cfg),
     Sample = blockchain_rocks:sample(DB, [], 1),
-    ?assertMatch([{<<"k", V/binary>>, <<"v", V/binary>>}], Sample).
+    ?assertMatch([{<<"k", V/binary>>, <<"v", V/binary>>}], Sample),
+    DBEmpty = db_init(?FUNCTION_NAME, Cfg, 0),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 1)),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 5)),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 10)).
 
 t_sample(Cfg) ->
     DB = ?config(db, Cfg),
@@ -91,21 +95,15 @@ t_sample(Cfg) ->
 
 t_sample_filtered(Cfg) ->
     DB = ?config(db, Cfg),
-    S =
-        data_stream:lazy_filter(
-            blockchain_rocks:stream(DB, []),
-            fun ({<<"k", IBin/binary>>, <<"v", IBin/binary>>}) ->
-                I = binary_to_integer(IBin),
-                I rem 2 =:= 0
-            end
-        ),
+    S0 = blockchain_rocks:stream(DB, []),
+    S1 = data_stream:lazy_filter(S0, fun kv_is_even/1),
     lists:foreach(
         fun (KV) ->
             ?assertMatch({<<"k", IBin/binary>>, <<"v", IBin/binary>>}, KV),
             {<<"k", IBin/binary>>, <<"v", IBin/binary>>} = KV,
             ?assertEqual(0, binary_to_integer(IBin) rem 2)
         end,
-        data_stream:sample(S, 100)
+        data_stream:sample(S1, 100)
     ).
 
 t_stream_mapped_and_filtered(Cfg) ->
@@ -137,13 +135,19 @@ db_init(TestCase, Cfg, NumRecords) ->
     ),
     DB.
 
+-spec int_to_kv(integer()) -> {binary(), binary()}.
 int_to_kv(I) ->
     K = <<"k", (integer_to_binary(I))/binary>>,
     V = <<"v", (integer_to_binary(I))/binary>>,
     {K, V}.
 
+-spec kv_to_int({binary(), binary()}) -> integer().
 kv_to_int({<<"k", I/binary>>, <<"v", I/binary>>}) ->
     binary_to_integer(I).
+
+-spec kv_is_even({binary(), binary()}) -> boolean().
+kv_is_even(KV) ->
+    kv_to_int(KV) rem 2 =:= 0.
 
 -spec count([A]) -> [{A, non_neg_integer()}].
 count(Xs) ->
