@@ -10,7 +10,6 @@
 %% Test cases
 -export([
     t_fold/1,
-    t_foreach_sanity_check/1,
     t_sample_sanity_check/1,
     t_sample/1,
     t_sample_filtered/1,
@@ -26,7 +25,6 @@
 all() ->
     [
         t_fold,
-        t_foreach_sanity_check,
         t_sample_sanity_check,
         t_sample,
         t_sample_filtered,
@@ -49,15 +47,6 @@ t_fold(Cfg) ->
     ?assertEqual(
         lists:foldl(fun (X, Sum) -> X + Sum end, 0, lists:seq(1, N)),
         blockchain_rocks:fold(DB, 0, fun(KV, Sum) -> kv_to_int(KV) + Sum end)
-    ).
-
-t_foreach_sanity_check(Cfg) ->
-    DB = ?config(db, Cfg),
-    blockchain_rocks:foreach(
-        DB,
-        fun(K, V) ->
-            ?assertMatch({<<"k", I/binary>>, <<"v", I/binary>>}, {K, V})
-        end
     ).
 
 t_sample_sanity_check(Cfg) ->
@@ -140,9 +129,7 @@ db_init(TestCase, Cfg, NumRecords) ->
     %% Sanity check that all keys and values are formatted as expected:
     blockchain_rocks:foreach(
         DB,
-        fun(K, V) ->
-            ?assertMatch({<<"k", I/binary>>, <<"v", I/binary>>}, {K, V})
-        end
+        fun(KV) -> ?assertMatch({<<"k", I/binary>>, <<"v", I/binary>>}, KV) end
     ),
     DB.
 

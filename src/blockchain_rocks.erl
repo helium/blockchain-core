@@ -27,27 +27,10 @@ fold(DB, Acc, F) ->
 fold(DB, CF, Acc, F) ->
     data_stream:fold(stream(DB, CF), Acc, F).
 
--spec foreach(rocksdb:db_handle(), fun((K :: binary(), V :: binary()) -> ok)) ->
+-spec foreach(rocksdb:db_handle(), fun(({K :: binary(), V :: binary()}) -> ok)) ->
     ok.
 foreach(DB, F) ->
-    case rocksdb:iterator(DB, []) of
-        {error, Reason} ->
-            error({blockchain_rocks_iter_make, Reason});
-        {ok, Iter} ->
-            Move =
-                fun Move_ (Target) ->
-                    case rocksdb:iterator_move(Iter, Target) of
-                        {ok, K, V} ->
-                            F(K, V),
-                            Move_(next);
-                        {error, invalid_iterator} ->
-                            ok = rocksdb:iterator_close(Iter);
-                        Error ->
-                            error({blockchain_rocks_iter_move, Target, Error})
-                    end
-                end,
-            Move(first)
-    end.
+    data_stream:foreach(stream(DB), F).
 
 -spec stream(rocksdb:db_handle()) ->
     data_stream:t({K :: binary(), V :: binary()}).
