@@ -4,14 +4,11 @@
 
 -export([
     new_handler_state/0,
-    new_handler_state/7,
-    ledger/1, ledger/2,
+    new_handler_state/5,
     pending_packet_offers/1, pending_packet_offers/2,
     offer_queue/1, offer_queue/2,
     handler_mod/1, handler_mod/2,
     pending_offer_limit/1, pending_offer_limit/2,
-    chain/1, chain/2,
-    streaming_initialized/1, streaming_initialized/2,
     encode_pb/1, encode_pb/2,
     state_channel/1, state_channel/2
 ]).
@@ -34,9 +31,6 @@
 ]).
 
 -record(handler_state, {
-    streaming_initialized :: boolean(),
-    chain :: undefined | blockchain:blockchain(),
-    ledger :: undefined | blockchain_ledger_v1:ledger(),
     pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
     offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
     handler_mod = undefined :: atom(),
@@ -52,19 +46,14 @@
 -spec new_handler_state() -> handler_state().
 new_handler_state()->
     #handler_state{}.
--spec new_handler_state(Chain :: blockchain:blockchain(),
-                        Ledger ::  undefined | blockchain_ledger_v1:ledger(),
-                        PendingPacketOffers :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
+-spec new_handler_state(PendingPacketOffers :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
                         OfferQueue :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
                         HandlerMod :: atom(),
                         PendingOfferLimit :: undefined | pos_integer(),
                         EncodePB :: boolean()
     ) -> handler_state().
-new_handler_state(Chain, Ledger, PendingPacketOffers, OfferQueue, HandlerMod, PendingOfferLimit, EncodePB)->
+new_handler_state(PendingPacketOffers, OfferQueue, HandlerMod, PendingOfferLimit, EncodePB)->
     #handler_state{
-        streaming_initialized = true,
-        chain = Chain,
-        ledger = Ledger,
         pending_packet_offers = PendingPacketOffers,
         offer_queue = OfferQueue,
         handler_mod = HandlerMod,
@@ -76,18 +65,6 @@ new_handler_state(Chain, Ledger, PendingPacketOffers, OfferQueue, HandlerMod, Pe
 %%
 %% State getters
 %%
--spec chain(handler_state()) -> undefined | blockchain:blockchain().
-chain(#handler_state{chain=V}) ->
-    V.
-
--spec streaming_initialized(handler_state()) -> undefined | boolean().
-streaming_initialized(#handler_state{streaming_initialized=V}) ->
-    V.
-
--spec ledger(handler_state()) -> undefined | blockchain_ledger_v1:ledger().
-ledger(#handler_state{ledger=V}) ->
-    V.
-
 -spec pending_packet_offers(handler_state()) -> #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}}.
 pending_packet_offers(#handler_state{pending_packet_offers=V}) ->
     V.
@@ -115,18 +92,6 @@ state_channel(#handler_state{state_channel=V}) ->
 %%
 %% State setters
 %%
--spec chain(blockchain:blockchain(), handler_state()) -> handler_state().
-chain(NewV, HandlerState) ->
-    HandlerState#handler_state{chain=NewV}.
-
--spec streaming_initialized(boolean(), handler_state()) -> handler_state().
-streaming_initialized(NewV, HandlerState) ->
-    HandlerState#handler_state{streaming_initialized=NewV}.
-
--spec ledger(blockchain_ledger_v1:ledger(), handler_state()) -> handler_state().
-ledger(NewV, HandlerState) ->
-    HandlerState#handler_state{ledger=NewV}.
-
 -spec pending_packet_offers(#{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}}, handler_state()) -> handler_state().
 pending_packet_offers(NewV, HandlerState) ->
     HandlerState#handler_state{pending_packet_offers=NewV}.
@@ -203,11 +168,12 @@ send_response(Pid, Resp) ->
 handle_server_msg(
     Msg,
     #handler_state{
-        ledger = Ledger,
         pending_packet_offers = PendingOffers,
         pending_offer_limit = PendingOfferLimit
     }=HandlerState
 )->
+    Chain = blockchain_worker:cached_blockchain(),
+    Ledger = blockchain:ledger(Chain),
     Time = erlang:system_time(millisecond),
     PendingOfferCount = maps:size(PendingOffers),
     case Msg of
@@ -221,13 +187,13 @@ handle_server_msg(
             case maps:get(PacketHash, PendingOffers, undefined) of
                 undefined ->
                     lager:debug("sc_handler server got packet: ~p", [Packet]),
-                    blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()),
+                    blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, Ledger, self()),
                     {ok, HandlerState};
                 {PendingOffer, PendingOfferTime} ->
                     case blockchain_state_channel_packet_v1:validate(Packet, PendingOffer) of
                         {error, packet_offer_mismatch} ->
                             %% might as well try it, it's free
-                            blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, Time, HandlerState#handler_state.handler_mod, Ledger, self()),
                             lager:warning("packet failed to validate ~p against offer ~p", [Packet, PendingOffer]),
                             stop;
                         {error, Reason} ->
@@ -235,7 +201,7 @@ handle_server_msg(
                             stop;
                         true ->
                             lager:debug("sc_handler server got packet: ~p", [Packet]),
-                            blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, HandlerState#handler_state.handler_mod, HandlerState#handler_state.ledger, self()),
+                            blockchain_state_channels_server:handle_packet(Packet, PendingOfferTime, HandlerState#handler_state.handler_mod, Ledger, self()),
                             handle_next_offer(HandlerState#handler_state{pending_packet_offers=maps:remove(PacketHash, PendingOffers)})
                     end
             end;
@@ -276,17 +242,8 @@ handle_server_msg(
     end.
 
 handle_client_msg(Msg, HandlerState) ->
-    %% get ledger if we don't yet have one
-    Ledger = case HandlerState#handler_state.ledger of
-                 undefined ->
-                     case blockchain_worker:blockchain() of
-                         undefined ->
-                             undefined;
-                         Chain ->
-                             blockchain:ledger(Chain)
-                     end;
-                 L -> L
-             end,
+    Chain = blockchain_worker:cached_blockchain(),
+    Ledger = blockchain:ledger(Chain),
     case Msg of
         {banner, Banner} ->
             case blockchain_state_channel_banner_v1:sc(Banner) of
@@ -322,7 +279,7 @@ handle_client_msg(Msg, HandlerState) ->
             lager:debug("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)
     end,
-    HandlerState#handler_state{ledger=Ledger}.
+    HandlerState.
 
 
 -spec handle_next_offer(State) -> {ok, State} | {ok, State, Msg :: any()} when
@@ -346,7 +303,6 @@ handle_offer(
     Offer,
     Time,
     #handler_state{
-        ledger=Ledger,
         pending_packet_offers=PendingOffers,
         handler_mod=Mod,
         encode_pb=MaybeEncodeMsg,
@@ -354,6 +310,8 @@ handle_offer(
     }=HandlerState0
 ) ->
     lager:debug("sc_handler server got offer: ~p", [Offer]),
+    Chain = blockchain_worker:cached_blockchain(),
+    Ledger = blockchain:ledger(Chain),
     case blockchain_state_channels_server:handle_offer(Offer, Mod, Ledger, self()) of
         ok ->
             ReqDiff = blockchain_state_channel_offer_v1:req_diff(Offer),

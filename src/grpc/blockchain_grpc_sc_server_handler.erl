@@ -43,10 +43,9 @@ init(_RPC, StreamState)->
 msg(#blockchain_state_channel_message_v1_pb{msg = Msg}, StreamState) ->
     lager:debug("grpc msg called with  ~p and state ~p", [Msg, StreamState]),
     HandlerState = grpcbox_stream:stream_handler_state(StreamState),
-    Chain =  blockchain_state_channel_common:chain(HandlerState),
-
     %% get our chain and only handle the request if the chain is up
     %% if chain not up we have no way to return routing data so just return a 14/503
+    Chain =  blockchain_worker:cached_blockchain(),
     case is_chain_ready(Chain) of
         false ->
             {grpc_error,
@@ -116,7 +115,7 @@ maybe_initialize_state(undefined) ->
     Blockchain = blockchain_worker:cached_blockchain(),
     Ledger = blockchain:ledger(Blockchain),
     Self = self(),
-    case blockchain:config(?sc_version, Ledger) of
+    case blockchain_ledger_v1:config(?sc_version, Ledger) of
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
@@ -140,7 +139,7 @@ maybe_initialize_state(undefined) ->
         _ ->
             noop
     end,
-    blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod,OfferLimit, false);
+    blockchain_state_channel_common:new_handler_state(#{}, [], HandlerMod,OfferLimit, false);
 maybe_initialize_state(HandlerState) ->
     HandlerState.
 
