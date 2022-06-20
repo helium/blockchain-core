@@ -2190,6 +2190,8 @@ promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
                                 Acc
                         end
                 end;
+            {error, invalid_iterator} ->  % No reason to panic here - just end of stream.
+                Acc;
             {error, _Reason} ->
                 lager:warning("promote_proposals failed, iterator failed ~p", [_Reason]),
                 %% we probably fell off the end. Simply drop this as we may not have enough
