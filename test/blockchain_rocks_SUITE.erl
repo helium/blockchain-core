@@ -46,23 +46,23 @@ t_fold(Cfg) ->
     N = ?config(num_records, Cfg),
     ?assertEqual(
         lists:foldl(fun (X, Sum) -> X + Sum end, 0, lists:seq(1, N)),
-        blockchain_rocks:fold(DB, 0, fun(KV, Sum) -> kv_to_int(KV) + Sum end)
+        blockchain_rocks:fold(DB, [], 0, fun(KV, Sum) -> kv_to_int(KV) + Sum end)
     ).
 
 t_sample_sanity_check(Cfg) ->
     DB = ?config(db, Cfg),
-    Sample = blockchain_rocks:sample(DB, 1),
+    Sample = blockchain_rocks:sample(DB, [], 1),
     ?assertMatch([{<<"k", V/binary>>, <<"v", V/binary>>}], Sample),
     DBEmpty = db_init(list_to_atom(atom_to_list(?FUNCTION_NAME) ++ "__empty"), Cfg, 0),
-    ?assertEqual([], blockchain_rocks:sample(DBEmpty, 1)),
-    ?assertEqual([], blockchain_rocks:sample(DBEmpty, 5)),
-    ?assertEqual([], blockchain_rocks:sample(DBEmpty, 10)).
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 1)),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 5)),
+    ?assertEqual([], blockchain_rocks:sample(DBEmpty, [], 10)).
 
 t_sample(Cfg) ->
     DB = ?config(db, Cfg),
     K = 10,
     Trials = 100,
-    Samples = [blockchain_rocks:sample(DB, K) || _ <- lists:duplicate(Trials, {})],
+    Samples = [blockchain_rocks:sample(DB, [], K) || _ <- lists:duplicate(Trials, {})],
     NumUniqueSamples = length(lists:usort(Samples)),
     ProportionOfUnique = NumUniqueSamples / Trials,
     %% At least 1/2 the time a new record-set was sampled:
@@ -70,7 +70,7 @@ t_sample(Cfg) ->
 
 t_sample_filtered(Cfg) ->
     DB = ?config(db, Cfg),
-    S0 = blockchain_rocks:stream(DB),
+    S0 = blockchain_rocks:stream(DB, []),
     S1 = data_stream:filter(S0, fun kv_is_even/1),
     lists:foreach(
         fun (KV) ->
@@ -83,7 +83,7 @@ t_sample_filtered(Cfg) ->
 
 t_stream_mapped_and_filtered(Cfg) ->
     DB = ?config(db, Cfg),
-    S0 = blockchain_rocks:stream(DB),
+    S0 = blockchain_rocks:stream(DB, []),
     S1 = data_stream:map(S0, fun kv_to_int/1),
     S2 = data_stream:filter(S1, fun (I) -> I rem 2 =:= 0 end),
     data_stream:foreach(S2, fun (I) -> ?assert(I rem 2 =:= 0) end).
@@ -104,6 +104,7 @@ db_init(TestCase, Cfg, NumRecords) ->
     %% Sanity check that all keys and values are formatted as expected:
     blockchain_rocks:foreach(
         DB,
+        [],
         fun(KV) -> ?assertMatch({<<"k", I/binary>>, <<"v", I/binary>>}, KV) end
     ),
     DB.

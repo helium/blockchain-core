@@ -1,71 +1,89 @@
 -module(blockchain_rocks).
 
 -export([
-    fold/3,
     fold/4,
-    foreach/2,
+    fold/5,
     foreach/3,
-    stream/1,
+    foreach/4,
     stream/2,
-    sample/2,
-    sample/3
+    stream/3,
+    sample/3,
+    sample/4
 ]).
 
 %% API ========================================================================
 
--spec fold(rocksdb:db_handle(), Acc, fun(({K :: binary(), V :: binary()}, Acc) -> Acc)) ->
-    Acc.
-fold(DB, Acc, F) ->
-    data_stream:fold(stream(DB), Acc, F).
-
 -spec fold(
     rocksdb:db_handle(),
-    rocksdb:cf_handle(),
+    rocksdb:read_options(),
     Acc,
     fun(({K :: binary(), V :: binary()}, Acc) -> Acc)
 ) ->
     Acc.
-fold(DB, CF, Acc, F) ->
-    data_stream:fold(stream(DB, CF), Acc, F).
+fold(DB, Opts, Acc, F) ->
+    data_stream:fold(stream(DB, Opts), Acc, F).
 
--spec foreach(rocksdb:db_handle(), fun(({K :: binary(), V :: binary()}) -> ok)) ->
+-spec fold(
+    rocksdb:db_handle(),
+    rocksdb:cf_handle(),
+    rocksdb:read_options(),
+    Acc,
+    fun(({K :: binary(), V :: binary()}, Acc) -> Acc)
+) ->
+    Acc.
+fold(DB, CF, Opts, Acc, F) ->
+    data_stream:fold(stream(DB, CF, Opts), Acc, F).
+
+-spec foreach(
+    rocksdb:db_handle(),
+    rocksdb:read_options(),
+    fun(({K :: binary(), V :: binary()}) -> ok)
+) ->
     ok.
-foreach(DB, F) ->
-    data_stream:foreach(stream(DB), F).
+foreach(DB, Opts, F) ->
+    data_stream:foreach(stream(DB, Opts), F).
 
 -spec foreach(
     rocksdb:db_handle(),
     rocksdb:cf_handle(),
+    rocksdb:read_options(),
     fun(({K :: binary(), V :: binary()}) -> ok)
 ) ->
     ok.
-foreach(DB, CF, F) ->
-    data_stream:foreach(stream(DB, CF), F).
+foreach(DB, CF, Opts, F) ->
+    data_stream:foreach(stream(DB, CF, Opts), F).
 
--spec stream(rocksdb:db_handle()) ->
+-spec stream(rocksdb:db_handle(), rocksdb:read_options()) ->
     data_stream:t({K :: binary(), V :: binary()}).
-stream(DB) ->
-    Opts = [], % rocksdb:read_options()
+stream(DB, Opts) ->
     stream_(fun () -> rocksdb:iterator(DB, Opts) end).
 
--spec stream(rocksdb:db_handle(), rocksdb:cf_handle()) ->
+-spec stream(
+    rocksdb:db_handle(),
+    rocksdb:cf_handle(),
+    rocksdb:read_options()
+) ->
     data_stream:t({K :: binary(), V :: binary()}).
-stream(DB, CF) ->
-    Opts = [], % rocksdb:read_options()
-    stream_(fun () -> rocksdb:iterator(DB, CF, Opts) end).
+stream(DB, CF, Opts) ->
+    stream_(fun () -> rocksdb:iterator(DB, CF, Opts, Opts) end).
 
 %% @doc Select K random records from database.
--spec sample(rocksdb:db_handle(), pos_integer()) ->
+-spec sample(rocksdb:db_handle(), rocksdb:read_options(), pos_integer()) ->
     [{K :: binary(), V :: binary()}].
-sample(DB, K) ->
-    Stream = stream(DB),
+sample(DB, Opts, K) ->
+    Stream = stream(DB, Opts),
     data_stream:sample(Stream, K).
 
 %% @doc Select K random records from CF.
--spec sample(rocksdb:db_handle(), rocksdb:cf_handle(), pos_integer()) ->
+-spec sample(
+    rocksdb:db_handle(),
+    rocksdb:cf_handle(),
+    rocksdb:read_options(),
+    pos_integer()
+) ->
     [{K :: binary(), V :: binary()}].
-sample(DB, CF, K) ->
-    Stream = stream(DB, CF),
+sample(DB, CF, Opts, K) ->
+    Stream = stream(DB, CF, Opts),
     data_stream:sample(Stream, K).
 
 %% Internal ===================================================================
