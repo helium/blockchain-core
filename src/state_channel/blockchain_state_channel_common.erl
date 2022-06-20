@@ -11,6 +11,7 @@
     handler_mod/1, handler_mod/2,
     pending_offer_limit/1, pending_offer_limit/2,
     chain/1, chain/2,
+    streaming_initialized/1, streaming_initialized/2,
     encode_pb/1, encode_pb/2,
     state_channel/1, state_channel/2
 ]).
@@ -33,6 +34,7 @@
 ]).
 
 -record(handler_state, {
+    streaming_initialized :: boolean(),
     chain :: undefined | blockchain:blockchain(),
     ledger :: undefined | blockchain_ledger_v1:ledger(),
     pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
@@ -60,6 +62,7 @@ new_handler_state()->
     ) -> handler_state().
 new_handler_state(Chain, Ledger, PendingPacketOffers, OfferQueue, HandlerMod, PendingOfferLimit, EncodePB)->
     #handler_state{
+        streaming_initialized = true,
         chain = Chain,
         ledger = Ledger,
         pending_packet_offers = PendingPacketOffers,
@@ -75,6 +78,10 @@ new_handler_state(Chain, Ledger, PendingPacketOffers, OfferQueue, HandlerMod, Pe
 %%
 -spec chain(handler_state()) -> undefined | blockchain:blockchain().
 chain(#handler_state{chain=V}) ->
+    V.
+
+-spec streaming_initialized(handler_state()) -> undefined | boolean().
+streaming_initialized(#handler_state{streaming_initialized=V}) ->
     V.
 
 -spec ledger(handler_state()) -> undefined | blockchain_ledger_v1:ledger().
@@ -111,6 +118,10 @@ state_channel(#handler_state{state_channel=V}) ->
 -spec chain(blockchain:blockchain(), handler_state()) -> handler_state().
 chain(NewV, HandlerState) ->
     HandlerState#handler_state{chain=NewV}.
+
+-spec streaming_initialized(boolean(), handler_state()) -> handler_state().
+streaming_initialized(NewV, HandlerState) ->
+    HandlerState#handler_state{streaming_initialized=NewV}.
 
 -spec ledger(blockchain_ledger_v1:ledger(), handler_state()) -> handler_state().
 ledger(NewV, HandlerState) ->

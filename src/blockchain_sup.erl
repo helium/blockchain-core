@@ -114,7 +114,8 @@ init(Args) ->
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, BaseDir},
-        {update_dir, proplists:get_value(update_dir, Args, undefined)}
+        {update_dir, proplists:get_value(update_dir, Args, undefined)},
+        {ets_cache, blockchain_worker:make_ets_table()}
     ],
 
     BEventOpts = [],
