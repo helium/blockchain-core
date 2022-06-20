@@ -892,12 +892,18 @@ find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
     MinHeight = max(0, MinHeight0),
     {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
     rocksdb:iterator_move(Iter, {seek, <<(MinHeight):64/integer-unsigned-big>>}),
-    case rocksdb:iterator_move(Iter, next) of
-        {ok, <<Height:64/integer-unsigned-big>>, Hash} ->
-            {ok, Height, Hash};
-        {error, _} ->
-            {error, not_found}
-    end.
+    Result =
+        case rocksdb:iterator_move(Iter, next) of
+            {ok, <<Height:64/integer-unsigned-big>>, Hash} ->
+                {ok, Height, Hash};
+            {error, invalid_iterator} ->
+                {error, not_found};
+            {error, Reason} ->
+                lager:error("Unexpected iterator error: ~p", [Reason]),
+                {error, not_found}
+        end,
+    catch rocksdb:iterator_close(Iter),
+    Result.
 
 find_first_block_after(MinHeight, Blockchain) ->
     case find_first_height_after(MinHeight, Blockchain) of
@@ -2082,10 +2088,17 @@ rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     CutoffHeight = max(2, Height - application:get_env(blockchain, blocks_to_protect_from_gc, 10000)),
     %% start at 2 here so we don't GC the genesis block
     {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_lower_bound, <<2:64/integer-unsigned-big>>}, {iterate_upper_bound, <<CutoffHeight:64/integer-unsigned-big>>}]),
-    do_rocksdb_gc(BytesToDrop, Itr, Blockchain,  rocksdb:iterator_move(Itr, first)).
+    ok = do_rocksdb_gc(BytesToDrop, Itr, Blockchain,  rocksdb:iterator_move(Itr, first)),
+    catch rocksdb:iterator_close(Itr),
+    ok.
 
-do_rocksdb_gc(_Bytes, _Itr, _Blockchain, {error, _}) ->
-    ok;
+do_rocksdb_gc(_, _, _, {error, Reason}) ->
+    case Reason of
+        invalid_iterator ->
+            ok;
+        _ ->
+            lager:error("Unexpected iterator error: ~p", [Reason])
+    end;
 do_rocksdb_gc(Bytes, _Itr, _Blockchain, _Res) when Bytes < 1 ->
     ok;
 do_rocksdb_gc(Bytes, Itr, #blockchain{dir=Dir, db=DB, heights=HeightsCF, blocks=BlocksCF, snapshots=SnapshotsCF}=Blockchain, {ok, <<IntHeight:64/integer-unsigned-big>>=Height, Hash}) ->
