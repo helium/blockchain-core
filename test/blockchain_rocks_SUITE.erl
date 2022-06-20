@@ -72,13 +72,16 @@ t_sample_filtered(Cfg) ->
     DB = ?config(db, Cfg),
     S0 = blockchain_rocks:stream(DB, []),
     S1 = data_stream:filter(S0, fun kv_is_even/1),
+    SampleSize = 100,
+    Sample = data_stream:sample(S1, SampleSize),
+    ?assertEqual(SampleSize, length(Sample)),
     lists:foreach(
         fun (KV) ->
             ?assertMatch({<<"k", IBin/binary>>, <<"v", IBin/binary>>}, KV),
             {<<"k", IBin/binary>>, <<"v", IBin/binary>>} = KV,
             ?assertEqual(0, binary_to_integer(IBin) rem 2)
         end,
-        data_stream:sample(S1, 100)
+        Sample
     ).
 
 t_stream_mapped_and_filtered(Cfg) ->
