@@ -65,7 +65,7 @@ stream(DB, Opts) ->
 ) ->
     data_stream:t({K :: binary(), V :: binary()}).
 stream(DB, CF, Opts) ->
-    stream_(fun () -> rocksdb:iterator(DB, CF, Opts, Opts) end).
+    stream_(fun () -> rocksdb:iterator(DB, CF, Opts) end).
 
 %% @doc Select K random records from database.
 -spec sample(rocksdb:db_handle(), rocksdb:read_options(), pos_integer()) ->

@@ -31,6 +31,8 @@ all() ->
         t_stream_mapped_and_filtered
     ].
 
+%%% TODO CF and non-CF groups
+
 init_per_suite(Cfg) ->
     NumRecords = 10_000,
     DB = db_init(?MODULE, Cfg, NumRecords),
