@@ -389,6 +389,15 @@ init(Args) ->
                 gossip_ref = Ref},
     {Mode, Info} = get_sync_mode(NewState),
     SnapshotTimerRef = schedule_snapshot_timer(),
+    case application:get_env(blockchain, disable_prewarm, false) of
+        true -> ok;
+        false ->
+            Ledger = blockchain:ledger(Blockchain),
+            spawn(fun() ->
+                          timer:sleep(90000),
+                          blockchain_region_v1:prewarm_cache(Ledger)
+                  end)
+    end,
     {ok, NewState#state{snapshot_timer=SnapshotTimerRef, mode=Mode, snapshot_info=Info}}.
 
 handle_call({integrate_genesis_block_synchronously, GenesisBlock}, _From, #state{}=S0) ->

@@ -615,7 +615,18 @@ delayed_absorb(Txn, Ledger) ->
                 Key ->
                     ok = blockchain_ledger_v1:master_key(Key, Ledger)
             end
-    end.
+    end,
+    case blockchain_ledger_v1:mode(Ledger) of
+        active ->
+            %% we've invalidated the region cache, so prewarm it.
+            spawn(fun() ->
+                          timer:sleep(30000),
+                          blockchain_region_v1:prewarm_cache(Ledger)
+                  end);
+        _ ->
+            ok
+    end,
+    ok.
 
 sum_higher(Target, Proplist) ->
     sum_higher(Target, Proplist, 0).
