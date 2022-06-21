@@ -159,7 +159,7 @@ add_subnetwork_test(Config) ->
     LedgerSubnetworks = blockchain_ledger_v1:subnetworks_v1(Ledger),
     LedgerSubnetwork = maps:get(mobile, LedgerSubnetworks),
     ?assertEqual(mobile, blockchain_ledger_subnetwork_v1:type(LedgerSubnetwork)),
-    ?assertEqual(Premine, blockchain_ledger_subnetwork_v1:premine(LedgerSubnetwork)),
+    ?assertEqual(Premine, blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnetwork)),
     ?assertEqual([RewardServerPubkeyBin], blockchain_ledger_subnetwork_v1:reward_server_keys(LedgerSubnetwork)),
     ?assertEqual(0, blockchain_ledger_subnetwork_v1:hnt_treasury(LedgerSubnetwork)),
     ?assertEqual(0, blockchain_ledger_subnetwork_v1:nonce(LedgerSubnetwork)),
