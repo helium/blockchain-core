@@ -10,7 +10,9 @@
 -export([
          get_all_regions/1, get_all_region_bins/1,
          h3_to_region/2, h3_to_region/3,
-         h3_in_region/3, h3_in_region/4
+         h3_in_region/3, h3_in_region/4,
+
+         prewarm_cache/1
         ]).
 
 -type regions() :: [atom()].
@@ -165,3 +167,17 @@ polyfill_resolution(Ledger) ->
         {ok, Res} -> Res;
         _ -> ?POLYFILL_RESOLUTION
     end.
+
+prewarm_cache(Ledger) ->
+    {ok, RB} = get_all_region_bins(Ledger),
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({_, BG}, Acc) ->
+              G = blockchain_ledger_gateway_v2:deserialize(BG),
+              case blockchain_ledger_gateway_v2:location(G) of
+                  undefined -> Acc;
+                  Loc -> _ = h3_to_region(Loc, Ledger, RB)
+              end
+      end,
+      0, Ledger),
+    ok.
