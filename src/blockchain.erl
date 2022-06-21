@@ -87,6 +87,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_rocks.hrl").
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
@@ -902,7 +903,7 @@ find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
                 lager:error("Unexpected iterator error: ~p", [Reason]),
                 {error, not_found}
         end,
-    catch rocksdb:iterator_close(Iter),
+    ?ROCKSDB_ITERATOR_CLOSE(Iter),
     Result.
 
 find_first_block_after(MinHeight, Blockchain) ->
@@ -2089,7 +2090,7 @@ rocksdb_gc(BytesToDrop, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     %% start at 2 here so we don't GC the genesis block
     {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_lower_bound, <<2:64/integer-unsigned-big>>}, {iterate_upper_bound, <<CutoffHeight:64/integer-unsigned-big>>}]),
     ok = do_rocksdb_gc(BytesToDrop, Itr, Blockchain,  rocksdb:iterator_move(Itr, first)),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     ok.
 
 do_rocksdb_gc(_, _, _, {error, Reason}) ->
@@ -3023,7 +3024,7 @@ check_plausible_blocks(#blockchain{db=DB}=Chain, GossipedHash) ->
 get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
     {ok, Itr} = rocksdb:iterator(DB, CF, []),
     Res = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Res.
 
 get_plausible_blocks(_Itr, {error, _}, Acc) ->

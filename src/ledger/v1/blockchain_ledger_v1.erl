@@ -273,6 +273,7 @@
 
 -include("blockchain.hrl").
 -include("blockchain_ledger_v1.hrl").
+-include("blockchain_rocks.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_caps.hrl").
 -include("blockchain_txn_fees.hrl").
@@ -2143,7 +2144,7 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
                     {ok, Itr} = rocksdb:iterator(DB, CF, []),
                     POCSubset = promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
                         ProposalGCWindowCheck, RandState, Ledger, Name, Itr, []),
-                    catch rocksdb:iterator_close(Itr),
+                    ?ROCKSDB_ITERATOR_CLOSE(Itr),
                     lager:debug("Selected POCs ~p", [POCSubset]),
                     lager:info("Selected ~p POCs for block height ~p", [length(POCSubset), BlockHeight]),
 
@@ -3601,7 +3602,7 @@ find_routing_via_devaddr(DevAddr0, Ledger) ->
             {_Name, DB, SubnetCF} = subnets_cf(Ledger),
             {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
             Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
-            catch rocksdb:iterator_close(Itr),
+            ?ROCKSDB_ITERATOR_CLOSE(Itr),
             case Dest of
                 error ->
                     {error, subnet_not_found};
@@ -3811,7 +3812,7 @@ allocate_subnet(Size, Ledger) ->
     {_, DB, SubnetCF} = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
     Result = allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, first), none),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Result.
 
 allocate_subnet(Size, _Itr, {error, invalid_iterator}, none) ->
@@ -4369,7 +4370,7 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     %% catch _:_ ->
     %%         Acc
     after
-        catch rocksdb:iterator_close(Itr)
+        ?ROCKSDB_ITERATOR_CLOSE(Itr)
     end.
 
 mk_cache_fold_fun(Cache, CF, Start, End, Fun) ->
