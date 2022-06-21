@@ -38,8 +38,8 @@
 }).
 
 -opaque t(A) ::
-    %% XXX Records to do not support type parameters.
-    %% XXX Ensure the field order is the same as in the corresponding record.
+    %% XXX Record syntax does not support type parameters, so we get around it with desugaring.
+    %% XXX Ensure the field order is the same as in the corresponding record!
     {
         ?T,
         next(A),
