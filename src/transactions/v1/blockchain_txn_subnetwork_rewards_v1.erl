@@ -246,87 +246,21 @@ json_type() ->
     <<"subnetwork_rewards_v1">>.
 
 -spec to_json(txn_subnetwork_rewards_v1(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, Opts) ->
-    RewardToJson =
-        fun
-            ({gateway, Type, G}, Amount, Ledger, Acc) ->
-                case blockchain_ledger_v1:find_gateway_owner(G, Ledger) of
-                    {error, _Error} ->
-                        Acc;
-                    {ok, GwOwner} ->
-                        [
-                            #{
-                                account => ?BIN_TO_B58(GwOwner),
-                                gateway => ?BIN_TO_B58(G),
-                                amount => Amount,
-                                type => Type
-                            }
-                            | Acc
-                        ]
-                end;
-            ({validator, Type, V}, Amount, Ledger, Acc) ->
-                case blockchain_ledger_v1:get_validator(V, Ledger) of
-                    {error, _Error} ->
-                        Acc;
-                    {ok, Val} ->
-                        Owner = blockchain_ledger_validator_v1:owner_address(Val),
-                        [
-                            #{
-                                account => ?BIN_TO_B58(Owner),
-                                gateway => ?BIN_TO_B58(V),
-                                amount => Amount,
-                                type => Type
-                            }
-                            | Acc
-                        ]
-                end;
-            ({owner, Type, O}, Amount, _Ledger, Acc) ->
-                [
-                    #{
-                        account => ?BIN_TO_B58(O),
-                        gateway => undefined,
-                        amount => Amount,
-                        type => Type
-                    }
-                    | Acc
-                ]
+to_json(Txn, _Opts) ->
+    Rewards = lists:foldl(
+        fun(#blockchain_txn_subnetwork_reward_v1_pb{account = Account, amount = Amount}, Acc) ->
+            [
+                #{
+                    type => <<"subnetwork_reward_v1">>,
+                    account => ?BIN_TO_B58(Account),
+                    amount => Amount
+                }
+                | Acc
+            ]
         end,
-    Rewards =
-        case lists:keyfind(chain, 1, Opts) of
-            {chain, Chain} ->
-                Start = start_epoch(Txn),
-                End = end_epoch(Txn),
-                {ok, Ledger} = blockchain:ledger_at(End, Chain),
-                {ok, Metadata} =
-                    case lists:keyfind(rewards_metadata, 1, Opts) of
-                        {rewards_metadata, M} -> {ok, M};
-                        _ -> ?MODULE:calculate_rewards_metadata(Start, End, Chain)
-                    end,
-                maps:fold(
-                    fun
-                        (overages, Amount, Acc) ->
-                            [
-                                #{
-                                    amount => Amount,
-                                    type => overages
-                                }
-                                | Acc
-                            ];
-                        (_RewardCategory, Rewards, Acc0) ->
-                            maps:fold(
-                                fun(Entry, Amount, Acc) ->
-                                    RewardToJson(Entry, Amount, Ledger, Acc)
-                                end,
-                                Acc0,
-                                Rewards
-                            )
-                    end,
-                    [],
-                    Metadata
-                );
-            _ ->
-                [reward_to_json(R, []) || R <- rewards(Txn)]
-        end,
+        [],
+        ?MODULE:rewards(Txn)
+    ),
 
     #{
         type => ?MODULE:json_type(),
@@ -334,21 +268,6 @@ to_json(Txn, Opts) ->
         start_epoch => start_epoch(Txn),
         end_epoch => end_epoch(Txn),
         rewards => Rewards
-    }.
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
-
--spec reward_to_json(
-    Reward :: subnetwork_reward_v1(),
-    Opts :: blockchain_json:opts()
-) -> blockchain_json:json_object().
-reward_to_json(#blockchain_txn_subnetwork_reward_v1_pb{account = Account, amount = Amt}, _Opts) ->
-    #{
-        type => <<"subnetwork_reward_v1">>,
-        account => ?BIN_TO_B58(Account),
-        amount => Amt
     }.
 
 %% ------------------------------------------------------------------
