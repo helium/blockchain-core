@@ -3007,6 +3007,8 @@ add_subnetwork(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys, Ledger) 
             Error
     end.
 
+-spec update_subnetwork(SN :: blockchain_ledger_subnetwork_v1:subnetwork_v1(),
+                        Ledger :: ledger()) -> ok.
 update_subnetwork(SN, Ledger) ->
     SubnetworksV1CF = subnetworks_v1_cf(Ledger),
     TT = blockchain_ledger_subnetwork_v1:type(SN),

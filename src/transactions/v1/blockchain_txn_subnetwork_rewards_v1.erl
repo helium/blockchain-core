@@ -129,19 +129,12 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Start = ?MODULE:start_epoch(Txn),
     End = ?MODULE:end_epoch(Txn),
-    Rewards = ?MODULE:rewards(Txn),
     TokenType = token_type(Txn),
     Signature = reward_server_signature(Txn),
     %% make sure that the signature is correct
     %% make sure that the rewards are less than the amount stored
     {ok, Subnet} = blockchain_ledger_v1:find_subnetwork_v1(TokenType, Ledger),
-    TotalRewards = lists:foldl(
-        fun(Reward, Acc) ->
-            Acc + reward_amount(Reward)
-        end,
-        0,
-        Rewards
-    ),
+    TotalRewards = total_rewards(Txn),
     Tokens = blockchain_ledger_subnetwork_v1:token_treasury(Subnet),
     LastRewardedBlock = blockchain_ledger_subnetwork_v1:last_rewarded_block(Subnet),
     try
@@ -212,22 +205,39 @@ absorb(Txn, Chain) ->
     end,
 
     %% these rewards are the same no matter the ledger
-    absorb_rewards(rewards(Txn), Ledger),
     TokenType = token_type(Txn),
+    TotalRewards = total_rewards(Txn),
+    %% Remove total_rewards from the token treasury
     {ok, Subnet} = blockchain_ledger_v1:find_subnetwork_v1(TokenType, Ledger),
-    Subnet1 = blockchain_ledger_subnetwork_v1:last_rewarded_block(Subnet, end_epoch(Txn)),
-    ok = blockchain_ledger_v1:update_subnetwork(Subnet1, Ledger).
+    TokenTreasury = blockchain_ledger_subnetwork_v1:token_treasury(Subnet),
+    Subnet1 = blockchain_ledger_subnetwork_v1:token_treasury(Subnet, TokenTreasury - TotalRewards),
+    %% Absorb the rewards
+    ok = absorb_rewards(TokenType, rewards(Txn), Ledger),
+    %% Save the subnetwork
+    Subnet2 = blockchain_ledger_subnetwork_v1:last_rewarded_block(Subnet1, end_epoch(Txn)),
+    ok = blockchain_ledger_v1:update_subnetwork(Subnet2, Ledger).
 
 -spec absorb_rewards(
+    TokenType :: blockchain_token_v1:type(),
     Rewards :: rewards(),
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> ok.
-absorb_rewards(Rewards, Ledger) ->
+absorb_rewards(TokenType, Rewards, Ledger) ->
     lists:foreach(
         fun(#blockchain_txn_subnetwork_reward_v1_pb{account = Account, amount = Amount}) ->
-            ok = blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
+            ok = blockchain_ledger_v1:credit_account(Account, Amount, TokenType, Ledger)
         end,
         Rewards
+    ).
+
+-spec total_rewards(Txn :: txn_subnetwork_rewards_v1()) -> non_neg_integer().
+total_rewards(Txn) ->
+    lists:foldl(
+        fun(Reward, Acc) ->
+            Acc + reward_amount(Reward)
+        end,
+        0,
+        ?MODULE:rewards(Txn)
     ).
 
 -spec print(txn_subnetwork_rewards_v1()) -> iodata().
