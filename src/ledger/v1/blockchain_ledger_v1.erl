@@ -2902,12 +2902,7 @@ migrate_reg_entries(Ledger) ->
                 {error, address_entry_not_found} ->
                     %% This should _always_ occur as we assume no entries_v2 exist
                     %% on ledger yet
-                    EntryV1Balance = blockchain_ledger_entry_v1:balance(EntryV1),
-                    EntryV1Nonce = blockchain_ledger_entry_v1:nonce(EntryV1),
-                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
-                      blockchain_ledger_entry_v2:credit(
-                        blockchain_ledger_entry_v2:new(), EntryV1Balance, hnt),
-                      EntryV1Nonce),
+                    NewEntryV2 = blockchain_ledger_entry_v2:from_v1(EntryV1, entry),
                     Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
                     cache_put(Ledger, EntriesV2CF, Address, Bin);
                 _ ->
@@ -2928,31 +2923,26 @@ migrate_sec_entries(Ledger) ->
         Ledger,
         SecuritiesCF,
         fun({Address, Binary}, ok) ->
-            EntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            SecEntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
             case ?MODULE:find_entry(Address, Ledger) of
                 {ok, EntryV2} ->
                     %% There's already an EntryV2 possibly from doing the entry migration,
                     %% To consolidate:
                     %% - Add the two nonces (sec_nonce_v1 + nonce_entry_v2)
                     %% - Update hst balance in EntryV2
-                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
-                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(SecEntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(SecEntryV1),
                     EntryV2Nonce = blockchain_ledger_entry_v2:nonce(EntryV2),
-                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
+                    NewSecEntryV2 = blockchain_ledger_entry_v2:nonce(
                       blockchain_ledger_entry_v2:credit(
                         EntryV2, SecEntryV1Balance, hst),
                       EntryV2Nonce + SecEntryV1Nonce),
-                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewSecEntryV2),
                     cache_put(Ledger, EntriesV2CF, Address, Bin);
                 {error, address_entry_not_found} ->
                     %% This address only has security tokens, credit accordingly
-                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(EntryV1),
-                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(EntryV1),
-                    NewEntryV2 = blockchain_ledger_entry_v2:nonce(
-                      blockchain_ledger_entry_v2:credit(
-                        blockchain_ledger_entry_v2:new(), SecEntryV1Balance, hst),
-                      SecEntryV1Nonce),
-                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    NewSecEntryV2 = blockchain_ledger_entry_v2:from_v1(SecEntryV1, security),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewSecEntryV2),
                     cache_put(Ledger, EntriesV2CF, Address, Bin);
                 _ ->
                     %% Unexpected, abort!
