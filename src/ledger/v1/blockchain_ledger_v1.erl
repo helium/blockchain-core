@@ -4883,16 +4883,24 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
         {ok, BinGws} ->
             case lists:delete(GWAddr, binary_to_term(BinGws)) of
                 [] ->
-                    case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
-                        0 ->
-                            %% removing a hex means we need to recalculate the set of populated
-                            %% hexes
-                            build_random_hex_targeting_lookup(Res, Ledger);
+                    %% need to remove the hex and maybe recalc targeting lookup if no gateways remain in parent hex
+                    %% includes chain var protected bug fix
+                    case config(?h3dex_remove_gw_fix, Ledger) of
+                        %% if fix enabled, delete the hex first, then count the parent hex's gateways
+                        {ok, true} ->
+                            cache_delete(Ledger, H3CF, BinHex),
+                            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                                0 -> build_random_hex_targeting_lookup(Res, Ledger);
+                                _ -> ok
+                            end;
+                        %% otherwise, keep the wrong behavior of counting gateways then deleting the hex
                         _ ->
-                            ok
-                    end,
-
-                    cache_delete(Ledger, H3CF, BinHex);
+                            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                                0 -> build_random_hex_targeting_lookup(Res, Ledger);
+                                _ -> ok
+                            end,
+                            cache_delete(Ledger, H3CF, BinHex)
+                    end;
                 NewGWs ->
                     cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort(NewGWs), [compressed]))
             end;

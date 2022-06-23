@@ -219,6 +219,9 @@
 %% max number of hexes to GC in the h3dex per block: integer
 -define(h3dex_gc_width, h3dex_gc_width).
 
+%% determines whether or not to use the fix for a bug in removing gateways from h3dex : boolean
+-define(h3dex_remove_gw_fix, h3dex_remove_gw_fix).
+
 %% the version number of poc targeting in use: integer
 %% if not set, code paths with default to 3 ( blockchain_poc_target_v3 )
 -define(poc_targeting_version, poc_targeting_version).
