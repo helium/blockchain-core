@@ -1364,7 +1364,7 @@ subnetworks_v1(Ledger) ->
     | {error, any()}.
 find_subnetwork_v1(TT, Ledger) ->
     SNCF = subnetworks_v1_cf(Ledger),
-    case cache_get(Ledger, SNCF, atom_to_binary(TT), []) of
+    case cache_get(Ledger, SNCF, atom_to_binary(TT, utf8), []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_subnetwork_v1:deserialize(BinEntry)};
         not_found ->
@@ -3000,7 +3000,7 @@ add_subnetwork(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys, Ledger) 
             %% Only add subnetwork if it is not found on ledger
             SN = blockchain_ledger_subnetwork_v1:new(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys),
             Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
-            cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT), Bin);
+            cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin);
         {ok, _SN} ->
             {error, subnetwork_already_exists};
         {error, _}=Error ->
@@ -3013,7 +3013,7 @@ update_subnetwork(SN, Ledger) ->
     SubnetworksV1CF = subnetworks_v1_cf(Ledger),
     TT = blockchain_ledger_subnetwork_v1:type(SN),
     Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
-    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT), Bin).
+    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin).
 
 %%--------------------------------------------------------------------
 %% @doc

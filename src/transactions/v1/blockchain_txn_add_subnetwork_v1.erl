@@ -98,7 +98,8 @@ sign_subnetwork(Txn, SigFun) ->
 -spec hash(txn_add_subnetwork()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_add_subnetwork_v1_pb{
-        network_signature = <<>>, subnetwork_signature = <<>>
+        network_signature = <<>>,
+        subnetwork_signature = <<>>
     },
     EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
@@ -153,16 +154,14 @@ absorb(Txn, Chain) ->
     HNTTreasury = 0,
     SubnetworkKey = ?MODULE:subnetwork_key(Txn),
     RewardServerKeys = ?MODULE:reward_server_keys(Txn),
-    case
-        blockchain_ledger_v1:add_subnetwork(
-            TT, PremineAmt, HNTTreasury, SubnetworkKey, RewardServerKeys, Ledger
-        )
-    of
-        ok ->
-            ok;
-        {error, _} = Error ->
-            Error
-    end.
+    blockchain_ledger_v1:add_subnetwork(
+        TT,
+        PremineAmt,
+        HNTTreasury,
+        SubnetworkKey,
+        RewardServerKeys,
+        Ledger
+    ).
 
 -spec print(txn_add_subnetwork()) -> iodata().
 print(undefined) ->
@@ -197,7 +196,7 @@ to_json(Txn, _Opts) ->
     #{
         type => ?MODULE:json_type(),
         hash => ?BIN_TO_B64(hash(Txn)),
-        token_type => atom_to_list(token_type(Txn)),
+        token_type => atom_to_binary(token_type(Txn), utf8),
         subnetwork_key => ?BIN_TO_B58(subnetwork_key(Txn)),
         reward_server_keys => [?BIN_TO_B58(K) || K <- reward_server_keys(Txn)]
     }.

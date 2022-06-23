@@ -1,14 +1,7 @@
 %%-------------------------------------------------------------------
 %% @doc
-%% This module implements rewards v2 which track only an account and
-%% an amount. The breakdowns of rewards by type and associated gateway
-%% are not kept here.  This was done to streamline the increasing
-%% size of rewards as the network grows.
-%%
-%% In the future, we will need to work on further ways to streamline
-%% the size of this transaction. One proposal was to use the ledger
-%% as an encoding dictionary and use ledger offsets to mark the
-%% account instead of using the full sized account id.
+%% This module implements subnetwork rewards, which will be driven
+%% externally via reward server(s).
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_subnetwork_rewards_v1).
@@ -242,14 +235,18 @@ total_rewards(Txn) ->
 
 -spec print(txn_subnetwork_rewards_v1()) -> iodata().
 print(undefined) ->
-    <<"type=rewards_v2 undefined">>;
-print(#blockchain_txn_subnetwork_rewards_v1_pb{
-    start_epoch = Start,
-    end_epoch = End
-}) ->
+    <<"type=subnetwork_rewards_v1 undefined">>;
+print(
+    #blockchain_txn_subnetwork_rewards_v1_pb{
+        start_epoch = Start,
+        end_epoch = End,
+        token_type = TT,
+        rewards = Rewards
+    } = Txn
+) ->
     io_lib:format(
-        "type=rewards_v2 start_epoch=~p end_epoch=~p",
-        [Start, End]
+        "type=subnetwork_rewards_v1 start_epoch=~p end_epoch=~p token_type=~p rewards_hash=~p total_rewards=~p",
+        [Start, End, TT, crypto:hash(sha256, term_to_binary(Rewards)), total_rewards(Txn)]
     ).
 
 json_type() ->
