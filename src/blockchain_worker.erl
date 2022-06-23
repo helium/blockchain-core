@@ -392,9 +392,9 @@ init(Args) ->
     case application:get_env(blockchain, disable_prewarm, false) of
         true -> ok;
         false ->
-            Ledger = blockchain:ledger(Blockchain),
             spawn(fun() ->
                           timer:sleep(90000),
+                          Ledger = blockchain:ledger(),
                           blockchain_region_v1:prewarm_cache(Ledger)
                   end)
     end,
