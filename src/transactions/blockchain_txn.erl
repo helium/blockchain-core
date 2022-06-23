@@ -51,7 +51,7 @@
              | blockchain_txn_add_subnetwork_v1:txn_add_subnetwork_v1()
              | blockchain_txn_update_subnetwork_v1:txn_update_subnetwork_v1()
              | blockchain_txn_subnetwork_rewards_v1:txn_subnetwork_rewards_v1()
-             | blockchain_txn_token_convert_v1:txn_token_convert_v1().
+             | blockchain_txn_token_redeem_v1:txn_token_redeem_v1().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -147,7 +147,7 @@
     {blockchain_txn_add_subnetwork_v1, 38},
     {blockchain_txn_update_subnetwork_v1, 39},
     {blockchain_txn_subnetwork_rewards_v1, 40},
-    {blockchain_txn_token_convert_v1, 41}
+    {blockchain_txn_token_redeem_v1, 41}
 ]).
 
 block_delay() ->
@@ -265,8 +265,8 @@ wrap_txn(#blockchain_txn_update_subnetwork_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={update_subnetwork, Txn}};
 wrap_txn(#blockchain_txn_subnetwork_rewards_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={subnetwork_rewards, Txn}};
-wrap_txn(#blockchain_txn_token_convert_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={token_convert, Txn}}.
+wrap_txn(#blockchain_txn_token_redeem_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={token_redeem, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -732,8 +732,8 @@ type(#blockchain_txn_update_subnetwork_v1_pb{}) ->
     blockchain_txn_update_subnetwork_v1;
 type(#blockchain_txn_subnetwork_rewards_v1_pb{}) ->
     blockchain_txn_subnetwork_rewards_v1;
-type(#blockchain_txn_token_convert_v1_pb{}) ->
-    blockchain_txn_token_convert_v1.
+type(#blockchain_txn_token_redeem_v1_pb{}) ->
+    blockchain_txn_token_redeem_v1.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
