@@ -617,7 +617,6 @@
 
 %% ------------------------------------------------------------------
 %% Token version (aka support multiple tokens)
-%% Testing for now, set to 2
 -define(token_version, token_version).
 %% Ledger entry migration variable
 %% Will be used to hook and switch the old style ledger entries
