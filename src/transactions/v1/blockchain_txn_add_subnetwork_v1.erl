@@ -121,7 +121,7 @@ is_valid(Txn, Chain) ->
         hnt ->
             {error, invalid_token_hnt};
         _ ->
-            case blockchain:config(?allowed_reward_server_key_length, Ledger) of
+            case blockchain:config(?allowed_num_reward_server_keys, Ledger) of
                 {ok, 1} ->
                     Artifact = create_artifact(Txn),
                     SubnetworkKey = ?MODULE:subnetwork_key(Txn),

@@ -625,4 +625,4 @@
 %% Var to switch off legacy security_exchange txn
 -define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).
 %% How many reward server keys to allow
--define(allowed_reward_server_key_length, allowed_reward_server_key_length).
+-define(allowed_num_reward_server_keys, allowed_num_reward_server_keys).

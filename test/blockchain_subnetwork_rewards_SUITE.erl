@@ -249,7 +249,7 @@ basic_test(Config) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 extra_vars(_) ->
-    #{?allowed_reward_server_key_length => 1, ?token_version => 2}.
+    #{?allowed_num_reward_server_keys => 1, ?token_version => 2}.
 
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),
