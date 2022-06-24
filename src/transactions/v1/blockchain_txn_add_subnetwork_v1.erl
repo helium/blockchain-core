@@ -118,28 +118,33 @@ is_valid(Txn, Chain) ->
             {error, invalid_token_hst};
         hnt ->
             {error, invalid_token_hnt};
-        _ ->
-            case blockchain:config(?allowed_num_reward_server_keys, Ledger) of
-                {ok, 1} ->
-                    Artifact = create_artifact(Txn),
-                    SubnetworkKey = ?MODULE:subnetwork_key(Txn),
-                    SubnetworkSig = ?MODULE:subnetwork_signature(Txn),
-                    case verify_key(Artifact, SubnetworkKey, SubnetworkSig) of
-                        true ->
-                            {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-                            NetworkSig = ?MODULE:network_signature(Txn),
-                            case verify_key(Artifact, MasterKey, NetworkSig) of
+        TT ->
+            case lists:member(TT, blockchain_token_v1:supported_tokens()) of
+                false ->
+                    {error, {unsupported_token, TT}};
+                true ->
+                    case blockchain:config(?allowed_num_reward_server_keys, Ledger) of
+                        {ok, 1} ->
+                            Artifact = create_artifact(Txn),
+                            SubnetworkKey = ?MODULE:subnetwork_key(Txn),
+                            SubnetworkSig = ?MODULE:subnetwork_signature(Txn),
+                            case verify_key(Artifact, SubnetworkKey, SubnetworkSig) of
                                 true ->
-                                    ok;
+                                    {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                                    NetworkSig = ?MODULE:network_signature(Txn),
+                                    case verify_key(Artifact, MasterKey, NetworkSig) of
+                                        true ->
+                                            ok;
+                                        _ ->
+                                            {error, invalid_network_signature}
+                                    end;
                                 _ ->
-                                    {error, invalid_network_signature}
+                                    {error, invalid_subnetwork_signature}
                             end;
                         _ ->
-                            {error, invalid_subnetwork_signature}
-                    end;
-                _ ->
-                    %% NOTE: Update here when more than one reward server keys are allowed
-                    {error, invalid_reward_server_key_length}
+                            %% NOTE: Update here when more than one reward server keys are allowed
+                            {error, invalid_reward_server_key_length}
+                    end
             end
     end.
 
