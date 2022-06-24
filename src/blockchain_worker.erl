@@ -148,6 +148,7 @@ make_ets_table() ->
     ets:new(?CACHE,
             [named_table,
              public,  %% public as ?MODULE:init needs to write chain to the table. TODO: move chain load out of init and make this table protected
+             {read_concurrency, true},
              {heir, self(), undefined}]).
 
 %%--------------------------------------------------------------------
