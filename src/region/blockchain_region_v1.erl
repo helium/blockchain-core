@@ -12,7 +12,8 @@
          h3_to_region/2, h3_to_region/3,
          h3_in_region/3, h3_in_region/4,
 
-         prewarm_cache/1
+         prewarm_cache/1,
+         clear_cache/0
         ]).
 
 -type regions() :: [atom()].
@@ -116,6 +117,7 @@ h3_in_region(H3, RegionVar, Ledger, RegionBins) ->
         Other -> Other
     end.
 
+
 %%--------------------------------------------------------------------
 %% helpers
 %%--------------------------------------------------------------------
@@ -169,6 +171,8 @@ polyfill_resolution(Ledger) ->
     end.
 
 prewarm_cache(Ledger) ->
+    lager:info("starting cache prewarm: ~p", [h3_to_region]),
+    Before = erlang:monotonic_time(second),
     {ok, RB} = get_all_region_bins(Ledger),
     blockchain_ledger_v1:cf_fold(
       active_gateways,
@@ -180,4 +184,11 @@ prewarm_cache(Ledger) ->
               end
       end,
       0, Ledger),
+    Duration = erlang:monotonic_time(second) - Before,
+    lager:info("completed cache prewarm in ~p seconds: ~p", [Duration, h3_to_region]),
+    ok.
+
+clear_cache() ->
+    e2qc:teardown(h3_to_region),
+    lager:info("cleared cache: ~p", [h3_to_region]),
     ok.
