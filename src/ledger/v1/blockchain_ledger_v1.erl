@@ -39,6 +39,7 @@
     process_delayed_actions/3,
 
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
+    versioned_entry_mod_and_entries_cf/1,
     entries/1,
     htlcs/1,
 
@@ -103,6 +104,7 @@
 
     find_entry/2,
     credit_account/3, debit_account/4, debit_fee_from_account/5,
+    credit_account/4,
     check_balance/3,
 
     dc_entries/1,
@@ -267,8 +269,14 @@
     txn_fee_multiplier/1,
 
     dc_to_hnt/2,
-    hnt_to_dc/2
+    hnt_to_dc/2,
 
+    migrate_entries/1,
+
+    add_subnetwork/6,
+    update_subnetwork/2,
+    subnetworks_v1/1,
+    find_subnetwork_v1/2
 ]).
 
 -include("blockchain.hrl").
@@ -285,6 +293,8 @@
 -endif.
 
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
+-type entries_v2() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v2:entry()}.
+-type subnetworks_v1() :: #{blockchain_token_v1:type() => blockchain_ledger_subnetwork_v1:subnetwork_v1()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
@@ -296,6 +306,8 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 -type h3dex() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin()]}. %% these keys are gateway addresses
+-type tagged_cf() :: {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+
 -export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
@@ -344,11 +356,11 @@ new(Dir, ReadOnly, Options) ->
 
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, ProposedPoCsCF,
      SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF,
+     SubnetsCF, SCsCF, H3DexCF, GwDenormCF, ValidatorsCF, EntriesV2CF, SubnetworksV1CF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF,
      DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedProposedPoCsCF,
      DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF,
-     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF] = CFs,
+     DelayedH3DexCF, DelayedGwDenormCF, DelayedValidatorsCF, DelayedEntriesV2CF, DelayedSubnetworksV1CF] = CFs,
     Ledger =
     #ledger_v1{
         dir=Dir,
@@ -369,7 +381,9 @@ new(Dir, ReadOnly, Options) ->
             subnets=SubnetsCF,
             state_channels=SCsCF,
             h3dex=H3DexCF,
-            validators=ValidatorsCF
+            validators=ValidatorsCF,
+            entries_v2=EntriesV2CF,
+            subnetworks_v1=SubnetworksV1CF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -385,7 +399,9 @@ new(Dir, ReadOnly, Options) ->
             subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF,
             h3dex=DelayedH3DexCF,
-            validators=DelayedValidatorsCF
+            validators=DelayedValidatorsCF,
+            entries_v2=DelayedEntriesV2CF,
+            subnetworks_v1=DelayedSubnetworksV1CF
         }
     },
     Ledger.
@@ -902,7 +918,9 @@ atom_to_cf(Atom, Ledger) ->
             subnets -> SL#sub_ledger_v1.subnets;
             state_channels -> SL#sub_ledger_v1.state_channels;
             h3dex -> SL#sub_ledger_v1.h3dex;
-            validators -> SL#sub_ledger_v1.validators
+            validators -> SL#sub_ledger_v1.validators;
+            entries_v2 -> SL#sub_ledger_v1.entries_v2;
+            subnetworks_v1 -> SL#sub_ledger_v1.subnetworks_v1
         end.
 
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
@@ -1328,14 +1346,47 @@ write_gw_denorm_values(Address, Old, Gw, Ledger) ->
             _ -> cache_put(Ledger, GwDenormCF, <<Address/binary, "-gain">>, term_to_binary(Gain))
     end.
 
--spec entries(ledger()) -> entries().
+-spec subnetworks_v1(ledger()) -> subnetworks_v1().
+subnetworks_v1(Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    cache_fold(
+        Ledger,
+        SubnetworksV1CF,
+        fun({TT, Binary}, Acc) ->
+            SN = blockchain_ledger_subnetwork_v1:deserialize(Binary),
+            maps:put(binary_to_atom(TT, utf8), SN, Acc)
+        end,
+        #{}
+    ).
+
+-spec find_subnetwork_v1(TT :: blockchain_token_v1:type(), Ledger :: ledger()) ->
+    {ok, blockchain_ledger_subnetwork_v1:subnetwork_v1()}
+    | {error, any()}.
+find_subnetwork_v1(TT, Ledger) ->
+    SNCF = subnetworks_v1_cf(Ledger),
+    case cache_get(Ledger, SNCF, atom_to_binary(TT, utf8), []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_subnetwork_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, subnetwork_not_found};
+        Error ->
+            Error
+    end.
+
+-spec entries(ledger()) -> entries() | entries_v2().
 entries(Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    entries_(EntryMod, EntriesCF, Ledger).
+
+-spec entries_(EntryMod :: blockchain_ledger_entry_v1 | blockchain_ledger_entry_v2,
+               EntriesCF :: tagged_cf(),
+               Ledger :: ledger()) -> entries() | entries_v2().
+entries_(EntryMod, EntriesCF, Ledger) ->
     cache_fold(
         Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_entry_v1:deserialize(Binary),
+            Entry = EntryMod:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
         #{}
@@ -2862,6 +2913,113 @@ hnt_to_dc(HNTAmount, Ledger)->
             hnt_to_dc(HNTAmount, OracleHNTPrice)
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Migrate ledger entries
+%% @end
+%%--------------------------------------------------------------------
+-spec migrate_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_entries(Ledger) ->
+    ok = migrate_reg_entries(Ledger),
+    ok = migrate_sec_entries(Ledger),
+    ok.
+
+-spec migrate_reg_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_reg_entries(Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        EntriesCF,
+        fun({Address, Binary}, ok) ->
+            EntryV1 = blockchain_ledger_entry_v1:deserialize(Binary),
+            case ?MODULE:find_entry(Address, Ledger) of
+                {error, address_entry_not_found} ->
+                    %% This should _always_ occur as we assume no entries_v2 exist
+                    %% on ledger yet
+                    NewEntryV2 = blockchain_ledger_entry_v2:from_v1(EntryV1, entry),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                _ ->
+                    %% NOTE: This should never happen due to the order
+                    %% in which the migration is applied
+                    {error, entry_migration_aborted}
+            end
+
+        end,
+        ok
+    ).
+
+-spec migrate_sec_entries(Ledger :: ledger()) -> ok | {error, any()}.
+migrate_sec_entries(Ledger) ->
+    SecuritiesCF = securities_cf(Ledger),
+    EntriesV2CF = entries_v2_cf(Ledger),
+    cache_fold(
+        Ledger,
+        SecuritiesCF,
+        fun({Address, Binary}, ok) ->
+            SecEntryV1 = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            case ?MODULE:find_entry(Address, Ledger) of
+                {ok, EntryV2} ->
+                    %% There's already an EntryV2 possibly from doing the entry migration,
+                    %% To consolidate:
+                    %% - Add the two nonces (sec_nonce_v1 + nonce_entry_v2)
+                    %% - Update hst balance in EntryV2
+                    SecEntryV1Balance = blockchain_ledger_security_entry_v1:balance(SecEntryV1),
+                    SecEntryV1Nonce = blockchain_ledger_security_entry_v1:nonce(SecEntryV1),
+                    EntryV2Nonce = blockchain_ledger_entry_v2:nonce(EntryV2),
+                    NewSecEntryV2 = blockchain_ledger_entry_v2:nonce(
+                      blockchain_ledger_entry_v2:credit(
+                        EntryV2, SecEntryV1Balance, hst),
+                      EntryV2Nonce + SecEntryV1Nonce),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewSecEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                {error, address_entry_not_found} ->
+                    %% This address only has security tokens, credit accordingly
+                    NewSecEntryV2 = blockchain_ledger_entry_v2:from_v1(SecEntryV1, security),
+                    Bin = blockchain_ledger_entry_v2:serialize(NewSecEntryV2),
+                    cache_put(Ledger, EntriesV2CF, Address, Bin);
+                _ ->
+                    %% Unexpected, abort!
+                    {error, sec_entry_migration_aborted}
+            end
+        end,
+        ok
+    ).
+
+-spec add_subnetwork(TT :: blockchain_token_v1:type(),
+                     TokenTreasury :: non_neg_integer(),
+                     HNTTreasury :: non_neg_integer(),
+                     SNKey :: libp2p_crypto:pubkey_bin(),
+                     RewardServerKeys :: [libp2p_crypto:pubkey_bin()],
+                     Ledger :: ledger()) -> ok | {error, any()}.
+add_subnetwork(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys, Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    case ?MODULE:find_subnetwork_v1(TT, Ledger) of
+        {error, subnetwork_not_found} ->
+            case lists:member(TT, blockchain_token_v1:supported_tokens()) of
+                false ->
+                    %% We do not support this token type
+                    {error, {unsupported_subnetwork, TT}};
+                true ->
+                    %% Only add subnetwork if it is not found on ledger
+                    SN = blockchain_ledger_subnetwork_v1:new(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys),
+                    Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+                    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin)
+            end;
+        {ok, _SN} ->
+            {error, subnetwork_already_exists};
+        {error, _}=Error ->
+            Error
+    end.
+
+-spec update_subnetwork(SN :: blockchain_ledger_subnetwork_v1:subnetwork_v1(),
+                        Ledger :: ledger()) -> ok.
+update_subnetwork(SN, Ledger) ->
+    SubnetworksV1CF = subnetworks_v1_cf(Ledger),
+    TT = blockchain_ledger_subnetwork_v1:type(SN),
+    Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -2976,71 +3134,161 @@ trim_price_list(LastTime, PriceEntries) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
-                                                          | {error, any()}.
+-spec find_entry(Address :: libp2p_crypto:pubkey_bin(),
+                 Ledger :: ledger()) ->
+    {ok, blockchain_ledger_entry_v1:entry()}
+    | {ok, blockchain_ledger_entry_v2:entry()}
+    | {error, any()}.
 find_entry(Address, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    find_entry_(Address, EntryMod, EntriesCF, Ledger).
+
+-spec find_entry_(Address :: libp2p_crypto:pubkey_bin(),
+                  EntryMod :: atom(),
+                  EntriesCF :: tagged_cf(),
+                  Ledger :: ledger()) ->
+    {ok, blockchain_ledger_entry_v1:entry()}
+    | {ok, blockchain_ledger_entry_v2:entry()}
+    | {error, any()}.
+find_entry_(Address, EntryMod, EntriesCF, Ledger) ->
     case cache_get(Ledger, EntriesCF, Address, []) of
         {ok, BinEntry} ->
-            {ok, blockchain_ledger_entry_v1:deserialize(BinEntry)};
+            {ok, EntryMod:deserialize(BinEntry)};
         not_found ->
             {error, address_entry_not_found};
         Error ->
             Error
     end.
 
+-spec versioned_entry_mod_and_entries_cf(Ledger :: ledger()) -> {atom(), tagged_cf()}.
+versioned_entry_mod_and_entries_cf(Ledger) ->
+    case ?MODULE:config(?token_version, Ledger) of
+        {ok, 2} ->
+            {blockchain_ledger_entry_v2, entries_v2_cf(Ledger)};
+        _ ->
+            {blockchain_ledger_entry_v1, entries_cf(Ledger)}
+    end.
+
 -spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    case versioned_entry_mod_and_entries_cf(Ledger) of
+        {blockchain_ledger_entry_v2, _V2CF} ->
+            %% Just credit HNT
+            credit_account(Address, Amount, hnt, Ledger);
+        {blockchain_ledger_entry_v1, V1CF} ->
+            case ?MODULE:find_entry(Address, Ledger) of
+                {error, address_entry_not_found} ->
+                    Entry = blockchain_ledger_entry_v1:new(0, Amount),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry),
+                    cache_put(Ledger, V1CF, Address, Bin);
+                {ok, Entry} ->
+                    Entry1 = blockchain_ledger_entry_v1:new(
+                               blockchain_ledger_entry_v1:nonce(Entry),
+                               blockchain_ledger_entry_v1:balance(Entry) + Amount
+                              ),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    cache_put(Ledger, V1CF, Address, Bin);
+                {error, _}=Error ->
+                    Error
+            end
+    end.
+
+-spec credit_account(Address :: libp2p_crypto:pubkey_bin(),
+                     Amount :: integer(),
+                     TT :: blockchain_token_v1:type(),
+                     Ledger :: ledger()) -> ok | {error, any()}.
+credit_account(Address, Amount, TT, Ledger) ->
+    EntriesCF = entries_v2_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, address_entry_not_found} ->
-            Entry = blockchain_ledger_entry_v1:new(0, Amount),
-            Bin = blockchain_ledger_entry_v1:serialize(Entry),
+            %% create blank entry to fill all the token types
+            Entry0 = blockchain_ledger_entry_v2:new(),
+            %% credit this particular token amount
+            Entry1 = blockchain_ledger_entry_v2:credit(Entry0, Amount, TT),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
             cache_put(Ledger, EntriesCF, Address, Bin);
         {ok, Entry} ->
-            Entry1 = blockchain_ledger_entry_v1:new(
-                blockchain_ledger_entry_v1:nonce(Entry),
-                blockchain_ledger_entry_v1:balance(Entry) + Amount
-            ),
-            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+            %% credit this particular token amount
+            Entry1 = blockchain_ledger_entry_v2:credit(Entry, Amount, TT),
+            Bin = blockchain_ledger_entry_v2:serialize(Entry1),
             cache_put(Ledger, EntriesCF, Address, Bin);
         {error, _}=Error ->
             Error
     end.
 
--spec debit_account(libp2p_crypto:pubkey_bin(), integer(), integer(), ledger()) -> ok | {error, any()}.
-debit_account(Address, Amount, Nonce, Ledger) ->
+-spec debit_account(Address :: libp2p_crypto:pubkey_bin(),
+                    AmountOrAmounts :: integer() | blockchain_txn_payment_v2:total_amounts(),
+                    Nonce :: integer(),
+                    Ledger :: ledger()) -> ok | {error, any()}.
+debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrAmounts) ->
+    %% debit_account being called with an Amount can occur in two situations:
+    %% - token_version is not set
+    %% - token_version is set but for aux ledger
+    %% - we're in some weird transitionary state
+    %% - payment_v1 is active on chain (and those only work with HNT token)
+    %% It's best to make sure that the right ledger entry mod is being invoked
+
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
+            case Nonce =:= EntryMod:nonce(Entry) + 1 of
                 true ->
-                    Balance = blockchain_ledger_entry_v1:balance(Entry),
-                    case (Balance - Amount) >= 0 of
+                    Balance = EntryMod:balance(Entry),
+                    case (Balance - AmountOrAmounts) >= 0 of
                         true ->
-                            Entry1 = blockchain_ledger_entry_v1:new(
-                                Nonce,
-                                (Balance - Amount)
-                            ),
-                            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                            EntriesCF = entries_cf(Ledger),
+                            Entry1 = EntryMod:new( Nonce, (Balance - AmountOrAmounts)),
+                            Bin = EntryMod:serialize(Entry1),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
-                            {error, {insufficient_balance, {Amount, Balance}}}
+                            {error, {insufficient_balance, {AmountOrAmounts, Balance}}}
                     end;
                 false ->
-                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
+                    {error, {bad_nonce, {payment, Nonce, EntryMod:nonce(Entry)}}}
+            end
+    end;
+debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_map(AmountOrAmounts) ->
+    %% For consistency sake we'll get the entry mod here as well (it should ideally always be v2)
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            case Nonce =:= EntryMod:nonce(Entry) + 1 of
+                true ->
+                    case lists:all(
+                      fun(TT) ->
+                              EntryMod:balance(Entry, TT) >= maps:get(TT, AmountOrAmounts, 0)
+                      end,
+                      blockchain_token_v1:supported_tokens())
+                    of
+                        true ->
+                            Entry0 = maps:fold(
+                                       fun(TT, Amt, Acc) ->
+                                               EntryMod:debit(Acc, Amt, TT)
+                                       end, Entry, AmountOrAmounts),
+                            Entry1 = EntryMod:nonce(Entry0, Nonce),
+                            Bin = EntryMod:serialize(Entry1),
+                            cache_put(Ledger, EntriesCF, Address, Bin);
+                        false ->
+                            {error, {insufficient_balance, {libp2p_crypto:bin_to_b58(Address), AmountOrAmounts}}}
+                    end;
+                false ->
+                    {error, {bad_nonce, {payment_v2, Nonce, EntryMod:nonce(Entry)}}}
             end
     end.
 
+
 -spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger(), blockchain_txn:hash(), blockchain:blockchain()) -> ok | {error, any()}.
 debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = EntryMod:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
                     case application:get_env(blockchain, store_implicit_burns, false) of
@@ -3053,12 +3301,8 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
                         false ->
                             ok
                     end,
-                    Entry1 = blockchain_ledger_entry_v1:new(
-                        blockchain_ledger_entry_v1:nonce(Entry),
-                        (Balance - Fee)
-                    ),
-                    EntryBin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    EntriesCF = entries_cf(Ledger),
+                    Entry1 = EntryMod:new(EntryMod:nonce(Entry), (Balance - Fee)),
+                    EntryBin = EntryMod:serialize(Entry1),
                     cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
                     {error, {insufficient_balance_for_fee, {Fee, Balance}}}
@@ -3067,11 +3311,12 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
 
 -spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 check_balance(Address, Amount, Ledger) ->
+    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = EntryMod:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
                     {error, {insufficient_balance, {Amount, Balance}}};
@@ -4118,68 +4363,78 @@ get_block_info(Height, #ledger_v1{blocks_db = DB,
             end
     end.
 
--spec default_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec default_cf(ledger()) -> tagged_cf().
 default_cf(Ledger) ->
     SL = subledger(Ledger),
     {default, db(Ledger), SL#sub_ledger_v1.default}.
 
--spec active_gateways_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec active_gateways_cf(ledger()) -> tagged_cf().
 active_gateways_cf(Ledger) ->
     SL = subledger(Ledger),
     {active_gateways, db(Ledger), SL#sub_ledger_v1.active_gateways}.
 
--spec gw_denorm_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec gw_denorm_cf(ledger()) -> tagged_cf().
 gw_denorm_cf(Ledger) ->
     SL = subledger(Ledger),
     {gw_denorm, db(Ledger), SL#sub_ledger_v1.gw_denorm}.
 
--spec entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec entries_cf(ledger()) -> tagged_cf().
 entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {entries, db(Ledger), SL#sub_ledger_v1.entries}.
 
--spec dc_entries_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec entries_v2_cf(ledger()) -> tagged_cf().
+entries_v2_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {entries_v2, db(Ledger), SL#sub_ledger_v1.entries_v2}.
+
+-spec subnetworks_v1_cf(ledger()) -> tagged_cf().
+subnetworks_v1_cf(Ledger) ->
+    SL = subledger(Ledger),
+    {subnetworks_v1, db(Ledger), SL#sub_ledger_v1.subnetworks_v1}.
+
+-spec dc_entries_cf(ledger()) -> tagged_cf().
 dc_entries_cf(Ledger) ->
     SL = subledger(Ledger),
     {dc_entries, db(Ledger), SL#sub_ledger_v1.dc_entries}.
 
--spec htlcs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec htlcs_cf(ledger()) -> tagged_cf().
 htlcs_cf(Ledger) ->
     SL = subledger(Ledger),
     {htlcs, db(Ledger), SL#sub_ledger_v1.htlcs}.
 
--spec pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec pocs_cf(ledger()) -> tagged_cf().
 pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {pocs, db(Ledger), SL#sub_ledger_v1.pocs}.
 
--spec proposed_pocs_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec proposed_pocs_cf(ledger()) -> tagged_cf().
 proposed_pocs_cf(Ledger) ->
     SL = subledger(Ledger),
     {proposed_pocs, db(Ledger), SL#sub_ledger_v1.proposed_pocs}.
 
--spec securities_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec securities_cf(ledger()) -> tagged_cf().
 securities_cf(Ledger) ->
     SL = subledger(Ledger),
     {securities, db(Ledger), SL#sub_ledger_v1.securities}.
 
 
--spec routing_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec routing_cf(ledger()) -> tagged_cf().
 routing_cf(Ledger) ->
     SL = subledger(Ledger),
     {routing, db(Ledger), SL#sub_ledger_v1.routing}.
 
--spec subnets_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec subnets_cf(ledger()) -> tagged_cf().
 subnets_cf(Ledger) ->
     SL = subledger(Ledger),
     {subnets, db(Ledger), SL#sub_ledger_v1.subnets}.
 
--spec state_channels_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec state_channels_cf(ledger()) -> tagged_cf().
 state_channels_cf(Ledger) ->
     SL = subledger(Ledger),
     {state_channels, db(Ledger), SL#sub_ledger_v1.state_channels}.
 
--spec h3dex_cf(ledger()) -> {atom(), rocksdb:db_handle(), rocksdb:cf_handle()}.
+-spec h3dex_cf(ledger()) -> tagged_cf().
 h3dex_cf(Ledger) ->
     SL = subledger(Ledger),
     {h3dex, db(Ledger), SL#sub_ledger_v1.h3dex}.
@@ -4486,7 +4741,7 @@ open_db_(DBDir, DBOptions, DefaultCFs, CFOpts, ReadOnly, Retry) ->
 default_cfs() ->
     ["default", "active_gateways", "entries", "dc_entries", "htlcs",
      "pocs", "proposed_pocs", "securities", "routing", "subnets",
-     "state_channels", "h3dex", "gw_denorm", "validators"].
+     "state_channels", "h3dex", "gw_denorm", "validators", "entries_v2", "subnetworks_v1"].
 
 -spec delayed_cfs() -> list().
 delayed_cfs() ->
@@ -5130,12 +5385,13 @@ get_cooldown_stake(Val, Ledger) ->
 
 -spec query_circulating_hnt(Ledger :: ledger()) -> non_neg_integer().
 query_circulating_hnt(Ledger) ->
+    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     cache_fold(
       Ledger,
       entries_cf(Ledger),
       fun({_Addr, BinEnt}, Acc) ->
-              Ent = blockchain_ledger_entry_v1:deserialize(BinEnt),
-              Acc + blockchain_ledger_entry_v1:balance(Ent)
+              Ent = EntryMod:deserialize(BinEnt),
+              Acc + EntryMod:balance(Ent)
       end,
       0
      ).
@@ -5601,10 +5857,10 @@ snapshot_accounts(Ledger) ->
     lists:sort(maps:to_list(entries(Ledger))).
 
 load_accounts(Accounts, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     maps:map(
       fun(Address, Entry) ->
-              BEntry = blockchain_ledger_entry_v1:serialize(Entry),
+              BEntry = EntryMod:serialize(Entry),
               cache_put(Ledger, EntriesCF, Address, BEntry)
       end,
       maps:from_list(Accounts)),

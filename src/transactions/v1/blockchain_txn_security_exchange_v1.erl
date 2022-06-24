@@ -190,34 +190,41 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_security_exchange_v1_pb:encode_msg(BaseTxn),
-    case blockchain_txn:validate_fields([{{payee, Payee}, {address, libp2p}}]) of
-        ok ->
-            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                false ->
-                    {error, bad_signature};
-                true ->
-                    case Payer == Payee of
+
+    case blockchain:config(?deprecate_security_exchange_v1, Ledger) of
+        {ok, true} ->
+            {error, security_exchange_v1_deprecated};
+        _ ->
+            case blockchain_txn:validate_fields([{{payee, Payee}, {address, libp2p}}]) of
+                ok ->
+                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                         false ->
-                            Amount = ?MODULE:amount(Txn),
-                            case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
-                                ok ->
-                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                        false ->
-                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
-                                        true ->
-                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
-                                    end;
-                                Error ->
-                                    Error
-                            end;
+                            {error, bad_signature};
                         true ->
-                            {error, invalid_transaction_self_payment}
-                    end
-            end;
-        Error -> Error
+                            case Payer == Payee of
+                                false ->
+                                    Amount = ?MODULE:amount(Txn),
+                                    case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
+                                        ok ->
+                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                false ->
+                                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
+                                                true ->
+                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                            end;
+                                        Error ->
+                                            Error
+                                    end;
+                                true ->
+                                    {error, invalid_transaction_self_payment}
+                            end
+                    end;
+                Error -> Error
+            end
     end.
+
 
 %%--------------------------------------------------------------------
 %% @doc

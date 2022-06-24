@@ -87,7 +87,9 @@ init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsens
 
 init_chain_with_opts(Opts) when is_map(Opts) ->
     Balance = maps:get(balance, Opts, 5000),
+    SecBalance = maps:get(sec_balance, Opts, 5000),
     ExtraVars = maps:get(extra_vars, Opts, #{}),
+    TokenAllocations = maps:get(token_allocations, Opts, undefined),
     GenesisMembers =
         case maps:find(genesis_members, Opts) of
             {ok, ConsensusMembers0} ->
@@ -101,8 +103,22 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
-    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- GenesisMembers],
+    GenPaymentTxs =
+    case TokenAllocations of
+        undefined ->
+            %% Do old style
+            [blockchain_txn_coinbase_v1:new(Addr, Balance)
+                             || {Addr, _} <- GenesisMembers];
+        TokenMap ->
+            lists:flatten(
+              maps:fold(
+              fun(TT, Bal, Acc) ->
+                      X = [blockchain_txn_coinbase_v1:new(Addr, Bal, TT) || {Addr, _} <- GenesisMembers],
+                      [X |  Acc]
+              end, [], TokenMap))
+
+    end,
+
     GenDCsTxs =
         [
             blockchain_txn_dc_coinbase_v1:new(Addr, Balance)
@@ -111,7 +127,7 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
             maps:get(have_init_dc, Opts, false)
         ],
 
-    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
+    GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, SecBalance)
                      || {Addr, _} <- GenesisMembers],
 
     Addresses = [Addr || {Addr, _} <- GenesisMembers],

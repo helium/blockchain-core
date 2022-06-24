@@ -47,7 +47,11 @@
              | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
              | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat()
              | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2()
-             | blockchain_txn_poc_receipts_v2:txn_poc_receipts_v2().
+             | blockchain_txn_poc_receipts_v2:txn_poc_receipts_v2()
+             | blockchain_txn_add_subnetwork_v1:txn_add_subnetwork_v1()
+             | blockchain_txn_update_subnetwork_v1:txn_update_subnetwork_v1()
+             | blockchain_txn_subnetwork_rewards_v1:txn_subnetwork_rewards_v1()
+             | blockchain_txn_token_redeem_v1:txn_token_redeem_v1().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -139,7 +143,11 @@
     {blockchain_txn_gen_price_oracle_v1, 34},
     {blockchain_txn_consensus_group_failure_v1, 35},
     {blockchain_txn_transfer_hotspot_v2, 36},
-    {blockchain_txn_poc_receipts_v2, 37}
+    {blockchain_txn_poc_receipts_v2, 37},
+    {blockchain_txn_add_subnetwork_v1, 38},
+    {blockchain_txn_update_subnetwork_v1, 39},
+    {blockchain_txn_subnetwork_rewards_v1, 40},
+    {blockchain_txn_token_redeem_v1, 41}
 ]).
 
 block_delay() ->
@@ -250,8 +258,15 @@ wrap_txn(#blockchain_txn_consensus_group_failure_v1_pb{} = Txn) ->
 wrap_txn(#blockchain_txn_transfer_hotspot_v2_pb{}=Txn) ->
     #blockchain_txn_pb{txn={transfer_hotspot_v2, Txn}};
 wrap_txn(#blockchain_txn_poc_receipts_v2_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={poc_receipts_v2, Txn}}.
-
+    #blockchain_txn_pb{txn={poc_receipts_v2, Txn}};
+wrap_txn(#blockchain_txn_add_subnetwork_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={add_subnetwork, Txn}};
+wrap_txn(#blockchain_txn_update_subnetwork_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={update_subnetwork, Txn}};
+wrap_txn(#blockchain_txn_subnetwork_rewards_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={subnetwork_rewards, Txn}};
+wrap_txn(#blockchain_txn_token_redeem_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={token_redeem, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -710,7 +725,15 @@ type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
 type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
     blockchain_txn_transfer_hotspot_v2;
 type(#blockchain_txn_poc_receipts_v2_pb{}) ->
-    blockchain_txn_poc_receipts_v2.
+    blockchain_txn_poc_receipts_v2;
+type(#blockchain_txn_add_subnetwork_v1_pb{}) ->
+    blockchain_txn_add_subnetwork_v1;
+type(#blockchain_txn_update_subnetwork_v1_pb{}) ->
+    blockchain_txn_update_subnetwork_v1;
+type(#blockchain_txn_subnetwork_rewards_v1_pb{}) ->
+    blockchain_txn_subnetwork_rewards_v1;
+type(#blockchain_txn_token_redeem_v1_pb{}) ->
+    blockchain_txn_token_redeem_v1.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
