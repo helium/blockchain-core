@@ -32,49 +32,20 @@ close(_HandlerPid)->
 -spec init(atom(), grpcbox_stream:t()) -> grpcbox_stream:t().
 init(_RPC, StreamState)->
     lager:debug("initiating grpc state channel server handler with state ~p", [StreamState]),
-    HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
-    OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
-    Blockchain = blockchain_worker:blockchain(),
-    Ledger = blockchain:ledger(Blockchain),
-    Self = self(),
-    case blockchain:config(?sc_version, Ledger) of
-        %% In this case only sc_version=2 is handling banners
-        %% version 1 never had them and banner will be removed form future versions
-        {ok, 2} ->
-            ActiveSCs =
-                e2qc:cache(
-                    ?MODULE,
-                    active_list,
-                    10,
-                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
-                ),
-            case ActiveSCs of
-                [] ->
-                    SCBanner = blockchain_state_channel_banner_v1:new(),
-                    lager:debug("blockchain_grpc_sc_server_handler, empty banner: ~p", [SCBanner]),
-                    Self ! {send_banner, SCBanner};
-                ActiveSCs ->
-                    [{_SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
-                    SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    Self ! {send_banner, SCBanner}
-            end;
-        _ ->
-            noop
-    end,
-    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod,OfferLimit, false),
+    HandlerState = grpcbox_stream:stream_handler_state(StreamState),
+    NewHandlerState = maybe_initialize_state(HandlerState),
     grpcbox_stream:stream_handler_state(
         StreamState,
-        HandlerState
+        NewHandlerState
     ).
 
 -spec msg(blockchain_state_channel_v1:message(), grpcbox_stream:t()) -> grpcbox_stream:t().
 msg(#blockchain_state_channel_message_v1_pb{msg = Msg}, StreamState) ->
     lager:debug("grpc msg called with  ~p and state ~p", [Msg, StreamState]),
     HandlerState = grpcbox_stream:stream_handler_state(StreamState),
-    Chain =  blockchain_state_channel_common:chain(HandlerState),
-
     %% get our chain and only handle the request if the chain is up
     %% if chain not up we have no way to return routing data so just return a 14/503
+    Chain =  blockchain_worker:cached_blockchain(),
     case is_chain_ready(Chain) of
         false ->
             {grpc_error,
@@ -133,3 +104,42 @@ is_chain_ready(undefined) ->
     false;
 is_chain_ready(_Chain) ->
     true.
+
+%% handler state if not initialized will be undefined otherwise will be a record
+-spec maybe_initialize_state(
+    blockchain_state_channel_common:handler_state() | undefined) ->
+    blockchain_state_channel_common:handler_state().
+maybe_initialize_state(undefined) ->
+    HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
+    OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
+    Blockchain = blockchain_worker:cached_blockchain(),
+    Ledger = blockchain:ledger(Blockchain),
+    Self = self(),
+    case blockchain_ledger_v1:config(?sc_version, Ledger) of
+        %% In this case only sc_version=2 is handling banners
+        %% version 1 never had them and banner will be removed form future versions
+        {ok, 2} ->
+            ActiveSCs =
+                e2qc:cache(
+                    ?MODULE,
+                    active_list,
+                   30,
+                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
+                ),
+            case ActiveSCs of
+                [] ->
+                    SCBanner = blockchain_state_channel_banner_v1:new(),
+                    lager:debug("blockchain_grpc_sc_server_handler, empty banner: ~p", [SCBanner]),
+                    Self ! {send_banner, SCBanner};
+                ActiveSCs ->
+                    [{_SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
+                    SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
+                    Self ! {send_banner, SCBanner}
+            end;
+        _ ->
+            noop
+    end,
+    blockchain_state_channel_common:new_handler_state(#{}, [], HandlerMod,OfferLimit, false);
+maybe_initialize_state(HandlerState) ->
+    HandlerState.
+

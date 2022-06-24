@@ -15,7 +15,9 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
+    make_ets_table/0,
     blockchain/0, blockchain/1,
+    cached_blockchain/0,
     num_consensus_members/0,
     consensus_addrs/0,
     integrate_genesis_block/1,
@@ -78,6 +80,9 @@
 -define(WEEK_OLD_SECONDS, 7*24*60*60). %% a week's worth of seconds
 -define(MAX_ATTEMPTS, 3).
 
+-define(CACHE, worker_cache).
+-define(CHAIN, chain).
+
 -ifdef(TEST).
 -define(SYNC_TIME, 1000).
 -else.
@@ -121,7 +126,30 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, [{hibernate_after, 5000}]).
+    Res = gen_server:start_link({local, ?SERVER}, ?SERVER, Args, [{hibernate_after, 5000}]),
+    case Res of
+        {ok, Pid} ->
+            %% if we have an ETS table reference, give ownership to the new process
+            %% we likely are the `heir', so we'll get it back if this process dies
+            case proplists:get_value(ets_cache, Args, not_found) of
+                not_found ->
+                    %% should ever hit here but ok....
+                    ok;
+                Tab ->
+                    true = ets:give_away(Tab, Pid, undefined)
+            end;
+        _ ->
+            ok
+    end,
+    Res.
+
+-spec make_ets_table() ->  ets:tab().
+make_ets_table() ->
+    ets:new(?CACHE,
+            [named_table,
+             public,  %% public as ?MODULE:init needs to write chain to the table. TODO: move chain load out of init and make this table protected
+             {read_concurrency, true},
+             {heir, self(), undefined}]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -134,6 +162,14 @@ blockchain() ->
 -spec blockchain(blockchain:blockchain()) -> ok.
 blockchain(Chain) ->
     gen_server:call(?SERVER, {blockchain, Chain}, infinity).
+
+-spec cached_blockchain() -> blockchain:blockchain()  | undefined.
+cached_blockchain() ->
+    try ets:lookup_element(?CACHE, ?CHAIN, 2) of
+        X -> X
+    catch
+        _:_ -> undefined
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -387,6 +423,7 @@ init(Args) ->
                      [ libp2p_swarm:listen(SwarmTID, Addr) || Addr <- ListenAddrs ]),
     NewState = #state{swarm_tid = SwarmTID, blockchain = Blockchain,
                 gossip_ref = Ref},
+    true = ets:insert(?CACHE, {?CHAIN, Blockchain}),
     {Mode, Info} = get_sync_mode(NewState),
     SnapshotTimerRef = schedule_snapshot_timer(),
     case application:get_env(blockchain, disable_prewarm, false) of
@@ -420,6 +457,7 @@ handle_call({blockchain, NewChain}, _From, #state{swarm_tid = SwarmTID} = State)
     notify({new_chain, NewChain}),
     remove_handlers(SwarmTID),
     {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
+    true = ets:insert(?CACHE, {?CHAIN, NewChain}),
     {reply, ok, State#state{blockchain = NewChain, gossip_ref = GossipRef}};
 handle_call({new_ledger, Dir}, _From, #state{blockchain=Chain}=State) ->
     %% We do this here so the same process that normally owns the ledger
@@ -486,6 +524,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
                     set_resyncing(ChainHeight, LedgerHeight, NewChain)
             end,
             blockchain_lock:release(),
+            true = ets:insert(?CACHE, {?CHAIN, NewChain}),
             {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
                                                blockchain = NewChain, gossip_ref = GossipRef})};
         true ->
@@ -506,6 +545,7 @@ handle_call({install_aux_snapshot, Snapshot}, _From,
     {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
     notify({new_chain, NewChain}),
     blockchain_lock:release(),
+    true = ets:insert(?CACHE, {?CHAIN, NewChain}),
     {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
                                        blockchain = NewChain, gossip_ref = GossipRef})};
 
@@ -538,16 +578,19 @@ handle_call({add_commit_hook, CF, HookIncFun, HookEndFun} , _From, #state{blockc
     Ledger = blockchain:ledger(Chain),
     {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookIncFun, HookEndFun, Ledger),
     Chain1 = blockchain:ledger(Ledger1, Chain),
+    true = ets:insert(?CACHE, {?CHAIN, Chain1}),
     {reply, Ref, State#state{blockchain = Chain1}};
 handle_call({add_commit_hook, CF, HookIncFun, HookEndFun, Pred} , _From, #state{blockchain = Chain} = State) ->
     Ledger = blockchain:ledger(Chain),
     {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookIncFun, HookEndFun, Pred, Ledger),
     Chain1 = blockchain:ledger(Ledger1, Chain),
+    true = ets:insert(?CACHE, {?CHAIN, Chain1}),
     {reply, Ref, State#state{blockchain = Chain1}};
 handle_call({remove_commit_hook, RefOrCF} , _From, #state{blockchain = Chain} = State) ->
     Ledger = blockchain:ledger(Chain),
     Ledger1 = blockchain_ledger_v1:remove_commit_hook(RefOrCF, Ledger),
     Chain1 = blockchain:ledger(Ledger1, Chain),
+    true = ets:insert(?CACHE, {?CHAIN, Chain1}),
     {reply, ok, State#state{blockchain = Chain1}};
 
 handle_call(_Msg, _From, State) ->
@@ -557,6 +600,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Blockchain, Ref} = load_chain(State#state.swarm_tid, BaseDir, GenDir),
     {Mode, Info} = get_sync_mode(State#state{blockchain=Blockchain, gossip_ref=Ref}),
+    true = ets:insert(?CACHE, {?CHAIN, Blockchain}),
     NewState = State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info},
     notify({new_chain, Blockchain}),
     {noreply, NewState};
@@ -743,6 +787,7 @@ handle_info({'DOWN', RocksGCRef, process, RocksGCPid, Reason},
     {noreply, State#state{rocksdb_gc_mref = undefined}};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    true = ets:insert(?CACHE, {?CHAIN, NC}),
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
@@ -805,6 +850,7 @@ integrate_genesis_block_(
                     blockchain = Chain,
                     gossip_ref = GossipRef
                 },
+            true = ets:insert(?CACHE, {?CHAIN, Chain}),
             {Mode, SyncInfo} = get_sync_mode(S1),
             {ok, S1#state{mode=Mode, snapshot_info=SyncInfo}}
     end;
