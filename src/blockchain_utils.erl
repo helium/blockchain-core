@@ -43,6 +43,7 @@
     get_boolean_os_env_var/2,
     streaming_file_hash/1,
     streaming_transform_iolist/2,
+    b58_keys_to_seed_words/2,
 
     %% exports for simulations
     free_space_path_loss/4,
@@ -59,6 +60,8 @@
     teardown_var_cache/0,
     init_var_cache/0,
     target_v_to_mod/1
+
+
 
 ]).
 
@@ -675,6 +678,30 @@ do_transform_iolist(_L, Pos, End, Fun) when Pos >= End ->
 do_transform_iolist(L, Pos, End, Fun) ->
     Fun(lists:sublist(L, Pos, 32000)),
     do_transform_iolist(L, Pos+32000, End, Fun).
+
+%% @doc Given a libp2p_crypto public+private keypair encoded as B58,
+%% return the BIP39 seed words for private key import into the helium
+%% wallet cli
+%%
+%% This is mostly useful for test networks where the genesis block
+%% establishes a set of keypairs with premine tokens to be used for
+%% things like asserting gateways and the like.
+%%
+%% Once you have the seed phrase, you can import the seed phrase to
+%% the helium wallet by doing something like:
+%%
+%% helium-wallet create basic --seed bip39 0 1
+%%
+%% The word list can be found at
+%% https://github.com/helium/helium-wallet-rs/blob/master/src/mnemonic/wordlists/english.txt
+b58_keys_to_seed_words(B58Key, WordPath) ->
+    {ok, WordsBlob} = file:read_file(WordPath),
+    WordList = string:tokens(erlang:binary_to_list(WordsBlob), "\n"),
+
+    <<_Network:4, _KeyType:4, PrivVec:32/binary, _Rest/binary>> = base58:base58_to_binary(B58Key),
+    <<ChecksumByte:1/binary, _Ignore/binary>> = crypto:hash(sha256, PrivVec),
+    WordIdxs = [ X || <<X:11/unsigned-integer>> <= <<PrivVec/binary, ChecksumByte/binary>> ],
+    [ lists:nth(X+1, WordList) || X <- WordIdxs ].
 
 majority(N) ->
     (N div 2) + 1.
