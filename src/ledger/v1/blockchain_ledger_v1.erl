@@ -1354,7 +1354,7 @@ subnetworks_v1(Ledger) ->
         SubnetworksV1CF,
         fun({TT, Binary}, Acc) ->
             SN = blockchain_ledger_subnetwork_v1:deserialize(Binary),
-            maps:put(binary_to_atom(TT), SN, Acc)
+            maps:put(binary_to_atom(TT, utf8), SN, Acc)
         end,
         #{}
     ).

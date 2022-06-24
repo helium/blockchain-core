@@ -97,10 +97,7 @@ sign_subnetwork(Txn, SigFun) ->
 
 -spec hash(txn_add_subnetwork()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#blockchain_txn_add_subnetwork_v1_pb{
-        network_signature = <<>>,
-        subnetwork_signature = <<>>
-    },
+    BaseTxn = unset_signatures(Txn),
     EncodedTxn = blockchain_txn_add_subnetwork_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 

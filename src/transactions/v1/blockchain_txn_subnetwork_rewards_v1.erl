@@ -42,8 +42,8 @@
 -endif.
 
 -type txn_subnetwork_rewards_v1() :: #blockchain_txn_subnetwork_rewards_v1_pb{}.
--type subnetwork_reward_v1() :: #blockchain_txn_subnetwork_reward_v1_pb{}.
--type rewards() :: [subnetwork_reward_v1()].
+-type subnetwork_reward() :: #subnetwork_reward_pb{}.
+-type rewards() :: [subnetwork_reward()].
 
 -export_type([txn_subnetwork_rewards_v1/0]).
 
@@ -83,20 +83,20 @@ end_epoch(#blockchain_txn_subnetwork_rewards_v1_pb{end_epoch = End}) ->
 rewards(#blockchain_txn_subnetwork_rewards_v1_pb{rewards = Rewards}) ->
     Rewards.
 
--spec reward_account(subnetwork_reward_v1()) -> binary().
-reward_account(#blockchain_txn_subnetwork_reward_v1_pb{account = Account}) ->
+-spec reward_account(subnetwork_reward()) -> binary().
+reward_account(#subnetwork_reward_pb{account = Account}) ->
     Account.
 
--spec reward_amount(subnetwork_reward_v1()) -> non_neg_integer().
-reward_amount(#blockchain_txn_subnetwork_reward_v1_pb{amount = Amount}) ->
+-spec reward_amount(subnetwork_reward()) -> non_neg_integer().
+reward_amount(#subnetwork_reward_pb{amount = Amount}) ->
     Amount.
 
 -spec new_reward(
     Account :: libp2p_crypto:pubkey_bin(),
     Amount :: non_neg_integer()
-) -> subnetwork_reward_v1().
+) -> subnetwork_reward().
 new_reward(Account, Amount) ->
-    #blockchain_txn_subnetwork_reward_v1_pb{account = Account, amount = Amount}.
+    #subnetwork_reward_pb{account = Account, amount = Amount}.
 
 reward_server_signature(#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_signature = RSS}) ->
     RSS.
@@ -163,40 +163,6 @@ is_valid(Txn, Chain) ->
     ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-
-    case blockchain:config(?net_emissions_enabled, Ledger) of
-        {ok, true} ->
-            %% initial proposed max 34.24
-            {ok, Max} = blockchain:config(?net_emissions_max_rate, Ledger),
-            {ok, Burned} = blockchain_ledger_v1:hnt_burned(Ledger),
-            {ok, Overage} = blockchain_ledger_v1:net_overage(Ledger),
-
-            %% clear this since we have it already
-            ok = blockchain_ledger_v1:clear_hnt_burned(Ledger),
-
-            case Burned > Max of
-                %% if burned > max, then add (burned - max) to overage
-                true ->
-                    Overage1 = Overage + (Burned - Max),
-                    ok = blockchain_ledger_v1:net_overage(Overage1, Ledger);
-                %% else we may have pulled from overage to the tune of
-                %% max - burned
-                _ ->
-                    %% here we pulled from overage up to max
-                    case (Max - Burned) < Overage of
-                        %% emitted max, pulled from overage
-                        true ->
-                            Overage1 = Overage - (Max - Burned),
-                            ok = blockchain_ledger_v1:net_overage(Overage1, Ledger);
-                        %% not enough overage to emit up to max, 0 overage
-                        _ ->
-                            ok = blockchain_ledger_v1:net_overage(0, Ledger)
-                    end
-            end;
-        _ ->
-            ok
-    end,
-
     %% these rewards are the same no matter the ledger
     TokenType = token_type(Txn),
     TotalRewards = total_rewards(Txn),
@@ -217,7 +183,7 @@ absorb(Txn, Chain) ->
 ) -> ok.
 absorb_rewards(TokenType, Rewards, Ledger) ->
     lists:foreach(
-        fun(#blockchain_txn_subnetwork_reward_v1_pb{account = Account, amount = Amount}) ->
+        fun(#subnetwork_reward_pb{account = Account, amount = Amount}) ->
             ok = blockchain_ledger_v1:credit_account(Account, Amount, TokenType, Ledger)
         end,
         Rewards
@@ -255,10 +221,10 @@ json_type() ->
 -spec to_json(txn_subnetwork_rewards_v1(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
     Rewards = lists:foldl(
-        fun(#blockchain_txn_subnetwork_reward_v1_pb{account = Account, amount = Amount}, Acc) ->
+        fun(#subnetwork_reward_pb{account = Account, amount = Amount}, Acc) ->
             [
                 #{
-                    type => <<"subnetwork_reward_v1">>,
+                    type => <<"subnetwork_reward">>,
                     account => ?BIN_TO_B58(Account),
                     amount => Amount
                 }
