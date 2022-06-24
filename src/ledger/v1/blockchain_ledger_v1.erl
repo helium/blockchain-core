@@ -2997,10 +2997,16 @@ add_subnetwork(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys, Ledger) 
     SubnetworksV1CF = subnetworks_v1_cf(Ledger),
     case ?MODULE:find_subnetwork_v1(TT, Ledger) of
         {error, subnetwork_not_found} ->
-            %% Only add subnetwork if it is not found on ledger
-            SN = blockchain_ledger_subnetwork_v1:new(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys),
-            Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
-            cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin);
+            case lists:member(TT, blockchain_token_v1:supported_tokens()) of
+                false ->
+                    %% We do not support this token type
+                    {error, {unsupported_subnetwork, TT}};
+                true ->
+                    %% Only add subnetwork if it is not found on ledger
+                    SN = blockchain_ledger_subnetwork_v1:new(TT, TokenTreasury, HNTTreasury, SNKey, RewardServerKeys),
+                    Bin = blockchain_ledger_subnetwork_v1:serialize(SN),
+                    cache_put(Ledger, SubnetworksV1CF, atom_to_binary(TT, utf8), Bin)
+            end;
         {ok, _SN} ->
             {error, subnetwork_already_exists};
         {error, _}=Error ->
