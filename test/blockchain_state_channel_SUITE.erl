@@ -134,11 +134,10 @@ init_per_testcase(Test, Config) ->
     %% nodes are connected to a majority of the group but that does not
     %% guarantee these two nodes are connected
 
-    [RouterNode, GatewayNode] =
+    {RouterNode, GatewayNode} =
         blockchain_ct_utils:find_connected_node_pair(NodeAddrList),
     Nodes =
-        [RouterNode, GatewayNode] ++ (InitNodes -- [RouterNode, GatewayNode]),
-
+        [RouterNode, GatewayNode | (InitNodes -- [RouterNode, GatewayNode])],
 
     Dir = os:getenv("SC_DIR", ""),
     debug_modules_for_node(
@@ -219,8 +218,8 @@ init_per_testcase(Test, Config) ->
     ConsensusMembers = get_consensus_members(Nodes, ConsensusAddrs),
     [
         {connected_nodes, [RouterNode, GatewayNode]},
-        {routernode, RouterNode},
-        {gatewaynode, GatewayNode},
+        {router_node, RouterNode},
+        {gateway_node, GatewayNode},
         {nodes, Nodes},
         {consensus_members, ConsensusMembers},
         {master_key, MasterKey}
@@ -245,8 +244,8 @@ end_per_suite(_) ->
 %%--------------------------------------------------------------------
 
 full_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -380,7 +379,7 @@ diff_test(Config) ->
 
     %% Get router chain, swarm and pubkey_bin
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterSwarmTID = ct_rpc:call(RouterNode, blockchain_swarm, tid, []),
     RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
     ct:pal("RouterNode ~p", [RouterNode]),
     ct:pal("Gateway node1 ~p", [GatewayNode1]),
@@ -405,7 +404,7 @@ diff_test(Config) ->
     ct:pal("Block0: ~p", [Block0]),
 
     %% Fake gossip block
-    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarmTID]),
 
     %% Wait till the block is gossiped
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
@@ -505,8 +504,8 @@ diff_test(Config) ->
     ok.
 
 overspent_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -634,8 +633,8 @@ overspent_test(Config) ->
     ok.
 
 dup_packets_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -732,8 +731,8 @@ dup_packets_test(Config) ->
     ok.
 
 cached_routing_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -809,8 +808,8 @@ cached_routing_test(Config) ->
     ok.
 
 max_actor_cache_eviction_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -947,8 +946,8 @@ max_actor_cache_eviction_test(Config) ->
 
 
 max_actor_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1080,8 +1079,8 @@ max_actor_test(Config) ->
     ok.
 
 replay_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1177,8 +1176,8 @@ replay_test(Config) ->
     ok.
 
 multiple_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1442,8 +1441,8 @@ multi_owner_multi_sc_test(Config) ->
     ok.
 
 multi_active_sc_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1604,7 +1603,7 @@ multi_active_sc_test(Config) ->
     ok.
 
 open_without_oui_test(Config) ->
-    RouterNode = ?config(routernode, Config),
+    RouterNode = ?config(router_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1623,7 +1622,7 @@ open_without_oui_test(Config) ->
     ok.
 
 max_scs_open_test(Config) ->
-    RouterNode = ?config(routernode, Config),
+    RouterNode = ?config(router_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -1665,7 +1664,7 @@ max_scs_open_test(Config) ->
     ok.
 
 max_scs_open_v2_test(Config) ->
-    RouterNode = ?config(routernode, Config),
+    RouterNode = ?config(router_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     Self = self(),
@@ -1951,7 +1950,7 @@ sc_dispute_prevention_test(Config) ->
 
 
 oui_not_found_test(Config) ->
-    RouterNode = ?config(routernode, Config),
+    RouterNode = ?config(router_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2023,8 +2022,8 @@ unknown_owner_test(Config) ->
     ok.
 
 crash_single_sc_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2132,8 +2131,8 @@ crash_single_sc_test(Config) ->
     ok.
 
 crash_multi_sc_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2314,8 +2313,8 @@ crash_multi_sc_test(Config) ->
     ok.
 
 crash_sc_sup_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2425,8 +2424,8 @@ crash_sc_sup_test(Config) ->
     ok.
 
 hotspot_in_router_oui_test(Config) ->
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
@@ -2538,8 +2537,8 @@ hotspot_in_router_oui_test(Config) ->
 
 default_routers_test(Config) ->
     Nodes = ?config(nodes, Config),
-    RouterNode = ?config(routernode, Config),
-    GatewayNode1 = ?config(gatewaynode, Config),
+    RouterNode = ?config(router_node, Config),
+    GatewayNode1 = ?config(gateway_node, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
     %% Get router chain, swarm and pubkey_bin
