@@ -621,7 +621,7 @@ delayed_absorb(Txn, Ledger) ->
             %% we've invalidated the region cache, so prewarm it.
             spawn(fun() ->
                           timer:sleep(30000),
-                          blockchain_region_v1:prewarm_cache(Ledger)
+                          blockchain_region_v1:prewarm_cache(blockchain_ledger_v1:remove_context(Ledger))
                   end);
         _ ->
             ok

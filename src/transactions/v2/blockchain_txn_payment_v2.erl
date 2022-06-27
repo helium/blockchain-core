@@ -183,6 +183,7 @@ absorb_v2_(Txn, Ledger, Chain) ->
     Nonce = ?MODULE:nonce(Txn),
     TotalAmounts = ?MODULE:total_amounts(Txn, Ledger),
     ShouldImplicitBurn = blockchain_ledger_v1:txn_fees_active(Ledger),
+    {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
     case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, ShouldImplicitBurn, Hash, Chain) of
         {error, _Reason}=Error ->
             Error;
@@ -192,7 +193,6 @@ absorb_v2_(Txn, Ledger, Chain) ->
                     Error;
                 ok ->
                     Payments = ?MODULE:payments(Txn),
-                    {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
                     MaxPaymentsMap = maps:from_list(MaxAmounts),
                     ok = lists:foreach(
                         fun(Payment) ->
@@ -569,7 +569,7 @@ calculate_hnt_fee(Payer, Fee, Ledger) when Fee > 0 ->
             FeeInHNT;
         {ok, Entry} ->
             DCBalance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-            case (DCBalance - Fee >= 0) of
+            case (DCBalance - Fee) >= 0 of
                 true -> 0;
                 false ->
                     {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger),

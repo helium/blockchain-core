@@ -102,14 +102,21 @@ test_cases() ->
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
 
-    Balance = ?config(balance, Config0),
+    Balance = case ?config(balance, Config0) of
+                  undefined -> 5000;
+                  Balance0 -> Balance0
+              end,
 
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
-    GroupVars = ?config(group_vars, Config0),
+    DefaultVars = #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?txn_fees => true},
+    GroupVars = case ?config(group_vars, Config0) of
+                    undefined -> #{};
+                    GroupVars0 -> GroupVars0
+                end,
     ct:pal("group_vars: ~p", [GroupVars]),
     TestCaseVars = test_case_vars(TestCase),
-    ExtraVars = maps:merge(GroupVars, TestCaseVars),
+    ExtraVars = maps:merge(maps:merge(DefaultVars, GroupVars), TestCaseVars),
     ct:pal("extra vars: ~p", [ExtraVars]),
     TokenAllocations = ?config(token_allocations, Config0),
     ct:pal("token_allocations: ~p", [TokenAllocations]),
@@ -124,7 +131,7 @@ init_per_testcase(TestCase, Config) ->
                 in_consensus =>
                     true,
                 have_init_dc =>
-                    true,
+                    false,
                 extra_vars =>
                     ExtraVars,
                 token_allocations =>
@@ -183,6 +190,8 @@ end_per_testcase(_, Config) ->
         false ->
             ok
     end,
+    ct:pal("removing ~p", [?config(base_dir, Config)]),
+    os:cmd("rm -rf " ++ ?config(base_dir, Config)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -252,7 +261,10 @@ single_payee_test(Config) ->
     Amount = 2500,
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
+    Tx = blockchain_txn_payment_v2:fee(
+             blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
+             7
+         ),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -317,7 +329,10 @@ different_payees_test(Config) ->
     Amount2 = 2000,
     Payment2 = blockchain_payment_v2:new(Recipient2, Amount2),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+    Tx = blockchain_txn_payment_v2:fee(
+             blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+             8
+         ),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -417,6 +432,9 @@ balance_clearing_test(Config) ->
     Chain = ?config(chain, Config),
     EntryMod = ?config(entry_mod, Config),
 
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, 1050000000} end),
+
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, {_, Recipient2PrivKey, _}}, {Recipient3, _} | _] =
         ConsensusMembers,
@@ -424,13 +442,17 @@ balance_clearing_test(Config) ->
     %% Create a payment to payee1
     Recipient1 = blockchain_swarm:pubkey_bin(),
     Amount = 2000,
+    Fee1 = 8,
     Payment1 = blockchain_payment_v2:new(Recipient1, Amount),
 
     %% Create a payment to payee2
     Payment2 = blockchain_payment_v2:new(Recipient2, max),
 
     %% Submit a txn with mixed regular and balance-clearing `max' payments
-    Tx1 = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+    Tx1 = blockchain_txn_payment_v2:fee(
+              blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+              Fee1
+          ),
     SigFun1 = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx1 = blockchain_txn_payment_v2:sign(Tx1, SigFun1),
 
@@ -449,16 +471,22 @@ balance_clearing_test(Config) ->
     {ok, RecipientEntry1} = blockchain_ledger_v1:find_entry(Recipient1, Ledger),
     ?assertEqual(Balance + Amount, EntryMod:balance(RecipientEntry1)),
 
+    {ok, HntFee1} = blockchain_ledger_v1:dc_to_hnt(Fee1, Ledger),
+
     {ok, RecipientEntry2_1} = blockchain_ledger_v1:find_entry(Recipient2, Ledger),
-    ?assertEqual(Balance + (Balance - Amount), EntryMod:balance(RecipientEntry2_1)),
+    ?assertEqual(Balance + (Balance - Amount) - HntFee1, EntryMod:balance(RecipientEntry2_1)),
 
     {ok, PayerEntry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(0, EntryMod:balance(PayerEntry)),
 
     %% Normal txn with an explicit amount is still processed normally
     Payment3 = blockchain_payment_v2:new(Recipient3, Amount),
+    Fee2 = 7,
 
-    Tx2 = blockchain_txn_payment_v2:new(Recipient2, [Payment3], 1),
+    Tx2 = blockchain_txn_payment_v2:fee(
+              blockchain_txn_payment_v2:new(Recipient2, [Payment3], 1),
+              Fee2
+          ),
     SigFun2 = libp2p_crypto:mk_sig_fun(Recipient2PrivKey),
     SignedTx2 = blockchain_txn_payment_v2:sign(Tx2, SigFun2),
 
@@ -472,8 +500,9 @@ balance_clearing_test(Config) ->
 
     Ledger2 = blockchain:ledger(Chain),
 
+    {ok, HntFee2} = blockchain_ledger_v1:dc_to_hnt(Fee2, Ledger),
     {ok, RecipientEntry2_2} = blockchain_ledger_v1:find_entry(Recipient2, Ledger2),
-    ?assertEqual((Balance + (Balance - Amount)) - Amount, EntryMod:balance(RecipientEntry2_2)),
+    ?assertEqual((Balance + (Balance - Amount) - HntFee1) - Amount - HntFee2, EntryMod:balance(RecipientEntry2_2)),
 
     {ok, RecipientEntry3_1} = blockchain_ledger_v1:find_entry(Recipient3, Ledger2),
     ?assertEqual(Balance + Amount, EntryMod:balance(RecipientEntry3_1)),
@@ -481,7 +510,10 @@ balance_clearing_test(Config) ->
     %% Balance-clearing `max' txn processed successfully in isolation
     Payment4 = blockchain_payment_v2:new(Recipient3, max),
 
-    Tx3 = blockchain_txn_payment_v2:new(Recipient2, [Payment4], 2),
+    Tx3 = blockchain_txn_payment_v2:fee(
+              blockchain_txn_payment_v2:new(Recipient2, [Payment4], 2),
+              Fee2
+          ),
     SignedTx3 = blockchain_txn_payment_v2:sign(Tx3, SigFun2),
 
     {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedTx3]),
@@ -498,7 +530,9 @@ balance_clearing_test(Config) ->
     ?assertEqual(0, EntryMod:balance(RecipientEntry2_3)),
 
     {ok, RecipientEntry3_2} = blockchain_ledger_v1:find_entry(Recipient3, Ledger3),
-    ?assertEqual(Balance + Balance + (Balance - Amount), EntryMod:balance(RecipientEntry3_2)),
+    ?assertEqual(Balance + Balance + (Balance - Amount) - (HntFee1 + (HntFee2 * 2)), EntryMod:balance(RecipientEntry3_2)),
+
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 invalid_balance_clearing_test(Config) ->
@@ -653,7 +687,10 @@ valid_memo_test(Config) ->
     Payment1 = blockchain_payment_v2:new(Recipient, Amount, Memo),
     Payment2 = blockchain_payment_v2:memo(blockchain_payment_v2:new(OtherRecipient, Amount), Memo),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+    Tx = blockchain_txn_payment_v2:fee(
+             blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+             8
+         ),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -730,7 +767,10 @@ valid_memo_not_set_test(Config) ->
     Memo = 0,
     Payment2 = blockchain_payment_v2:new(Recipient2, Amount, Memo),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+    Tx = blockchain_txn_payment_v2:fee(
+             blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
+             8
+         ),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -801,7 +841,10 @@ big_memo_valid_test(Config) ->
     Amount = 100,
     Payment1 = blockchain_payment_v2:new(Recipient, Amount, ?VALID_GIANT_MEMO),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
+    Tx = blockchain_txn_payment_v2:fee(
+             blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
+             7
+         ),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -856,24 +899,15 @@ big_memo_invalid_test(Config) ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-test_case_vars(big_memo_valid_test) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-test_case_vars(big_memo_invalid_test) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-test_case_vars(valid_memo_test) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-test_case_vars(negative_memo_test) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?allow_payment_v2_memos => true};
-test_case_vars(BCEnabled) when
-    BCEnabled == balance_clearing_test orelse BCEnabled == invalid_balance_clearing_test
-->
-    #{
-        ?max_payments => ?MAX_PAYMENTS,
-        ?allow_zero_amount => false,
-        ?enable_balance_clearing => true
-    };
-test_case_vars(_) ->
-    #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false}.
+test_case_vars(MemoTest) when MemoTest == big_memo_valid_test
+                          orelse MemoTest == big_memo_invalid_test
+                          orelse MemoTest == valid_memo_test
+                          orelse MemoTest == negative_memo_test ->
+    #{?allow_payment_v2_memos => true};
+test_case_vars(BCTest) when BCTest == balance_clearing_test
+                        orelse BCTest == invalid_balance_clearing_test ->
+    #{?enable_balance_clearing => true};
+test_case_vars(_) -> #{}.
 
 %% Helpers --------------------------------------------------------------------
 
@@ -908,7 +942,10 @@ transfer(Amount, {Src, SrcSigFun}, Dst, ExpectHeight, Chain, ConsensusMembers, E
             {error, address_entry_not_found} -> 1;
             {ok, Entry} -> EntryMod:nonce(Entry) + 1
         end,
-    Tx = blockchain_txn_payment_v2:new(Src, [blockchain_payment_v2:new(Dst, Amount)], Nonce),
+    Tx = blockchain_txn_payment_v2:fee(
+             blockchain_txn_payment_v2:new(Src, [blockchain_payment_v2:new(Dst, Amount)], Nonce),
+             7
+         ),
     TxSigned = blockchain_txn_payment_v2:sign(Tx, SrcSigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [TxSigned]),
     _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
