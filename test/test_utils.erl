@@ -148,7 +148,10 @@ init_chain_with_opts(Opts) when is_map(Opts) ->
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
-    ok = test_utils:wait_until(fun() ->{ok, 1} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> case blockchain:height(Chain) of
+                                            {ok, 1} -> true;
+                                            Res -> Res
+                                        end end),
 
     ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
     ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
