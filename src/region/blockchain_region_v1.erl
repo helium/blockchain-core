@@ -173,20 +173,24 @@ polyfill_resolution(Ledger) ->
 prewarm_cache(Ledger) ->
     lager:info("starting cache prewarm: ~p", [h3_to_region]),
     Before = erlang:monotonic_time(second),
-    {ok, RB} = get_all_region_bins(Ledger),
-    blockchain_ledger_v1:cf_fold(
-      active_gateways,
-      fun({_, BG}, Acc) ->
-              G = blockchain_ledger_gateway_v2:deserialize(BG),
-              case blockchain_ledger_gateway_v2:location(G) of
-                  undefined -> Acc;
-                  Loc -> _ = h3_to_region(Loc, Ledger, RB)
-              end
-      end,
-      0, Ledger),
-    Duration = erlang:monotonic_time(second) - Before,
-    lager:info("completed cache prewarm in ~p seconds: ~p", [Duration, h3_to_region]),
-    ok.
+    case get_all_region_bins(Ledger) of
+        {error, regulatory_regions_not_set} ->
+            ok;
+        {ok, RB} ->
+            blockchain_ledger_v1:cf_fold(
+              active_gateways,
+              fun({_, BG}, Acc) ->
+                      G = blockchain_ledger_gateway_v2:deserialize(BG),
+                      case blockchain_ledger_gateway_v2:location(G) of
+                          undefined -> Acc;
+                          Loc -> _ = h3_to_region(Loc, Ledger, RB)
+                      end
+              end,
+              0, Ledger),
+            Duration = erlang:monotonic_time(second) - Before,
+            lager:info("completed cache prewarm in ~p seconds: ~p", [Duration, h3_to_region]),
+            ok
+    end.
 
 clear_cache() ->
     e2qc:teardown(h3_to_region),

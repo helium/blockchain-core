@@ -102,12 +102,18 @@ test_cases() ->
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
 
-    Balance = ?config(balance, Config0),
+    Balance = case ?config(balance, Config0) of
+                  undefined -> 5000;
+                  Balance0 -> Balance0
+              end,
 
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
     DefaultVars = #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false, ?txn_fees => true},
-    GroupVars = ?config(group_vars, Config0),
+    GroupVars = case ?config(group_vars, Config0) of
+                    undefined -> #{};
+                    GroupVars0 -> GroupVars0
+                end,
     ct:pal("group_vars: ~p", [GroupVars]),
     TestCaseVars = test_case_vars(TestCase),
     ExtraVars = maps:merge(maps:merge(DefaultVars, GroupVars), TestCaseVars),
@@ -184,6 +190,8 @@ end_per_testcase(_, Config) ->
         false ->
             ok
     end,
+    ct:pal("removing ~p", [?config(base_dir, Config)]),
+    os:cmd("rm -rf " ++ ?config(base_dir, Config)),
     ok.
 
 %%--------------------------------------------------------------------
