@@ -4,7 +4,7 @@
         try
             rocksdb:iterator_close(IteratorHandle)
         catch ErrorClass:ErrorReason ->
-            lager:error("rocksdb:iterator_close error: ~p:~p", [ErrorClass, ErrorReason])
+            lager:warning("rocksdb:iterator_close error: ~p:~p", [ErrorClass, ErrorReason])
         end
     end)()
 ).
