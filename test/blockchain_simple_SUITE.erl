@@ -1389,16 +1389,13 @@ routing_netid_to_oui_test(Config) ->
     State = blockchain_state_channels_client:set_routers(RoamingRouters, Chain),
     Region = 'US915',
     Now = erlang:system_time(seconds),
-    %% FIXME: may need to strip "/p2p/1" prefix
-    DefaultRouters = ["/p2p/11w77YQLhgUt8HUJrMtntGGr97RyXmot1ofs5Ct2ELTmbFoYsQa",
-                      "/p2p/11afuQSrmk52mgxLu91AdtDXbJ9wmqWBUxC3hvjejoXkxEZfPvY"],
+    DefaultRouters =
+        [libp2p_crypto:pubkey_bin_to_p2p(binary:list_to_bin(blockchain_ct_utils:randname(16)))
+         || _X <- lists:seq(1, 3)],
 
     %% Send packet using devaddr outside any of our test netids.
 
-    %% FIXME: using Network Byte Order returns entire roaming list, and
-    %% without that crashes `find_routing_via_devaddr' with bad arg.
-    DevAddr0 =
-        binary:decode_unsigned(<<16#F0F0F0:25/integer-unsigned-little, $Z:7/integer>>),
+    DevAddr0 = lora_subnet:devaddr_from_netid($Z, 16#F0F0F0),
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, DevAddr0}, Payload0),
     NewState0 =
@@ -1406,7 +1403,7 @@ routing_netid_to_oui_test(Config) ->
           Packet0, DevAddr0, DefaultRouters, Region, Now, State
          ),
 
-    %% Checking packets rdy to be sent it should route them to default Routers 
+    %% Checking packets ready to be sent; it should route them to default Routers
     %% as the net id $Z is unknown to us.
     Waiting0 = blockchain_state_channels_client:get_waiting(NewState0),
     lists:foreach(
@@ -1432,6 +1429,24 @@ routing_netid_to_oui_test(Config) ->
             ?assertEqual([blockchain_ledger_routing_v1:oui(Route)], maps:keys(Waiting))
         end,
         RoamingRouters
+    ),
+
+    %% Use devaddr within default router slab.
+    %% Official NetID assigned to Nova Labs by LoRa Alliance:
+    NetID = 16#60002D,
+    DevAddr1 = lora_subnet:devaddr_from_netid(NetID, 16#F0F0),
+    Payload1 = crypto:strong_rand_bytes(120),
+    Packet1 = blockchain_helium_packet_v1:new({devaddr, DevAddr1}, Payload1),
+    NewState1 =
+        blockchain_state_channels_client:handle_route_by_netid(
+          Packet1, DevAddr1, DefaultRouters, Region, Now, State
+         ),
+    Waiting1 = blockchain_state_channels_client:get_waiting(NewState1),
+    lists:foreach(
+        fun(K) ->
+            ?assert(lists:member(K, DefaultRouters))
+        end,
+        maps:keys(Waiting1)
     ),
     ok.
 
