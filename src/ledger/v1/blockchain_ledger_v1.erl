@@ -4611,8 +4611,8 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     Init = rocksdb:iterator_move(Itr, Start),
     Loop = fun L({error, invalid_iterator}, A) ->
                    A;
-               L({error, _}, _A) ->
-                   throw(iterator_error);
+               L({error, Error}, _A) ->
+                   error({iterator_error, Error});
                L({ok, K} , A) ->
                    L(rocksdb:iterator_move(Itr, SeekDir),
                      Fun(K, A));
@@ -4622,8 +4622,8 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
            end,
     try
         Loop(Init, Acc)
-    %% catch _:_ ->
-    %%         Acc
+    catch throw:{return, Ret} ->
+            Ret
     after
         ?ROCKSDB_ITERATOR_CLOSE(Itr)
     end.
@@ -4982,8 +4982,7 @@ is_hex_populated(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     cache_fold(Ledger, H3CF,
                fun({_Key, _GWs}, _Acc) ->
-                       %% XXX I don't know if you can short circuit with a throw here
-                      throw(true)
+                      throw({return, true})
                end, false, [
                           {start, {seek, find_lower_bound_hex(Hex)}},
                           {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
