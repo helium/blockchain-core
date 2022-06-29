@@ -45,7 +45,7 @@
         [filter(A, any())]
     }.
 
--opaque t(A) :: [stream(A)].
+-opaque t(A) :: [stream(A), ...].
 
 -record(sched, {
     id             :: reference(),
