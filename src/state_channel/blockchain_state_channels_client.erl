@@ -32,7 +32,7 @@
 -include("blockchain.hrl").
 -include("blockchain_rocks.hrl").
 -include("blockchain_vars.hrl").
--include("../grpc/autogen/server/state_channel_pb.hrl").
+-include_lib("grpc/autogen/server/state_channel_pb.hrl").
 
 -define(SERVER, ?MODULE).
 -define(ROUTING_CACHE, sc_client_routing).
