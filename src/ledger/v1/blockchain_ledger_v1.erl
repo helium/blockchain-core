@@ -4570,7 +4570,12 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
     case context_cache(Ledger) of
         {C, _} when C == undefined; C == direct ->
             %% fold rocks directly
-            rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
+            case rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc) of
+                {return, Res} ->
+                    {ok, Res};
+                Res ->
+                    Res
+            end;
         {Cache, _GwCache} ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CFName, Start, End, Fun0),
@@ -4581,8 +4586,12 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
                 false ->
                     Keys0
             end,
-            {TrailingKeys, Res0} = rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}),
-            process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
+            case rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}) of
+                {return, Res} ->
+                    Res;
+                {TrailingKeys, Res0} ->
+                    process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
+            end
     end.
 
 cache_is_deleted(Ledger, Name, Key) ->
@@ -4623,7 +4632,9 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     try
         Loop(Init, Acc)
     catch throw:{return, Ret} ->
-            Ret
+            %% retag this because we need to be able to disambiguate between cases
+            %% when cached
+            {return, Ret}
     after
         ?ROCKSDB_ITERATOR_CLOSE(Itr)
     end.
@@ -6479,6 +6490,11 @@ fold_test() ->
     ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"aaa">>, [])),
 
     ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"key_1">>, [])),
+
+    %% throw for early return:
+    F4 = cache_fold(Ledger, DCF, fun({<<"key_12">>, _V}, _A) -> throw({return, done_early}); (_KV, A) -> A end, done_normal),
+    ?assertEqual({ok, done_early}, F4),
+
     test_utils:cleanup_tmp_dir(BaseDir).
 
 
