@@ -120,6 +120,7 @@ fee_payer(_Txn, _Ledger) ->
     ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    {ok, CurHeight} = blockchain_ledger_v1:current_height(Ledger),
     Start = ?MODULE:start_epoch(Txn),
     End = ?MODULE:end_epoch(Txn),
     TokenType = token_type(Txn),
@@ -150,9 +151,15 @@ is_valid(Txn, Chain) ->
             true -> ok;
             false -> throw(invalid_signature)
         end,
+
         case End > Start andalso Start > LastRewardedBlock of
-            true -> ok;
-            false -> throw({invalid_reward_range, Start, End, LastRewardedBlock})
+            true ->
+                case End =< CurHeight of
+                    true -> ok;
+                    false -> throw({invalid_end_block, End, CurHeight})
+                end;
+            false ->
+                throw({invalid_reward_range, Start, End, LastRewardedBlock})
         end
     catch
         throw:Err ->
