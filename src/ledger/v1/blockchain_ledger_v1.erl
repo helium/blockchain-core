@@ -4978,6 +4978,19 @@ lookup_gateways_from_hex(Hex, Ledger) when is_integer(Hex) ->
                          ]
               ).
 
+is_hex_populated(Hex, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({_Key, _GWs}, _Acc) ->
+                       %% XXX I don't know if you can short circuit with a throw here
+                      throw(true)
+               end, false, [
+                          {start, {seek, find_lower_bound_hex(Hex)}},
+                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
+                         ]
+              ).
+
+
 -spec count_gateways_in_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> non_neg_integer().
 count_gateways_in_hex(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
@@ -5019,6 +5032,83 @@ random_targeting_hex(RandState, Ledger) ->
             {error, no_populated_hexes};
         Error ->
             Error
+    end.
+
+remove_hex_from_random_lookup(ParentRes, Ledger) ->
+    %% we only want to do this if poc version >= 4, which means h3dex targeting
+    case config(?poc_targeting_version, Ledger) of
+        {ok, N} when N >= 6 ->
+            H3CF = h3dex_cf(Ledger),
+            cache_fold(
+              Ledger, H3CF,
+              fun(
+                {<<"random-", _OldCount:32/integer-unsigned-big>> = Key, <<Hex:64/integer-unsigned-little>>}, Acc) when ParentRes == Hex ->
+                      %% delete ourselves
+                      cache_delete(Ledger, H3CF, Key),
+                      Acc;
+                ({<<"random-", OldCount:32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>}, Acc) ->
+                      case h3_to_key(Hex) > h3_to_key(ParentRes) of
+                          true ->
+                              %% move this back by one
+                              cache_put(Ledger, H3CF, <<"random-", (OldCount-1):32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>);
+                          false ->
+                                ok
+                      end,
+                      Acc;
+                 (_, Acc) ->
+                      Acc
+              end, false,
+              [
+               {start, {seek, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}},
+               {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
+              ]
+             ),
+            %% update the population
+            {ok, <<Total:32/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"population">>, []),
+           cache_put(Ledger, H3CF, <<"population">>, <<(Total-1):32/integer-unsigned-little>>),
+           ok;
+        _ ->
+            ok
+    end.
+
+
+add_hex_to_random_lookup(ParentRes, Ledger) ->
+    %% we only want to do this if poc version >= 4, which means h3dex targeting
+    case config(?poc_targeting_version, Ledger) of
+        {ok, N} when N >= 6 ->
+            H3CF = h3dex_cf(Ledger),
+            cache_fold(
+              Ledger, H3CF,
+              fun({<<"random-", OldCount:32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>}, HasMatched) ->
+                      case h3_to_key(Hex) > h3_to_key(ParentRes) of
+                          true ->
+                              case HasMatched of
+                                  false ->
+                                      cache_put(Ledger, H3CF, <<"random-", OldCount:32/integer-unsigned-big>>, <<ParentRes:64/integer-unsigned-little>>);
+                                  true ->
+                                      %% already inserted ourselves
+                                      ok
+                              end,
+                              %% move this up by one
+                              cache_put(Ledger, H3CF, <<"random-", (OldCount+1):32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
+                              true;
+                          false ->
+                                HasMatched
+                      end;
+                 (_, Acc) ->
+                      Acc
+              end, false,
+              [
+               {start, {seek, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}},
+               {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
+              ]
+             ),
+            %% update the population
+            {ok, <<Total:32/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"population">>, []),
+           cache_put(Ledger, H3CF, <<"population">>, <<(Total+1):32/integer-unsigned-little>>),
+           ok;
+        _ ->
+            ok
     end.
 
 build_random_hex_targeting_lookup(Resolution, Ledger) ->
@@ -5111,11 +5201,12 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found ->
-            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
-                0 ->
+	    ParentRes = h3:parent(Hex, Res),
+            case is_hex_populated(ParentRes, Ledger) of
+                false ->
                     %% populating a hex means we need to recalculate the set of populated
                     %% hexes
-                    build_random_hex_targeting_lookup(Res, Ledger);
+                    add_hex_to_random_lookup(ParentRes, Ledger);
                 _ ->
                     ok
             end,
@@ -5148,13 +5239,13 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
                         {ok, true} ->
                             cache_delete(Ledger, H3CF, BinHex),
                             case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
-                                0 -> build_random_hex_targeting_lookup(Res, Ledger);
+                                0 -> remove_hex_from_random_lookup(Res, Ledger);
                                 _ -> ok
                             end;
                         %% otherwise, keep the wrong behavior of counting gateways then deleting the hex
                         _ ->
                             case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
-                                0 -> build_random_hex_targeting_lookup(Res, Ledger);
+                                0 -> remove_hex_from_random_lookup(Res, Ledger);
                                 _ -> ok
                             end,
                             cache_delete(Ledger, H3CF, BinHex)
