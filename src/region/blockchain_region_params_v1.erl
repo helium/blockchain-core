@@ -58,6 +58,7 @@ for_region(RegionVar, Ledger) ->
 %% required for the transition period. Maybe we can remove it once a majority
 %% of the fleet has transitioned after activation of region variables on chain.
 region_param('AS923_1') -> region_as923_1_params;
+region_param('AS923_1B') -> region_as923_1b_params;
 region_param('AS923_2') -> region_as923_2_params;
 region_param('AS923_3') -> region_as923_3_params;
 region_param('AS923_4') -> region_as923_4_params;

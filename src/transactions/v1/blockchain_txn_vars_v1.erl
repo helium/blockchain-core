@@ -615,7 +615,18 @@ delayed_absorb(Txn, Ledger) ->
                 Key ->
                     ok = blockchain_ledger_v1:master_key(Key, Ledger)
             end
-    end.
+    end,
+    case blockchain_ledger_v1:mode(Ledger) of
+        active ->
+            %% we've invalidated the region cache, so prewarm it.
+            spawn(fun() ->
+                          timer:sleep(30000),
+                          blockchain_region_v1:prewarm_cache(blockchain_ledger_v1:remove_context(Ledger))
+                  end);
+        _ ->
+            ok
+    end,
+    ok.
 
 sum_higher(Target, Proplist) ->
     sum_higher(Target, Proplist, 0).
@@ -744,6 +755,10 @@ var_hook(?poc_challenger_type, Type, Ledger) ->
         _ -> ok
     end,
     purge_pocs(Ledger),
+    ok;
+var_hook(?ledger_entry_version, 2, Ledger) ->
+    %% Migrate to new style ledger entries
+    blockchain_ledger_v1:migrate_entries(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
@@ -1121,6 +1136,11 @@ validate_var(?polyfill_resolution, Value) ->
     validate_int(Value, "polyfill_resolution", 0, 15, false);
 validate_var(?h3dex_gc_width, Value) ->
   validate_int(Value, "h3dex_gc_width", 1, 10000, false);
+validate_var(?h3dex_remove_gw_fix, Value) ->
+  case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {h3dex_gw_remove_fix, Value}})
+    end;
 validate_var(?poc_target_pool_size, Value) ->
   validate_int(Value, "poc_target_pool_size", 1, 1000000, false);
 validate_var(?poc_targeting_version, Value) ->
@@ -1206,6 +1226,11 @@ validate_var(?deprecate_payment_v1, Value) ->
         Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalidate_deprecate_payment_v1, Value}})
     end;
+validate_var(?deprecate_security_exchange_v1, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_security_exchange_v1, Value}})
+    end;
 
 validate_var(?allow_payment_v2_memos, Value) ->
     case Value of
@@ -1223,6 +1248,14 @@ validate_var(?enable_balance_clearing, Value) ->
     case Value of
         Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_enable_balance_clearing, Value}})
+    end;
+
+validate_var(?allowed_num_reward_server_keys, Value) ->
+    case Value of
+        N when N == 1 ->
+            %% only supported one reward server for now
+            ok;
+        _ -> throw({error, {invalid_allowed_num_reward_server_keys, Value}})
     end;
 
 %% general txn vars
@@ -1500,7 +1533,7 @@ validate_var(?net_emissions_max_rate, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% <<"region_as923_1,region_as923_1b,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
     %% We only check that the binary string is comma separated
@@ -1527,6 +1560,19 @@ validate_var(?routers_by_netid_to_oui, Bin) when is_binary(Bin) ->
     validate_routers_by_netid_to_oui(binary_to_term(Bin));
 validate_var(?routers_by_netid_to_oui, _NotBinary) ->
     throw({error, {invalid_routers_by_netid_to_oui, expect_binary_list_of_pairs}});
+
+validate_var(?token_version, Value) ->
+    case Value of
+        2 -> ok;                    %% Add support for multiple tokens
+        _ ->
+            throw({error, {invalid_token_version, Value}})
+    end;
+validate_var(?ledger_entry_version, Value) ->
+    case Value of
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_ledger_entry_version, Value}})
+    end;
 
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars

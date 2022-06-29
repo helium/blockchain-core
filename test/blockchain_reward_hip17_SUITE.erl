@@ -181,6 +181,7 @@ init_per_testcase(TestCase, Config) ->
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
     ok = application:set_env(blockchain, hip17_test_mode, true),
     application:ensure_all_started(lager),
+    application:ensure_all_started(telemetry),
 
     BothHip15And17Vars = maps:merge(hip15_vars(), hip17_vars()),
 

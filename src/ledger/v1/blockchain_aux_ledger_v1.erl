@@ -30,6 +30,7 @@
 ]).
 
 -include("blockchain_vars.hrl").
+-include("blockchain_rocks.hrl").
 -include("blockchain_ledger_v1.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
 
@@ -100,6 +101,7 @@ new(Path, Ledger) ->
         H3DexCF,
         GwDenormCF,
         ValidatorsCF,
+        EntriesV2CF,
         AuxHeightsCF,
         AuxHeightsMDCF,
         AuxHeightsDiffCF,
@@ -127,7 +129,8 @@ new(Path, Ledger) ->
                 subnets = SubnetsCF,
                 state_channels = SCsCF,
                 h3dex = H3DexCF,
-                validators = ValidatorsCF
+                validators = ValidatorsCF,
+                entries_v2 = EntriesV2CF
             }
         }
     }.
@@ -484,7 +487,7 @@ overall_diff_rewards_md_sums(Ledger) ->
         []
     ),
     Res = overall_diff_rewards_md_sums_(rocksdb:iterator_move(Itr, last), #{}),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Res.
 
 %% ==================================================================
@@ -498,7 +501,7 @@ get_rewards_md_(Ledger) ->
         []
     ),
     Res = get_aux_rewards_md_(Itr, rocksdb:iterator_move(Itr, first), #{}),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Res.
 
 get_aux_rewards_md_(_Itr, {error, _}, Acc) ->
@@ -527,7 +530,7 @@ get_rewards_md_sums_(Ledger) ->
         []
     ),
     Res = get_aux_rewards_md_sums_(Itr, rocksdb:iterator_move(Itr, first), #{}),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Res.
 
 get_aux_rewards_md_sums_(_Itr, {error, _}, Acc) ->
@@ -556,7 +559,7 @@ get_rewards_md_diff_(Ledger) ->
         []
     ),
     Res = get_aux_rewards_md_diff_(Itr, rocksdb:iterator_move(Itr, first), #{}),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Res.
 
 get_aux_rewards_md_diff_(_Itr, {error, _}, Acc) ->
@@ -722,7 +725,7 @@ get_rewards_(Ledger) ->
         []
     ),
     Res = get_rewards_(Itr, rocksdb:iterator_move(Itr, first), #{}),
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Res.
 
 get_rewards_(_Itr, {error, _}, Acc) ->

@@ -30,6 +30,7 @@
          code_change/3]).
 
 -include("blockchain.hrl").
+-include("blockchain_rocks.hrl").
 -include("blockchain_vars.hrl").
 -include("../grpc/autogen/server/state_channel_pb.hrl").
 
@@ -962,7 +963,7 @@ state_channels(#state{db=DB, cf=CF}) ->
     state_channels(Itr, rocksdb:iterator_move(Itr, first), []).
 
 state_channels(Itr, {error, invalid_iterator}, Acc) ->
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Acc;
 state_channels(Itr, {ok, _, SCBin}, Acc) ->
     state_channels(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(SCBin)|Acc]).

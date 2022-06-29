@@ -110,6 +110,7 @@ debug_modules_for_node(Node, Filename, [Module | Rest]) ->
 init_per_testcase(Test, Config) ->
     application:ensure_all_started(throttle),
     application:ensure_all_started(lager),
+    application:ensure_all_started(telemetry),
 
     InitConfig0 = blockchain_ct_utils:init_base_dir_config(?MODULE, Test, Config),
     InitConfig = blockchain_ct_utils:init_per_testcase(Test, InitConfig0),

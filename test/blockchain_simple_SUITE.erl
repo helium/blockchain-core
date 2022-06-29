@@ -332,7 +332,6 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 end_per_testcase(_, Config) ->
     Sup = ?config(sup, Config),
-    meck:unload(),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
         true ->
@@ -397,7 +396,7 @@ reload_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
-    OldSwarm = blockchain_swarm:tid(),
+    OldSwarm = blockchain_swarm:swarm(),
     Worker = whereis(blockchain_worker),
     ok = gen_server:stop(Sup),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
@@ -422,7 +421,7 @@ reload_test(Config) ->
     ct:pal("new start"),
 
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
-    ?assert(erlang:is_pid(blockchain_swarm:tid())),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
@@ -459,7 +458,7 @@ restart_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
-    OldSwarm = blockchain_swarm:tid(),
+    OldSwarm = blockchain_swarm:swarm(),
     ok = gen_server:stop(Sup),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm) end),
@@ -469,7 +468,7 @@ restart_test(Config) ->
 
     % Restart with an empty 'GenDir'
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
-    ?assert(erlang:is_pid(blockchain_swarm:tid())),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
@@ -480,7 +479,7 @@ restart_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
    %% Kill this blockchain sup
-    OldSwarm2 = blockchain_swarm:tid(),
+    OldSwarm2 = blockchain_swarm:swarm(),
     ok = gen_server:stop(Sup1),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm2) end),
@@ -492,7 +491,7 @@ restart_test(Config) ->
     ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(GenBlock)),
 
     {ok, Sup2} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
-    ?assert(erlang:is_pid(blockchain_swarm:tid())),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain1 = blockchain_worker:blockchain(),
     {ok, HeadBlock1} = blockchain:head_block(Chain1),
@@ -1169,6 +1168,7 @@ routing_test(Config) ->
     %% and then mecking out the is_valid to prevent it being rejected due to expected /= presented fee
     %% since we can no longer override the default fee, now have to meck out the check_db & debit fee functions instead
     %% as the account does not have any credits, but the mecking of the is_valid can be removed
+    meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
     meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
 
@@ -1343,6 +1343,7 @@ routing_test(Config) ->
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 routing_netid_to_oui_test(Config) ->
@@ -1464,6 +1465,7 @@ max_subnet_test(Config) ->
     %% and then mecking out the is_valid to prevent it being rejected due to expected /= presented fee
     %% since we can no longer override the default fee, now have to meck out the check_db & debit fee functions instead
     %% as the account does not have any credits, but the mecking of the is_valid can be removed
+    meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
     meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
 
@@ -1511,7 +1513,7 @@ max_subnet_test(Config) ->
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
-
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 block_save_failed_test(Config) ->
@@ -3726,7 +3728,7 @@ failed_txn_error_handling(Config) ->
 
     %% confirm the txn passes validation with the mecks removed
     {[SignedPoCReqTxn0], []} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
-
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 genesis_no_var_validation_stay_invalid_test(Config) ->

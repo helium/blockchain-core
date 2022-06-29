@@ -253,8 +253,18 @@ get_path(_POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Led
     POCPrivKeyHash = crypto:hash(sha256, PrivKeyBin),
     ZoneRandState = blockchain_utils:rand_state(Entropy),
     InitTargetRandState = blockchain_utils:rand_state(POCPrivKeyHash),
-    TargetMod = blockchain_utils:target_v_to_mod(blockchain:config(?poc_targeting_version, Ledger)),
-    {ok, {Target, TargetRandState}} =  TargetMod:target(Challenger, InitTargetRandState, ZoneRandState, Ledger, Vars),
+    {ok, TargetV} = TargetResp = blockchain:config(?poc_targeting_version, Ledger),
+    TargetMod = blockchain_utils:target_v_to_mod(TargetResp),
+    %% if v6 targeting or newer in use then use the correct ledger for pathing
+    %% this addresses an issue whereby the current ledger was in use when
+    %% identifying the target rather than the ledger from the point the
+    %% poc was initialized
+    PathingLedger =
+        case TargetV of
+            N when N >= 6 -> OldLedger;
+            _ -> Ledger
+        end,
+    {ok, {Target, TargetRandState}} =  TargetMod:target(Challenger, InitTargetRandState, ZoneRandState, PathingLedger, Vars),
     %% Path building phase
     StartB = maybe_log_duration(target, StartT),
     RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),

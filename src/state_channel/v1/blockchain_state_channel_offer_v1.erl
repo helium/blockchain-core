@@ -130,6 +130,7 @@ decode(BinaryOffer) ->
 %% convert poc11 region names to protobuff enum names
 maybe_fix_region('region_us915') -> 'US915';
 maybe_fix_region('region_as923_1') -> 'AS923_1';
+maybe_fix_region('region_as923_1b') -> 'AS923_1B';
 maybe_fix_region('region_as923_2') -> 'AS923_2';
 maybe_fix_region('region_as923_3') -> 'AS923_3';
 maybe_fix_region('region_as923_4') -> 'AS923_4';

@@ -20,6 +20,7 @@ suite() ->
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(lager),
+    {ok, _} = application:ensure_all_started(telemetry),
 
     Dir = ?config(priv_dir, Config),
     PrivDir = filename:join(Dir, "priv"),

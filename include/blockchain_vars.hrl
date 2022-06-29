@@ -219,6 +219,9 @@
 %% max number of hexes to GC in the h3dex per block: integer
 -define(h3dex_gc_width, h3dex_gc_width).
 
+%% determines whether or not to use the fix for a bug in removing gateways from h3dex : boolean
+-define(h3dex_remove_gw_fix, h3dex_remove_gw_fix).
+
 %% the version number of poc targeting in use: integer
 %% if not set, code paths with default to 3 ( blockchain_poc_target_v3 )
 -define(poc_targeting_version, poc_targeting_version).
@@ -581,7 +584,7 @@
 %% regulatory_region related variables
 
 %% This is a comma separated string like so:
-%% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+%% <<"region_as923_1,region_as923_1b,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 -define(regulatory_regions, regulatory_regions).
 
 %% Each of the former regions is associated with a dynamic var of the same name which is is a serialized form of an h3_region set determined at h3_res: 7
@@ -617,3 +620,16 @@
 
 %% List of peer routers associating NetID to allocated OUI
 -define(routers_by_netid_to_oui, routers_by_netid_to_oui).
+
+%% ------------------------------------------------------------------
+%% Token version (aka support multiple tokens). Set to 2 (pos_integer).
+-define(token_version, token_version).
+%% Ledger entry migration variable
+%% Will be used to hook and switch the old style ledger entries
+%% to new style ledger entries. Set to 2 (pos_integer).
+-define(ledger_entry_version, ledger_entry_version).
+%% Var to switch off legacy security_exchange txn. Boolean.
+-define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).
+%% How many reward server keys to allow
+-define(allowed_num_reward_server_keys, allowed_num_reward_server_keys).
+

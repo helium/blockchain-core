@@ -4,7 +4,10 @@ if [ -t 0 ] ; then
     export CLIQUE_COLUMNS
 fi
 
-export RELX_RPC_TIMEOUT=${RELX_RPC_TIMEOUT:-900}
+# extend relx default timeout (60s) if it has not already been overwritten
+if [ $RELX_RPC_TIMEOUT -eq 60 ] ; then
+    export RELX_RPC_TIMEOUT=900
+fi
 
 j=1
 l=$#
