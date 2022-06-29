@@ -215,18 +215,34 @@ basic_test(Config) ->
         Chain
     ),
 
+    InvRewardsTxn7 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
+    InvRewardsTxn8 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn7, RewardServerSigFun),
+    %% This one is invalid because we don't have enough blocks yet
+    {error, {invalid_end_block, End, 2}} = blockchain_txn:is_valid(InvRewardsTxn8, Chain),
+
+    %% Add some blocks
+    lists:foreach(
+        fun(_) ->
+            {ok, B} = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:tid())
+        end,
+        lists:seq(1, 38)
+    ),
+
+    ?assertEqual({ok, 40}, blockchain:height(Chain)),
+
     RewardsTxn = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
     SignedRewardsTxn = blockchain_txn_subnetwork_rewards_v1:sign(RewardsTxn, RewardServerSigFun),
-    %% This one should be valid
+    %% This one should be valid now
     ok = blockchain_txn:is_valid(SignedRewardsTxn, Chain),
 
-    {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedRewardsTxn]),
-    _ = blockchain_gossip_handler:add_block(Block3, Chain, self(), blockchain_swarm:tid()),
+    {ok, Block41} = test_utils:create_block(ConsensusMembers, [SignedRewardsTxn]),
+    _ = blockchain_gossip_handler:add_block(Block41, Chain, self(), blockchain_swarm:tid()),
 
-    ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
-    ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 3}, blockchain:height(Chain)),
-    ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(Block41)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block41}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 41}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block41}, blockchain:get_block(41, Chain)),
 
     {ok, E1} = blockchain_ledger_v1:find_entry(Rewardee1, Ledger),
     {ok, E2} = blockchain_ledger_v1:find_entry(Rewardee2, Ledger),
