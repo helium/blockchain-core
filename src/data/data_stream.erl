@@ -45,7 +45,10 @@
         [filter(A, any())]
     }.
 
--opaque t(A) :: [stream(A), ...].
+-opaque t(A) ::
+    %% Our stream is a sequence of streams
+    %% in order to support the append operation.
+    [stream(A), ...].
 
 -record(sched, {
     id             :: reference(),
