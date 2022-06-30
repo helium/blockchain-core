@@ -1751,7 +1751,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
             %% Disable setting the last location nonce until we build a chain var to restore witnesses
-            Gw3 = Gw2, %blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
+            Gw3 = blockchain_ledger_gateway_v2:last_location_nonce(Nonce, Gw2),
             Gw4 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
             NewGw = blockchain_ledger_gateway_v2:clear_witnesses(Gw4),
             update_gateway(Gw, NewGw, GatewayAddress, Ledger)
