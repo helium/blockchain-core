@@ -128,11 +128,11 @@ init_per_testcase(Test, Config) ->
 
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
-    %% the SC tests use the first two nodes as the gateway and router
-    %% for the GRPC group to work we need to ensure these two nodes are
-    %% connected to each other in blockchain_ct_utils:init_per_testcase the
-    %% nodes are connected to a majority of the group but that does not
-    %% guarantee these two nodes are connected
+    %% The SC tests use the first two nodes as the gateway and router.
+    %% For the GRPC group to work we need to ensure these two nodes are
+    %% connected to each other in blockchain_ct_utils:init_per_testcase().
+    %% The nodes are connected to a majority of the group, but that does not
+    %% guarantee these two nodes are connected.
 
     [RouterNode, GatewayNode] =
         blockchain_ct_utils:find_connected_node_pair(NodeAddrList),
@@ -149,15 +149,56 @@ init_per_testcase(Test, Config) ->
        blockchain_state_channels_handler,
        blockchain_state_channels_server,
        blockchain_state_channels_worker,
-       blockchain_txn_state_channel_close_v1]
+       blockchain_txn_state_channel_close_v1,
+       blockchain_state_channel_sup]
      ),
     debug_modules_for_node(
       GatewayNode,
       Dir ++ "sc_client_1.log",
       [blockchain_state_channel_v1,
        blockchain_state_channels_client,
-       blockchain_state_channels_handler]
+       blockchain_state_channels_handler,
+       blockchain_state_channel_sup]
      ),
+
+    %% accumulate the address of each node
+    Addrs = lists:foldl(fun(Node, Acc) ->
+                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
+                                [Addr | Acc]
+                        end, [], Nodes),
+
+    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
+
+    %% the SC tests use the first two nodes as the gateway and router
+    %% for the GRPC group to work we need to ensure these two nodes are connected to each other
+    %% in blockchain_ct_utils:init_per_testcase the nodes are connected to a majority of the group
+    %% but that does not guarantee these two nodes will be connected
+    [RouterNode, GatewayNode|_] = Nodes,
+    [RouterNodeAddr, GatewayNodeAddr|_] = Addrs,
+    ok = blockchain_ct_utils:wait_until(
+             fun() ->
+                     lists:all(
+                       fun({Node, AddrToConnectToo}) ->
+                               try
+                                   GossipPeers = ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500),
+                                   ct:pal("~p connected to peers ~p", [Node, GossipPeers]),
+                                   case lists:member(libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo), GossipPeers) of
+                                       true -> true;
+                                       false ->
+                                           ct:pal("~p is not connected to desired peer ~p", [Node, AddrToConnectToo]),
+                                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
+                                           CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo)], 500),
+                                           ct:pal("Connecting ~p to ~p: ~p", [Node, AddrToConnectToo, CRes]),
+                                           case CRes of
+                                               {ok, _} -> true;
+                                               _ -> false
+                                            end
+                                   end
+                               catch _C:_E ->
+                                       false
+                               end
+                       end, [{RouterNode, GatewayNodeAddr}, {GatewayNode, RouterNodeAddr}])
+             end, 200, 150),
 
     SCDisputeStrat = case Test == sc_dispute_prevention_test of
                          false -> 0;
@@ -313,6 +354,7 @@ full_test(Config) ->
     %% Sending 1 packet
     DevNonce0 = crypto:strong_rand_bytes(2),
     Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
+    ct:pal("Gateway node1 ~p sending ~p", [GatewayNode1, Packet0]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -321,7 +363,7 @@ full_test(Config) ->
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
-    ct:pal("Gateway node1 ~p", [GatewayNode1]),
+    ct:pal("Gateway node1 ~p sending ~p", [GatewayNode1, Packet1]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -2629,7 +2671,6 @@ default_routers_test(Config) ->
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
     ok.
-
 
 %% ------------------------------------------------------------------
 %% Helper functions

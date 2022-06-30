@@ -1553,6 +1553,14 @@ validate_var(?discard_zero_freq_witness, Value) ->
 validate_var(?block_size_limit, Value) ->
     validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
 
+validate_var(?routers_by_netid_to_oui, Bin) when is_binary(Bin) ->
+    %% Even though Rust will need to process the structure too,
+    %% gateway-rs fetches this via Validator, which in turn converts
+    %% to ProtoBuf.
+    validate_routers_by_netid_to_oui(binary_to_term(Bin));
+validate_var(?routers_by_netid_to_oui, _NotBinary) ->
+    throw({error, {invalid_routers_by_netid_to_oui, expect_binary_list_of_pairs}});
+
 validate_var(?token_version, Value) ->
     case Value of
         2 -> ok;                    %% Add support for multiple tokens
@@ -1685,6 +1693,26 @@ validate_region_params(Var, Value) ->
 purge_pocs(Ledger) ->
     blockchain_ledger_v1:purge_pocs(Ledger).
 
+validate_routers_by_netid_to_oui(List) when is_list(List) ->
+    validate_routers_by_netid_to_oui(List, 1);
+validate_routers_by_netid_to_oui(BadValue) ->
+    throw({error, {invalid_routers_by_netid_to_oui, {badvalue, BadValue},
+                   expect_list_of_pairs}}).
+
+validate_routers_by_netid_to_oui([{NetID, OUI} | T], Index)
+  when is_integer(NetID) andalso is_integer(OUI) andalso
+       NetID >= 0 andalso NetID =< 16#FFFFFF andalso
+       OUI >= 0 andalso OUI =< 16#FFFFFFFFFFFFFFFF->
+    validate_routers_by_netid_to_oui(T, Index + 1);
+validate_routers_by_netid_to_oui([], _) ->
+                  true;
+validate_routers_by_netid_to_oui([H | _T], Index) ->
+    throw({error, {invalid_routers_by_netid_to_oui, {{index, Index}, {entry, H}},
+                   expect_pair}});
+validate_routers_by_netid_to_oui(BadValue, Index) ->
+    throw({error, {invalid_routers_by_netid_to_oui, {{index, Index}, {value, BadValue}},
+                   expect_list_of_pairs}}).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -1744,5 +1772,18 @@ to_json_test() ->
                       [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])),
     ?assertEqual(<<"f is for ffffff\0">>, base64:decode(maps:get(f, maps:get(vars, Json)))).
 
+routers_test() ->
+    ?assertEqual(true, validate_routers_by_netid_to_oui([{0, 0}])),
+    ?assertEqual(true, validate_routers_by_netid_to_oui([{0, 0}, {1, 1}])),
+    ?assertException(throw, {error, {invalid_routers_by_netid_to_oui, {{index, 2}, _}, _}},
+                     validate_routers_by_netid_to_oui([{0, 0}, {}])),
+    ?assertException(throw, {error, {invalid_routers_by_netid_to_oui, {{index, 1}, _}, _}},
+                     validate_routers_by_netid_to_oui([{non_integer, 0}])),
+    ?assertException(throw, {error, {invalid_routers_by_netid_to_oui, {{index, 1}, _}, _}},
+                     validate_routers_by_netid_to_oui([{0, non_integer}])),
+    ?assertException(throw, {error, {invalid_routers_by_netid_to_oui, _, _}},
+                     validate_routers_by_netid_to_oui({{0, 0}, {1, 1}})),
+    ?assertException(throw, {error, {invalid_routers_by_netid_to_oui, {{index, 2}, _}, _}},
+                     validate_routers_by_netid_to_oui([{0, 0}, {1, 2, 3}])).
 
 -endif.
