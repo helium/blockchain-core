@@ -5083,7 +5083,7 @@ remove_hex_from_random_lookup(ParentRes, Ledger) ->
 
 
 add_hex_to_random_lookup(ParentRes, Ledger) ->
-    %% we only want to do this if poc version >= 4, which means h3dex targeting
+    %% we only want to do this if poc version >= 6, which means h3dex targeting
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
             H3CF = h3dex_cf(Ledger),
