@@ -47,7 +47,11 @@
              | blockchain_txn_unstake_validator_v1:txn_unstake_validator()
              | blockchain_txn_unstake_validator_v1:txn_validator_heartbeat()
              | blockchain_txn_transfer_hotspot_v2:txn_transfer_hotspot_v2()
-             | blockchain_txn_poc_receipts_v2:txn_poc_receipts_v2().
+             | blockchain_txn_poc_receipts_v2:txn_poc_receipts_v2()
+             | blockchain_txn_add_subnetwork_v1:txn_add_subnetwork_v1()
+             | blockchain_txn_update_subnetwork_v1:txn_update_subnetwork_v1()
+             | blockchain_txn_subnetwork_rewards_v1:txn_subnetwork_rewards_v1()
+             | blockchain_txn_token_redeem_v1:txn_token_redeem_v1().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
@@ -139,7 +143,11 @@
     {blockchain_txn_gen_price_oracle_v1, 34},
     {blockchain_txn_consensus_group_failure_v1, 35},
     {blockchain_txn_transfer_hotspot_v2, 36},
-    {blockchain_txn_poc_receipts_v2, 37}
+    {blockchain_txn_poc_receipts_v2, 37},
+    {blockchain_txn_add_subnetwork_v1, 38},
+    {blockchain_txn_update_subnetwork_v1, 39},
+    {blockchain_txn_subnetwork_rewards_v1, 40},
+    {blockchain_txn_token_redeem_v1, 41}
 ]).
 
 block_delay() ->
@@ -250,8 +258,15 @@ wrap_txn(#blockchain_txn_consensus_group_failure_v1_pb{} = Txn) ->
 wrap_txn(#blockchain_txn_transfer_hotspot_v2_pb{}=Txn) ->
     #blockchain_txn_pb{txn={transfer_hotspot_v2, Txn}};
 wrap_txn(#blockchain_txn_poc_receipts_v2_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={poc_receipts_v2, Txn}}.
-
+    #blockchain_txn_pb{txn={poc_receipts_v2, Txn}};
+wrap_txn(#blockchain_txn_add_subnetwork_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={add_subnetwork, Txn}};
+wrap_txn(#blockchain_txn_update_subnetwork_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={update_subnetwork, Txn}};
+wrap_txn(#blockchain_txn_subnetwork_rewards_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={subnetwork_rewards, Txn}};
+wrap_txn(#blockchain_txn_token_redeem_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={token_redeem, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -426,12 +441,12 @@ types(L) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback()) ->
-                               ok | {error, any()}.
+                               {ok, tuple()} | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit) ->
     absorb_and_commit(Block, Chain0, BeforeCommit, false).
 
 -spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback(), boolean()) ->
-                               ok | {error, any()}.
+                               {ok, tuple()} | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
@@ -444,15 +459,17 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
+            telemetry:execute([blockchain, block, absorb], #{duration => End - Start}, #{stage => validation}),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
-                {ok, Chain2} ->
+                {ok, Chain2, KeysPayload} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             End2 = erlang:monotonic_time(millisecond),
+                            telemetry:execute([blockchain, block, absorb], #{duration => End2 - End}, #{stage => absorb}),
                             ok = handle_absorb_delayed_result(AbsordDelayedRef),
                             case absorb_aux(Block, Chain0) of
                                 ok -> ok;
@@ -461,9 +478,11 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                                     ok
                             end,
                             End3 = erlang:monotonic_time(millisecond),
+                            telemetry:execute([blockchain, block, absorb], #{duration => End3 - End2}, #{stage => post}),
+                            telemetry:execute([blockchain, block, height], #{height => Height}, #{time => blockchain_block:time(Block)}),
                             lager:info("validation took ~p absorb took ~p post took ~p ms for block height ~p",
                                        [End - Start, End2 - End, End3 - End2, Height]),
-                            ok;
+                            {ok, KeysPayload};
                         Any ->
                             Any
                     end;
@@ -478,7 +497,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     end.
 
 -spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback(), boolean()) ->
-                               ok | {error, any()}.
+                               {ok, tuple()} | {error, any()}.
 unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
@@ -498,7 +517,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             End = erlang:monotonic_time(millisecond),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
-                {ok, Chain2} ->
+                {ok, Chain2, KeysPayload} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
@@ -510,7 +529,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                             End3 = erlang:monotonic_time(millisecond),
                             lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
                                        [End - Start, End2 - End, End3 - End2, Height]),
-                            ok;
+                            {ok, KeysPayload};
                         Any ->
                             Any
                     end;
@@ -529,12 +548,13 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb_block(blockchain_block:block(), blockchain:blockchain()) ->
-                          {ok, blockchain:blockchain()} | {error, any()}.
+          {ok, blockchain:blockchain(), tuple()} |
+          {error, any()}.
 absorb_block(Block, Chain) ->
     absorb_block(Block, false, Chain).
 
 -spec absorb_block(blockchain_block:block(), boolean(), blockchain:blockchain()) ->
-                          {ok, blockchain:blockchain()} | {error, any()}.
+                          {ok, blockchain:blockchain(), tuple()} | {error, any()}.
 absorb_block(Block, Rescue, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Transactions0 = blockchain_block:transactions(Block),
@@ -545,8 +565,8 @@ absorb_block(Block, Rescue, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
-            ok = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
-            {ok, Chain};
+            {ok, KeysPayload} = blockchain_ledger_v1:process_poc_proposals(Height, Hash, Ledger),
+            {ok, Chain, KeysPayload};
         Error ->
             Error
     end.
@@ -705,7 +725,15 @@ type(#blockchain_txn_validator_heartbeat_v1_pb{}) ->
 type(#blockchain_txn_transfer_hotspot_v2_pb{}) ->
     blockchain_txn_transfer_hotspot_v2;
 type(#blockchain_txn_poc_receipts_v2_pb{}) ->
-    blockchain_txn_poc_receipts_v2.
+    blockchain_txn_poc_receipts_v2;
+type(#blockchain_txn_add_subnetwork_v1_pb{}) ->
+    blockchain_txn_add_subnetwork_v1;
+type(#blockchain_txn_update_subnetwork_v1_pb{}) ->
+    blockchain_txn_update_subnetwork_v1;
+type(#blockchain_txn_subnetwork_rewards_v1_pb{}) ->
+    blockchain_txn_subnetwork_rewards_v1;
+type(#blockchain_txn_token_redeem_v1_pb{}) ->
+    blockchain_txn_token_redeem_v1.
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
@@ -865,7 +893,7 @@ absorb_delayed_async(Block0, Chain0) ->
                                                             ok,
                                                             lists:seq(DelayedHeight+1, DelayedHeight + Lag)),
                                           case Res of
-                                              ok ->
+                                              {ok, _} ->
                                                   blockchain_ledger_v1:give_context(DelayedLedger1, Parent),
                                                   Parent ! {Ref, {ok, DelayedLedger1}};
                                               Error ->
@@ -905,8 +933,9 @@ absorb_aux(Block0, Chain0) ->
                                       ok,
                                       lists:seq(AuxHeight+1, End)),
                     case Res of
-                        ok ->
-                            ok = blockchain_ledger_v1:commit_context(AuxLedger1);
+                        {ok, _KeysPayload} ->
+                            ok = blockchain_ledger_v1:commit_context(AuxLedger1),
+                            Res;
                         Error ->
                             lager:info("AUX absorb failed ~p", [Error]),
                             Error
@@ -920,14 +949,14 @@ absorb_aux(Block0, Chain0) ->
 
 plain_absorb_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
-        {ok, _} ->
+        {ok, _, KeysPayload} ->
             Ledger0 = blockchain:ledger(Chain0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger0),
             %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
-            ok;
+            {ok, KeysPayload};
         Error ->
             Ledger = blockchain:ledger(Chain0),
             blockchain_ledger_v1:delete_context(Ledger),
@@ -1373,102 +1402,126 @@ txn_fees_oui_test() ->
     ok.
 
 txn_fees_routing_update_router_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:update_router_addresses(0, Owner, [?ADDRESS_KEY1, ?ADDRESS_KEY2],  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn00Fee),
-    ?assertEqual(0, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:update_router_addresses(0, Owner, [?ADDRESS_KEY1, ?ADDRESS_KEY2],  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn00Fee),
+         ?assertEqual(0, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn03Fee),
-    ?assertEqual(0, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_ROUTER_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn03Fee),
+         ?assertEqual(0, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_routing_new_xor_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
-    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
+         {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:new_xor(1, Owner, Filter,  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn00Fee),
-    ?assertEqual(0, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:new_xor(1, Owner, Filter,  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn00Fee),
+         ?assertEqual(0, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
-    ?assertEqual(40000, Txn03Fee),
-    ?assertEqual(0, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_NEW_XOR_STAKING_FEE, [], false),
+         ?assertEqual(40000, Txn03Fee),
+         ?assertEqual(0, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_routing_update_xor_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
-    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
+         {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:update_xor(1, Owner, 0, Filter,  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
-    ?assertEqual(45000, Txn00Fee),
-    ?assertEqual(0, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:update_xor(1, Owner, 0, Filter,  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
+         ?assertEqual(45000, Txn00Fee),
+         ?assertEqual(0, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
-    ?assertEqual(45000, Txn03Fee),
-    ?assertEqual(0, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_UPDATE_XOR_STAKING_FEE, [], false),
+         ?assertEqual(45000, Txn03Fee),
+         ?assertEqual(0, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_routing_request_subnet_test() ->
-    [{Owner, OwnerSigFun}] = gen_payers(1),
+    {timeout, 30000,
+     fun() ->
+         meck:new(blockchain_ledger_v1, [passthrough]),
+         meck:expect(blockchain_ledger_v1, config, fun(txn_routing_update_xor_fees_version, _) -> {ok, 1} end),
+         [{Owner, OwnerSigFun}] = gen_payers(1),
 
-    %% create new txn, and confirm expected fee size
-    Txn00 = blockchain_txn_routing_v1:request_subnet(1, Owner, 16,  1),
-    Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
-    Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
-    ?assertEqual(25000, Txn00Fee),
-    ?assertEqual(160000000, Txn00StakingFee),
-    ?assertEqual(0, Txn00LegacyStakingFee),
+         %% create new txn, and confirm expected fee size
+         Txn00 = blockchain_txn_routing_v1:request_subnet(1, Owner, 16,  1),
+         Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn00StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
+         Txn00LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
+         ?assertEqual(25000, Txn00Fee),
+         ?assertEqual(160000000, Txn00StakingFee),
+         ?assertEqual(0, Txn00LegacyStakingFee),
 
-    %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
-    Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
-    Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
-    Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
-    Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
-    Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
-    ?assertEqual(25000, Txn03Fee),
-    ?assertEqual(160000000, Txn03StakingFee),
-    ?assertEqual(0, Txn03LegacyStakingFee),
-    ok.
+         %% set the fee values of the txn, sign it and confirm the fees remains the same and unaffected by signatures
+         Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
+         Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, Txn00StakingFee),
+         Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
+         Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
+         Txn03StakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], true),
+         Txn03LegacyStakingFee = blockchain_txn_routing_v1:calculate_staking_fee(Txn00, ignore_ledger, ?ROUTER_REQUEST_SUBNET_STAKING_FEE, [], false),
+         ?assertEqual(25000, Txn03Fee),
+         ?assertEqual(160000000, Txn03StakingFee),
+         ?assertEqual(0, Txn03LegacyStakingFee),
+         meck:unload(blockchain_ledger_v1),
+         ok
+     end}.
 
 txn_fees_security_exchange_v1_test() ->
     [{Payer, PayerSigFun}] = gen_payers(1),

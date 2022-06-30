@@ -28,7 +28,8 @@
          join_packet/3,
          ledger/2,
          destroy_ledger/0,
-         download_serialized_region/1
+         download_serialized_region/1,
+         find_connected_node_pair/1
         ]).
 
 -ifdef(EQC).
@@ -176,6 +177,7 @@ init_per_suite(Config) ->
     application:ensure_all_started(lager),
     lager:set_loglevel(lager_console_backend, debug),
     application:ensure_all_started(throttle),
+    application:ensure_all_started(telemetry),
     Config.
 
 init_per_testcase(TestCase, Config) ->
@@ -384,7 +386,7 @@ create_vars(Vars) ->
 raw_vars(Vars) ->
     DefVars = #{
                 ?chain_vars_version => 2,
-                ?vars_commit_delay => 10,
+                ?vars_commit_delay => 1,
                 ?election_version => 2,
                 ?election_restart_interval => 5,
                 ?election_replacement_slope => 20,
@@ -582,3 +584,53 @@ download_serialized_region(URL) ->
     {ok, Data} = file:read_file(FPath),
     Data.
 
+
+% [{Node, PubKey}]
+find_connected_node_pair(NodeAddrList) ->
+    AddrMap =
+        lists:foldl(
+            fun({Node, Addr}, Acc) ->
+                AddrStr = libp2p_crypto:pubkey_bin_to_p2p(Addr),
+                Acc#{AddrStr => Node}
+            end, #{}, NodeAddrList),
+    ct:pal("Node map: ~p", [AddrMap]),
+    find_connected_node_pair(maps:next(maps:iterator(AddrMap)), AddrMap, #{}).
+
+find_connected_node_pair(none, _, NetworkMap) ->
+    ct:pal("Final Network Map~n~p", [NetworkMap]),
+    disjoint_network;
+
+% NetworkMap - #{ConnectedToNode => [ConnectedFromNode]}
+find_connected_node_pair({_, Node, Iter}, AddrToNodeMap, NetworkMap) ->
+    GossipPeerNodes =
+        addr_to_node(
+            lists:usort(
+                ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500)),
+            AddrToNodeMap),
+    ct:pal("Node ~p connected to:~n~p", [Node, GossipPeerNodes]),
+
+    % Is Node connected to a node in NetworkMap?
+    case maps:get(Node, NetworkMap, []) of
+        [] ->
+            % Nope, try checking the next node
+            find_connected_node_pair(
+                maps:next(Iter),
+                AddrToNodeMap,
+                add_to_network_map(Node, GossipPeerNodes, NetworkMap));
+        [ConnectedNode | _] ->
+            ct:pal("Found connected pair ~p <-> ~p", [Node, ConnectedNode]),
+            [Node, ConnectedNode]
+    end.
+
+addr_to_node(Addrs, AddrToNodeMap) ->
+    [maps:get(Addr, AddrToNodeMap, undefined) || Addr <- Addrs].
+
+% Remember which nodes a peer node is connected to
+add_to_network_map(Node, GossipPeerNodes, NetworkMap) ->
+    lists:foldl(
+        fun(PeerNode, Acc) ->
+            maps:update_with(PeerNode,
+                fun(NodeList) ->
+                    [Node | NodeList]
+                end, [Node], Acc)
+        end, NetworkMap, GossipPeerNodes).

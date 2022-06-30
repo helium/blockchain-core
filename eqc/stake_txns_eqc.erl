@@ -79,6 +79,7 @@ initial_state() ->
 init_chain_env() ->
     %% these should be idempotent
     _ = application:ensure_all_started(lager),
+    _ = application:ensure_all_started(telemetry),
     _ = blockchain_lock:start_link(),
     application:set_env(blockchain, test_mode, true),
 

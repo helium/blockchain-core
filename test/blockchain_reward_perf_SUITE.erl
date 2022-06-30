@@ -60,6 +60,7 @@ init_per_testcase(TestCase, Config) ->
     HtStr = integer_to_list(TgtHeight),
 
     {ok, _} = application:ensure_all_started(lager),
+    {ok, _} = application:ensure_all_started(telemetry),
 
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
@@ -134,7 +135,9 @@ end_per_testcase(_TestCase, Config) ->
     ok.
 
 all() ->
-    [reward_perf_test].
+    [
+    %reward_perf_test - run test manually
+    ].
 
 reward_perf_test(Config) ->
     Chain = ?config(chain, Config),

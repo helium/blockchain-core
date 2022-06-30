@@ -61,6 +61,7 @@ start_link(Args) ->
 init(Args) ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
+    application:ensure_all_started(telemetry),
     application:ensure_all_started(clique),
     application:ensure_all_started(throttle),
     %% start http client and ssl here
@@ -94,6 +95,7 @@ init(Args) ->
           [{signed_metadata_fun, MetadataFun},
            {notify_peer_gossip_limit, application:get_env(blockchain, gossip_width, 100)},
            {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))},
+           {force_network_id, application:get_env(blockchain, force_network_id, undefined)},
            {allow_rfc1918, application:get_env(blockchain, peerbook_allow_rfc1918, false)}
           ]},
          {libp2p_group_gossip,
@@ -104,6 +106,7 @@ init(Args) ->
            %% connections will hog all the gossip
            {peerbook_connections, application:get_env(blockchain, outbound_gossip_connections, 2)},
            {inbound_connections, application:get_env(blockchain, max_inbound_connections, 6)},
+           {seednode_connections, application:get_env(blockchain, seednode_connections, undefined)},
            {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
         ] ++ GroupMgrArgs,
@@ -111,7 +114,8 @@ init(Args) ->
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, BaseDir},
-        {update_dir, proplists:get_value(update_dir, Args, undefined)}
+        {update_dir, proplists:get_value(update_dir, Args, undefined)},
+        {ets_cache, blockchain_worker:make_ets_table()}
     ],
 
     BEventOpts = [],

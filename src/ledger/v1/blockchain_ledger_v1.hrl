@@ -40,7 +40,9 @@
     h3dex :: rocksdb:cf_handle(),
     validators :: rocksdb:cf_handle(),
     cache :: undefined | direct | ets:tid(),
-    gateway_cache :: undefined | ets:tid()
+    gateway_cache :: undefined | ets:tid(),
+    entries_v2 :: rocksdb:cf_handle(),
+    subnetworks_v1 :: rocksdb:cf_handle()
 }).
 
 -record(aux_ledger_v1, {
@@ -95,6 +97,7 @@
 -define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
 -define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
 -define(DEFAULT_ORACLE_PRICE, 0).
+-define(DEFAULT_POC_GC_INTERVAL, 101). %% in blocks
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.

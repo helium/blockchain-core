@@ -60,8 +60,8 @@ init(server, _Conn, [_Path, Blockchain]) ->
     Ledger = blockchain:ledger(Blockchain),
     HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
-    HandlerState = blockchain_state_channel_common:new_handler_state(Blockchain, Ledger, #{}, [], HandlerMod, OfferLimit, true),
-    case blockchain:config(?sc_version, Ledger) of
+    HandlerState = blockchain_state_channel_common:new_handler_state(#{}, [], HandlerMod, OfferLimit, true),
+    case blockchain_ledger_v1:config(?sc_version, Ledger) of
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
@@ -99,18 +99,9 @@ init(server, _Conn, [_Path, Blockchain]) ->
     HandlerState :: any()
 ) -> libp2p_framed_stream:handle_data_result().
 handle_data(client, Data, HandlerState) ->
+    Chain = blockchain_worker:cached_blockchain(),
+    Ledger = blockchain:ledger(Chain),
     %% get ledger if we don't yet have one
-    Ledger = 
-        case blockchain_state_channel_common:ledger(HandlerState) of
-            undefined ->
-                case blockchain_worker:blockchain() of
-                    undefined ->
-                        undefined;
-                    Chain ->
-                        blockchain:ledger(Chain)
-                end;
-            L -> L
-        end,
     case blockchain_state_channel_message_v1:decode(Data) of
         {banner, Banner} ->
             case blockchain_state_channel_banner_v1:sc(Banner) of
@@ -120,8 +111,7 @@ handle_data(client, Data, HandlerState) ->
                 BannerSC ->
                     lager:debug("sc_handler client got banner, sc_id: ~p",
                                [blockchain_state_channel_v1:id(BannerSC)]),
-                    %% either we don't have a ledger or we do and the SC is valid
-                    case Ledger == undefined orelse blockchain_state_channel_common:is_active_sc(BannerSC, Ledger) == ok of
+                    case blockchain_state_channel_common:is_active_sc(BannerSC, Ledger) == ok of
                         true ->
                             blockchain_state_channels_client:banner(Banner, self());
                         false ->
@@ -132,8 +122,7 @@ handle_data(client, Data, HandlerState) ->
             PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
             lager:debug("sc_handler client got purchase, sc_id: ~p",
                        [blockchain_state_channel_v1:id(PurchaseSC)]),
-            %% either we don't have a ledger or we do and the SC is valid
-            case Ledger == undefined orelse blockchain_state_channel_common:is_active_sc(PurchaseSC, Ledger) == ok of
+            case blockchain_state_channel_common:is_active_sc(PurchaseSC, Ledger) == ok of
                 true ->
                     blockchain_state_channels_client:purchase(Purchase, self());
                 false ->
@@ -146,9 +135,10 @@ handle_data(client, Data, HandlerState) ->
             lager:debug("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)
     end,
-    NewHandlerState = blockchain_state_channel_common:ledger(Ledger, HandlerState),
-    {noreply, NewHandlerState};
+    {noreply, HandlerState};
 handle_data(server, Data, HandlerState) ->
+    Chain = blockchain_worker:cached_blockchain(),
+    Ledger = blockchain:ledger(Chain),
     PendingOffers = blockchain_state_channel_common:pending_packet_offers(HandlerState),
     PendingOfferLimit = blockchain_state_channel_common:pending_offer_limit(HandlerState),
     Time = erlang:system_time(millisecond),
@@ -165,7 +155,6 @@ handle_data(server, Data, HandlerState) ->
             NewHandlerState = blockchain_state_channel_common:offer_queue(CurOfferQueue ++ [{Offer, Time}], HandlerState),
             {noreply, NewHandlerState};
         {packet, Packet} ->
-            Ledger = blockchain_state_channel_common:ledger(HandlerState),
             PacketHash = blockchain_helium_packet_v1:packet_hash(blockchain_state_channel_packet_v1:packet(Packet)),
             case maps:get(PacketHash, PendingOffers, undefined) of
                 undefined ->

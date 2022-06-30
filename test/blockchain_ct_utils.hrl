@@ -9,6 +9,10 @@
     "https://github.com/helium/lorawan-h3/blob/main/serialized/AS923-1.res7.h3idx?raw=true"
 ).
 
+-define(region_as923_1b_url,
+    "https://github.com/helium/lorawan-h3/blob/main/serialized/AS923-1B.res7.h3idx?raw=true"
+).
+
 -define(region_as923_2_url,
     "https://github.com/helium/lorawan-h3/blob/main/serialized/AS923-2.res7.h3idx?raw=true"
 ).
@@ -54,5 +58,5 @@
 ).
 
 -define(regulatory_region_bin_str,
-    <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    <<"region_as923_1,region_as923_1b,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 ).

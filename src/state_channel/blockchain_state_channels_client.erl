@@ -30,6 +30,7 @@
          code_change/3]).
 
 -include("blockchain.hrl").
+-include("blockchain_rocks.hrl").
 -include("blockchain_vars.hrl").
 
 -define(SERVER, ?MODULE).
@@ -436,6 +437,17 @@ handle_purchase(Purchase, Stream,
                 #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun}=State) ->
     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
     case is_valid_sc(PurchaseSC, State) of
+        {error, Reason} when Reason == inactive_sc orelse Reason == no_chain ->
+            lager:info("we don't know about ~p, lets send packet anyway", [blockchain_state_channel_v1:id(PurchaseSC)]),
+            case dequeue_packet(Stream, State) of
+                {undefined, State1} ->
+                    lager:debug("failed dequeue_packet, stream: ~p, purchase: ~p", [Stream, Purchase]),
+                    State1;
+                {{Packet, ReceivedTime}, State1} ->
+                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                    ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region, ReceivedTime),
+                    State1
+            end;
         {error, causal_conflict} ->
             lager:error("causal_conflict for purchase sc_id: ~p", [blockchain_state_channel_v1:id(PurchaseSC)]),
             ok = append_state_channel(PurchaseSC, State),
@@ -542,9 +554,11 @@ get_waiting_packet(AddressOrOUI, #state{waiting=Waiting}) ->
                             WaitingPacket :: waiting_packet(),
                             State :: state()) -> state().
 add_packet_to_waiting(AddressOrOUI, {Packet, Region, ReceivedTime}, #state{waiting=Waiting}=State) ->
-    Q = get_waiting_packet(AddressOrOUI, State),
+    Q0 = get_waiting_packet(AddressOrOUI, State),
     lager:debug("add_packet_to_waiting, AddressOrOUI: ~p", [AddressOrOUI]),
-    State#state{waiting=maps:put(AddressOrOUI, Q ++ [{Packet, Region, ReceivedTime}], Waiting)}.
+    %% We should only ever keep 9+1 packet (for each Router)
+    Q1 = lists:sublist(Q0, 9),
+    State#state{waiting=maps:put(AddressOrOUI, Q1 ++ [{Packet, Region, ReceivedTime}], Waiting)}. %%
 
 -spec remove_packet_from_waiting(AddressOrOUI :: waiting_key(), State :: state()) -> state().
 remove_packet_from_waiting(AddressOrOUI, #state{waiting=Waiting}=State) ->
@@ -933,7 +947,7 @@ state_channels(#state{db=DB, cf=CF}) ->
     state_channels(Itr, rocksdb:iterator_move(Itr, first), []).
 
 state_channels(Itr, {error, invalid_iterator}, Acc) ->
-    catch rocksdb:iterator_close(Itr),
+    ?ROCKSDB_ITERATOR_CLOSE(Itr),
     Acc;
 state_channels(Itr, {ok, _, SCBin}, Acc) ->
     state_channels(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(SCBin)|Acc]).

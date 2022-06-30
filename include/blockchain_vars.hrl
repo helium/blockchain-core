@@ -160,9 +160,26 @@
 %% NOTE the minimum value here should be greater than that of validator_liveness_interval
 -define(poc_validator_ephemeral_key_timeout, poc_validator_ephemeral_key_timeout).
 
+%% determines whether or not to reject a v2 receipts txn which has no receipt : boolean
+-define(poc_reject_empty_receipts, poc_reject_empty_receipts).
+
+%% determines whether or not to use the fix for a buggy POC GC : boolean
+-define(poc_apply_gc_fix, poc_apply_gc_fix).
+%% determines whether or not to check if poc proposals are within a GC window
+%% before deciding whether to promote
+-define(poc_proposal_gc_window_check, poc_proposal_gc_window_check).
+
 %% Determines whether or not to filter out inactive gateways
 %% from POC targets :: boolean()
 -define(poc_activity_filter_enabled, poc_activity_filter_enabled).
+
+%% enables or disables processing gateway reactivations regardless of
+%% consensus status (GH#1357)
+-define(poc_always_process_reactivations, poc_always_process_reactivations).
+
+%% Whether or not to always use hip17 interactivity blocks
+%% when determining if a GW is active or inactive: boolean
+-define(harmonize_activity_on_hip17_interactivity_blocks, harmonize_activity_on_hip17_interactivity_blocks).
 
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
@@ -202,12 +219,18 @@
 %% max number of hexes to GC in the h3dex per block: integer
 -define(h3dex_gc_width, h3dex_gc_width).
 
+%% determines whether or not to use the fix for a bug in removing gateways from h3dex : boolean
+-define(h3dex_remove_gw_fix, h3dex_remove_gw_fix).
+
 %% the version number of poc targeting in use: integer
 %% if not set, code paths with default to 3 ( blockchain_poc_target_v3 )
 -define(poc_targeting_version, poc_targeting_version).
 
 %% the number of random hexes to utilize when targeting: integer
 -define(poc_target_pool_size, poc_target_pool_size).
+
+%% whether or not to process validation of poc receipt witnesses
+-define(poc_receipt_witness_validation, poc_receipt_witness_validation).
 
 %%%
 %%% score vars
@@ -340,6 +363,9 @@
 
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
+
+%% Set this var to `true' to enable balance clearing txns
+-define(enable_balance_clearing, enable_balance_clearing). % boolean
 
 %% General txn vars
 
@@ -558,7 +584,7 @@
 %% regulatory_region related variables
 
 %% This is a comma separated string like so:
-%% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+%% <<"region_as923_1,region_as923_1b,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
 -define(regulatory_regions, regulatory_regions).
 
 %% Each of the former regions is associated with a dynamic var of the same name which is is a serialized form of an h3_region set determined at h3_res: 7
@@ -591,3 +617,15 @@
 
 %% Block size limit variable (in bytes). Set to 25 * 1024 * 1024.
 -define(block_size_limit, block_size_limit).
+
+%% ------------------------------------------------------------------
+%% Token version (aka support multiple tokens). Set to 2 (pos_integer).
+-define(token_version, token_version).
+%% Ledger entry migration variable
+%% Will be used to hook and switch the old style ledger entries
+%% to new style ledger entries. Set to 2 (pos_integer).
+-define(ledger_entry_version, ledger_entry_version).
+%% Var to switch off legacy security_exchange txn. Boolean.
+-define(deprecate_security_exchange_v1, deprecate_security_exchange_v1).
+%% How many reward server keys to allow
+-define(allowed_num_reward_server_keys, allowed_num_reward_server_keys).

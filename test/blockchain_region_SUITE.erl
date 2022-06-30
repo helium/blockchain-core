@@ -26,6 +26,7 @@
 -export([
     all_regions_test/1,
     as923_1_test/1,
+    as923_1b_test/1,
     as923_2_test/1,
     as923_3_test/1,
     eu433_test/1,
@@ -42,6 +43,7 @@
     eu868_region_param_test/1,
     au915_region_param_test/1,
     as923_1_region_param_test/1,
+    as923_1b_region_param_test/1,
     as923_2_region_param_test/1,
     as923_3_region_param_test/1,
     as923_4_region_param_test/1,
@@ -81,6 +83,7 @@ with_all_data_test_cases() ->
 with_h3_data_test_cases() ->
     [
         as923_1_test,
+        as923_1b_test,
         as923_2_test,
         as923_3_test,
         eu433_test,
@@ -110,6 +113,7 @@ without_h3_data_test_cases() ->
         eu868_region_param_test,
         au915_region_param_test,
         as923_1_region_param_test,
+        as923_1b_region_param_test,
         as923_2_region_param_test,
         as923_3_region_param_test,
         as923_4_region_param_test,
@@ -191,6 +195,12 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% test cases
 %%--------------------------------------------------------------------
+
+
+%% H3 located from https://github.com/helium/lorawan-h3
+
+%% H3 created from HPlans at https://github.com/dewi-alliance/hplans
+
 region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     H3 = 631183727389488639,
@@ -210,6 +220,14 @@ as923_1_test(Config) ->
     H3 = 631319855840474623,
     {ok, region_as923_1} = blockchain_region_v1:h3_to_region(H3, Ledger),
     true = blockchain_region_v1:h3_in_region(H3, region_as923_1, Ledger),
+    false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
+    ok.
+
+as923_1b_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    H3 = 609766440970485759,
+    {ok, region_as923_1b} = blockchain_region_v1:h3_to_region(H3, Ledger),
+    true = blockchain_region_v1:h3_in_region(H3, region_as923_1b, Ledger),
     false = blockchain_region_v1:h3_in_region(H3, region_us915, Ledger),
     ok.
 
@@ -454,6 +472,18 @@ as923_1_region_param_test(Config) ->
             ct:fail("boom")
     end.
 
+as923_1b_region_param_test(Config) ->
+    Ledger = ?config(ledger, Config),
+    case blockchain:config(region_as923_1b_params, Ledger) of
+        {ok, Bin} ->
+            ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
+            8 = length(ParamsFromBin),
+            true = length(ParamsFromBin) == length(lists:usort(ParamsFromBin)),
+            ok;
+        _ ->
+            ct:fail("boom")
+    end.
+
 as923_2_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
     case blockchain:config(region_as923_2_params, Ledger) of
@@ -605,6 +635,7 @@ region_param_vars() ->
         region_eu868_params => blockchain_region_suite_helper:serialized_eu868(),
         region_au915_params => blockchain_region_suite_helper:serialized_au915(),
         region_as923_1_params => blockchain_region_suite_helper:serialized_as923_1(),
+        region_as923_1b_params => blockchain_region_suite_helper:serialized_as923_1b(),
         region_as923_2_params => blockchain_region_suite_helper:serialized_as923_2(),
         region_as923_3_params => blockchain_region_suite_helper:serialized_as923_3(),
         region_as923_4_params => blockchain_region_suite_helper:serialized_as923_4(),
@@ -618,6 +649,7 @@ region_param_vars() ->
 region_urls() ->
     [
         {region_as923_1, ?region_as923_1_url},
+        {region_as923_1b, ?region_as923_1b_url},
         {region_as923_2, ?region_as923_2_url},
         {region_as923_3, ?region_as923_3_url},
         {region_as923_4, ?region_as923_4_url},

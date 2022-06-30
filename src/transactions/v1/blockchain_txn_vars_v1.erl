@@ -615,7 +615,18 @@ delayed_absorb(Txn, Ledger) ->
                 Key ->
                     ok = blockchain_ledger_v1:master_key(Key, Ledger)
             end
-    end.
+    end,
+    case blockchain_ledger_v1:mode(Ledger) of
+        active ->
+            %% we've invalidated the region cache, so prewarm it.
+            spawn(fun() ->
+                          timer:sleep(30000),
+                          blockchain_region_v1:prewarm_cache(blockchain_ledger_v1:remove_context(Ledger))
+                  end);
+        _ ->
+            ok
+    end,
+    ok.
 
 sum_higher(Target, Proplist) ->
     sum_higher(Target, Proplist, 0).
@@ -744,6 +755,10 @@ var_hook(?poc_challenger_type, Type, Ledger) ->
         _ -> ok
     end,
     purge_pocs(Ledger),
+    ok;
+var_hook(?ledger_entry_version, 2, Ledger) ->
+    %% Migrate to new style ledger entries
+    blockchain_ledger_v1:migrate_entries(Ledger),
     ok;
 var_hook(_Var, _Value, _Ledger) ->
     ok.
@@ -1018,6 +1033,37 @@ validate_var(?poc_activity_filter_enabled, Value) ->
         false -> ok;
         _ -> throw({error, {poc_activity_filter_enabled, Value}})
     end;
+validate_var(?poc_always_process_reactivations, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_always_process_reactivations, Value}})
+    end;
+validate_var(?poc_reject_empty_receipts, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_reject_empty_receipts, Value}})
+    end;
+validate_var(?poc_apply_gc_fix, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_apply_gc_fix, Value}})
+    end;
+validate_var(?poc_proposal_gc_window_check, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {poc_proposal_gc_window_check, Value}})
+    end;
+validate_var(?harmonize_activity_on_hip17_interactivity_blocks, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {harmonize_activity_on_hip17_interactivity_blocks, Value}})
+    end;
+
 validate_var(?poc_challenge_sync_interval, Value) ->
     validate_int(Value, "poc_challenge_sync_interval", 10, 1440, false);
 validate_var(?poc_path_limit, undefined) ->
@@ -1058,8 +1104,7 @@ validate_var(?poc_v5_target_prob_randomness_wt, Value) ->
     validate_float(Value, "poc_v5_target_prob_randomness_wt", 0.0, 1.0);
 validate_var(?poc_typo_fixes, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_poc_typo_fixes, Value}})
     end;
 validate_var(?poc_target_hex_parent_res, Value) ->
@@ -1084,14 +1129,18 @@ validate_var(?poc_distance_limit, Value) ->
     validate_int(Value, "poc_distance_limit", 0, 1000, false);
 validate_var(?check_snr, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_check_snr, Value}})
     end;
 validate_var(?polyfill_resolution, Value) ->
     validate_int(Value, "polyfill_resolution", 0, 15, false);
 validate_var(?h3dex_gc_width, Value) ->
   validate_int(Value, "h3dex_gc_width", 1, 10000, false);
+validate_var(?h3dex_remove_gw_fix, Value) ->
+  case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {h3dex_gw_remove_fix, Value}})
+    end;
 validate_var(?poc_target_pool_size, Value) ->
   validate_int(Value, "poc_target_pool_size", 1, 1000000, false);
 validate_var(?poc_targeting_version, Value) ->
@@ -1113,6 +1162,8 @@ validate_var(?poc_hexing_type, Value) ->
   end;
 validate_var(?poc_validator_ct_scale, Value) ->
     validate_float(Value, "poc_validator_ct_scale", 0.1, 1.0);
+validate_var(?poc_receipt_witness_validation, Value) when is_boolean(Value) -> ok;
+validate_var(?poc_receipt_witness_validation, Value) -> throw({error, poc_receipt_witness_validation, Value});
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
@@ -1172,23 +1223,39 @@ validate_var(?max_payments, Value) ->
 
 validate_var(?deprecate_payment_v1, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_payment_v1, Value}})
+    end;
+validate_var(?deprecate_security_exchange_v1, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_deprecate_security_exchange_v1, Value}})
     end;
 
 validate_var(?allow_payment_v2_memos, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_allow_payment_v2_memos, Value}})
     end;
 
 validate_var(?allow_zero_amount, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_allow_zero_amount, Value}})
+    end;
+
+validate_var(?enable_balance_clearing, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_enable_balance_clearing, Value}})
+    end;
+
+validate_var(?allowed_num_reward_server_keys, Value) ->
+    case Value of
+        N when N == 1 ->
+            %% only supported one reward server for now
+            ok;
+        _ -> throw({error, {invalid_allowed_num_reward_server_keys, Value}})
     end;
 
 %% general txn vars
@@ -1232,9 +1299,8 @@ validate_var(?sc_max_actors, Value) ->
     validate_int(Value, "sc_max_actors", 500, 10000, false);
 validate_var(?sc_only_count_open_active, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
-        Other -> throw({error, {invalid_sc_only_count_open_active_value, Other}})
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_sc_only_count_open_active_value, Value}})
     end;
 validate_var(?sc_dispute_strategy_version, Value) ->
     validate_int(Value, "sc_dispute_strategy_version", 0, 1, false);
@@ -1288,8 +1354,7 @@ validate_var(?price_oracle_height_delta, Value) ->
 %% txn fee related vars
 validate_var(?txn_fees, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_txn_fees, Value}})
     end;
 
@@ -1343,8 +1408,7 @@ validate_var(?data_aggregation_version, Value) ->
 
 validate_var(?use_multi_keys, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_multi_keys, Value}})
     end;
 
@@ -1438,9 +1502,8 @@ validate_var(?validator_hb_reactivation_limit, Value) ->
     validate_int(Value, "validator_hb_reactivation_limit", 5, 100, false);
 validate_var(?validator_key_check, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_validator_key_check, Value}})
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalidate_validator_key_check, Value}})
     end;
 %% TODO fix this var
 validate_var(?stake_withdrawal_cooldown, Value) ->
@@ -1462,8 +1525,7 @@ validate_var(?penalty_history_limit, Value) ->
 
 validate_var(?net_emissions_enabled, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_net_emissions_boolean, Value}})
     end;
 validate_var(?net_emissions_max_rate, Value) ->
@@ -1471,7 +1533,7 @@ validate_var(?net_emissions_max_rate, Value) ->
 
 validate_var(?regulatory_regions, Value) when is_binary(Value) ->
     %% The regulatory_regions value we support must look like this:
-    %% <<"region_as923_1,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
+    %% <<"region_as923_1,region_as923_1b,region_as923_2,region_as923_3,region_as923_4,region_au915,region_cn470,region_eu433,region_eu868,region_in865,region_kr920,region_ru864,region_us915">>
     %% The order does not matter in validation
 
     %% We only check that the binary string is comma separated
@@ -1485,12 +1547,24 @@ validate_var(?regulatory_regions, Value) ->
     throw({error, {invalid_regulatory_regions_not_binary, Value}});
 validate_var(?discard_zero_freq_witness, Value) ->
     case Value of
-        true -> ok;
-        false -> ok;
+        Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_discard_zero_freq_witness, Value}})
     end;
 validate_var(?block_size_limit, Value) ->
     validate_int(Value, "block_size_limit", 1*1024*1024, 512*1024*1024, false);
+
+validate_var(?token_version, Value) ->
+    case Value of
+        2 -> ok;                    %% Add support for multiple tokens
+        _ ->
+            throw({error, {invalid_token_version, Value}})
+    end;
+validate_var(?ledger_entry_version, Value) ->
+    case Value of
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_ledger_entry_version, Value}})
+    end;
 
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars

@@ -23,6 +23,7 @@ register_all_usage() ->
                    ledger_balance_usage(),
                    ledger_export_usage(),
                    ledger_gateways_usage(),
+                   ledger_cache_usage(),
                    ledger_validators_usage(),
                    ledger_variables_usage(),
                    ledger_usage()
@@ -36,6 +37,7 @@ register_all_cmds() ->
                    ledger_balance_cmd(),
                    ledger_export_cmd(),
                    ledger_gateways_cmd(),
+                   ledger_cache_cmd(),
                    ledger_validators_cmd(),
                    ledger_variables_cmd(),
                    ledger_cmd()
@@ -48,8 +50,10 @@ ledger_usage() ->
     [["ledger"],
      ["blockchain ledger commands\n\n",
       "  ledger balance             - Get the balance for one or all addresses.\n"
+      "  ledger cache               - Pre-load or clear h3 hex to region cache.\n"
       "  ledger export              - Export transactions from the ledger to <file>.\n"
       "  ledger gateways            - Display the list of active gateways.\n"
+      "  ledger validators          - Retrieve all validators and a table of information about them.\n"
       "  ledger variables           - Interact with chain variables.\n"
      ]
     ].
@@ -127,6 +131,34 @@ get_ledger() ->
             blockchain:ledger(Chain)
     end.
 
+
+%%--------------------------------------------------------------------
+%% ledger cache
+%%--------------------------------------------------------------------
+ledger_cache_cmd() ->
+    [
+     [["ledger", "cache", '*'], [], [], fun ledger_cache/3]
+    ].
+
+ledger_cache_usage() ->
+    [["ledger", "cache"],
+     ["ledger cache [ prewarm | clear ]\n\n",
+      "  ledger cache prewarm       - Pre-load h3 hex-to-region mapping for all gateways into cache.\n"
+      "  ledger cache clear         - Clear h3 hex-to-region cache.\n"
+     ]
+    ].
+
+ledger_cache(["ledger","cache","prewarm"], [], []) ->
+    Ledger = blockchain:ledger(),
+    Ret = blockchain_region_v1:prewarm_cache(Ledger),
+    [clique_status:text(io_lib:format("~p", [Ret]))];
+ledger_cache(["ledger","cache","clear"], [], []) ->
+    Ret = blockchain_region_v1:clear_cache(),
+    [clique_status:text(io_lib:format("~p", [Ret]))];
+ledger_cache(["ledger","cache",_], [], []) ->
+    ledger_cache_usage().
+
+
 %%--------------------------------------------------------------------
 %% ledger export
 %%--------------------------------------------------------------------
@@ -192,6 +224,10 @@ ledger_gw_fold(Verbose) ->
       [],
       Ledger).
 
+
+%%--------------------------------------------------------------------
+%% ledger validators
+%%--------------------------------------------------------------------
 ledger_validators_cmd() ->
     [
      [["ledger", "validators"], [], [], fun ledger_validators/3],
@@ -237,8 +273,9 @@ format_ledger_validator(ValAddr, Validator, Ledger, Verbose) ->
     [{name, blockchain_utils:addr2name(ValAddr)} |
      blockchain_ledger_validator_v1:print(Validator, Height, Verbose, Ledger)].
 
+%%--------------------------------------------------------------------
 %% ledger variables
-
+%%--------------------------------------------------------------------
 ledger_variables_cmd() ->
     [
      [["ledger", "variables", '*'], [], [], fun ledger_variables/3],

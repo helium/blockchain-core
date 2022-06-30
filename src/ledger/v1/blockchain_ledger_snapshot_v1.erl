@@ -130,6 +130,7 @@
     | upgrades
     | net_overage
     | hnt_burned
+    | validator_count
     .
 
 -type key_raw() ::
@@ -261,6 +262,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
     try
         Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
+        {ok, ValidatorCount} = blockchain_ledger_v1:validator_count(Ledger),
         {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
         {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
         {ok, ElectionEpoch} = blockchain_ledger_v1:election_epoch(Ledger),
@@ -336,7 +338,8 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
                 {oracle_price_list, OraclePriceList},
                 {upgrades         , Upgrades},
                 {net_overage      , NetOverage},
-                {hnt_burned       , HntBurned}
+                {hnt_burned       , HntBurned},
+                {validator_count  , ValidatorCount}
              ],
         Snap = maps:from_list(Pairs),
         {ok, Snap}
@@ -601,6 +604,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
                       [{upgrades, blockchain, mark_upgrades} || maps:is_key(upgrades, Snapshot)] ++
                       [net_overage || maps:is_key(net_overage, Snapshot)] ++
                       [{proposed_pocs, load_proposed_pocs} || maps:is_key(proposed_pocs, Snapshot)] ++
+                      [validator_count || maps:is_key(validator_count, Snapshot)] ++
                       [begin
                            ok = blockchain_ledger_v1:clear_hnt_burned(L),
                            {hnt_burned, add_hnt_burned}
@@ -725,7 +729,7 @@ load_blocks(Ledger0, Chain, Snapshot) ->
                       Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
                       Chain1 = blockchain:ledger(Ledger2, Chain),
                       Rescue = blockchain_block:is_rescue_block(Block),
-                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+                      {ok, _Chain, _} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
                       ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
                       ok = blockchain_ledger_v1:maybe_gc_scs(Chain1, Ledger2),
                       %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
