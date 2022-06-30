@@ -4,6 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain.hrl").
+-include("blockchain_ct_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
@@ -25,6 +26,7 @@
     fees_since_test/1,
     security_token_test/1,
     routing_test/1,
+    routing_netid_to_oui_test/1,
     block_save_failed_test/1,
     absorb_failed_test/1,
     missing_last_block_test/1,
@@ -1342,6 +1344,111 @@ routing_test(Config) ->
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
     meck:unload(blockchain_ledger_v1),
+    ok.
+
+routing_netid_to_oui_test(Config) ->
+    %% Mostly same as routing_test()...
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    [_, {Payer, {_, PayerPrivKey, _}}, {Router1, {_, RouterPrivKey, _}}|_] = ConsensusMembers,
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    _RouterSigFun = libp2p_crypto:mk_sig_fun(RouterPrivKey),
+
+    meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
+    %% See comment in routing_test() for caveats.
+    meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _, _, _) -> ok end),
+
+    OUI1 = 1,
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm), Router1],
+    {Filter, _} = xor16:to_bin(xor16:new([0], fun xxhash:hash64/1)),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
+    SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    {ok, Block0} = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
+    _ = blockchain_gossip_handler:add_block(Block0, Chain, self(), blockchain_swarm:tid()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
+
+    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+    ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    %% Diverging from routing_test()...
+
+    RoamingRouters =
+        case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+            {ok, Bin} -> binary_to_term(Bin);
+            _ -> []
+        end,
+    ?assertNotEqual([], RoamingRouters),
+    State = blockchain_state_channels_client:set_routers(RoamingRouters, Chain),
+    Region = 'US915',
+    Now = erlang:system_time(seconds),
+    DefaultRouters =
+        [libp2p_crypto:pubkey_bin_to_p2p(binary:list_to_bin(blockchain_ct_utils:randname(16)))
+         || _X <- lists:seq(1, 3)],
+
+    %% Send packet using devaddr outside any of our test netids.
+
+    DevAddr0 = lora_subnet:devaddr_from_netid($Z, 16#F0F0F0),
+    Payload0 = crypto:strong_rand_bytes(120),
+    Packet0 = blockchain_helium_packet_v1:new({devaddr, DevAddr0}, Payload0),
+    NewState0 =
+        blockchain_state_channels_client:handle_route_by_netid(
+          Packet0, DevAddr0, DefaultRouters, Region, Now, State
+         ),
+
+    %% Checking packets ready to be sent; it should route them to default Routers
+    %% as the net id $Z is unknown to us.
+    Waiting0 = blockchain_state_channels_client:get_waiting(NewState0),
+    lists:foreach(
+        fun(K) ->
+            ?assert(lists:member(K, DefaultRouters))
+        end,
+        maps:keys(Waiting0)
+    ),
+
+    %% Send packet using devaddr within each of our test netids,
+    %% and confirm results of route_by_netid().
+    lists:foreach(
+        fun({NetID, OUI}) ->
+            DevAddr = lora_subnet:devaddr_from_subnet(1, [NetID]),
+            Payload = crypto:strong_rand_bytes(120),
+            Packet = blockchain_helium_packet_v1:new({devaddr, DevAddr}, Payload),
+            NewState =
+                blockchain_state_channels_client:handle_route_by_netid(
+                Packet, DevAddr, DefaultRouters, Region, Now, State
+                ),
+            Waiting = blockchain_state_channels_client:get_waiting(NewState),
+            {ok, Route} = blockchain_ledger_v1:find_routing(OUI, Ledger),
+            ?assertEqual([blockchain_ledger_routing_v1:oui(Route)], maps:keys(Waiting))
+        end,
+        RoamingRouters
+    ),
+
+    %% Use devaddr within default router slab.
+    %% Official NetID assigned to Nova Labs by LoRa Alliance:
+    NetID = 16#60002D,
+    DevAddr1 = lora_subnet:devaddr_from_netid(NetID, 16#F0F0),
+    Payload1 = crypto:strong_rand_bytes(120),
+    Packet1 = blockchain_helium_packet_v1:new({devaddr, DevAddr1}, Payload1),
+    NewState1 =
+        blockchain_state_channels_client:handle_route_by_netid(
+          Packet1, DevAddr1, DefaultRouters, Region, Now, State
+         ),
+    Waiting1 = blockchain_state_channels_client:get_waiting(NewState1),
+    lists:foreach(
+        fun(K) ->
+            ?assert(lists:member(K, DefaultRouters))
+        end,
+        maps:keys(Waiting1)
+    ),
     ok.
 
 max_subnet_test(Config) ->

@@ -440,7 +440,10 @@ raw_vars(Vars) ->
                 ?max_subnet_size => 65536,
                 ?min_subnet_size => 8,
                 ?max_subnet_num => 20,
-                ?dc_payload_size => 24
+                ?dc_payload_size => 24,
+                ?routers_by_netid_to_oui =>
+                    term_to_binary([{16#000009, 1}, {16#600025, 1},
+                                    {16#000037, 1}, {16#60003A, 1}])
                },
 
     maps:merge(DefVars, Vars).
