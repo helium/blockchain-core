@@ -148,7 +148,7 @@ is_valid(Txn, Chain) ->
             end
     end.
 
--spec absorb(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(Txn :: txn_add_subnetwork(), Chain :: blockchain:blockchain()) -> ok | {error, atom()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     TT = ?MODULE:token_type(Txn),

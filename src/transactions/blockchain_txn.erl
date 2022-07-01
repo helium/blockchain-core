@@ -62,7 +62,7 @@
 -callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
--callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
+-callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, any()}.
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().

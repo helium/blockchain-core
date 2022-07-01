@@ -180,7 +180,7 @@ handle_data(server, Data, State=#state{path=Path, callback = Callback}) ->
     string(),
     blockchain_txn_mgr:txn_key(),
     blockchain_txn:txn(),
-    blockchain_txn_mgr:txn_request_type()) -> binary().
+    blockchain_txn_mgr:txn_request_type()) -> binary() | {error, req_not_supported}.
 encode_request(?TX_PROTOCOL_V1 = _Path, _TxnKey, Txn, submit) ->
     blockchain_txn:serialize(Txn);
 encode_request(?TX_PROTOCOL_V2 = _Path, _TxnKey, Txn, submit) ->
