@@ -184,6 +184,7 @@
     count_gateways_in_hex/2,
     count_gateways_in_hexes/2,
     random_targeting_hex/2,
+    random_targeting_hexes/3,
     build_random_hex_targeting_lookup/2,
     clean_random_hex_targeting_lookup/1,
     add_commit_hook/4, add_commit_hook/5,
@@ -5030,14 +5031,25 @@ count_gateways_in_hexes(Resolution, Ledger) ->
               ).
 
 random_targeting_hex(RandState, Ledger) ->
+	case random_targeting_hexes(RandState, Ledger, 1) of
+		{ok, [Hex], NewRandState} ->
+			{ok, Hex, NewRandState};
+		Other ->
+			Other
+	end.
+
+random_targeting_hexes(RandState, Ledger, HexCount) ->
     H3CF = h3dex_cf(Ledger),
     case cache_get(Ledger, H3CF, <<"population">>, []) of
         {ok, <<0:32/integer-unsigned-little>>} ->
             {error, no_populated_hexes};
         {ok, <<Count:32/integer-unsigned-little>>} ->
-            {Val, NewRandState} = rand:uniform_s(Count, RandState),
-            {ok, <<Hex:64/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"random-", (Val - 1):32/integer-unsigned-big>>, []),
-            {ok, Hex, NewRandState};
+	    {Hexes, NewRandState} = lists:foldl(fun(_, {Acc, R}) ->
+						    {Val, NewR} = rand:uniform_s(Count, R),
+						    {ok, <<Hex:64/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"random-", (Val - 1):32/integer-unsigned-big>>, []),
+						    {[Hex|Acc], NewR}
+						end, {[], RandState}, lists:seq(1, HexCount)),
+            {ok, Hexes, NewRandState};
         not_found ->
             {error, no_populated_hexes};
         Error ->
