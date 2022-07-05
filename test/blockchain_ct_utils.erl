@@ -235,6 +235,8 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, peer_cache_timeout, PeerCacheTimeout]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, sc_client_handler, sc_client_test_handler]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, sc_packet_handler, sc_packet_test_handler]),
+                                %% until the setup completes and the test nodes produce a genesis block, this ID needs set to allow the new nodes to gossip
+                                ct_rpc:call(Node, application, set_env, [blockchain, force_network_id, <<"bootstrap">>]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, peerbook_update_interval, 200]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, peerbook_allow_rfc1918, true]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, max_inbound_connections, TotalNodes*2]),
@@ -250,11 +252,11 @@ init_per_testcase(TestCase, Config) ->
     true = lists:all(fun(Res) -> Res == ok end, ConfigResult),
 
     %% accumulate the listen addr of all the nodes
-    Addrs = pmap(
+    AddrsAndNodes = pmap(
               fun(Node) ->
                       Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 2000),
                       [H|_] = ct_rpc:call(Node, libp2p_swarm, listen_addrs, [Swarm], 2000),
-                      H
+                      {H, Node}
               end, Nodes),
 
 
@@ -263,9 +265,9 @@ init_per_testcase(TestCase, Config) ->
       fun(Node) ->
               Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 2000),
               lists:foreach(
-                fun(A) ->
-                        ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, A], 2000)
-                end, Addrs)
+                fun({_, N}) when N =:= Node -> {ok, self};
+                   ({A, _}) -> ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, A], 2000)
+                end, AddrsAndNodes)
       end, Nodes),
 
     %% make sure each node is gossiping with a majority of its peers
@@ -281,10 +283,11 @@ init_per_testcase(TestCase, Config) ->
                                            ct:pal("~p is not connected to enough peers ~p", [Node, GossipPeers]),
                                            Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
                                            lists:foreach(
-                                             fun(A) ->
+                                             fun({_, N}) when N =:= Node -> {ok, self};
+                                                ({A, _}) ->
                                                      CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, A], 500),
                                                      ct:pal("Connecting ~p to ~p: ~p", [Node, A, CRes])
-                                             end, Addrs),
+                                             end, AddrsAndNodes),
                                            false
                                    end
                                catch _C:_E ->
@@ -305,8 +308,9 @@ init_per_testcase(TestCase, Config) ->
     %% retrieve the libp2p port and derive the grpc port from that
 
     GRPCServerConfigFun = fun(PeerPort)->
-         [#{grpc_opts => #{service_protos => [state_channel_pb],
-                           services => #{'helium.state_channel' => blockchain_grpc_sc_server_handler}
+         [#{grpc_opts => #{service_protos => [state_channel_pb, transaction_pb],
+                           services => #{'helium.state_channel' => blockchain_grpc_sc_server_handler,
+                                         'helium.transaction' => helium_transaction_service}
                             },
 
             transport_opts => #{ssl => false},

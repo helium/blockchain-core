@@ -62,8 +62,8 @@
 -callback json_type() -> binary() | atom().
 -callback hash(State::any()) -> hash().
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
--callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
--callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
+-callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, any()}.
+-callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
 -callback calculate_fee(txn(), blockchain:blockchain()) -> non_neg_integer().
@@ -575,7 +575,7 @@ absorb_block(Block, Rescue, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn(),blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn(),blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     Start = erlang:monotonic_time(millisecond),
@@ -621,7 +621,7 @@ print(Txn, Verbose) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case lists:keysearch(Type, 1, ?ORDER) of
@@ -630,9 +630,9 @@ is_valid(Txn, Chain) ->
                 Res ->
                     Res
             catch
-                What:Why:Stack ->
+                _What:Why:Stack ->
                     lager:warning("crash during validation: ~p ~p", [Why, Stack]),
-                    {error, {Type, What, {Why, Stack}}}
+                    {error, {validation_failed, {Why, Stack}}}
             end;
         false ->
             lager:warning("txn not in sort order ~p : ~s", [Type, print(Txn)]),
