@@ -202,14 +202,17 @@ hex_list(_Ledger, RandState, 0, Acc) ->
     %% usort so if we selected duplicates they don't get overselected
     {lists:usort(Acc), RandState};
 hex_list(Ledger, RandState, HexCount, Acc) ->
-    {ok, Hex, NewRandState} = blockchain_ledger_v1:random_targeting_hex(RandState, Ledger),
-    case blockchain_ledger_v1:count_gateways_in_hex(Hex, Ledger) of
-        0 ->
-            %% this should not happen, but handle it anyway
-            hex_list(Ledger, NewRandState, HexCount -1, Acc);
-        GWCount ->
-            hex_list(Ledger, NewRandState, HexCount - 1, [{Hex, GWCount}|Acc])
-    end.
+    {ok, Hexes, NewRandState} = blockchain_ledger_v1:random_targeting_hexes(RandState, Ledger, HexCount),
+    PopulatedHexes = lists:foldl(fun(Hex, IntAcc) ->
+						 case blockchain_ledger_v1:count_gateways_in_hex(Hex, Ledger) of
+							 0 ->
+								 IntAcc;
+							 GWCount ->
+								 [{Hex, GWCount}|IntAcc]
+						 end
+				 end, [], Hexes),
+    %% order of Acc doesn't matter here because we usort at the end
+    hex_list(Ledger, NewRandState, HexCount - length(PopulatedHexes), PopulatedHexes ++ Acc).
 
 -spec choose_zone(
     RandState :: rand:state(),
