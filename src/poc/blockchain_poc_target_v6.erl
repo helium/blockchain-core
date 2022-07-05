@@ -198,9 +198,6 @@ hex_list(Ledger, RandState) ->
     {ok, Count} = blockchain:config(?poc_target_pool_size, Ledger),
     hex_list(Ledger, RandState, Count, []).
 
-hex_list(_Ledger, RandState, 0, Acc) ->
-    %% usort so if we selected duplicates they don't get overselected
-    {lists:usort(Acc), RandState};
 hex_list(Ledger, RandState, HexCount, Acc) ->
     {ok, Hexes, NewRandState} = blockchain_ledger_v1:random_targeting_hexes(RandState, Ledger, HexCount),
     PopulatedHexes = lists:foldl(fun(Hex, IntAcc) ->
@@ -211,8 +208,10 @@ hex_list(Ledger, RandState, HexCount, Acc) ->
 								 [{Hex, GWCount}|IntAcc]
 						 end
 				 end, [], Hexes),
-    %% order of Acc doesn't matter here because we usort at the end
-    hex_list(Ledger, NewRandState, HexCount - length(PopulatedHexes), PopulatedHexes ++ Acc).
+    %% order of Acc doesn't matter here because we usort
+    %% Also note that we *should* probably select more if we hit a population 0 hex, but due to a bug
+    %% we cannot without a chain var
+    {lists:usort(PopulatedHexes ++ Acc), NewRandState}.
 
 -spec choose_zone(
     RandState :: rand:state(),
