@@ -2210,8 +2210,8 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
 
 -spec promote_proposals(non_neg_integer(), binary(), pos_integer(), pos_integer(), boolean(), rand:state(),
     ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
-promote_proposals(K, _Hash, _Height, _POCValKeyProposalTimeout, _ProposalGCWindowCheck,
-    _RandState, Ledger, _Name, _Iter, Acc) ->
+promote_proposals(K, Hash, Height, POCValKeyProposalTimeout, ProposalGCWindowCheck,
+    RandState, Ledger, Name, Iter, Acc) ->
     %% if the var poc_proposals_selector_retry_scale_factor is set
     %% then we use this to derive a max number of retry attempts
     %% we will make to select keys
@@ -2234,8 +2234,8 @@ promote_proposals(K, _Hash, _Height, _POCValKeyProposalTimeout, _ProposalGCWindo
             {ok, N} -> ceil(K * N);
             _ -> K
         end,
-    promote_proposals(K, _Hash, _Height, _POCValKeyProposalTimeout, _ProposalGCWindowCheck,
-    _RandState, Ledger, _Name, _Iter, Acc, MaxIterationCount).
+    promote_proposals(K, Hash, Height, POCValKeyProposalTimeout, ProposalGCWindowCheck,
+    RandState, Ledger, Name, Iter, Acc, MaxIterationCount).
 
 -spec promote_proposals(non_neg_integer(), binary(), pos_integer(), pos_integer(), boolean(), rand:state(),
     ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs(), non_neg_integer()) ->
