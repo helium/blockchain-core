@@ -150,6 +150,11 @@
 %% Number of blocks after a POC is started at which point it will timeout/expire: integer
 -define(poc_timeout, poc_timeout).
 
+%% Scale factor which will be applied to the number of poc proposals to select
+%% this will represent the max number of iterations over the select key loop
+%% that will be performed :: float
+-define(poc_proposals_selector_retry_scale_factor, poc_proposals_selector_retry_scale_factor).
+
 %% Number of blocks after poc_timeout at which point the poc public data will be deleted from the ledger: integer
 %% NOTE: the public poc data is required as part of the receipt_v2 txn validations
 %%       and so this value must be sufficient as to give time for absorb to occur
