@@ -2007,6 +2007,7 @@ remove_gateway_witness(GatewayPubkeyBin, Ledger) ->
 -spec refresh_gateway_witnesses(blockchain_block:hash(), ledger()) -> ok | {error, any()}.
 refresh_gateway_witnesses(Hash, Ledger) ->
     case ?MODULE:config(?witness_storage_limit, Ledger) of
+        {error, not_found} -> ok;
         {ok, 0} -> ok;
         {ok, _Limit} ->
             case ?MODULE:config(?witness_refresh_interval, Ledger) of
