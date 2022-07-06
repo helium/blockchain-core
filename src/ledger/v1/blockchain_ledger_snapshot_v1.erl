@@ -301,6 +301,8 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
         {ok, NetOverage} = blockchain_ledger_v1:net_overage(Ledger),
         {ok, HntBurned} = blockchain_ledger_v1:hnt_burned(Ledger),
 
+        Subnetworks = blockchain_ledger_v1:snapshot_subnetworks(Ledger),
+
         %% use the active ledger here because that's where upgrades are marked
         Upgrades = blockchain:get_upgrades(blockchain_ledger_v1:mode(active, Ledger0)),
         Pairs =
@@ -339,7 +341,8 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
                 {upgrades         , Upgrades},
                 {net_overage      , NetOverage},
                 {hnt_burned       , HntBurned},
-                {validator_count  , ValidatorCount}
+                {validator_count  , ValidatorCount},
+                {subnetworks      , Subnetworks}
              ],
         Snap = maps:from_list(Pairs),
         {ok, Snap}
@@ -605,6 +608,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
                       [net_overage || maps:is_key(net_overage, Snapshot)] ++
                       [{proposed_pocs, load_proposed_pocs} || maps:is_key(proposed_pocs, Snapshot)] ++
                       [validator_count || maps:is_key(validator_count, Snapshot)] ++
+                      [{subnetworks, load_subnetworks} || maps:is_key(subnetworks, Snapshot)] ++
                       [begin
                            ok = blockchain_ledger_v1:clear_hnt_burned(L),
                            {hnt_burned, add_hnt_burned}

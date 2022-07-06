@@ -253,6 +253,9 @@
     snapshot_delayed_hnt/1,
     load_delayed_hnt/2,
 
+    snapshot_subnetworks/1,
+    load_subnetworks/2,
+
     clean/1, clean_aux/1, close/1,
     compact/1,
 
@@ -6204,6 +6207,33 @@ load_h3dex(H3DexList, Ledger) ->
             rocksdb:write_batch(DB, FinalBatch, []),
             ok
     end.
+
+-spec snapshot_subnetworks(ledger()) -> [{binary(), binary()}].
+snapshot_subnetworks(Ledger) ->
+    Tokens = blockchain_token_v1:supported_tokens(),
+    SNCF = subnetworks_v1_cf(Ledger),
+    lists:foldl(
+      fun(Token, Acc) ->
+              BinToken = atom_to_binary(Token, utf8),
+              case cache_get(Ledger, SNCF, BinToken, []) of
+                  {ok, BinEntry} ->
+                      [{BinToken,BinEntry}  | Acc];
+                  not_found ->
+                      Acc
+              end
+      end,
+      [],
+      Tokens).
+
+-spec load_subnetworks([{binary(), binary()}], ledger()) -> ok.
+load_subnetworks(Subnetworks, Ledger) ->
+    SNCF = subnetworks_v1_cf(Ledger),
+    lists:map(
+      fun({BinToken, BinEntry}) ->
+              ok = cache_put(Ledger, SNCF, BinToken, BinEntry)
+      end,
+      Subnetworks),
+    ok.
 
 -spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
                            blockchain_ledger_state_channel_v2:state_channel_v2(),
