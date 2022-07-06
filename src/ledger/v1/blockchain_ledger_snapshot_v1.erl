@@ -283,6 +283,7 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
         Accounts = blockchain_ledger_v1:snapshot_raw_accounts(Ledger),
         DCAccounts = blockchain_ledger_v1:snapshot_raw_dc_accounts(Ledger),
         SecurityAccounts = blockchain_ledger_v1:snapshot_raw_security_accounts(Ledger),
+        AccountsV2 = blockchain_ledger_v1:snapshot_raw_accounts_v2(Ledger),
 
         HTLCs = blockchain_ledger_v1:snapshot_htlcs(Ledger),
 
@@ -342,7 +343,8 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
                 {net_overage      , NetOverage},
                 {hnt_burned       , HntBurned},
                 {validator_count  , ValidatorCount},
-                {subnetworks      , Subnetworks}
+                {subnetworks      , Subnetworks},
+                {accounts_v2      , AccountsV2}
              ],
         Snap = maps:from_list(Pairs),
         {ok, Snap}
@@ -609,6 +611,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
                       [{proposed_pocs, load_proposed_pocs} || maps:is_key(proposed_pocs, Snapshot)] ++
                       [validator_count || maps:is_key(validator_count, Snapshot)] ++
                       [{subnetworks, load_subnetworks} || maps:is_key(subnetworks, Snapshot)] ++
+                      [{accounts_v2, load_raw_accounts_v2} || maps:is_key(accounts_v2, Snapshot)] ++
                       [begin
                            ok = blockchain_ledger_v1:clear_hnt_burned(L),
                            {hnt_burned, add_hnt_burned}

@@ -244,6 +244,8 @@
     load_raw_dc_accounts/2,
     snapshot_raw_security_accounts/1,
     load_raw_security_accounts/2,
+    snapshot_raw_accounts_v2/1,
+    load_raw_accounts_v2/2,
 
     load_oracle_price/2,
     load_oracle_price_list/2,
@@ -6002,6 +6004,15 @@ snapshot_raw_accounts(Ledger) ->
 load_raw_accounts(Accounts, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     load_raw(Accounts, EntriesCF, Ledger).
+
+-spec snapshot_raw_accounts_v2(ledger()) -> [{binary(), binary()}].
+snapshot_raw_accounts_v2(Ledger) ->
+    EntriesV2CF = entries_v2_cf(Ledger),
+    snapshot_raw(EntriesV2CF, Ledger).
+
+load_raw_accounts_v2(AccountsV2, Ledger) ->
+    EntriesV2CF = entries_v2_cf(Ledger),
+    load_raw(AccountsV2, EntriesV2CF, Ledger).
 
 -spec snapshot_dc_accounts(ledger()) -> [{binary(), binary()}].
 snapshot_dc_accounts(Ledger) ->
