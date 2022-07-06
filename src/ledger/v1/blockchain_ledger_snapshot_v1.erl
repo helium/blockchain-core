@@ -131,6 +131,8 @@
     | net_overage
     | hnt_burned
     | validator_count
+    | subnetworks
+    | accounts_v2
     .
 
 -type key_raw() ::
