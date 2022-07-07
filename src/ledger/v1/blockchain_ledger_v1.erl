@@ -2209,22 +2209,60 @@ process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
 
 -spec promote_proposals(non_neg_integer(), binary(), pos_integer(), pos_integer(), boolean(), rand:state(),
     ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs()) -> blockchain_ledger_poc_v3:pocs().
+promote_proposals(K, Hash, Height, POCValKeyProposalTimeout, ProposalGCWindowCheck,
+    RandState, Ledger, Name, Iter, Acc) ->
+    %% if the var poc_proposals_selector_retry_scale_factor is set
+    %% then we use this to derive a max number of retry attempts
+    %% we will make to select keys
+    %% it is possible the iterator will move to a key
+    %% which we dont want to use, such as if it has already been
+    %% deleted from the cache or its within the GC window
+    %% prior to this chain var, these could count towards
+    %% the number of keys selection attempts
+    %% and resulted in a lesser number of keys being selected
+    %% than our target count
+    %% with this var, we will not count those fails
+    %% and instead retry to select another key
+    %% up until a max number of iterations over the
+    %% select function
+    %% if the var is not set, then the max iteration count
+    %% will default to that of K
+    %% which will give us the original behaviour
+    MaxIterationCount =
+        case blockchain:config(?poc_proposals_selector_retry_scale_factor, Ledger) of
+            {ok, N} -> ceil(K * N);
+            _ -> K
+        end,
+    promote_proposals(K, Hash, Height, POCValKeyProposalTimeout, ProposalGCWindowCheck,
+    RandState, Ledger, Name, Iter, Acc, MaxIterationCount).
+
+-spec promote_proposals(non_neg_integer(), binary(), pos_integer(), pos_integer(), boolean(), rand:state(),
+    ledger(), atom(), rocksdb:iterator(), blockchain_ledger_poc_v3:pocs(), non_neg_integer()) ->
+    blockchain_ledger_poc_v3:pocs().
 promote_proposals(0, _Hash, _Height, _POCValKeyProposalTimeout, _ProposalGCWindowCheck,
-    _RandState, _Ledger, _Name, _Iter, Acc) ->
+    _RandState, _Ledger, _Name, _Iter, Acc, _NumRemainingAttemptsAcc) ->
+    %% we have hit our target number of keys, time to exit
+    Acc;
+promote_proposals(_K, _Hash, _Height, _POCValKeyProposalTimeout, _ProposalGCWindowCheck,
+    _RandState, _Ledger, _Name, _Iter, Acc, 0) ->
+    %% we have hit our max number of attempts, exit with whatever selections we have
     Acc;
 promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
-    ProposalGCWindowCheck, RandState, Ledger, Name, Iter, Acc) ->
+    ProposalGCWindowCheck, RandState, Ledger, Name, Iter, Acc,
+    NumRemainingAttemptsAcc) ->
     try
         {RandVal, NewRandState} = rand:uniform_s(RandState),
         RandHash = crypto:hash(sha256, <<RandVal:64/float>>),
-        NewAcc = case rocksdb:iterator_move(Iter, {seek, RandHash}) of
+        case rocksdb:iterator_move(Iter, {seek, RandHash}) of
             {ok, Key, Binary} ->
                 %% check that this has not already been promoted in
                 %% the context cache so if we're absorbing multiple
                 %% blocks we don't alter the promotion selection
                 case cache_is_deleted(Ledger, Name, Key) of
                     true ->
-                        Acc;
+                        promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                            ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, Acc,
+                            NumRemainingAttemptsAcc - 1);
                     false ->
                         POC = blockchain_ledger_poc_v3:deserialize(Binary),
                         ProposalHeight = blockchain_ledger_poc_v3:start_height(POC),
@@ -2237,21 +2275,27 @@ promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
                                 ActivePOC1 = blockchain_ledger_poc_v3:block_hash(BlockHash, ActivePOC0),
                                 ActivePOC2 = blockchain_ledger_poc_v3:start_height(BlockHeight, ActivePOC1),
                                 ok = promote_to_public_poc(ActivePOC2, Ledger),
-                                [ActivePOC2 | Acc];
+                                promote_proposals(K-1, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                                    ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, [ActivePOC2 | Acc],
+                                    NumRemainingAttemptsAcc - 1);
                             _ ->
-                                Acc
+                                promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                                    ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, Acc,
+                                    NumRemainingAttemptsAcc - 1)
                         end
                 end;
             {error, invalid_iterator} ->  % No reason to panic here - just end of stream.
-                Acc;
+                promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                    ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, Acc,
+                    NumRemainingAttemptsAcc - 1);
             {error, _Reason} ->
                 lager:warning("promote_proposals failed, iterator failed ~p", [_Reason]),
                 %% we probably fell off the end. Simply drop this as we may not have enough
                 %% proposals to make the cut (or we can somehow retry some fixed number of times)
-                Acc
-        end,
-        promote_proposals(K - 1, BlockHash, BlockHeight, POCValKeyProposalTimeout,
-            ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, NewAcc)
+                promote_proposals(K, BlockHash, BlockHeight, POCValKeyProposalTimeout,
+                    ProposalGCWindowCheck, NewRandState, Ledger, Name, Iter, Acc,
+                    NumRemainingAttemptsAcc - 1)
+        end
     catch _What:_Why ->
         lager:warning("promote_proposals failed, ~p ~p", [_What, _Why]),
         Acc
