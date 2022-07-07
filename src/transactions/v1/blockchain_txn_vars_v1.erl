@@ -1261,7 +1261,7 @@ validate_var(?allowed_num_reward_server_keys, Value) ->
     end;
 
 validate_var(?limit_subnetwork_payout, Value) ->
-    validate_int(Value, "limit_subnetwork_payout", 0, 10_000_000, false);
+    validate_int(Value, "limit_subnetwork_payout", 0, 10000000, false);
 
 %% general txn vars
 
