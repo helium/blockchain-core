@@ -638,4 +638,4 @@
 %% How many reward server keys to allow
 -define(allowed_num_reward_server_keys, allowed_num_reward_server_keys).
 %% limit per-block payout of l2 tokens
--define(limit_subnetwork_payout, limit_subnetwork_payout).
+-define(subnetwork_reward_per_block_limit, subnetwork_reward_per_block_limit).

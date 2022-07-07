@@ -279,7 +279,7 @@ basic_test(Config) ->
 %%--------------------------------------------------------------------
 extra_vars(_) ->
     #{?allowed_num_reward_server_keys => 1, ?token_version => 2,
-      ?limit_subnetwork_payout => 10}.
+      ?subnetwork_reward_per_block_limit => 10}.
 
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),

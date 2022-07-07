@@ -131,7 +131,8 @@ is_valid(Txn, Chain) ->
     TotalRewards = total_rewards(Txn),
     Tokens = blockchain_ledger_subnetwork_v1:token_treasury(Subnet),
     LastRewardedBlock = blockchain_ledger_subnetwork_v1:last_rewarded_block(Subnet),
-    {ok, BlockRewardLimit} = blockchain_ledger_v1:config(?limit_subnetwork_payout, Ledger),
+    {ok, BlockRewardLimit} =
+        blockchain_ledger_v1:config(?subnetwork_reward_per_block_limit, Ledger),
     RewardLimit = BlockRewardLimit * (End - Start),
     try
         %% this needs to somehow limit the mint here?  but if there is only premine I don't
