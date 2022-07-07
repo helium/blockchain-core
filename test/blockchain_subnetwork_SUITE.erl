@@ -211,7 +211,8 @@ failing_subnetwork_test(Config) ->
 %%--------------------------------------------------------------------
 
 extra_vars(_) ->
-    #{?allowed_num_reward_server_keys => 1}.
+    #{?allowed_num_reward_server_keys => 1,
+      ?subnetwork_reward_per_block_limit => 100}.
 
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),

@@ -215,10 +215,10 @@ basic_test(Config) ->
         Chain
     ),
 
-    InvRewardsTxn7 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
-    InvRewardsTxn8 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn7, RewardServerSigFun),
+    InvRewardsTxn9 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
+    InvRewardsTxn10 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn9, RewardServerSigFun),
     %% This one is invalid because we don't have enough blocks yet
-    {error, {invalid_end_block, End, 2}} = blockchain_txn:is_valid(InvRewardsTxn8, Chain),
+    {error, {invalid_end_block, End, 2}} = blockchain_txn:is_valid(InvRewardsTxn10, Chain),
 
     %% Add some blocks
     lists:foreach(
@@ -230,6 +230,19 @@ basic_test(Config) ->
     ),
 
     ?assertEqual({ok, 40}, blockchain:height(Chain)),
+
+    %% Rewarding too much per block
+    ExcessRewardsPerBlock = [
+        blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee1, 200),
+        blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee2, 400)
+    ],
+    InvRewardsTxn7 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End,
+                                                              ExcessRewardsPerBlock),
+    InvRewardsTxn8 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn7, RewardServerSigFun),
+    {error, {rewards_too_large,600,300}} = blockchain_txn:is_valid(
+        InvRewardsTxn8,
+        Chain
+    ),
 
     RewardsTxn = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
     SignedRewardsTxn = blockchain_txn_subnetwork_rewards_v1:sign(RewardsTxn, RewardServerSigFun),
@@ -265,7 +278,8 @@ basic_test(Config) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 extra_vars(_) ->
-    #{?allowed_num_reward_server_keys => 1, ?token_version => 2}.
+    #{?allowed_num_reward_server_keys => 1, ?token_version => 2,
+      ?subnetwork_reward_per_block_limit => 10}.
 
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),

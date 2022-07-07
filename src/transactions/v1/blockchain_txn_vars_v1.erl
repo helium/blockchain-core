@@ -1260,6 +1260,9 @@ validate_var(?allowed_num_reward_server_keys, Value) ->
         _ -> throw({error, {invalid_allowed_num_reward_server_keys, Value}})
     end;
 
+validate_var(?subnetwork_reward_per_block_limit, Value) ->
+    validate_int(Value, "subnetwork_reward_per_block_limit", 0, 10000000000000, false);
+
 %% general txn vars
 
 validate_var(?txn_field_validation_version, Value) ->
