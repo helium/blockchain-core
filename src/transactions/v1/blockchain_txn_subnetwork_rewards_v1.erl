@@ -131,6 +131,8 @@ is_valid(Txn, Chain) ->
     TotalRewards = total_rewards(Txn),
     Tokens = blockchain_ledger_subnetwork_v1:token_treasury(Subnet),
     LastRewardedBlock = blockchain_ledger_subnetwork_v1:last_rewarded_block(Subnet),
+    {ok, BlockRewardLimit} = blockchain_ledger_v1:config(?limit_subnetwork_payout, Ledger),
+    RewardLimit = BlockRewardLimit * (End - Start),
     try
         %% this needs to somehow limit the mint here?  but if there is only premine I don't
         %% understand how we do that.
@@ -160,6 +162,10 @@ is_valid(Txn, Chain) ->
                 end;
             false ->
                 throw({invalid_reward_range, Start, End, LastRewardedBlock})
+        end,
+        case TotalRewards =< RewardLimit of
+            true -> ok;
+            false -> throw({rewards_too_large, TotalRewards, RewardLimit})
         end
     catch
         throw:Err ->
