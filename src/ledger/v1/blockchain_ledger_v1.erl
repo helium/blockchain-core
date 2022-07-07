@@ -4571,12 +4571,7 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
     case context_cache(Ledger) of
         {C, _} when C == undefined; C == direct ->
             %% fold rocks directly
-            case rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc) of
-                {return, Res} ->
-                    {ok, Res};
-                Res ->
-                    Res
-            end;
+            rocks_fold(Ledger, DB, CF, Opts, Fun0, OriginalAcc);
         {Cache, _GwCache} ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CFName, Start, End, Fun0),
@@ -4587,12 +4582,8 @@ cache_fold(Ledger, {CFName, DB, CF}, Fun0, OriginalAcc, Opts) ->
                 false ->
                     Keys0
             end,
-            case rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}) of
-                {return, Res} ->
-                    Res;
-                {TrailingKeys, Res0} ->
-                    process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
-            end
+            {TrailingKeys, Res0} = rocks_fold(Ledger, DB, CF, Opts, Fun, {Keys, OriginalAcc}),
+            process_fun(TrailingKeys, Cache, CFName, Start, End, Fun0, Res0)
     end.
 
 cache_is_deleted(Ledger, Name, Key) ->
@@ -4621,8 +4612,8 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
     Init = rocksdb:iterator_move(Itr, Start),
     Loop = fun L({error, invalid_iterator}, A) ->
                    A;
-               L({error, Error}, _A) ->
-                   error({iterator_error, Error});
+               L({error, _}, _A) ->
+                   throw(iterator_error);
                L({ok, K} , A) ->
                    L(rocksdb:iterator_move(Itr, SeekDir),
                      Fun(K, A));
@@ -4632,10 +4623,8 @@ rocks_fold(Ledger, DB, CF, Opts0, Fun, Acc) ->
            end,
     try
         Loop(Init, Acc)
-    catch throw:{return, Ret} ->
-            %% retag this because we need to be able to disambiguate between cases
-            %% when cached
-            {return, Ret}
+    %% catch _:_ ->
+    %%         Acc
     after
         ?ROCKSDB_ITERATOR_CLOSE(Itr)
     end.
@@ -4990,18 +4979,6 @@ lookup_gateways_from_hex(Hex, Ledger) when is_integer(Hex) ->
                          ]
               ).
 
-is_hex_populated(Hex, Ledger) ->
-    H3CF = h3dex_cf(Ledger),
-    cache_fold(Ledger, H3CF,
-               fun({_Key, _GWs}, _Acc) ->
-                      throw({return, true})
-               end, false, [
-                          {start, {seek, find_lower_bound_hex(Hex)}},
-                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
-                         ]
-              ).
-
-
 -spec count_gateways_in_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> non_neg_integer().
 count_gateways_in_hex(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
@@ -5054,83 +5031,6 @@ random_targeting_hexes(RandState, Ledger, HexCount) ->
             {error, no_populated_hexes};
         Error ->
             Error
-    end.
-
-remove_hex_from_random_lookup(ParentRes, Ledger) ->
-    %% we only want to do this if poc version >= 6, which means h3dex targeting
-    case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 6 ->
-            H3CF = h3dex_cf(Ledger),
-            cache_fold(
-              Ledger, H3CF,
-              fun(
-                {<<"random-", _OldCount:32/integer-unsigned-big>> = Key, <<Hex:64/integer-unsigned-little>>}, Acc) when ParentRes == Hex ->
-                      %% delete ourselves
-                      cache_delete(Ledger, H3CF, Key),
-                      Acc;
-                ({<<"random-", OldCount:32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>}, Acc) ->
-                      case h3_to_key(Hex) > h3_to_key(ParentRes) of
-                          true ->
-                              %% move this back by one
-                              cache_put(Ledger, H3CF, <<"random-", (OldCount-1):32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>);
-                          false ->
-                                ok
-                      end,
-                      Acc;
-                 (_, Acc) ->
-                      Acc
-              end, false,
-              [
-               {start, {seek, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}},
-               {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
-              ]
-             ),
-            %% update the population
-            {ok, <<Total:32/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"population">>, []),
-           cache_put(Ledger, H3CF, <<"population">>, <<(Total-1):32/integer-unsigned-little>>),
-           ok;
-        _ ->
-            ok
-    end.
-
-
-add_hex_to_random_lookup(ParentRes, Ledger) ->
-    %% we only want to do this if poc version >= 6, which means h3dex targeting
-    case config(?poc_targeting_version, Ledger) of
-        {ok, N} when N >= 6 ->
-            H3CF = h3dex_cf(Ledger),
-            cache_fold(
-              Ledger, H3CF,
-              fun({<<"random-", OldCount:32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>}, HasMatched) ->
-                      case h3_to_key(Hex) > h3_to_key(ParentRes) of
-                          true ->
-                              case HasMatched of
-                                  false ->
-                                      cache_put(Ledger, H3CF, <<"random-", OldCount:32/integer-unsigned-big>>, <<ParentRes:64/integer-unsigned-little>>);
-                                  true ->
-                                      %% already inserted ourselves
-                                      ok
-                              end,
-                              %% move this up by one
-                              cache_put(Ledger, H3CF, <<"random-", (OldCount+1):32/integer-unsigned-big>>, <<Hex:64/integer-unsigned-little>>),
-                              true;
-                          false ->
-                                HasMatched
-                      end;
-                 (_, Acc) ->
-                      Acc
-              end, false,
-              [
-               {start, {seek, <<"random-", 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}},
-               {iterate_upper_bound, <<"random-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">>}
-              ]
-             ),
-            %% update the population
-            {ok, <<Total:32/integer-unsigned-little>>} = cache_get(Ledger, H3CF, <<"population">>, []),
-           cache_put(Ledger, H3CF, <<"population">>, <<(Total+1):32/integer-unsigned-little>>),
-           ok;
-        _ ->
-            ok
     end.
 
 build_random_hex_targeting_lookup(Resolution, Ledger) ->
@@ -5223,12 +5123,11 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found ->
-	    ParentRes = h3:parent(Hex, Res),
-            case is_hex_populated(ParentRes, Ledger) of
-                false ->
+            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                0 ->
                     %% populating a hex means we need to recalculate the set of populated
                     %% hexes
-                    add_hex_to_random_lookup(ParentRes, Ledger);
+                    build_random_hex_targeting_lookup(Res, Ledger);
                 _ ->
                     ok
             end,
@@ -5254,21 +5153,20 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
         {ok, BinGws} ->
             case lists:delete(GWAddr, binary_to_term(BinGws)) of
                 [] ->
-                    ParentRes = h3:parent(Hex, Res),
                     %% need to remove the hex and maybe recalc targeting lookup if no gateways remain in parent hex
                     %% includes chain var protected bug fix
                     case config(?h3dex_remove_gw_fix, Ledger) of
                         %% if fix enabled, delete the hex first, then count the parent hex's gateways
                         {ok, true} ->
                             cache_delete(Ledger, H3CF, BinHex),
-                            case is_hex_populated(ParentRes, Ledger) of
-                                false -> remove_hex_from_random_lookup(ParentRes, Ledger);
+                            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                                0 -> build_random_hex_targeting_lookup(Res, Ledger);
                                 _ -> ok
                             end;
                         %% otherwise, keep the wrong behavior of counting gateways then deleting the hex
                         _ ->
-                            case is_hex_populated(ParentRes, Ledger) of
-                                false -> remove_hex_from_random_lookup(ParentRes, Ledger);
+                            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                                0 -> build_random_hex_targeting_lookup(Res, Ledger);
                                 _ -> ok
                             end,
                             cache_delete(Ledger, H3CF, BinHex)
@@ -6502,11 +6400,6 @@ fold_test() ->
     ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"aaa">>, [])),
 
     ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"key_1">>, [])),
-
-    %% throw for early return:
-    F4 = cache_fold(Ledger, DCF, fun({<<"key_12">>, _V}, _A) -> throw({return, done_early}); (_KV, A) -> A end, done_normal),
-    ?assertEqual({ok, done_early}, F4),
-
     test_utils:cleanup_tmp_dir(BaseDir).
 
 
