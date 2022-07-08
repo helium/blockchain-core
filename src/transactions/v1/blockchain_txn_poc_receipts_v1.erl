@@ -1209,11 +1209,25 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
                       {error, _} ->
                           false;
                       {ok, _} when Gateway == WitnessGateway ->
+                          lager:info("wrong witness: ~p /= ~p",
+                                     [blockchain_utils:addr2name(Gateway),
+                                      blockchain_utils:addr2name(WitnessGateway)]),
                           false;
                       {ok, GWLoc} ->
-                          GWLoc /= undefined andalso
+                          Res = GWLoc /= undefined andalso
                           blockchain_poc_witness_v1:is_valid(Witness, OldLedger) andalso
-                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash,
+                          case Res of
+                              false ->
+                                  lager:info("bad witness: ~p loc ~p valid ~p, hash ~p ?? ~p",
+                                             [blockchain_utils:addr2name(WitnessGateway),
+                                              GWLoc,
+                                              blockchain_poc_witness_v1:is_valid(Witness, OldLedger),
+                                              blockchain_poc_witness_v1:packet_hash(Witness), LayerHash
+                                             ]);
+                              _ -> ok
+                          end,
+                          Res
                   end
           end,
           Witnesses

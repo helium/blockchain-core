@@ -64,6 +64,9 @@
 %% seeding the random number for witness_refresh_interval
 -define(witness_refresh_rand_n, witness_refresh_rand_n).
 
+%% limit the number of witnesses the ledger stores.  0 has special behavior
+-define(witness_storage_limit, witness_storage_limit).
+
 %%%
 %%% meta vars
 %%%

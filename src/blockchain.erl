@@ -650,7 +650,8 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height, ForceRecalc) ->
                       case blockchain_txn:absorb_block(Block, ChainAcc) of
                           {ok, Chain1, _} ->
                               {ok, H} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain1)),
-                              ok = run_gc_hooks(ChainAcc, Block),
+                              Hash = blockchain_block_v1:hash_block(Block),
+                              ok = run_gc_hooks(ChainAcc, Hash),
 
                               case ForceRecalc of
                                   false ->
@@ -1141,7 +1142,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     BeforeCommit = fun(FChain, _FHash) ->
                                            lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain),
-                                           ok = run_gc_hooks(FChain, Block)
+                                           ok = run_gc_hooks(FChain, Hash)
                                    end,
                     {Signers, _Signatures} = lists:unzip(Sigs),
                     Fun = case lists:member(MyAddress, Signers) orelse FollowMode of
@@ -1268,7 +1269,7 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
                         _ -> absorb_and_commit
                     end,
               case blockchain_txn:Fun(B, Chain,
-                                      fun(FChain, _FHash) -> ok = run_gc_hooks(FChain, B) end,
+                                      fun(FChain, _FHash) -> ok = run_gc_hooks(FChain, Hash) end,
                                       blockchain_block:is_rescue_block(B)) of
                   {ok, KeysPayload} ->
                       run_absorb_block_hooks(Syncing, Hash, Chain, KeysPayload);
@@ -1363,7 +1364,7 @@ absorb_temp_blocks_fun_([BlockHash|Chain], Blockchain, Syncing) ->
     BeforeCommit = fun(FChain, _FHash) ->
                            lager:info("adding block ~p", [Height]),
                            ok = ?save_block(Block, Blockchain),
-                           ok = run_gc_hooks(FChain, Block)
+                           ok = run_gc_hooks(FChain, Hash)
                    end,
     case blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block)) of
         {error, Reason}=Error ->
@@ -1616,7 +1617,7 @@ reset_ledger(Height,
                               Block = blockchain_block:deserialize(BinBlock),
                               lager:info("absorbing block ~p ?= ~p", [H, blockchain_block:height(Block)]),
                               BeforeCommit = fun(FChain, _FHash) ->
-                                                     ok = run_gc_hooks(FChain, Block)
+                                                     ok = run_gc_hooks(FChain, Hash)
                                              end,
                               case Revalidate of
                                   false ->
@@ -2808,7 +2809,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                         lists:foreach(fun(Hash) ->
                                               {ok, Block} = get_block(Hash, Blockchain),
                                               BeforeCommit = fun(FChain, _FHash) ->
-                                                                     ok = run_gc_hooks(FChain, Block)
+                                                                     ok = run_gc_hooks(FChain, Hash)
                                                              end,
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               case application:get_env(blockchain, force_resync_validation, false) of
@@ -3042,7 +3043,9 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
              end,
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
-run_gc_hooks(Blockchain, _Block) ->
+-spec run_gc_hooks(blockchain(), blockchain_block:hash()) ->
+    ok | {error, gc_hooks_failed}.
+run_gc_hooks(Blockchain, Hash) ->
     Ledger = blockchain:ledger(Blockchain),
     try
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger),
@@ -3051,9 +3054,9 @@ run_gc_hooks(Blockchain, _Block) ->
 
         ok = blockchain_ledger_v1:maybe_gc_h3dex(Ledger),
 
-        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger)
+        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger),
 
-        %% ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
+        ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger)
     catch What:Why:Stack ->
             lager:warning("hooks failed ~p ~p ~s", [What, Why, lager:pr_stacktrace(Stack, {What, Why})]),
             {error, gc_hooks_failed}

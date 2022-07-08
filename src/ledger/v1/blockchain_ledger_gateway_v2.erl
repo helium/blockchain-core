@@ -31,6 +31,7 @@
     add_witness/1, add_witness/7,
     has_witness/2,
     clear_witnesses/1,
+    limit_witnesses/2,
     remove_witness/2,
     witnesses/1, witnesses/3,
     witnesses_plain/1,
@@ -551,6 +552,18 @@ update_histogram_(Val, [_ | Tail], Histogram) ->
 -spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
     Gateway#gateway_v2{witnesses=[]}.
+
+-spec limit_witnesses(non_neg_integer() | undefined, gateway()) -> gateway().
+limit_witnesses(undefined, Gateway) ->
+    Gateway;
+limit_witnesses(0, Gateway) ->
+    Gateway#gateway_v2{witnesses=[]};
+limit_witnesses(Limit, #gateway_v2{witnesses = Witnesses} = Gateway) ->
+    %% sort most to least recent
+    Witnesses1 = lists:reverse(lists:keysort(#witness.recent_time, Witnesses)),
+    %% take the first Limit and discard the rest
+    Witnesses2 = lists:sublist(Witnesses1, Limit),
+    Gateway#gateway_v2{witnesses=Witnesses2}.
 
 -spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
 remove_witness(Gateway, WitnessAddr) ->
