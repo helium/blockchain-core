@@ -1017,10 +1017,11 @@ add_handlers(SwarmTID, Blockchain) ->
             %% streaming data off disk, and follower nodes tend to have less RAM
             ok
     end,
+    HandlerMod = application:get_env(blockchain, sc_client_transport_handler, blockchain_state_channel_handler),
     ok = libp2p_swarm:add_stream_handler(
         SwarmTID,
         ?STATE_CHANNEL_PROTOCOL_V1,
-        {libp2p_framed_stream, server, [blockchain_state_channel_handler, Blockchain]}
+        {libp2p_framed_stream, server, [HandlerMod, Blockchain]}
     ),
 
     {ok, Ref}.

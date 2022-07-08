@@ -27,9 +27,6 @@
     period => 5
 }).
 
-
--include("blockchain.hrl").
-
 %% ------------------------------------------------------------------
 %% API functions
 %% ------------------------------------------------------------------
@@ -53,6 +50,7 @@ init([BaseDir]) ->
             "sc_clients_cf"
         ]
     },
+    PacketHandlerSpec = [?WORKER(blockchain_packet_client, [ClientOpts])],
     ChildSpecs =
         case application:get_env(blockchain, sc_sup_type, undefined) of
             testing ->
@@ -75,4 +73,4 @@ init([BaseDir]) ->
                     ?WORKER(blockchain_state_channels_client, [ClientOpts])
                 ]
         end,
-    {ok, {?FLAGS, ChildSpecs}}.
+    {ok, {?FLAGS, PacketHandlerSpec ++ ChildSpecs}}.
