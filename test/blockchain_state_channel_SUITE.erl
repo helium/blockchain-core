@@ -142,63 +142,38 @@ init_per_testcase(Test, Config) ->
 
     Dir = os:getenv("SC_DIR", ""),
     debug_modules_for_node(
-      RouterNode,
-      Dir ++ "sc_server.log",
-      [blockchain_state_channel_v1,
-       blockchain_state_channels_cache,
-       blockchain_state_channels_handler,
-       blockchain_state_channels_server,
-       blockchain_state_channels_worker,
-       blockchain_txn_state_channel_close_v1,
-       blockchain_state_channel_sup]
-     ),
+        RouterNode,
+        Dir ++ "sc_server.log",
+        [
+            blockchain_state_channel_v1,
+            blockchain_state_channels_cache,
+            blockchain_state_channel_handler,
+            blockchain_state_channels_server,
+            blockchain_state_channels_worker,
+            blockchain_txn_state_channel_close_v1,
+            blockchain_state_channel_sup,
+            sc_packet_test_handler,
+            blockchain_packet_client,
+            blockchain_state_channel_common,
+            blockchain_grpc_sc_client_test_handler,
+            blockchain_packet_handler
+        ]
+    ),
     debug_modules_for_node(
-      GatewayNode,
-      Dir ++ "sc_client_1.log",
-      [blockchain_state_channel_v1,
-       blockchain_state_channels_client,
-       blockchain_state_channels_handler,
-       blockchain_state_channel_sup]
-     ),
-
-    %% accumulate the address of each node
-    Addrs = lists:foldl(fun(Node, Acc) ->
-                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                                [Addr | Acc]
-                        end, [], Nodes),
-
-    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
-
-    %% the SC tests use the first two nodes as the gateway and router
-    %% for the GRPC group to work we need to ensure these two nodes are connected to each other
-    %% in blockchain_ct_utils:init_per_testcase the nodes are connected to a majority of the group
-    %% but that does not guarantee these two nodes will be connected
-    [RouterNode, GatewayNode|_] = Nodes,
-    [RouterNodeAddr, GatewayNodeAddr|_] = Addrs,
-    ok = blockchain_ct_utils:wait_until(
-             fun() ->
-                     lists:all(
-                       fun({Node, AddrToConnectToo}) ->
-                               try
-                                   GossipPeers = ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500),
-                                   ct:pal("~p connected to peers ~p", [Node, GossipPeers]),
-                                   case lists:member(libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo), GossipPeers) of
-                                       true -> true;
-                                       false ->
-                                           ct:pal("~p is not connected to desired peer ~p", [Node, AddrToConnectToo]),
-                                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
-                                           CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo)], 500),
-                                           ct:pal("Connecting ~p to ~p: ~p", [Node, AddrToConnectToo, CRes]),
-                                           case CRes of
-                                               {ok, _} -> true;
-                                               _ -> false
-                                            end
-                                   end
-                               catch _C:_E ->
-                                       false
-                               end
-                       end, [{RouterNode, GatewayNodeAddr}, {GatewayNode, RouterNodeAddr}])
-             end, 200, 150),
+        GatewayNode,
+        Dir ++ "sc_client_1.log",
+        [
+            blockchain_state_channel_v1,
+            blockchain_state_channels_client,
+            blockchain_state_channel_handler,
+            blockchain_state_channel_sup,
+            sc_packet_test_handler,
+            blockchain_packet_client,
+            blockchain_state_channel_common,
+            blockchain_grpc_sc_client_test_handler,
+            blockchain_packet_handler
+        ]
+    ),
 
     SCDisputeStrat = case Test == sc_dispute_prevention_test of
                          false -> 0;
@@ -2667,6 +2642,62 @@ default_routers_test(Config) ->
 
     %% Wait for close txn to appear
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
+
+    %% =============================================================================
+    %% Overloading of default_router test starts here
+    %%
+    %% NOTE: Hopefully by here, we're had enough communication that the grpc
+    %% handler can communicate with whatever Send more packets, but through a
+    %% differen handler.
+    %%
+    %% Break if someone sends an offer or a purchase.
+    ok = ct_rpc:call(RouterNode, application, set_env, [
+        blockchain, sc_packet_handler_offer_fun, fun(_, _) -> throw(no_more_offers) end
+    ]),
+    %% Forward uplinks
+    ok = ct_rpc:call(RouterNode, application, set_env, [
+        blockchain, sc_packet_handler_packet_fun, fun(P, HPid) -> Self ! {packet, P, HPid} end
+    ]),
+    %% Break if there's a purchase
+    ok = ct_rpc:call(GatewayNode1, application, set_env, [
+        blockchain, sc_client_handle_purchase_fun, fun(_) -> throw(no_more_purchasing) end
+    ]),
+    %% Forward downlinks
+    ok = ct_rpc:call(GatewayNode1, application, set_env, [
+        blockchain, sc_client_handle_response_fun, fun(Resp) -> Self ! {client_response, Resp} end
+    ]),
+
+    %% Sending first packet and routing using the default routers
+    DevNonce2 = crypto:strong_rand_bytes(2),
+    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_packet_client, packet, [Packet2, DefaultRouters, 'US915']),
+
+    %% Sending another packet
+    DevNonce3 = crypto:strong_rand_bytes(2),
+    Packet3 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce3, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_packet_client, packet, [Packet3, DefaultRouters, 'US915']),
+
+    ok = receive
+             {packet, SCPacket1, _HandlerPid1} ->
+                 Payload1 = blockchain_helium_packet_v1:payload(blockchain_state_channel_packet_v1:packet(SCPacket1)),
+                 case Payload1 == blockchain_helium_packet_v1:payload(Packet2) of
+                     true -> ok;
+                     _ -> first_packet_mismatch
+                 end
+         after 2000 ->
+                 ct:fail(first_packet_missing)
+         end,
+
+    ok = receive
+             {packet, SCPacket2, _HandlerPid2} ->
+                 Payload2 = blockchain_helium_packet_v1:payload(blockchain_state_channel_packet_v1:packet(SCPacket2)),
+                 case Payload2 == blockchain_helium_packet_v1:payload(Packet3) of
+                     true -> ok;
+                     _ -> second_packet_mismatch
+                 end
+         after 2000 ->
+                 ct:fail(second_packet_missing)
+         end,
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_txn_mgr]),
 
