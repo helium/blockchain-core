@@ -6,10 +6,13 @@
 
 -export([
     all/0,
+    groups/0,
     init_per_testcase/2,
     end_per_testcase/2,
     init_per_suite/1,
-    end_per_suite/1
+    end_per_suite/1,
+    init_per_group/2,
+    end_per_group/2
 ]).
 
 -export([
@@ -23,8 +26,20 @@
 
 all() ->
     [
-        direct_send_packet_test,
-        direct_response_packet_test
+        {group, pc_libp2p},
+        {group, pc_grpc}
+    ].
+
+groups() ->
+    [
+        {pc_libp2p, [], [
+            direct_send_packet_test,
+            direct_response_packet_test
+        ]},
+        {pc_grpc, [], [
+            direct_send_packet_test,
+            direct_response_packet_test
+        ]}
     ].
 
 %%--------------------------------------------------------------------
@@ -38,6 +53,15 @@ init_per_suite(Config) ->
     ].
 
 end_per_suite(_) -> ok.
+
+init_per_group(pc_libp2p, Config) ->
+    [{sc_client_transport_handler, blockchain_packet_handler} | Config];
+init_per_group(pc_grpc, Config) ->
+    %% FIXME: This should just work(?) since there's no bannering with the grpc handler.
+    [{sc_client_transport_handler, blockchain_grpc_sc_client_test_handler} | Config].
+
+end_per_group(_, _Config) ->
+    ok.
 
 debug_modules_for_node(_, _, []) ->
     ok;
@@ -99,7 +123,8 @@ init_per_testcase(Test, Config) ->
             blockchain_state_channel_sup,
             sc_packet_test_handler,
             blockchain_packet_client,
-            blockchain_state_channel_common
+            blockchain_state_channel_common,
+            blockchain_grpc_sc_client_test_handler
         ]
     ),
     debug_modules_for_node(
@@ -112,7 +137,8 @@ init_per_testcase(Test, Config) ->
             blockchain_state_channel_sup,
             sc_packet_test_handler,
             blockchain_packet_client,
-            blockchain_state_channel_common
+            blockchain_state_channel_common,
+            blockchain_grpc_sc_client_test_handler
         ]
     ),
 
@@ -258,7 +284,7 @@ direct_send_packet_test(Config) ->
 
     ok =
         receive
-            {packet, _P} -> ok
+            {packet, _P, _HPid} -> ok
         after 2000 -> ct:fail(no_packet_arrived)
         end,
 
