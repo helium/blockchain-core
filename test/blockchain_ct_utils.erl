@@ -25,7 +25,7 @@
          create_vars/0, create_vars/1,
          raw_vars/1,
          init_base_dir_config/3,
-         join_packet/3,
+         join_packet/3, join_packet/4,
          ledger/2,
          destroy_ledger/0,
          download_serialized_region/1,
@@ -483,6 +483,9 @@ wait_until_height(Node, Height) ->
 
 join_packet(AppKey, DevNonce, RSSI) ->
     RoutingInfo = {devaddr, 1207959553},
+    join_packet(AppKey, DevNonce, RSSI, RoutingInfo).
+
+join_packet(AppKey, DevNonce, RSSI, RoutingInfo) ->
     blockchain_helium_packet_v1:new(lorawan,
                                     join_payload(AppKey, DevNonce),
                                     1000,
