@@ -74,6 +74,26 @@ debug_modules_for_node(Node, Filename, [Module | Rest]) ->
     ),
     debug_modules_for_node(Node, Filename, Rest).
 
+debug_node(Node, Filename) ->
+    Dir = os:getenv("SC_DIR", ""),
+    debug_modules_for_node(
+        Node,
+        Dir ++ Filename,
+        [
+            blockchain_state_channel_v1,
+            blockchain_state_channels_cache,
+            blockchain_state_channel_handler,
+            blockchain_state_channels_server,
+            blockchain_state_channels_worker,
+            blockchain_txn_state_channel_close_v1,
+            blockchain_state_channel_sup,
+            sc_packet_test_handler,
+            blockchain_packet_client,
+            blockchain_state_channel_common,
+            blockchain_grpc_sc_client_test_handler
+        ]
+    ).
+
 init_per_testcase(Test, Config) ->
     application:ensure_all_started(throttle),
     application:ensure_all_started(lager),
@@ -109,38 +129,9 @@ init_per_testcase(Test, Config) ->
     Nodes =
         [RouterNode, GatewayNode] ++ (InitNodes -- [RouterNode, GatewayNode]),
 
-    Dir = os:getenv("SC_DIR", ""),
-    debug_modules_for_node(
-        RouterNode,
-        Dir ++ "sc_server.log",
-        [
-            blockchain_state_channel_v1,
-            blockchain_state_channels_cache,
-            blockchain_state_channel_handler,
-            blockchain_state_channels_server,
-            blockchain_state_channels_worker,
-            blockchain_txn_state_channel_close_v1,
-            blockchain_state_channel_sup,
-            sc_packet_test_handler,
-            blockchain_packet_client,
-            blockchain_state_channel_common,
-            blockchain_grpc_sc_client_test_handler
-        ]
-    ),
-    debug_modules_for_node(
-        GatewayNode,
-        Dir ++ "sc_client_1.log",
-        [
-            blockchain_state_channel_v1,
-            blockchain_state_channels_client,
-            blockchain_state_channel_handler,
-            blockchain_state_channel_sup,
-            sc_packet_test_handler,
-            blockchain_packet_client,
-            blockchain_state_channel_common,
-            blockchain_grpc_sc_client_test_handler
-        ]
-    ),
+    %% Dir = os:getenv("SC_DIR", ""),
+    ok = debug_node(RouterNode, "sc_server.log"),
+    ok = debug_node(GatewayNode, "sc_client_1.log"),
 
     DefaultVars = #{num_consensus_members => NumConsensusMembers},
     ExtraVars = #{
