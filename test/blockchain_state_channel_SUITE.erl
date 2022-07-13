@@ -161,45 +161,6 @@ init_per_testcase(Test, Config) ->
        blockchain_state_channel_sup]
      ),
 
-    %% accumulate the address of each node
-    Addrs = lists:foldl(fun(Node, Acc) ->
-                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                                [Addr | Acc]
-                        end, [], Nodes),
-
-    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
-
-    %% the SC tests use the first two nodes as the gateway and router
-    %% for the GRPC group to work we need to ensure these two nodes are connected to each other
-    %% in blockchain_ct_utils:init_per_testcase the nodes are connected to a majority of the group
-    %% but that does not guarantee these two nodes will be connected
-    [RouterNode, GatewayNode|_] = Nodes,
-    [RouterNodeAddr, GatewayNodeAddr|_] = Addrs,
-    ok = blockchain_ct_utils:wait_until(
-             fun() ->
-                     lists:all(
-                       fun({Node, AddrToConnectToo}) ->
-                               try
-                                   GossipPeers = ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500),
-                                   ct:pal("~p connected to peers ~p", [Node, GossipPeers]),
-                                   case lists:member(libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo), GossipPeers) of
-                                       true -> true;
-                                       false ->
-                                           ct:pal("~p is not connected to desired peer ~p", [Node, AddrToConnectToo]),
-                                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, [], 500),
-                                           CRes = ct_rpc:call(Node, libp2p_swarm, connect, [Swarm, libp2p_crypto:pubkey_bin_to_p2p(AddrToConnectToo)], 500),
-                                           ct:pal("Connecting ~p to ~p: ~p", [Node, AddrToConnectToo, CRes]),
-                                           case CRes of
-                                               {ok, _} -> true;
-                                               _ -> false
-                                            end
-                                   end
-                               catch _C:_E ->
-                                       false
-                               end
-                       end, [{RouterNode, GatewayNodeAddr}, {GatewayNode, RouterNodeAddr}])
-             end, 200, 150),
-
     SCDisputeStrat = case Test == sc_dispute_prevention_test of
                          false -> 0;
                          true -> 1
