@@ -17,7 +17,8 @@
 
 -export([
     direct_send_packet_test/1,
-    direct_response_packet_test/1
+    direct_response_packet_test/1,
+    oui_send_packet_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -34,11 +35,13 @@ groups() ->
     [
         {pc_libp2p, [], [
             direct_send_packet_test,
-            direct_response_packet_test
+            direct_response_packet_test,
+            oui_send_packet_test
         ]},
         {pc_grpc, [], [
             direct_send_packet_test,
-            direct_response_packet_test
+            direct_response_packet_test,
+            oui_send_packet_test
         ]}
     ].
 
@@ -342,6 +345,263 @@ direct_response_packet_test(Config) ->
         end,
 
     ok.
+
+oui_send_packet_test(Config) ->
+    %% List of Nodes
+    Ns = ?config(nodes, Config),
+
+    %% NOTE: There's already a bunch of getting peers to connect logic.
+    %% This test needs at least 4 nodes that can reliably communicate.
+    GetConnectedNodes = fun() ->
+        %% Map Addr => Node
+        AddrMap = maps:from_list([
+            {
+                libp2p_crypto:pubkey_bin_to_p2p(
+                    ct_rpc:call(Node, blockchain_swarm, pubkey_bin, [])
+                ),
+                Node
+            }
+         || Node <- Ns
+        ]),
+
+        %% Map Addr => uniq Peers
+        PeerMap = maps:map(
+            fun(_Key, Node) ->
+                lists:usort(ct_rpc:call(Node, blockchain_swarm, gossip_peers, [], 500))
+            end,
+            AddrMap
+        ),
+
+        %% Smallest
+        Smallest = maps:fold(
+            fun(_Key, Next, Smallest) ->
+                case length(Next) < length(Smallest) of
+                    true -> Next;
+                    false -> Smallest
+                end
+            end,
+            hd(maps:values(PeerMap)),
+            PeerMap
+        ),
+
+        %% 4 usable nodes
+        UsableNodes = maps:with(Smallest, AddrMap),
+
+        maps:values(UsableNodes)
+    end,
+
+    ok =
+        case blockchain_ct_utils:wait_until(fun() -> length(GetConnectedNodes()) >= 4 end) of
+            ok -> ok;
+            _ -> ct:fail(could_not_get_4_nodes_connected)
+        end,
+
+    [RouterNode1, GatewayNode, DefaultRouter, RouterNode2 | _] = GetConnectedNodes(),
+    Nodes = [RouterNode1, GatewayNode, DefaultRouter, RouterNode2],
+
+    %% ok = debug_node(RouterNode1, "sc_server.log"),
+    %% ok = debug_node(GatewayNode, "sc_client_1.log"),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    Self = self(),
+
+    %% ===================================================================
+    %% Make and gossip 2 OUI Txn, initial filters are single EUI pair
+    SignedOUITxn1 = create_oui_txn(1, RouterNode1, [{1, 1}], 128),
+
+    RouterChain1 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+    RouterSwarmTID1 = ct_rpc:call(RouterNode1, blockchain_swarm, tid, []),
+    Txns1 = [SignedOUITxn1],
+    {ok, Block2} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, Txns1]),
+    _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [
+        Block2, RouterChain1, Self, RouterSwarmTID1
+    ]),
+
+    %% wait for gossip
+    lists:foreach(fun(Node) -> ok = blockchain_ct_utils:wait_until_height(Node, 2) end, Nodes),
+
+    SignedOUITxn2 = create_oui_txn(2, RouterNode2, [{2, 2}], 128),
+    RouterChain2 = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+    RouterSwarmTID2 = ct_rpc:call(RouterNode2, blockchain_swarm, tid, []),
+    Txns2 = [SignedOUITxn2],
+    {ok, Block3} = ct_rpc:call(RouterNode2, test_utils, create_block, [ConsensusMembers, Txns2]),
+    _ = ct_rpc:call(RouterNode2, blockchain_gossip_handler, add_block, [
+        Block3, RouterChain2, Self, RouterSwarmTID2
+    ]),
+
+    %% wait for gossip
+    lists:foreach(fun(Node) -> ok = blockchain_ct_utils:wait_until_height(Node, 3) end, Nodes),
+
+    %% ===================================================================
+    %% Setup Router Packet Handling and Gateway Packet forwarding
+    %% throw on any offers
+    lists:foreach(
+        fun(Node) ->
+            MeckOfferThrow = [
+                blockchain,
+                sc_packet_handler_offer_fun,
+                fun(_, _) -> throw(no_more_offers) end
+            ],
+            ok = ct_rpc:call(Node, application, set_env, MeckOfferThrow)
+        end,
+        Nodes
+    ),
+
+    %% forward packets received
+    lists:foreach(
+        fun({MsgName, Node}) ->
+            MeckPacketForward = [
+                blockchain,
+                sc_packet_handler_packet_fun,
+                fun(P, HPid) -> Self ! {MsgName, P, HPid} end
+            ],
+            ok = ct_rpc:call(Node, application, set_env, MeckPacketForward)
+        end,
+        [
+            {router1_packet, RouterNode1},
+            {router2_packet, RouterNode2},
+            {default_packet, DefaultRouter}
+        ]
+    ),
+
+    %% Break if there's a purchase
+    ok = ct_rpc:call(GatewayNode, application, set_env, [
+        blockchain, sc_client_handle_purchase_fun, fun(_) -> throw(no_more_purchasing) end
+    ]),
+    %% Forward downlinks
+    ok = ct_rpc:call(GatewayNode, application, set_env, [
+        blockchain, sc_client_handle_response_fun, fun(Resp) -> Self ! {client_response, Resp} end
+    ]),
+
+    %% ===================================================================
+    %% Helper for sending packet with routing information
+    DefaultRouterPubkeyBin = ct_rpc:call(DefaultRouter, blockchain_swarm, pubkey_bin, []),
+    DefaultRouterAddrs = [libp2p_crypto:pubkey_bin_to_p2p(DefaultRouterPubkeyBin)],
+    SendPacketFun = fun(RoutingInfo) ->
+        DevNonce0 = crypto:strong_rand_bytes(2),
+        %% The utils construct a join payload, but we route off the routing information passed in.
+        Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0, RoutingInfo),
+        ok = ct_rpc:call(GatewayNode, blockchain_packet_client, packet, [
+            Packet0, [DefaultRouterAddrs], 'US915'
+        ])
+    end,
+
+    %% ===================================================================
+    %% Test EUI Routing
+    ok = SendPacketFun({eui, 1, 1}),
+    ok =
+        receive
+            {router1_packet, _, _} ->
+                ok;
+            {router2_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 1}, {got, 2}});
+            {default_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 1}, {got, default}})
+        after 2000 -> ct:fail({no_packet_received, {expected, 1}, {got, none}})
+        end,
+
+    %% Moving to the next router
+    ok = SendPacketFun({eui, 2, 2}),
+    ok =
+        receive
+            {router1_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 2}, {got, 1}});
+            {router2_packet, _, _} ->
+                ok;
+            {default_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 2}, {got, default}})
+        after 2000 -> ct:fail({no_packet_received, {expected, 2}, {got, none}})
+        end,
+
+    %% And the default router
+    ok = SendPacketFun({eui, 3, 3}),
+    ok =
+        receive
+            {router1_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, default}, {got, 1}});
+            {router2_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, default}, {got, 2}});
+            {default_packet, _, _} ->
+                ok
+        after 2000 -> ct:fail({no_packet_received, {expected, default}, {got, none}})
+        end,
+
+    %% ===================================================================
+    %% Test DevAddr Routing
+    ok = SendPacketFun({devaddr, make_devaddr_num_for_oui(RouterNode1, 0, 1)}),
+    ok =
+        receive
+            {router1_packet, _, _} ->
+                ok;
+            {router2_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 1}, {got, 2}});
+            {default_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 1}, {got, default}})
+        after 2000 -> ct:fail({no_packet_received, {expected, 1}, {got, none}})
+        end,
+
+    %% Moving to the next router
+    ok = SendPacketFun({devaddr, make_devaddr_num_for_oui(RouterNode2, 0, 2)}),
+    ok =
+        receive
+            {router1_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 2}, {got, 1}});
+            {router2_packet, _, _} ->
+                ok;
+            {default_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, 2}, {got, default}})
+        after 2000 -> ct:fail({no_packet_received, {expected, 2}, {got, none}})
+        end,
+
+    %% And the default router
+    ok = SendPacketFun({devaddr, 175678167818}),
+    ok =
+        receive
+            {router1_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, default}, {got, 1}});
+            {router2_packet, _, _} ->
+                ct:fail({packet_incorrectly_routed, {expected, default}, {got, 2}});
+            {default_packet, _, _} ->
+                ok
+        after 2000 -> ct:fail({no_packet_received, {expected, default}, {got, none}})
+        end,
+
+    ok.
+
+make_devaddr_num_for_oui(Node, Offset, OUI) ->
+    Ledger = ct_rpc:call(Node, blockchain, ledger, []),
+    {ok, Routing} = ct_rpc:call(Node, blockchain_ledger_v1, find_routing, [OUI, Ledger]),
+
+    [Subnet | _] = blockchain_ledger_routing_v1:subnets(Routing),
+
+    <<Base:25/integer-unsigned-big, _Mask:23/integer-unsigned-big>> = Subnet,
+    Prefix = application:get_env(blockchain, devaddr_prefix, $H),
+
+    DevAddr = <<(Base + Offset):25/integer-unsigned-little, Prefix:7/integer>>,
+    <<DevNum:32/integer-unsigned-little>> = DevAddr,
+
+    DevNum.
+
+%% ------------------------------------------------------------------
+%% Helper functions
+%% ------------------------------------------------------------------
+
+create_oui_txn(OUI, RouterNode, [], SubnetSize) ->
+    create_oui_txn(OUI, RouterNode, [{16#deadbeef, 16#deadc0de}], SubnetSize);
+create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
+    {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    {Filter, _} = xor16:to_bin(
+        xor16:new(
+            [
+                <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>
+             || {DevEUI, AppEUI} <- EUIs
+            ],
+            fun xxhash:hash64/1
+        )
+    ),
+    OUITxn = blockchain_txn_oui_v1:new(OUI, RouterPubkeyBin, [RouterPubkeyBin], Filter, SubnetSize),
+    blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun).
 
 %% ------------------------------------------------------------------
 %% Helper functions
