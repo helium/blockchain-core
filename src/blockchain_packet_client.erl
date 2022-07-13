@@ -66,24 +66,6 @@
 -type waiting() :: #{waiting_key() => [waiting_packet()]}.
 -type netid_to_oui() :: {pos_integer(), pos_integer()}.
 
--ifdef(TEST).
-
--export([set_routers/2, get_routers/1, get_waiting/1, handle_route_by_netid/6]).
-
--spec set_routers([string()], blockchain:blockchain()) -> state().
-set_routers(Routers, Chain) ->
-    #state{chain = Chain, routers = Routers}.
-
--spec get_routers(state()) -> [netid_to_oui()].
-get_routers(State) ->
-    State#state.routers.
-
--spec get_waiting(state()) -> waiting().
-get_waiting(State) ->
-    State#state.waiting.
-
--endif.
-
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -92,7 +74,6 @@ start_link(Args) ->
 
 -spec response(blockchain_state_channel_response_v1:response()) -> any().
 response(Resp) ->
-    lager:info("this is for handling reponses"),
     erlang:spawn(fun() ->
         case application:get_env(blockchain, sc_client_handler, undefined) of
             undefined ->
@@ -104,7 +85,6 @@ response(Resp) ->
 
 -spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
 send_response(HandlerPid, Response) ->
-    lager:info("sending response to ~p", [HandlerPid]),
     blockchain_state_channel_common:send_response(HandlerPid, Response).
 
 -spec packet(
@@ -127,7 +107,7 @@ init(Args) ->
             sc_client_transport_handler,
             blockchain_packet_handler
         ),
-    lager:info("~p init with ~p  hanlder: ~p", [?SERVER, Args, SCClientTransportHandler]),
+    lager:info("~p init with ~p handler: ~p", [?SERVER, Args, SCClientTransportHandler]),
 
     Swarm = maps:get(swarm, Args),
     SwarmTID = libp2p_swarm:tid(Swarm),
@@ -158,19 +138,7 @@ handle_cast(
     {packet, Packet, Routers, Region, ReceivedTime},
     #state{chain = Chain} = State
 ) ->
-    lager:info("routing packet from the packet client"),
-    #packet_pb{routing = #routing_information_pb{data = Routing}} = Packet,
-    State2 =
-        case Routing of
-            %% Handle Uplink packets
-            {devaddr, DevAddr} when is_integer(DevAddr) andalso DevAddr > 0 ->
-                lager:info("routing by netid"),
-                handle_route_by_netid(Packet, DevAddr, Routers, Region, ReceivedTime, State);
-            _ ->
-                %% Handle Join packets
-                lager:info("handle packet by routing"),
-                handle_packet_routing(Packet, Chain, Routers, Region, ReceivedTime, State)
-        end,
+    State2 = handle_packet_routing(Packet, Chain, Routers, Region, ReceivedTime, State),
     {noreply, State2};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
@@ -582,7 +550,6 @@ send_packet_immediately(
     ReceivedTime,
     #state{pubkey_bin = PubkeyBin, sig_fun = SigFun} = State
 ) ->
-    lager:debug("got stream sending packet"),
     ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region, ReceivedTime),
     State.
 
@@ -592,7 +559,6 @@ send_packet_immediately(
     #state{}
 ) -> #state{}.
 maybe_send_packets(AddressOrOUI, HandlerPid, State) ->
-    lager:info("maybe sending packets from packet client"),
     Packets = get_waiting_packet(AddressOrOUI, State),
     State1 = lists:foldl(
         fun({Packet, Region, ReceivedTime}, StateAcc) ->
@@ -633,57 +599,6 @@ chain_var_ledger_routers_by_netid_to_oui(Ledger, State) ->
                 []
         end,
     State#state{routers = Routers}.
-
--spec handle_route_by_netid(
-    Packet :: blockchain_helium_packet_v1:packet(),
-    DevAddr :: number() | binary(),
-    DefaultRouters :: [blockchain_ledger_routing_v1:routing()],
-    Region :: atom(),
-    ReceivedTime :: non_neg_integer(),
-    State :: state()
-) ->
-    State1 :: state().
-handle_route_by_netid(Packet, DevAddr, DefaultRouters, Region, ReceivedTime, State) ->
-    #state{chain = Chain, routers = RoamingRouters} = State,
-    OurNetID = application:get_env(blockchain, devaddr_prefix, $H),
-    case lora_subnet:parse_netid(DevAddr) of
-        {ok, OurNetID} ->
-            handle_packet_routing(Packet, Chain, DefaultRouters, Region, ReceivedTime, State);
-        {ok, ExtractedNetID} ->
-            FoldFn =
-                fun
-                    ({NetID, OUI}, Acc) when NetID == ExtractedNetID ->
-                        Ledger = blockchain:ledger(Chain),
-                        case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-                            {ok, Route} ->
-                                [Route | Acc];
-                            _ ->
-                                Acc
-                        end;
-                    ({_OtherNetID, _}, Acc) ->
-                        Acc
-                end,
-            RoutesOrAddresses =
-                case lists:foldl(FoldFn, [], RoamingRouters) of
-                    [] ->
-                        lager:debug("no routes found for netid ~p", [ExtractedNetID]),
-                        DefaultRouters;
-                    Routes ->
-                        lager:debug(
-                            "found ~p for netid ~p",
-                            [
-                                [blockchain_ledger_routing_v1:oui(R) || R <- Routes],
-                                ExtractedNetID
-                            ]
-                        ),
-                        Routes
-                end,
-            handle_packet(Packet, RoutesOrAddresses, Region, ReceivedTime, State);
-        _Error ->
-            %% Drop undeliverable packet
-            lager:warning("failed to route ~p with devaddr=~p", [_Error, DevAddr]),
-            State
-    end.
 
 -spec handle_packet_routing(
     Packet :: blockchain_helium_packet_v1:packet(),
