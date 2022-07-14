@@ -21,7 +21,8 @@
     get_actives_count/0,
     gc_state_channels/1,
     update_state_channel/1,
-    handle_offer/4, handle_valid_offer/4,
+    track_offer/3,
+    handle_offer/4,
     handle_packet/5
 ]).
 
@@ -129,22 +130,46 @@ handle_offer(Offer, SCPacketHandler, Ledger, HandlerPid) ->
             lager:debug("offer from ~p failed to validate ~p ~p", [HotspotName, _Reason, Offer]),
             reject;
         true ->
-            handle_valid_offer(Offer, SCPacketHandler, Ledger, HandlerPid)
+            case SCPacketHandler:handle_offer(Offer, HandlerPid) of
+                {error, _Why} ->
+                    lager:debug("offer from ~p rejected by ~p because ~p ~p", [HotspotName, SCPacketHandler, _Why, Offer]),
+                    reject;
+                ok ->
+                    track_offer(Offer, Ledger, HandlerPid)
+            end
     end.
 
--spec handle_valid_offer(Offer :: blockchain_state_channel_offer_v1:offer(),
-    SCPacketHandler :: atom(),
+-spec track_offer(
+    Offer :: blockchain_state_channel_offer_v1:offer(),
     Ledger :: blockchain_ledger_v1:ledger(),
-    HandlerPid :: pid()) -> ok | reject.
-handle_valid_offer(Offer, SCPacketHandler, Ledger, HandlerPid) ->
-    case SCPacketHandler:handle_offer(Offer, HandlerPid) of
-        {error, _Why} ->
-            HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
-            HotspotName = blockchain_utils:addr2name(HotspotID),
-            lager:debug("offer from ~p rejected by ~p because ~p ~p", [HotspotName, SCPacketHandler, _Why, Offer]),
-            reject;
-        ok ->
-            handle_offer(Offer, Ledger, HandlerPid)
+    HandlerPid :: pid()
+) -> ok | reject.
+track_offer(Offer, Ledger, HandlerPid) ->
+    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+    HotspotName = blockchain_utils:addr2name(HotspotID),
+    case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
+        undefined ->
+            lager:debug("could not finds hotspot in cache for ~p", [HotspotName]),
+            case select_best_active(HotspotID, Ledger) of
+                {ok, Pid} ->
+                    lager:debug("found ~p for ~p", [Pid, HotspotName]),
+                    ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
+                    blockchain_state_channels_worker:handle_offer(
+                        Pid,
+                        Offer,
+                        HandlerPid
+                    );
+                {error, _Reason} ->
+                    lager:warning("count not find any state channel for ~p", [HotspotName]),
+                    reject
+            end;
+        Pid ->
+            lager:debug("found ~p for ~p", [Pid, HotspotName]),
+            blockchain_state_channels_worker:handle_offer(
+                Pid,
+                Offer,
+                HandlerPid
+            )
     end.
 
 -spec handle_packet(
@@ -355,39 +380,6 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec handle_offer(
-    Offer :: blockchain_state_channel_offer_v1:offer(),
-    Ledger :: blockchain_ledger_v1:ledger(),
-    HandlerPid :: pid()
-) -> ok | reject.
-handle_offer(Offer, Ledger, HandlerPid) ->
-    HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
-    HotspotName = blockchain_utils:addr2name(HotspotID),
-    case blockchain_state_channels_cache:lookup_hotspot(HotspotID) of
-        undefined ->
-            lager:debug("could not finds hotspot in cache for ~p", [HotspotName]),
-            case select_best_active(HotspotID, Ledger) of
-                {ok, Pid} ->
-                    lager:debug("found ~p for ~p", [Pid, HotspotName]),
-                    ok = blockchain_state_channels_cache:insert_hotspot(HotspotID, Pid),
-                    blockchain_state_channels_worker:handle_offer(
-                        Pid,
-                        Offer,
-                        HandlerPid
-                    );
-                {error, _Reason} ->
-                    lager:warning("count not find any state channel for ~p", [HotspotName]),
-                    reject
-            end;
-        Pid ->
-            lager:debug("found ~p for ~p", [Pid, HotspotName]),
-            blockchain_state_channels_worker:handle_offer(
-                Pid,
-                Offer,
-                HandlerPid
-            )
-    end.
 
 -spec select_best_active(
     HotspotID :: libp2p_crypto:pubkey_bin(),

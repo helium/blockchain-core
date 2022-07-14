@@ -2701,7 +2701,7 @@ direct_send_packet_accounting(Config) ->
                     Offer = blockchain_state_channel_offer_v1:from_packet(InnerPacket, PubKeyBin, Region),
 
                     Ledger = blockchain:ledger(),
-                    _ = blockchain_state_channels_server:handle_valid_offer(Offer, sc_packet_test_handler, Ledger, self()),
+                    _ = blockchain_state_channels_server:track_offer(Offer, Ledger, self()),
 
                     ok
             end
