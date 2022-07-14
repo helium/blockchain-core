@@ -180,7 +180,11 @@ is_valid(Txn, Chain) ->
                                 {error, _Reason} ->
                                     {error, state_channel_not_open};
                                 {ok, LedgerSC} ->
-                                    CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
+                                    CloseState =
+                                        case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
+                                            true -> blockchain_ledger_state_channel_v2:close_state(LedgerSC);
+                                            false -> undefined
+                                        end,
                                     case {CloseState, SCDisputeStrategy} of
                                         {dispute, Ver} when Ver >= 1 -> {error, already_disputed};
                                         _ ->
