@@ -5160,15 +5160,31 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
     BinHex = h3_to_key(Hex),
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found ->
-            case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
-                0 ->
-                    %% populating a hex means we need to recalculate the set of populated
-                    %% hexes
-                    build_random_hex_targeting_lookup(Res, Ledger);
+            %% need to add the hex and maybe update targeting lookup if no other gateways in parent hex
+            %% includes chain var protected bug fix
+            case config(?h3dex_targeting_lookup_fix, Ledger) of
+                %% if fix enabled, add the hex and maybe update lookup
+                {ok, true} ->
+                    case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                        0 ->
+                            %% this is the first gateway in hex, add it then update lookup
+                            cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed])),
+                            build_random_hex_targeting_lookup(Res, Ledger);
+                        _ ->
+                            cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]))
+                    end;
+                %% otherwise, keep the wrong behavior of maybe updating targeting lookup then add the hex
                 _ ->
-                    ok
-            end,
-            cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]));
+                    case count_gateways_in_hex(h3:parent(Hex, Res), Ledger) of
+                        0 ->
+                            %% populating a hex means we need to recalculate the set of populated
+                            %% hexes
+                            build_random_hex_targeting_lookup(Res, Ledger);
+                        _ ->
+                            ok
+                    end,
+                    cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]))
+            end;
         {ok, BinGws} ->
             GWs = binary_to_term(BinGws),
             cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:usort([GWAddr | GWs]), [compressed]));
@@ -5192,7 +5208,7 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
                 [] ->
                     %% need to remove the hex and maybe recalc targeting lookup if no gateways remain in parent hex
                     %% includes chain var protected bug fix
-                    case config(?h3dex_remove_gw_fix, Ledger) of
+                    case config(?h3dex_targeting_lookup_fix, Ledger) of
                         %% if fix enabled, delete the hex first, then count the parent hex's gateways
                         {ok, true} ->
                             cache_delete(Ledger, H3CF, BinHex),
