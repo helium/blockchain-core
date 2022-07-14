@@ -21,7 +21,7 @@
     get_actives_count/0,
     gc_state_channels/1,
     update_state_channel/1,
-    handle_offer/4,
+    handle_offer/4, handle_valid_offer/4,
     handle_packet/5
 ]).
 
@@ -129,13 +129,22 @@ handle_offer(Offer, SCPacketHandler, Ledger, HandlerPid) ->
             lager:debug("offer from ~p failed to validate ~p ~p", [HotspotName, _Reason, Offer]),
             reject;
         true ->
-            case SCPacketHandler:handle_offer(Offer, HandlerPid) of
-                {error, _Why} ->
-                    lager:debug("offer from ~p rejected by ~p because ~p ~p", [HotspotName, SCPacketHandler, _Why, Offer]),
-                    reject;
-                ok ->
-                    handle_offer(Offer, Ledger, HandlerPid)
-            end
+            handle_valid_offer(Offer, SCPacketHandler, Ledger, HandlerPid)
+    end.
+
+-spec handle_valid_offer(Offer :: blockchain_state_channel_offer_v1:offer(),
+    SCPacketHandler :: atom(),
+    Ledger :: blockchain_ledger_v1:ledger(),
+    HandlerPid :: pid()) -> ok | reject.
+handle_valid_offer(Offer, SCPacketHandler, Ledger, HandlerPid) ->
+    case SCPacketHandler:handle_offer(Offer, HandlerPid) of
+        {error, _Why} ->
+            HotspotID = blockchain_state_channel_offer_v1:hotspot(Offer),
+            HotspotName = blockchain_utils:addr2name(HotspotID),
+            lager:debug("offer from ~p rejected by ~p because ~p ~p", [HotspotName, SCPacketHandler, _Why, Offer]),
+            reject;
+        ok ->
+            handle_offer(Offer, Ledger, HandlerPid)
     end.
 
 -spec handle_packet(
