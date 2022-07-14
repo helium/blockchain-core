@@ -469,11 +469,11 @@ unmark_key(Key, Ledger) ->
 
 
 -spec new_context(ledger()) -> ledger().
-new_context(Ledger) ->
+new_context(Ledger0) ->
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
-    context_cache(Cache, GwCache, Ledger).
+    context_cache(Cache, GwCache, Ledger0).
 
 
 give_context(Ledger, Pid) ->
@@ -506,29 +506,31 @@ flatten_cache({Cache, GwCache}) ->
     {ets:tab2list(Cache), ets:tab2list(GwCache)}.
 
 -spec delete_context(ledger()) -> ledger().
-delete_context(Ledger) ->
-    case ?MODULE:context_cache(Ledger) of
+delete_context(Ledger0) ->
+    case ?MODULE:context_cache(Ledger0) of
         {undefined, undefined} ->
-            Ledger;
+            {undefined, undefined, Ledger0};
         {direct, GwCache} ->
             catch ets:delete(GwCache),
-            context_cache(undefined, undefined, Ledger);
+            L = context_cache(undefined, undefined, Ledger0),
+            {direct, GwCache, L};
         {Cache, GwCache} ->
             catch ets:delete(Cache),
             catch ets:delete(GwCache),
-            context_cache(undefined, undefined, Ledger)
+            L = context_cache(undefined, undefined, Ledger0),
+            {Cache, GwCache, L}
     end.
 
 %% @doc remove a context without deleting it, useful if you need a
 %% view of the actual ledger while absorbing
 -spec remove_context(ledger()) -> ledger().
 remove_context(Ledger) ->
-    case ?MODULE:context_cache(Ledger) of
-        {undefined, undefined} ->
-            Ledger;
-        {_Cache, _GwCache} ->
-            context_cache(undefined, undefined, Ledger)
-    end.
+case ?MODULE:context_cache(Ledger) of
+    {undefined, undefined} ->
+        Ledger;
+    {_Cache, _GwCache} ->
+        context_cache(undefined, undefined, Ledger)
+end.
 
 -spec reset_context(ledger()) -> ok.
 reset_context(Ledger) ->
@@ -724,6 +726,7 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
     end.
 
 has_snapshot(Height, Ledger) ->
+    lager:info("LEDGER:HAS_SNAP CALL FROM: ~p", [erlang:stacktrace()]),
     has_snapshot(Height, Ledger, 120).
 has_snapshot(_Height, _Ledger, 0) ->
     {error, too_many_retries};

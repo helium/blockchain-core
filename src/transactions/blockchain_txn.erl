@@ -89,7 +89,7 @@
     hash/1,
     fee/1,
     fee_payer/2,
-    validate/2, validate/3,
+    validate/2, validate/3, validate/4,
     absorb/2,
     print/1, print/2,
     sign/2,
@@ -276,21 +276,29 @@ unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
 %% Called in the miner
 %% @end
 %%--------------------------------------------------------------------
--spec validate(txns(), blockchain:blockchain()) -> {blockchain_txn:txns(), blockchain_txn:txns()}.
+-spec validate(txns(), blockchain:blockchain()) ->
+    {[txn()], [{txn(), atom()}]}.
 validate(Transactions, Chain) ->
     validate(Transactions, Chain, false).
 
 -spec validate(txns(), blockchain:blockchain(), boolean()) ->
-                      {blockchain_txn:txns(), [{txn(), atom()}]}.
-validate(Transactions, _Chain, true) ->
+    {[txn()], [{txn(), atom()}]}.
+validate(Transactions, Chain, IsRescue) ->
+    validate(Transactions, Chain, IsRescue, undefined).
+
+-spec validate(txns(), blockchain:blockchain(), boolean(), undefined | non_neg_integer()) ->
+    {[txn()], [{txn(), atom()}]}.
+validate(Transactions, _Chain, true, _BlockHeight) ->
     {Transactions, []};
-validate(Transactions, Chain0, false) ->
+validate(Transactions, Chain0, false, BlockHeight) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
-    validate(Transactions, [], [], undefined, [], Chain1).
+    validate(Transactions, [], [], undefined, [], Chain1, BlockHeight).
 
-validate([], Valid, Invalid, PType, PBuf, Chain) ->
+-spec validate([txn()], [txn()], [txn()], any(), any(), blockchain:blockchain(), undefined | non_neg_integer()) ->
+    {[txn()], [{txn(), atom()}]}.
+validate([], Valid, Invalid, PType, PBuf, Chain, BlockHeight) ->
     {Valid1, Invalid1} =
         case PType of
             undefined ->
@@ -302,58 +310,64 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
                                 Type = ?MODULE:type(T),
                                 Ret = (catch Type:is_valid(T, Chain)),
                                 maybe_log_duration(Type, Start),
+                                maybe_log_validation_result(BlockHeight, T, Ret),
                                 {T, Ret}
-                        end, lists:reverse(PBuf)),
+                        end,
+                        lists:reverse(PBuf),
+                        validation_width()
+                ),
                 separate_res(Res, Chain, Valid, Invalid)
         end,
     Ledger = blockchain:ledger(Chain),
     blockchain_ledger_v1:delete_context(Ledger),
     lager:info("valid: ~p, invalid: ~p", [types(Valid1), types(Invalid1)]),
     {lists:reverse(Valid1), Invalid1};
-validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
+validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain, BlockHeight) ->
     Type = ?MODULE:type(Txn),
     case Type of
         blockchain_txn_poc_request_v1 when PType == undefined orelse PType == Type ->
-            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
+            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain, BlockHeight);
         blockchain_txn_poc_receipts_v1 when PType == undefined orelse PType == Type ->
-            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
+            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain, BlockHeight);
         _Else when PType == undefined ->
             Start = erlang:monotonic_time(millisecond),
-            case catch Type:is_valid(Txn, Chain) of
+            ValidationResult = (catch Type:is_valid(Txn, Chain)),
+            maybe_log_validation_result(BlockHeight, Txn, ValidationResult),
+            case ValidationResult of
                 ok ->
                     case ?MODULE:absorb(Txn, Chain) of
                         ok ->
                             maybe_log_duration(type(Txn), Start),
-                            validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
+                            validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain, BlockHeight);
                         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
                             %% we don't have enough context to decide if this transaction is valid yet, keep it
                             %% but don't include it in the block (so it stays in the buffer)
-                            validate(Tail, Valid, Invalid, PType, PBuf, Chain);
+                            validate(Tail, Valid, Invalid, PType, PBuf, Chain, BlockHeight);
                         {error, {InvalidReason, _Details}} = Error ->
                             lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
-                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain, BlockHeight);
                         {error, InvalidReason} = Error->
                             lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
-                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain)
+                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain, BlockHeight)
                     end;
                 {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
                     %% we don't have enough context to decide if this transaction is valid yet, keep it
                     %% but don't include it in the block (so it stays in the buffer)
-                    validate(Tail, Valid, Invalid, PType, PBuf, Chain);
+                    validate(Tail, Valid, Invalid, PType, PBuf, Chain, BlockHeight);
                 {error, {InvalidReason, _Details}} = Error ->
                     lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
-                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain, BlockHeight);
                 {error, InvalidReason}=Error when is_atom(InvalidReason) ->
                     lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
-                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain, BlockHeight);
                 Error ->
                     lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
                     %% this error is unexpected and could be a crash report or some other weirdness
                     %% we will use a generic error reason
-                    validate(Tail, Valid, [{Txn, validation_failed} | Invalid], PType, PBuf, Chain)
+                    validate(Tail, Valid, [{Txn, validation_failed} | Invalid], PType, PBuf, Chain, BlockHeight)
             end;
         _Else ->
             Res = blockchain_utils:pmap(
@@ -362,15 +376,77 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                             Ty = ?MODULE:type(T),
                             Ret = (catch Ty:is_valid(T, Chain)),
                             maybe_log_duration(Ty, Start),
+                            maybe_log_validation_result(BlockHeight, T, Ret),
                             {T, Ret}
-                    end, lists:reverse(PBuf)),
+                    end,
+                    lists:reverse(PBuf),
+                    validation_width()
+                ),
             {Valid1, Invalid1} = separate_res(Res, Chain, Valid, Invalid),
-            validate(Txns, Valid1, Invalid1, undefined, [], Chain)
+            validate(Txns, Valid1, Invalid1, undefined, [], Chain, BlockHeight)
     end.
+
+validation_width() ->
+    case application:get_env(blockchain, validation_width, undefined) of
+        %% TODO Is this atrocity really worth the benefit? I don't think so!
+        %%      Just decide what the data type should be and fail if it is wrong!
+        undefined ->
+            blockchain_utils:cpus();
+        "" ->
+            blockchain_utils:cpus();
+        Str when is_list(Str) ->
+            try
+                list_to_integer(Str)
+            catch _:_ -> % TODO Is this atrocity really worth the benefit? I don't think so.
+                blockchain_utils:cpus()
+            end;
+        N when is_integer(N) ->
+            N
+    end.
+
+-spec maybe_log_validation_result(undefined | non_neg_integer(), txn(), ok | {error, term()}) -> ok.
+maybe_log_validation_result(BlockHeight, Txn, Result) when is_integer(BlockHeight) ->
+    case application:get_env(blockchain, resync_test, false) of
+        false ->
+            ok;
+        true ->
+            Table = resync_test_data,
+            case Result of
+                ok ->
+                    % increment counter : BlockHeight Ok
+                    counter_incr(Table, {BlockHeight, ok});
+                Error ->
+                    Reason =
+                        case Error of
+                            {error, Reason0} ->
+                                Reason0;
+                            Exception ->
+                                Exception
+                        end,
+                    % increment counter : BlockHeight Error
+                    % increment counter : BlockHeight Error Reason
+                    % save sample =
+                    counter_incr(Table, {BlockHeight, error, Reason}),
+                    dets:insert(Table, {{sample,  Reason}, Txn})
+            end
+    end;
+maybe_log_validation_result(undefined, _, _) ->
+    %% TODO Asses when this can happen and if we should crash instead of ignoring.
+    ok.
+
+-spec counter_incr(atom(), term()) ->
+    non_neg_integer().
+counter_incr(Table, Key) ->
+    case dets:lookup(Table, Key) of
+        [] -> ok = dets:insert(Table, {Key, 0});
+        [{Key, _}] -> ok
+    end,
+   dets:update_counter(Table, Key, 1).
 
 separate_res([], _Chain, V, I) ->
     {V, I};
 separate_res([{T, ok} | Rest], Chain, V, I) ->
+    quintana:notify_spiral(<<"txn_validation.ok">>, 1),
     case ?MODULE:absorb(T, Chain) of
         ok ->
             separate_res(Rest, Chain, [T|V], I);
@@ -383,38 +459,57 @@ separate_res([{T, ok} | Rest], Chain, V, I) ->
     end;
 
 separate_res([{T, Err} | Rest], Chain, V, I) ->
+    Type = type(T),
     case Err of
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+            count_txn_error(Type, bad_nonce),
             separate_res(Rest, Chain, V, I);
         {error, {InvalidReason, _Details}} = Error ->
-            lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
+            count_txn_error(Type, InvalidReason),
+            lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(T)]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
         {error, InvalidReason} = Error ->
-            lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
+            count_txn_error(Type, InvalidReason),
+            lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(T)]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
         {'EXIT', {{_Why,{error, CrashReason}}, Stack}} when is_atom(CrashReason)->
-            lager:warning("crashed txn ~p : ~p / ~s - ~p", [type(T), CrashReason, print(T), Stack]),
+            count_txn_error(Type, [crash, CrashReason]),
+            lager:warning("crashed txn ~p : ~p / ~s - ~p", [Type, CrashReason, print(T), Stack]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
         {'EXIT', CrashReason} when is_atom(CrashReason)->
-            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+            count_txn_error(Type, [crash, CrashReason]),
+            lager:warning("crashed txn ~p : ~p / ~s", [Type, CrashReason, print(T)]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
         Error->
+            count_txn_error(Type, [bug, Error]),
             %% since this is critical code, always make sure we have a catchall clause just in case
             %% Any log events hitting here should be reviewed and considered if we need to add
             %% specific handling for any such error msg, ensuring we return meaningful error msgs where possible
-            lager:warning("BUG: unexpected txn validation error format ~p : ~p / ~s", [type(T), Error, print(T)]),
+            lager:warning("BUG: unexpected txn validation error format ~p : ~p / ~s", [Type, Error, print(T)]),
             separate_res(Rest, Chain, V, [{T, txn_failed} | I])
     end.
+
+count_txn_error(Type, Reason) ->
+    TypeBin = atom_to_binary(Type),
+    ReasonBin =
+        case is_atom(Reason) of
+            true ->
+                atom_to_binary(Reason);
+            false ->
+                Max = 100,
+                list_to_binary(lists:sublist(lists:flatten(io_lib:format("~p", [Reason])), Max))
+        end,
+    quintana:notify_spiral(<<"txn_validation.error.", TypeBin/binary, ".", ReasonBin/binary>>, 1).
 
 maybe_log_duration(Type, Start) ->
     case application:get_env(blockchain, log_validation_times, false) of
         true ->
             End = erlang:monotonic_time(millisecond),
-            lager:info("~p took ~p ms", [Type, End - Start]);
+            lager:info("txn validation time: ~p ~p ms", [Type, End - Start]);
         _ -> ok
     end.
 
@@ -451,7 +546,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
     Start = erlang:monotonic_time(millisecond),
-    case ?MODULE:validate(Transactions, Chain1, Rescue) of
+    case ?MODULE:validate(Transactions, Chain1, Rescue, Height) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
@@ -484,6 +579,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
         {_ValidTxns, InvalidTxns} ->
             blockchain_ledger_v1:delete_context(Ledger1),
             lager:error("found invalid transactions: ~p", [InvalidTxns]),
+            quintana:notify_gauge(<<"txn_invalid_count_per_block">>, length(InvalidTxns)),
             {error, invalid_txns}
     end.
 
@@ -550,14 +646,32 @@ absorb_block(Block, Rescue, Chain) ->
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
     Height = blockchain_block:height(Block),
-    case absorb_txns(Transactions, Rescue, Chain) of
-        ok ->
-            ok = blockchain_ledger_v1:increment_height(Block, Ledger),
-            ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
-            {ok, Chain};
-        Error ->
-            Error
-    end.
+    quintana:notify_gauge(<<"txn_count_per_block">>, length(Transactions)),
+    [
+        quintana:notify_gauge(<<"txn_type.", (atom_to_binary(Ty))/binary>>, Cnt)
+    ||
+        {Ty, Cnt} <-
+            maps:to_list(lists:foldl(
+                fun (Tx, Count) ->
+                    maps:update_with(type(Tx), fun (N) -> N + 1 end, 1, Count)
+                end,
+                #{},
+                Transactions
+            ))
+    ],
+    TimeBegin = erlang:monotonic_time(millisecond),
+    Result =
+        case absorb_txns(Transactions, Rescue, Chain) of
+            ok ->
+                ok = blockchain_ledger_v1:increment_height(Block, Ledger),
+                ok = blockchain_ledger_v1:process_delayed_actions(Height, Ledger, Chain),
+                {ok, Chain};
+            Error ->
+                Error
+        end,
+    TimeEnd = erlang:monotonic_time(millisecond),
+    quintana:notify_gauge(<<"block_absorb_time">>, TimeEnd - TimeBegin),
+    Result.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -576,6 +690,7 @@ absorb(Txn, Chain) ->
         ok ->
             End = erlang:monotonic_time(millisecond),
             Slow = application:get_env(blockchain, slow_txn_log_threshold, 25), % in ms
+            quintana:notify_histogram(<<"txn_absorb_time">>, End - Start),
             case (End - Start) >= Slow of
                 true ->
                     lager:info("took ~p ms to absorb ~p", [End - Start, Type]),
@@ -817,6 +932,7 @@ absorb_txns([Txn|Txns], Rescue, Chain) ->
 %%--------------------------------------------------------------------
 -spec absorb_delayed(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_delayed(Block0, Chain0) ->
+    %% TODO XXX Why no delete_context?
     {Pid, Ref, MonitorRef} = absorb_delayed_async(Block0, Chain0),
     handle_absorb_delayed_result({Pid, Ref, MonitorRef}).
 

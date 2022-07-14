@@ -709,7 +709,9 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
     case rocksdb:get(DB, BlocksCF, Hash, []) of
         {ok, BinBlock} ->
-            {ok, blockchain_block:deserialize(BinBlock)};
+            quintana:notify_gauge(<<"get_block.block_size_bytes">>, byte_size(BinBlock)),
+            Block = blockchain_block:deserialize(BinBlock),
+            {ok, Block};
         not_found ->
             {error, not_found};
         Error ->
@@ -894,12 +896,15 @@ find_first_height_after(MinHeight0, #blockchain{db=DB, heights=HeightsCF}) ->
     MinHeight = max(0, MinHeight0),
     {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
     rocksdb:iterator_move(Iter, {seek, <<(MinHeight):64/integer-unsigned-big>>}),
-    case rocksdb:iterator_move(Iter, next) of
-        {ok, <<Height:64/integer-unsigned-big>>, Hash} ->
-            {ok, Height, Hash};
-        {error, _} ->
-            {error, not_found}
-    end.
+    Result =
+        case rocksdb:iterator_move(Iter, next) of
+            {ok, <<Height:64/integer-unsigned-big>>, Hash} ->
+                {ok, Height, Hash};
+            {error, _} ->
+                {error, not_found}
+        end,
+    rocksdb:iterator_close(Iter),
+    Result.
 
 find_first_block_after(MinHeight, Blockchain) ->
     case find_first_height_after(MinHeight, Blockchain) of
@@ -1460,26 +1465,98 @@ build(Height, Blockchain, N, Acc) ->
             end
     end.
 
+-spec build_hash_chain(H, H, blockchain(), rocksdb:cf_handle()) -> [H, ...]
+    when H :: blockchain_block:hash().
+build_hash_chain(StopHash, StartHash, #blockchain{db=DB}, CF) ->
+    quintana:notify_spiral(<<"build_hash_chain">>, 1),
+    TimeBegin = erlang:monotonic_time(millisecond),
+    lager:info("build_hash_chain BEGIN"),
+    Parents =
+        maps:from_list(
+            data_stream:pmap_to_bag(
+                rocksdb_stream(DB, CF),
+                fun ({<<ChildHash/binary>>, <<ChildBlockBin/binary>>}) ->
+                    quintana:notify_gauge(<<"build_hash_chain.block_size_bytes">>, byte_size(ChildBlockBin)),
+                    ChildBlock = blockchain_block:deserialize(ChildBlockBin),
+                    <<ParentHash/binary>> = blockchain_block:prev_hash(ChildBlock),
+                    {ChildHash, ParentHash}
+                end
+            )
+        ),
+    HashChain = trace_lineage(Parents, StopHash, StartHash),
+    TimeEnd = erlang:monotonic_time(millisecond),
+    TimeElapsed = TimeEnd - TimeBegin,
+    lager:info("build_hash_chain END in ~b", [TimeElapsed]),
+    quintana:notify_gauge(<<"build_hash_chain_time">>, TimeElapsed),
+    lager:info("build_hash_chain maps:size(Parents): ~b", [maps:size(Parents)]),
+    lager:info("build_hash_chain length(HashChain): ~b", [length(HashChain)]),
+    lager:info("build_hash_chain hd(HashChain): ~p", [hd(HashChain)]),
+    lager:info("build_hash_chain StartHash: ~p", [StartHash]),
+    lager:info("build_hash_chain StopHash: ~p", [StopHash]),
+    lager:info("build_hash_chain StartHash hex: ~p", [lists:flatten(bin_to_hex(StartHash))]),
+    lager:info("build_hash_chain StopHash hex: ~p", [lists:flatten(bin_to_hex(StopHash))]),
+    ok = write_parents_to_file(Parents),
+    lager:info("build_hash_chain written parents.txt"),
+    HashChain.
 
--spec build_hash_chain(blockchain_block:hash(), blockchain_block:block(), blockchain(), rocksdb:cf_handle()) -> [blockchain_block:hash(), ...].
-build_hash_chain(StopHash,StartingBlock, Blockchain, CF) ->
-    BlockHash = blockchain_block:hash_block(StartingBlock),
-    ParentHash = blockchain_block:prev_hash(StartingBlock),
-    build_hash_chain_(StopHash, CF, Blockchain, [ParentHash, BlockHash]).
+write_parents_to_file(Parents) ->
+    {ok, File} = file:open("parents.txt", [write]),
+    maps:fold(
+        fun (<<Child/binary>>, <<Parent/binary>>, ok) ->
+            ok = file:write(File, [bin_to_hex(Child), " ", bin_to_hex(Parent), "\n"])
+        end,
+        ok,
+        Parents
+    ),
+    ok = file:sync(File),
+    ok = file:close(File).
 
--spec build_hash_chain_(blockchain_block:hash(), rocksdb:cf_handle(), blockchain(), [blockchain_block:hash(), ...]) -> [blockchain_block:hash()].
-build_hash_chain_(StopHash, CF, Blockchain = #blockchain{db=DB}, [ParentHash|Tail]=Acc) ->
-    case ParentHash == StopHash of
-        true ->
-            %% reached the end
-            Tail;
-        false ->
-            case rocksdb:get(DB, CF, ParentHash, []) of
-                {ok, BinBlock} ->
-                    build_hash_chain_(StopHash, CF, Blockchain, [blockchain_block:prev_hash(blockchain_block:deserialize(BinBlock))|Acc]);
-                _ ->
-                    Acc
-            end
+bin_to_hex(Bin) ->
+    [io_lib:format("~2.16.0b", [B]) || B <- binary_to_list(Bin)].
+
+-spec trace_lineage(#{A => A}, A, A) -> [A, ...].
+trace_lineage(Parents, Oldest, Youngest) ->
+    (fun TraceBack ([Child | _]=Lineage) ->
+        case maps:find(Child, Parents) of
+            error        -> Lineage;
+            {ok, Oldest} -> Lineage;
+            {ok, Parent} -> TraceBack([Parent | Lineage])
+        end
+    end)([Youngest]).
+
+-spec rocksdb_stream(rocksdb:db_handle(), rocksdb:cf_handle()) ->
+    data_stream:t({K :: binary(), V :: binary()}).
+rocksdb_stream(DB, CF) ->
+    fun () ->
+        case rocksdb:iterator(DB, CF, []) of
+            {error, Reason} ->
+                error({rocks_key_streaming_failure, Reason});
+            {ok, Iter} ->
+                case rocksdb:iterator_move(Iter, first) of
+                    {ok, K, V} ->
+                        {some, {{K, V}, rocksdb_stream(Iter)}};
+                    {error, invalid_iterator} ->
+                        rocksdb:iterator_close(Iter),
+                        none;
+                    Error ->
+                        error({rocks_key_streaming_failure, Error})
+                end
+        end
+    end.
+
+-spec rocksdb_stream(rocksdb:itr_handle()) ->
+    data_stream:t({K :: binary(), V :: binary()}).
+rocksdb_stream(Iter) ->
+    fun () ->
+        case rocksdb:iterator_move(Iter, next) of
+            {ok, K, V} ->
+                {some, {{K, V}, rocksdb_stream(Iter)}};
+            {error, invalid_iterator} ->
+                rocksdb:iterator_close(Iter),
+                none;
+            {error, Reason} ->
+                error({rocks_key_streaming_failure, Reason})
+        end
     end.
 
 -spec fold_chain(fun((Blk :: blockchain_block:block(), AccIn :: any()) -> NewAcc :: any()),
@@ -2255,14 +2332,24 @@ add_htlc_receipt(Address, HTLCReceipt, #blockchain{db=DB, htlc_receipts=HTLCRece
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-clean(#blockchain{dir=Dir, db=DB}=Blockchain) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
-    ok = rocksdb:close(DB),
-    ok = rocksdb:destroy(DBDir, []),
-    ok = blockchain_ledger_v1:clean(?MODULE:ledger(Blockchain));
-clean(Dir) when is_list(Dir) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
-    ok = rocksdb:destroy(DBDir, []).
+-spec clean(blockchain() | filename:filename()) -> ok.
+clean(ChainOrDir) ->
+    case application:get_env(blockchain, db_clean_enabled, false) of
+        false ->
+            lager:warning("db_clean_enabled = false, skipping.");
+        true ->
+            lager:warning("db_clean_enabled = true, cleanning."),
+            case ChainOrDir of
+                #blockchain{dir=Dir, db=DB}=Chain ->
+                    DBDir = filename:join(Dir, ?DB_FILE),
+                    ok = rocksdb:close(DB),
+                    ok = rocksdb:destroy(DBDir, []),
+                    ok = blockchain_ledger_v1:clean(?MODULE:ledger(Chain));
+                Dir when is_list(Dir) ->
+                    DBDir = filename:join(Dir, ?DB_FILE),
+                    ok = rocksdb:destroy(DBDir, [])
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -2473,7 +2560,13 @@ open_db(Dir) ->
             lager:warning("unopenable blockchain.db detected, removing"),
             ok = file:delete(filename:join(Dir, "blockchain-open-failed")),
             clean(Dir),
-            blockchain_ledger_v1:clean(Dir);
+            case application:get_env(blockchain, db_clean_enabled, false) of
+                false ->
+                    lager:warning("db_clean_enabled = false, skipping ledger clean.");
+                true ->
+                    lager:warning("db_clean_enabled = true, executing ledger clean."),
+                    blockchain_ledger_v1:clean(Dir)
+            end;
         false ->
             ok
     end,
@@ -2742,6 +2835,7 @@ maybe_continue_resync(Blockchain, Blocking) ->
 
 
 resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
+    lager:info("resync_fun. heights: ~p", [{{chain, ChainHeight}, {ledger, LedgerHeight}}]),
     blockchain_lock:acquire(),
     case get_block(LedgerHeight, Blockchain) of
         {error, _} when LedgerHeight == 0 ->
@@ -2764,9 +2858,9 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
             lager:warning("cannot resume ledger resync, missing block ~p", [LedgerHeight]),
             blockchain_lock:release();
         {ok, LedgerLastBlock} ->
-            {ok, StartBlock} = blockchain:head_block(Blockchain),
+            {ok, StartHash} = blockchain:head_hash(Blockchain),
             EndHash = blockchain_block:hash_block(LedgerLastBlock),
-            HashChain = build_hash_chain(EndHash, StartBlock, Blockchain, Blockchain#blockchain.blocks),
+            HashChain = build_hash_chain(EndHash, StartHash, Blockchain, Blockchain#blockchain.blocks),
             LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
                                  {ok, LKB} ->
                                      LKB;
@@ -2786,25 +2880,68 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                 true ->
                     %% ok, we can keep replying blocks
                     try
+                        case application:get_env(blockchain, resync_test, false) of
+                            false ->
+                                ok;
+                            true ->
+                                {ok, resync_test_data} = dets:open_file(resync_test_data, []),
+                                ok
+                        end,
                         lists:foreach(fun(Hash) ->
+                                              %TimeBegin = erlang:monotonic_time(millisecond),
                                               {ok, Block} = get_block(Hash, Blockchain),
                                               BeforeCommit = fun(FChain, FHash) ->
                                                                      ok = run_gc_hooks(FChain, FHash)
                                                              end,
-                                              lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
+                                              BlockHeight = blockchain_block:height(Block),
+                                              lager:info("absorbing block ~p", [BlockHeight]),
                                               case application:get_env(blockchain, force_resync_validation, false) of
                                                   true ->
-                                                      ok = blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block));
+                                                      case application:get_env(blockchain, resync_test, false) of
+                                                          true ->
+                                                              lager:info("In resync test. Will try validated with fallback on unvalidated absorb_and_commit."),
+                                                              case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block)) of
+                                                                  ok ->
+                                                                      lager:debug("Validated absorb_and_commit succeeded for block ~p", [BlockHeight]),
+                                                                      ok;
+                                                                  {error, _}=Err ->
+                                                                      lager:error("Validated absorb_and_commit failed for block ~p. Falling back on unvalidated. Err: ~p", [BlockHeight, Err]),
+                                                                      ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block))
+                                                              end;
+                                                          false ->
+                                                              ok = blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block))
+                                                      end;
                                                   false ->
                                                       ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block))
                                               end,
-                                              run_absorb_block_hooks(true, Hash, Blockchain)
+                                              run_absorb_block_hooks(true, Hash, Blockchain),
+                                              Ledger = blockchain:ledger(Blockchain),
+                                              {ok, NewLedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+                                              %TimeEnd = erlang:monotonic_time(millisecond),
+                                              %TimeElapsed = TimeEnd - TimeBegin,
+                                              lager:info("NewLedgerHeight: ~p", [NewLedgerHeight]),
+                                              quintana:notify_gauge(<<"ledger_height">>, NewLedgerHeight)
+                                              %true = garbage_collect()  % XXX Experiment during mem leak hunt. Growing bin mem.
                                       end, HashChain)
                     after
+                        case application:get_env(blockchain, resync_test, false) of
+                            false -> ok;
+                            true -> ok = dets:close(resync_test_data)
+                        end,
                         blockchain_lock:release()
                     end
             end
     end.
+
+%take_snap(Chain, Ledger, Height) ->
+%    lager:info("BEGIN mid-resync snap at height ~p", [Height]),
+%    {ok, Blocks} = blockchain_ledger_snapshot_v1:get_blocks(Chain),
+%    Infos = blockchain_ledger_snapshot_v1:get_infos(Chain),
+%    {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks, Infos),
+%    BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
+%    Filename = "snap-" ++ integer_to_list(Height),
+%    file:write_file(Filename, BinSnap),
+%    lager:info("END mid-resync snap at height ~p", [Height]).
 
 %% check if this block looks plausible
 %% if we can validate f+1 of the signatures against our consensus group
@@ -3315,5 +3452,33 @@ block_info_upgrade_test() ->
                                     penalties = {<<>>, []}},
     V2BlockInfo = upgrade_block_info(V1BlockInfo, Block, Chain),
     ?assertMatch(V2BlockInfo, ExpV2BlockInfo).
+
+trace_lineage_test_() ->
+    [
+        ?_assertEqual(
+            [middle, youngest],
+            trace_lineage(
+                #{
+                    youngest => middle,
+                    middle => oldest
+                },
+                oldest,
+                youngest
+             )
+        ),
+        ?_assertEqual(
+            [b, c, d, e],
+            trace_lineage(
+                #{
+                    e => d,
+                    d => c,
+                    c => b,
+                    b => a
+                },
+                a,
+                e
+             )
+        )
+    ].
 
 -endif.

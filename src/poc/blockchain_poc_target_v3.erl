@@ -140,7 +140,13 @@ choose_zone(RandState, HexList) ->
             {ok, {Hex, HexRandState}}
     end.
 
-limit_addrs(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses) ->
-    blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
-limit_addrs(_Vars, RandState, Witnesses) ->
-    {RandState, Witnesses}.
+-spec limit_addrs(map(), RandState, [Witness]) -> {RandState, [Witness]}.
+limit_addrs(Vars, RandState, Witnesses) when is_map(Vars) ->
+    %% XXX Value could literally be 'undefined' or just missing,
+    %%     so defaulting to 'undefined' handles both cases:
+    case maps:get(?poc_witness_consideration_limit, Vars, undefined) of
+        undefined ->
+            {RandState, Witnesses};
+        Limit when is_integer(Limit) ->
+            blockchain_utils:deterministic_subset(Limit, RandState, Witnesses)
+    end.

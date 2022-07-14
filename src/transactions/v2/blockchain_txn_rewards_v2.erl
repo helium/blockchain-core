@@ -272,7 +272,9 @@ aux_absorb(Txn, AuxLedger, Chain) ->
 %% ordering will depend on (binary) account information.
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
-    calculate_rewards_(Start, End, Ledger, Chain, false).
+    Result = calculate_rewards_(Start, End, Ledger, Chain, false),
+    _ = blockchain_ledger_v1:delete_context(Ledger),
+    Result.
 
 -spec calculate_rewards_(
         Start :: non_neg_integer(),
@@ -352,6 +354,7 @@ calculate_rewards_metadata(Start, End, Chain) ->
                  poc_challengee => #{},
                  poc_witness => #{} },
 
+    Result =
     try
         %% We only want to fold over the blocks and transaction in an epoch once,
         %% so we will do that top level work here. If we get a thrown error while
@@ -390,7 +393,9 @@ calculate_rewards_metadata(Start, End, Chain) ->
         C:Error:Stack ->
             lager:error("Caught ~p; couldn't calculate rewards metadata because: ~p~n~p", [C, Error, Stack]),
             Error
-    end.
+    end,
+    _ = blockchain_ledger_v1:delete_context(Ledger),
+    Result.
 
 perf(Tag, Time) ->
     catch ets:update_counter(rwd_perf, Tag, Time, {Tag, Time}).
@@ -459,16 +464,19 @@ to_json(Txn, Opts) ->
                                 {rewards_metadata, M} -> {ok, M};
                                 _ -> ?MODULE:calculate_rewards_metadata(Start, End, Chain)
                             end,
-            maps:fold(
-                fun(overages, Amount, Acc) ->
-                        [#{amount => Amount,
-                           type => overages} | Acc];
-                   (_RewardCategory, Rewards, Acc0) ->
-                        maps:fold(
-                        fun(Entry, Amount, Acc) ->
-                            RewardToJson(Entry, Amount, Ledger, Acc)
-                        end, Acc0, Rewards)
-                end, [], Metadata);
+            Rewards0 =
+                maps:fold(
+                    fun(overages, Amount, Acc) ->
+                            [#{amount => Amount,
+                               type => overages} | Acc];
+                       (_RewardCategory, Rewards, Acc0) ->
+                            maps:fold(
+                            fun(Entry, Amount, Acc) ->
+                                RewardToJson(Entry, Amount, Ledger, Acc)
+                            end, Acc0, Rewards)
+                    end, [], Metadata),
+            _ = blockchain_ledger_v1:delete_context(Ledger),
+            Rewards0;
         _ -> [ reward_to_json(R, []) || R <- rewards(Txn)]
     end,
 

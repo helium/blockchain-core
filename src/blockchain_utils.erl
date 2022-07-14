@@ -20,6 +20,7 @@
     poc_id/1,
     pfind/2, pfind/3,
     pmap/2,
+    pmap/3,
     addr2name/1,
     distance/2,
     score_gateways/1,
@@ -43,6 +44,7 @@
     get_boolean_os_env_var/2,
     streaming_file_hash/1,
     streaming_transform_iolist/2,
+    cpus/0,
 
     %% exports for simulations
     free_space_path_loss/4,
@@ -239,7 +241,7 @@ pfind_rcv(Ref, Result, Left) ->
     end.
 
 pmap(F, L) ->
-    Width = validation_width(),
+    Width = cpus(),
     pmap(F, L, Width).
 
 pmap(F, L, Width) ->
@@ -272,22 +274,6 @@ partition_list(L, [0 | T], Acc) ->
 partition_list(L, [H | T], Acc) ->
     {Take, Rest} = lists:split(H, L),
     partition_list(Rest, T, [Take | Acc]).
-
-validation_width() ->
-    case application:get_env(blockchain, validation_width, undefined) of
-        undefined ->
-            cpus();
-        "" ->
-            cpus();
-        Str when is_list(Str) ->
-            try
-                list_to_integer(Str)
-            catch _:_ ->
-                    cpus()
-            end;
-        N when is_integer(N) ->
-            N
-    end.
 
 cpus() ->
     Ct = erlang:system_info(schedulers_online),

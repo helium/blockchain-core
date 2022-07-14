@@ -188,7 +188,11 @@ is_valid(Txn, Chain) ->
                                 {error, _Reason} ->
                                     {error, state_channel_not_open};
                                 {ok, LedgerSC} ->
-                                    CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
+                                    CloseState =
+                                        case blockchain_ledger_state_channel:vsn(LedgerSC) of
+                                            v1 -> undefined;
+                                            v2 -> blockchain_ledger_state_channel_v2:close_state(LedgerSC)
+                                        end,
                                     case {CloseState, SCDisputeStrategy} of
                                         {dispute, Ver} when Ver >= 1 -> {error, already_disputed};
                                         _ ->
@@ -197,10 +201,10 @@ is_valid(Txn, Chain) ->
                                                 %% the owner is not allowed to update if the channel is in dispute
                                                 %% and must provide a causally newer version of the channel if there's already a close on file
                                                 true ->
-                                                    case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
-                                                        false ->
+                                                    case blockchain_ledger_state_channel:vsn(LedgerSC) of
+                                                        v1 ->
                                                             ok;
-                                                        true ->
+                                                        v2 ->
                                                             LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
                                                             lager:info("close state was ~p", [CloseState]),
                                                             %% check this new SC is newer than the current one, if any
@@ -323,10 +327,10 @@ confgig_or(Ledger, Key, Default) ->
 
 check_close_updates(LedgerSC, Txn, Ledger) ->
     %% a close from a participant in the SC, not from the owner
-    case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
-        false ->
+    case blockchain_ledger_state_channel:vsn(LedgerSC) of
+        v1 ->
             {error, not_owner};
-        true ->
+        v2 ->
             MaxActorsAllowed = blockchain_state_channel_v1:max_actors_allowed(Ledger),
             LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
             CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),

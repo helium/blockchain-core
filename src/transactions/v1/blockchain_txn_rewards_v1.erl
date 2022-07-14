@@ -644,6 +644,8 @@ poc_challengees_rewards(Transactions,
         Transactions
     ).
 
+-spec normalize_challengee_rewards(#{binary() => number()}, #{atom() => term()}) ->
+    #{{gateway, poc_challengees, binary()} => number()}.
 normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
                                                   poc_challengees_percent := PocChallengeesPercent}=Vars) ->
     TotalChallenged = lists:sum(maps:values(ChallengeeRewards)),
@@ -1374,6 +1376,18 @@ poc_challengees_rewards_1_test() ->
     ?assertEqual(Rewards, normalize_challengee_rewards(
                             poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+%normalize_challengee_rewards_test() ->
+%    Vars = #{
+%        epoch_reward => 1000,
+%        poc_challengees_percent => 0.35,
+%        poc_witnesses_percent => 0.0,
+%        poc_challengers_percent => 0.0,
+%        dc_remainder => 0,
+%        poc_version => 5
+%    },
+%    normalize_challengee_rewards(),
+%    ok.
 
 poc_challengees_rewards_2_test() ->
     BaseDir = test_utils:tmp_dir("poc_challengees_rewards_2_test"),
