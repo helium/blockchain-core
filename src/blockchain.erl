@@ -1331,7 +1331,7 @@ absorb_temp_blocks_fun(Block, Blockchain=#blockchain{temp_blocks=TempBlocksCF}, 
     {ok, MainChainHeadHash} = blockchain:head_hash(Blockchain),
     %% ok, now build the chain back to the oldest block in the temporary
     %% storage or to the head of the main chain, whichever comes first
-    Chain = build_hash_chain(MainChainHeadHash, Block, Blockchain, TempBlocksCF),
+    {ok, Chain} = build_hash_chain(MainChainHeadHash, Block, Blockchain, TempBlocksCF),
     %% note that 'Chain' includes 'Block' here.
     %%
     %% check the oldest block in the temporary chain connects with
@@ -1465,54 +1465,51 @@ build(Height, Blockchain, N, Acc) ->
             end
     end.
 
--spec build_hash_chain(H, H, blockchain(), rocksdb:cf_handle()) -> [H, ...]
+-spec build_hash_chain(H, H, blockchain(), rocksdb:cf_handle()) ->
+    {ok, [H, ...]} | {error, {disjoint_blocks_database, {orphans, [H, ...]}}}
     when H :: blockchain_block:hash().
 build_hash_chain(StopHash, StartHash, #blockchain{db=DB}, CF) ->
-    quintana:notify_spiral(<<"build_hash_chain">>, 1),
-    TimeBegin = erlang:monotonic_time(millisecond),
     lager:info("build_hash_chain BEGIN"),
+    TimeBegin = erlang:monotonic_time(millisecond),
     Parents =
         maps:from_list(
             data_stream:pmap_to_bag(
                 rocksdb_stream(DB, CF),
                 fun ({<<ChildHash/binary>>, <<ChildBlockBin/binary>>}) ->
-                    quintana:notify_gauge(<<"build_hash_chain.block_size_bytes">>, byte_size(ChildBlockBin)),
                     ChildBlock = blockchain_block:deserialize(ChildBlockBin),
                     <<ParentHash/binary>> = blockchain_block:prev_hash(ChildBlock),
                     {ChildHash, ParentHash}
                 end
             )
         ),
-    HashChain = trace_lineage(Parents, StopHash, StartHash),
+    Result =
+        case find_orphans(Parents) of
+            [] ->
+                {ok, trace_lineage(Parents, StopHash, StartHash)};
+            [_|_]=Orphans ->
+                {error, {disjoint_blocks_database, {orphans, Orphans}}}
+        end,
     TimeEnd = erlang:monotonic_time(millisecond),
     TimeElapsed = TimeEnd - TimeBegin,
     lager:info("build_hash_chain END in ~b", [TimeElapsed]),
-    quintana:notify_gauge(<<"build_hash_chain_time">>, TimeElapsed),
-    lager:info("build_hash_chain maps:size(Parents): ~b", [maps:size(Parents)]),
-    lager:info("build_hash_chain length(HashChain): ~b", [length(HashChain)]),
-    lager:info("build_hash_chain hd(HashChain): ~p", [hd(HashChain)]),
-    lager:info("build_hash_chain StartHash: ~p", [StartHash]),
-    lager:info("build_hash_chain StopHash: ~p", [StopHash]),
-    lager:info("build_hash_chain StartHash hex: ~p", [lists:flatten(bin_to_hex(StartHash))]),
-    lager:info("build_hash_chain StopHash hex: ~p", [lists:flatten(bin_to_hex(StopHash))]),
-    ok = write_parents_to_file(Parents),
-    lager:info("build_hash_chain written parents.txt"),
-    HashChain.
+    Result.
 
-write_parents_to_file(Parents) ->
-    {ok, File} = file:open("parents.txt", [write]),
-    maps:fold(
-        fun (<<Child/binary>>, <<Parent/binary>>, ok) ->
-            ok = file:write(File, [bin_to_hex(Child), " ", bin_to_hex(Parent), "\n"])
-        end,
-        ok,
-        Parents
-    ),
-    ok = file:sync(File),
-    ok = file:close(File).
-
-bin_to_hex(Bin) ->
-    [io_lib:format("~2.16.0b", [B]) || B <- binary_to_list(Bin)].
+-spec find_orphans(#{B => B}) -> [B] when B :: binary().
+find_orphans(ChildToParent) ->
+    %% Given the pairs: #{A => 0, C => B}
+    %% and assuming the chain: [0, A, B, C]
+    %% we can see that B=>A is missing.
+    %%
+    %% Since we cannot actually assume, we can find non-genesis-parents which
+    %% have no parents themselves. In above example that would be B. Implying
+    %% the chain is disjoint.
+    [
+        Parent
+    ||
+        {_, Parent} <- maps:to_list(ChildToParent),
+        maps:find(Parent, ChildToParent) =:= error,  % Parent has no parent.
+        lists:sum(binary_to_list(Parent)) > 0        % Parent is non-genesis.
+    ].
 
 -spec trace_lineage(#{A => A}, A, A) -> [A, ...].
 trace_lineage(Parents, Oldest, Youngest) ->
@@ -1620,7 +1617,7 @@ reset_ledger(Height,
     {ok, StartBlock} = get_block(Height, Chain),
     {ok, GenesisHash} = genesis_hash(Chain),
     %% note that this will not include the genesis block
-    HashChain = build_hash_chain(GenesisHash, StartBlock, Chain, BlocksCF),
+    {ok, HashChain} = build_hash_chain(GenesisHash, StartBlock, Chain, BlocksCF),
     LastKnownBlock = case get_block(hd(HashChain), Chain) of
                          {ok, LKB} ->
                              LKB;
@@ -1774,7 +1771,7 @@ check_recent_blocks(Blockchain) ->
             DelayedHeadHash = blockchain_block_v1:hash_block(DelayedHeadBlock),
             case get_block(LedgerHeight, Blockchain) of
                 {ok, HeadBlock} ->
-                    Hashes = build_hash_chain(DelayedHeadHash, HeadBlock, Blockchain, Blockchain#blockchain.blocks),
+                    {ok, Hashes} = build_hash_chain(DelayedHeadHash, HeadBlock, Blockchain, Blockchain#blockchain.blocks),
                     case get_block(hd(Hashes), Blockchain) of
                         {ok, FirstBlock} ->
                             case blockchain_block:prev_hash(FirstBlock) == DelayedHeadHash of
@@ -2860,7 +2857,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
         {ok, LedgerLastBlock} ->
             {ok, StartHash} = blockchain:head_hash(Blockchain),
             EndHash = blockchain_block:hash_block(LedgerLastBlock),
-            HashChain = build_hash_chain(EndHash, StartHash, Blockchain, Blockchain#blockchain.blocks),
+            {ok, HashChain} = build_hash_chain(EndHash, StartHash, Blockchain, Blockchain#blockchain.blocks),
             LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
                                  {ok, LKB} ->
                                      LKB;
@@ -3478,6 +3475,36 @@ trace_lineage_test_() ->
                 a,
                 e
              )
+        )
+    ].
+
+hash_chain_parents_find_disjoint_test_() ->
+    [
+        ?_assertEqual(
+            %% [0, A, B, C]
+            %% #{A => 0, C => B}
+            %% missing B=>A, so B is orphan.
+            [<<"B">>],
+            find_orphans(
+                #{
+                    <<"A">> => <<0>>,
+                    <<"C">> => <<"B">>
+                }
+            )
+        ),
+        ?_assertEqual(
+            %% [X, A, B, C]
+            %% #{A => X, C => B}
+            %% missing B=>A,
+            %% X is not genesis,
+            %% so both X and B are orphans.
+            [<<"X">>, <<"B">>],
+            find_orphans(
+                #{
+                    <<"A">> => <<"X">>,
+                    <<"C">> => <<"B">>
+                }
+            )
         )
     ].
 
