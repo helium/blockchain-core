@@ -1498,14 +1498,45 @@ build_hash_chain(StopHash, StartBlock, #blockchain{db=DB}, CF) ->
             )
         ),
     StartHash = blockchain_block:hash_block(StartBlock),
-    trace_lineage(Parents, StopHash, StartHash).
+    HashChain = trace_lineage(Parents, StopHash, StartHash),
+    %% TODO Predicate the disjointness check on a config?
+    case find_orphans(Parents) of
+        [] ->
+            ok;
+        [_|_]=Orphans ->
+            lager:warning(
+                "Disjoint blocks database. "
+                "Hash chain may not be valid. "
+                "Found orphan blocks: ~p, "
+                "Hash chain length: ~p.",
+                [length(HashChain), Orphans]
+            )
+    end,
+    HashChain.
+
+-spec find_orphans(#{B => B}) -> [B] when B :: binary().
+find_orphans(ChildToParent) ->
+    %% Given the pairs: #{A => 0, C => B}
+    %% and assuming the chain: [0, A, B, C]
+    %% we can see that B=>A is missing.
+    %%
+    %% Since we cannot actually assume, we can find non-genesis-parents which
+    %% have no parents themselves. In above example that would be B. Implying
+    %% the chain is disjoint.
+    [
+        Parent
+    ||
+        {_, Parent} <- maps:to_list(ChildToParent),
+        maps:find(Parent, ChildToParent) =:= error,  % Parent has no parent.
+        lists:sum(binary_to_list(Parent)) > 0        % Parent is non-genesis.
+    ].
 
 -spec trace_lineage(#{A => A}, A, A) -> [A, ...].
 trace_lineage(Parents, Oldest, Youngest) ->
     (fun TraceBack ([Child | _]=Lineage) ->
         case maps:find(Child, Parents) of
             error        -> Lineage;
-            {ok, Oldest} -> Lineage;
+            {ok, Oldest} -> Lineage;  % Oldest ancestor is excluded.
             {ok, Parent} -> TraceBack([Parent | Lineage])
         end
     end)([Youngest]).
@@ -3440,6 +3471,36 @@ trace_lineage_test_() ->
                 a,
                 e
              )
+        )
+    ].
+
+find_orphans_test_() ->
+    [
+        ?_assertEqual(
+            %% [0, A, B, C]
+            %% #{A => 0, C => B}
+            %% missing B=>A, so B is orphan.
+            [<<"B">>],
+            find_orphans(
+                #{
+                    <<"A">> => <<0>>,
+                    <<"C">> => <<"B">>
+                }
+            )
+        ),
+        ?_assertEqual(
+            %% [X, A, B, C]
+            %% #{A => X, C => B}
+            %% missing B=>A,
+            %% X is not genesis,
+            %% so both X and B are orphans.
+            [<<"X">>, <<"B">>],
+            find_orphans(
+                #{
+                    <<"A">> => <<"X">>,
+                    <<"C">> => <<"B">>
+                }
+            )
         )
     ].
 
