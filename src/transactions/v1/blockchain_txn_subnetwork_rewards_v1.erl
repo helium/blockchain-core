@@ -20,6 +20,7 @@
     start_epoch/1,
     end_epoch/1,
     rewards/1,
+    token_type/1,
     reward_server_signature/1,
 
     %% reward accessors
@@ -253,9 +254,10 @@ to_json(Txn, _Opts) ->
         [],
         ?MODULE:rewards(Txn)
     ),
-
+    TT = ?MODULE:token_type(Txn),
     #{
         type => ?MODULE:json_type(),
+        token_type => atom_to_binary(TT),
         hash => ?BIN_TO_B64(hash(Txn)),
         start_epoch => start_epoch(Txn),
         end_epoch => end_epoch(Txn),
