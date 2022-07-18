@@ -557,7 +557,7 @@ treasury_rewards(#{
     securities_percent := SecuritiesPercent
 }) ->
     TreasuryPercent = 1 - (ConsensusPercent + SecuritiesPercent),
-    TreasuryReward = EpochReward * TreasuryPercent,
+    TreasuryReward = erlang:round(EpochReward * TreasuryPercent),
     %% Treasury gets the full percentage
     #{{owner, treasury, TreasuryPubkeyBin} => TreasuryReward}.
 

@@ -147,7 +147,8 @@
     {blockchain_txn_add_subnetwork_v1, 38},
     {blockchain_txn_update_subnetwork_v1, 39},
     {blockchain_txn_subnetwork_rewards_v1, 40},
-    {blockchain_txn_token_redeem_v1, 41}
+    {blockchain_txn_token_redeem_v1, 41},
+    {blockchain_txn_rewards_v3, 42}
 ]).
 
 block_delay() ->
