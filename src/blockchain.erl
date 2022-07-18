@@ -1331,7 +1331,7 @@ absorb_temp_blocks_fun(Block, Blockchain=#blockchain{temp_blocks=TempBlocksCF}, 
     {ok, MainChainHeadHash} = blockchain:head_hash(Blockchain),
     %% ok, now build the chain back to the oldest block in the temporary
     %% storage or to the head of the main chain, whichever comes first
-    {ok, Chain} = build_hash_chain(MainChainHeadHash, Block, Blockchain, TempBlocksCF),
+    Chain = build_hash_chain(MainChainHeadHash, Block, Blockchain, TempBlocksCF),
     %% note that 'Chain' includes 'Block' here.
     %%
     %% check the oldest block in the temporary chain connects with
@@ -1465,8 +1465,7 @@ build(Height, Blockchain, N, Acc) ->
             end
     end.
 
--spec build_hash_chain(H, H, blockchain(), rocksdb:cf_handle()) ->
-    {ok, [H, ...]} | {error, {disjoint_blocks_database, {orphans, [H, ...]}}}
+-spec build_hash_chain(H, H, blockchain(), rocksdb:cf_handle()) -> [H, ...]
     when H :: blockchain_block:hash().
 build_hash_chain(StopHash, StartHash, #blockchain{db=DB}, CF) ->
     lager:info("build_hash_chain BEGIN"),
@@ -1482,17 +1481,24 @@ build_hash_chain(StopHash, StartHash, #blockchain{db=DB}, CF) ->
                 end
             )
         ),
-    Result =
-        case find_orphans(Parents) of
-            [] ->
-                {ok, trace_lineage(Parents, StopHash, StartHash)};
-            [_|_]=Orphans ->
-                {error, {disjoint_blocks_database, {orphans, Orphans}}}
-        end,
+    HashChain = trace_lineage(Parents, StopHash, StartHash),
     TimeEnd = erlang:monotonic_time(millisecond),
     TimeElapsed = TimeEnd - TimeBegin,
     lager:info("build_hash_chain END in ~b", [TimeElapsed]),
-    Result.
+    %% TODO Predicate the disjointness check on a config?
+    case find_orphans(Parents) of
+        [] ->
+            ok;
+        [_|_]=Orphans ->
+            lager:warning(
+                "Disjoint blocks database. "
+                "Hash chain may not be valid. "
+                "Found orphan blocks: ~p, "
+                "Hash chain length: ~p.",
+                [length(HashChain), Orphans]
+            )
+    end,
+    HashChain.
 
 -spec find_orphans(#{B => B}) -> [B] when B :: binary().
 find_orphans(ChildToParent) ->
@@ -1617,7 +1623,7 @@ reset_ledger(Height,
     {ok, StartBlock} = get_block(Height, Chain),
     {ok, GenesisHash} = genesis_hash(Chain),
     %% note that this will not include the genesis block
-    {ok, HashChain} = build_hash_chain(GenesisHash, StartBlock, Chain, BlocksCF),
+    HashChain = build_hash_chain(GenesisHash, StartBlock, Chain, BlocksCF),
     LastKnownBlock = case get_block(hd(HashChain), Chain) of
                          {ok, LKB} ->
                              LKB;
@@ -1771,7 +1777,7 @@ check_recent_blocks(Blockchain) ->
             DelayedHeadHash = blockchain_block_v1:hash_block(DelayedHeadBlock),
             case get_block(LedgerHeight, Blockchain) of
                 {ok, HeadBlock} ->
-                    {ok, Hashes} = build_hash_chain(DelayedHeadHash, HeadBlock, Blockchain, Blockchain#blockchain.blocks),
+                    Hashes = build_hash_chain(DelayedHeadHash, HeadBlock, Blockchain, Blockchain#blockchain.blocks),
                     case get_block(hd(Hashes), Blockchain) of
                         {ok, FirstBlock} ->
                             case blockchain_block:prev_hash(FirstBlock) == DelayedHeadHash of
@@ -2857,7 +2863,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
         {ok, LedgerLastBlock} ->
             {ok, StartHash} = blockchain:head_hash(Blockchain),
             EndHash = blockchain_block:hash_block(LedgerLastBlock),
-            {ok, HashChain} = build_hash_chain(EndHash, StartHash, Blockchain, Blockchain#blockchain.blocks),
+            HashChain = build_hash_chain(EndHash, StartHash, Blockchain, Blockchain#blockchain.blocks),
             LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
                                  {ok, LKB} ->
                                      LKB;
