@@ -276,7 +276,7 @@ handle_call(_Msg, _From, State) ->
 %% dial related failures
 %% note the dialer itself will have already stopped the dialer process
 handle_info({dial_failed, {submit, {Dialer, TxnKey, Txn, Member}}}, State) ->
-    lager:debug("txn: ~s, dial_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
+    lager:debug("dial failed. txn: ~s, member: ~p, dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 handle_info({dial_failed, {update, {_Dialer, _TxnKey, _Txn, _Member}}}, State) ->
@@ -284,7 +284,7 @@ handle_info({dial_failed, {update, {_Dialer, _TxnKey, _Txn, _Member}}}, State) -
     {noreply, State};
 
 handle_info({dial_timeout, {submit, {Dialer, TxnKey, Txn, Member}}}, State) ->
-    lager:debug("txn: ~s, timeout: ~p, Dialer: ~p. Dialer will be stopped",
+    lager:debug("dial timeout. txn: ~s, member: ~p, dialer: ~p. Dialer will be stopped",
         [blockchain_txn:print(Txn), Member, Dialer]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
@@ -293,7 +293,7 @@ handle_info({dial_timeout, {update, {_Dialer, _TxnKey, _Txn, _Member}}}, State) 
     {noreply, State};
 
 handle_info({send_failed, {submit, {Dialer, TxnKey, Txn, Member}}}, State) ->
-    lager:debug("txn: ~s, send_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
+    lager:debug("send failed. txn: ~s, member: ~p, dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 handle_info({send_failed, {update, {_Dialer, _TxnKey, _Txn, _Member}}}, State) ->
@@ -303,7 +303,7 @@ handle_info({send_failed, {update, {_Dialer, _TxnKey, _Txn, _Member}}}, State) -
 %% req_not_supported can only occur for updates atm
 %% take no action when hit, the acceptor cant tell us anything
 handle_info({req_not_supported, {update, {Dialer, _TxnKey, Txn, Member}}}, State) ->
-    lager:debug("txn: ~s, req_not_supported for update: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
+    lager:debug("req_not_supported. txn: ~s, member: ~p, dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     %% do nothing for failed updates, no dialer is added to state
     {noreply, State};
 
@@ -316,7 +316,7 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
         queue_pos = QueuePos,
         queue_len = QueueLen
     }}}}, State)  when Status == <<"txn_accepted">> ->
-    lager:debug("txn: ~s, accepted_by: ~p, Dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
+    lager:debug("txn accepted. txn: ~s, member: ~p, dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
         [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
     ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
     {noreply, State};
@@ -328,9 +328,15 @@ handle_info({blockchain_txn_response, {update, {Dialer, TxnKey, Txn, Member,
         queue_pos = QueuePos,
         queue_len = QueueLen
     }}}}, State)  when Status == <<"txn_updated">> ->
-    lager:debug("txn: ~s, updated: ~p, Dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
+    lager:debug("txn updated. txn: ~s, member: ~p, dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
         [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
     ok = updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
+    {noreply, State};
+%% sink any 'update' responses which do not have status value of <<"txn_updated">>
+%% they will likely be not_found errors as a result of a txn dropping out of the hbbft buffer
+%% match them here to avoid hitting the unhandled info msg handler which just pollutes the logs
+handle_info({blockchain_txn_response, {update, {_Dialer, _TxnKey, _Txn, _Member,
+    _TxnInfoPB}}}, State) ->
     {noreply, State};
 
 handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
@@ -339,8 +345,16 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
         details = FailReason,
         trace = Trace
     }}}}, State)  when Status == <<"txn_failed">> ->
-    lager:debug("txn: ~s, failed with reason: ~p, member: ~p Dialer: ~p Trace ~p",
-        [blockchain_txn:print(Txn), FailReason, Member, Dialer, binary_to_term(Trace)]),
+    lager:debug(
+        "txn failed. "
+        "txn: ~s, member: ~p, "
+        "fail reason: ~p, "
+        "fail details: ~p",
+        [
+            blockchain_txn:print(Txn), Member,
+            FailReason, binary_to_term(Trace)
+        ]
+    ),
     ok = retry(TxnKey, Txn, Dialer),
     {noreply, State};
 
@@ -364,15 +378,6 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
             _ ->
                 Height
         end,
-    lager:debug(
-        "txn: ~s, rejected_by: ~p, Dialer: ~p, "
-        "my height: ~p, rejector height: ~p"
-        "reject reason: ~p",
-        [
-            blockchain_txn:print(Txn), Member, Dialer,
-            CurBlockHeight, RejectorHeight, RejectReason
-        ]
-    ),
     MaxRejectionAge =
         application:get_env(blockchain, txn_mgr_rejection_max_age, 15),
     Deferred1 =
@@ -380,9 +385,15 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
             %% future:
             Age when Age < 0 ->
                 %% TODO Maybe limit how far in the future?
-                lager:warning(
-                    "Received txn rejection from the future. Deferring: ~p",
-                    [Rejection]
+                lager:debug(
+                    "Deferring rejected txn from the future. "
+                    "txn: ~s, rejected_by: ~p, "
+                    "my height: ~p, rejector height: ~p "
+                    "rejector reject reason: ~p",
+                    [
+                        blockchain_txn:print(Txn), Member,
+                        CurBlockHeight, RejectorHeight, RejectReason
+                    ]
                 ),
                 ordsets:add_element(Rejection, Deferred0);
             %% present or recent past:
@@ -391,15 +402,23 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
                     Age > 0 andalso Age =< 2 ->
                         lager:debug(
                             "Received txn rejection from the past. "
-                            "From ~b blocks ago. Counting: ~p",
-                            [Age, Rejection]
+                            "From ~b blocks ago. "
+                            "txn: ~s, rejected_by: ~p, "
+                            "rejector reject reason: ~p",
+                            [
+                                Age, blockchain_txn:print(Txn), Member, RejectReason
+                            ]
                         );
                     Age > 2 ->
-                        lager:warning(
+                        lager:debug(
                             "Received txn rejection from older, "
                             "but still acceptable past. "
-                            "From ~b blocks ago. Counting: ~p",
-                            [Age, Rejection]
+                            "From ~b blocks ago "
+                            "txn: ~s, rejected_by: ~p, "
+                            "rejector reject reason: ~p",
+                            [
+                                Age, blockchain_txn:print(Txn), Member, RejectReason
+                            ]
                         );
                     true ->
                         ok
@@ -408,10 +427,14 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
                 Deferred0;
             %% distant past:
             Age ->
-                lager:warning(
+                lager:debug(
                     "Received txn rejection from ancient, unacceptable past. "
-                    "From ~b blocks ago. Ignoring: ~p",
-                    [Age, Rejection]
+                    "From ~b blocks ago "
+                    "txn: ~s, rejected_by: ~p, "
+                    "rejector reject reason: ~p",
+                    [
+                        Age, blockchain_txn:print(Txn), Member, RejectReason
+                    ]
                 ),
                 Deferred0
         end,
@@ -781,7 +804,7 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
                                                                     end,
                                                                sets:intersection(Acc, sets:from_list(A1))
                                                        end, sets:from_list(A0), tl(Dependencies))),
-            lager:info("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
+            lager:debug("txn ~p has eligible members: ~p", [blockchain_txn:hash(Txn), ElegibleMembers]),
             {_, ExistingDialers} = lists:unzip(Dialers),
             AcceptionsDialers = [M || {M, _H, _QP, _QL} <- Acceptions],
             %% remove any CG members from the elegible list which have already accepted the txn and also
