@@ -4995,17 +4995,27 @@ set_h3dex(H3Dex, Ledger) ->
 get_h3dex(Ledger) ->
     H3CF = h3dex_cf(Ledger),
     Res = cache_fold(Ledger, H3CF,
-                     fun({Key, GWs}, Acc) ->
+                     fun({<<"random-", _/binary>>, _}, Acc) ->
+                                   Acc;
+                        ({<<"population">>, _}, Acc) ->
+                                   Acc;
+                        ({Key, GWs}, Acc) ->
                              maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
-                     end, #{}, []),
+                     end, #{}, [
+                                %% key_to_h3 returns 7 byte binaries
+                                %% only get keys, ignore random targeting lookup
+                                {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
+                                {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
+                               ]),
     Res.
 
 -spec delete_h3dex(ledger()) -> ok.
 delete_h3dex(Ledger) ->
     H3CF = h3dex_cf(Ledger),
-    _ = maps:map(fun(H3Index, _) ->
-                         cache_delete(Ledger, H3CF, h3_to_key(H3Index))
-                 end, get_h3dex(Ledger)),
+    cache_fold(Ledger, H3CF,
+                     fun({Key, _GWs}, _Acc) ->
+                             cache_delete(Ledger, H3CF, Key)
+                     end, #{}, []),
     ok.
 
 -spec lookup_gateways_from_hex(Hex :: [non_neg_integer()] | non_neg_integer(),
