@@ -499,10 +499,11 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
 
                 %% fail into the catch if it's an older record
                 true = blockchain_ledger_snapshot_v1:is_v6(Snapshot),
-                %% fail into the catch if it's missing
-                H3dex = blockchain_ledger_snapshot_v1:get_h3dex(Snapshot),
 
-                case length(H3dex) > 0 of
+                %% fail into the catch if it's missing
+                H3dex = blockchain_ledger_v1:get_h3dex(NewLedger),
+
+                case maps:size(H3dex) > 0 of
                     true -> ok;
                     false -> throw(bootstrap) % fail into the catch it's an empty default value
                 end
