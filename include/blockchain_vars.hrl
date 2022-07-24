@@ -639,3 +639,5 @@
 -define(allowed_num_reward_server_keys, allowed_num_reward_server_keys).
 %% limit per-block payout of l2 tokens
 -define(subnetwork_reward_per_block_limit, subnetwork_reward_per_block_limit).
+%% Single treasury key to fund the remaining rewards (1 - securities_percent - consensus_percent)
+-define(treasury_pubkey_bin, treasury_pubkey_bin).

@@ -1196,7 +1196,7 @@ validate_var(?poc_reward_decay_rate, Value) ->
     validate_float(Value, "poc_reward_decay_rate", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 6 ->
+        N when is_integer(N), N >= 1,  N =< 7 ->
             ok;
         _ ->
             throw({error, {invalid_reward_version, Value}})
@@ -1262,6 +1262,13 @@ validate_var(?allowed_num_reward_server_keys, Value) ->
 
 validate_var(?subnetwork_reward_per_block_limit, Value) ->
     validate_int(Value, "subnetwork_reward_per_block_limit", 0, 10000000000000, false);
+
+validate_var(?treasury_pubkey_bin, Value) ->
+    RoundTripValue = libp2p_crypto:b58_to_bin(libp2p_crypto:bin_to_b58(Value)),
+    case is_binary(Value) andalso RoundTripValue == Value of
+        true -> ok;
+        false -> throw({error, {invalid_treasury_pubkey_bin, Value}})
+    end;
 
 %% general txn vars
 
