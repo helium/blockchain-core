@@ -257,7 +257,7 @@ to_json(Txn, _Opts) ->
     TT = ?MODULE:token_type(Txn),
     #{
         type => ?MODULE:json_type(),
-        token_type => atom_to_binary(TT),
+        token_type => ?MAYBE_ATOM_TO_BINARY(TT),
         hash => ?BIN_TO_B64(hash(Txn)),
         start_epoch => start_epoch(Txn),
         end_epoch => end_epoch(Txn),
@@ -268,5 +268,14 @@ to_json(Txn, _Opts) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+to_json_test() ->
+
+    T = new(mobile, 1, 30, [new_reward(<<"rewardee">>, 100)]),
+    Json = to_json(T, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, token_type, start_epoch, end_epoch, rewards])),
+    ?assertEqual(<<"mobile">>, maps:get(token_type, Json)),
+    ok.
 
 -endif.

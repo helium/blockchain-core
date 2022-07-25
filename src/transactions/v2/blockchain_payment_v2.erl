@@ -173,7 +173,7 @@ to_json(Payment, _Opts) ->
       amount => amount(Payment),
       memo => ?MAYBE_FN(fun (V) -> base64:encode(<<(V):64/unsigned-little-integer>>) end, memo(Payment)),
       max => ?MODULE:max(Payment),
-      token_type => atom_to_list(token_type(Payment))
+      token_type => ?MAYBE_ATOM_TO_BINARY(token_type(Payment))
      }.
 
 %% ------------------------------------------------------------------
@@ -225,5 +225,8 @@ to_json_test() ->
     Payment = new(<<"payee">>, 100),
     Json = to_json(Payment, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [payee, amount, memo, max, token_type])).
+                      [payee, amount, memo, max, token_type])),
+    ?assertEqual(<<"mobile">>, maps:get(token_type, to_json(new(<<"payee">>, 200, mobile), []))),
+    ok.
+
 -endif.

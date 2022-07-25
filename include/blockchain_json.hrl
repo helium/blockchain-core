@@ -10,3 +10,4 @@
 -define (MAYBE_B64(B), blockchain_json:maybe_b64((B))).
 -define (MAYBE_H3(B), blockchain_json:maybe_h3((B))).
 -define (MAYBE_LIST_TO_BINARY(L), blockchain_json:maybe_list_to_binary((L))).
+-define (MAYBE_ATOM_TO_BINARY(A), blockchain_json:maybe_atom_to_binary(A)).

@@ -198,7 +198,7 @@ to_json(Txn, _Opts) ->
     #{
         type => ?MODULE:json_type(),
         hash => ?BIN_TO_B64(hash(Txn)),
-        token_type => atom_to_binary(token_type(Txn), utf8),
+        token_type => ?MAYBE_ATOM_TO_BINARY(token_type(Txn)),
         subnetwork_key => ?BIN_TO_B58(subnetwork_key(Txn)),
         reward_server_keys => [?BIN_TO_B58(K) || K <- reward_server_keys(Txn)]
     }.
@@ -214,3 +214,19 @@ verify_key(_Artifact, _Key, <<>>) ->
     throw({error, no_signature});
 verify_key(Artifact, Key, Signature) ->
     libp2p_crypto:verify(Artifact, Signature, libp2p_crypto:bin_to_pubkey(Key)).
+
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+to_json_test() ->
+    T = new(mobile, <<"subnetwork_key">>, [<<"reward_server_key">>], 10000),
+    Json = to_json(T, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, token_type, subnetwork_key, reward_server_keys])),
+    ?assertEqual(<<"mobile">>, maps:get(token_type, Json)),
+    ok.
+
+-endif.

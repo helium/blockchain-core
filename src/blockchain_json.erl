@@ -21,7 +21,8 @@
          maybe_b64/1,
          maybe_b58/1,
          maybe_h3/1,
-         maybe_list_to_binary/1
+         maybe_list_to_binary/1,
+         maybe_atom_to_binary/1
         ]).
 
 %%
@@ -67,3 +68,8 @@ maybe_list_to_binary(V) ->
                  (<<>>) -> undefined;
                  (I) when is_binary(I) -> I
              end, V).
+
+-spec maybe_atom_to_binary(undefined | atom()) -> undefined | binary().
+maybe_atom_to_binary(undefined) -> undefined;
+maybe_atom_to_binary(A) when is_atom(A) ->
+    atom_to_binary(A, utf8).
