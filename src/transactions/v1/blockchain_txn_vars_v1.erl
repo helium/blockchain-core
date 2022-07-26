@@ -1263,6 +1263,12 @@ validate_var(?allowed_num_reward_server_keys, Value) ->
 validate_var(?subnetwork_reward_per_block_limit, Value) ->
     validate_int(Value, "subnetwork_reward_per_block_limit", 0, 10000000000000, false);
 
+validate_var(?balance_erase_bugfix, Value) ->
+    case Value of
+        Val when is_boolean(Val) andalso Val == true -> ok;
+        _ -> throw({error, {invalid_balance_erase_bugfix, Value}})
+    end;
+
 %% general txn vars
 
 validate_var(?txn_field_validation_version, Value) ->

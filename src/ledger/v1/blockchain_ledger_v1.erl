@@ -3290,7 +3290,13 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrA
                     Balance = EntryMod:balance(Entry),
                     case (Balance - AmountOrAmounts) >= 0 of
                         true ->
-                            Entry1 = EntryMod:new( Nonce, (Balance - AmountOrAmounts)),
+                             Entry1 =
+                                case EntryMod of
+                                    blockchain_ledger_entry_v1 ->
+                                        EntryMod:new(EntryMod:nonce(Entry), (Balance - AmountOrAmounts));
+                                    blockchain_ledger_entry_v2 ->
+                                        EntryMod:debit(Entry, AmountOrAmounts, hnt)
+                                end,
                             Bin = EntryMod:serialize(Entry1),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
@@ -3353,7 +3359,13 @@ debit_fee_from_account(Address, Fee, Ledger, TxnHash, Chain) ->
                         false ->
                             ok
                     end,
-                    Entry1 = EntryMod:new(EntryMod:nonce(Entry), (Balance - Fee)),
+                    Entry1 =
+                        case EntryMod of
+                            blockchain_ledger_entry_v1 ->
+                                EntryMod:new(EntryMod:nonce(Entry), (Balance - Fee));
+                            blockchain_ledger_entry_v2 ->
+                                EntryMod:debit(Entry, Fee, hnt)
+                        end,
                     EntryBin = EntryMod:serialize(Entry1),
                     cache_put(Ledger, EntriesCF, Address, EntryBin);
                 false ->
