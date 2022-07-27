@@ -5214,7 +5214,7 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
                         false ->
                             %% this is the first gateway in hex, add it then update lookup
                             cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed])),
-                            build_random_hex_targeting_lookup(Hex, Ledger);
+                            build_random_hex_targeting_lookup(Res, Ledger);
                         _ ->
                             cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]))
                     end;
@@ -5259,13 +5259,13 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
                         {ok, true} ->
                             cache_delete(Ledger, H3CF, BinHex),
                             case is_hex_populated(ParentRes, Ledger) of
-                                false -> build_random_hex_targeting_lookup(Hex, Ledger);
+                                false -> build_random_hex_targeting_lookup(Res, Ledger);
                                 _ -> ok
                             end;
                         %% otherwise, keep the wrong behavior of counting gateways then deleting the hex
                         _ ->
                             case is_hex_populated(ParentRes, Ledger) of
-                                false -> build_random_hex_targeting_lookup(Hex, Ledger);
+                                false -> build_random_hex_targeting_lookup(Res, Ledger);
                                 _ -> ok
                             end,
                             cache_delete(Ledger, H3CF, BinHex)
