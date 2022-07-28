@@ -3293,9 +3293,10 @@ debit_account(Address, AmountOrAmounts, Nonce, Ledger) when is_integer(AmountOrA
                              Entry1 =
                                 case EntryMod of
                                     blockchain_ledger_entry_v1 ->
-                                        EntryMod:new(EntryMod:nonce(Entry), (Balance - AmountOrAmounts));
+                                        EntryMod:new(Nonce, (Balance - AmountOrAmounts));
                                     blockchain_ledger_entry_v2 ->
-                                        EntryMod:debit(Entry, AmountOrAmounts, hnt)
+                                        E1 = EntryMod:debit(Entry, AmountOrAmounts, hnt),
+                                        EntryMod:nonce(E1, Nonce)
                                 end,
                             Bin = EntryMod:serialize(Entry1),
                             cache_put(Ledger, EntriesCF, Address, Bin);
