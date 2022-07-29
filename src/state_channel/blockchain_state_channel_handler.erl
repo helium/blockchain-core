@@ -65,11 +65,12 @@ init(server, _Conn, [_Path, Blockchain]) ->
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
+            Cache = persistent_term:get(?sc_server_cache),
+            %% maybe set up a timer here to delete the active list?
             ActiveSCs =
-                e2qc:cache(
-                    ?MODULE,
+                cream:cache(
+                    Cache,
                     active_list,
-                    10,
                     fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
                 ),
             case ActiveSCs of
@@ -82,8 +83,8 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     [{SCID, {ActiveSC, _, _}}|_] = ActiveSCs,
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     EncodedSCBanner =
-                        e2qc:cache(
-                            ?MODULE,
+                        cream:cache(
+                            Cache,
                             SCID,
                             fun() -> blockchain_state_channel_message_v1:encode(SCBanner) end
                         ),

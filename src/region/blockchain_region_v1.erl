@@ -5,6 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_region_v1).
 
+-include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -72,8 +73,9 @@ h3_to_region(H3, Ledger, RegionBins) ->
     Res = polyfill_resolution(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     Parent = h3:parent(H3, Res),
-    e2qc:cache(
-        ?H3_TO_REGION_CACHE,
+    Cache = persistent_term:get(?region_cache),
+    cream:cache(
+        Cache,
         {HasAux, VarsNonce, Parent},
         fun() ->
                 MaybeBins =
@@ -193,6 +195,7 @@ prewarm_cache(Ledger) ->
     end.
 
 clear_cache() ->
-    e2qc:teardown(h3_to_region),
-    lager:info("cleared cache: ~p", [h3_to_region]),
+    Cache = persistent_term:get(?region_cache),
+    cream:drain(Cache),
+    lager:info("cleared cache: ~p", [region_cache]),
     ok.

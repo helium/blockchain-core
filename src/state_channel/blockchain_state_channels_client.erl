@@ -295,7 +295,9 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
                                 blockchain_block:transactions(Block)),
             case erlang:length(Txns) > 0 of
                 false -> ok;
-                true -> e2qc:teardown(?ROUTING_CACHE)
+                true ->
+                    Cache = persistent_term:get(?routing_cache),
+                    cream:drain(Cache)
             end
     end,
     ClosingChannels =
@@ -621,10 +623,10 @@ find_routing(Packet, Chain) ->
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
             RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet),
-            e2qc:cache(
-                ?ROUTING_CACHE,
+            Cache = persistent_term:get(?routing_cache),
+            cream:cache(
+                Cache,
                 RoutingInfo,
-                ?ROUTING_CACHE_TIMEOUT,
                 fun() ->
                         Ledger = blockchain:ledger(Chain),
                         case blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger) of

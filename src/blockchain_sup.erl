@@ -8,7 +8,10 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1]).
+-export([
+         start_link/1,
+         cream_caches_init/0 % maybe test-only?
+        ]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -79,11 +82,13 @@ init(Args) ->
         end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
 
-    blockchain_utils:init_var_cache(),
-
     %% allow the parent app to change this if it needs to.
     MetadataFun = application:get_env(blockchain, metadata_fun,
                                       fun blockchain_worker:signed_metadata_fun/0),
+
+    %% cream inits
+    cream_caches_init(),
+
     SwarmWorkerOpts =
         [
          {key, proplists:get_value(key, Args)},
@@ -143,3 +148,42 @@ init(Args) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+
+cream_caches_init() ->
+    MaxCapacity = 10000,
+    {ok, VarCache}
+        = cream:new(MaxCapacity,
+                    [{initial_capacity, 1000},
+                     {seconds_to_idle, 60 * 60}]),
+    persistent_term:put(?var_cache, VarCache),
+
+    {ok, RegionCache}
+        = cream:new(1000000,
+                    [{initial_capacity, 100000},
+                     {seconds_to_idle, 24 * 60 * 60}]),
+    persistent_term:put(?region_cache, RegionCache),
+
+    {ok, ScoreCache}
+        = cream:new(MaxCapacity,
+                    [{initial_capacity, 1000},
+                     {seconds_to_idle, 12 * 60 * 60}]),
+    persistent_term:put(?score_cache, ScoreCache),
+
+    {ok, FPCache}
+        = cream:new(5,
+                    [{initial_capacity, 1},
+                     {seconds_to_idle, 12 * 60 * 60}]),
+    persistent_term:put(?fp_cache, FPCache),
+
+    {ok, SCCache}
+        = cream:new(1000,
+                    [{initial_capacity, 50},
+                     {seconds_to_idle, 60}]),
+    persistent_term:put(?sc_server_cache, SCCache),
+
+    {ok, RoutingCache}
+        = cream:new(1000,
+                    [{initial_capacity, 50},
+                     {seconds_to_idle, 6 * 60 * 60}]),
+    persistent_term:put(?routing_cache, RoutingCache).

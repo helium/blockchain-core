@@ -120,12 +120,11 @@ maybe_initialize_state(undefined) ->
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
             ActiveSCs =
-                e2qc:cache(
-                    ?MODULE,
-                    active_list,
-                   30,
-                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
-                ),
+                cream:cache(
+                  ?sc_server_cache,
+                  active_list,
+                  fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
+                 ),
             case ActiveSCs of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),

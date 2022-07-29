@@ -5,6 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_utils).
 
+-include("blockchain.hrl").
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -59,7 +60,6 @@
     get_vars/2, get_var/2,
     var_cache_stats/0,
     teardown_var_cache/0,
-    init_var_cache/0,
     target_v_to_mod/1
 
 
@@ -432,17 +432,7 @@ hex_adjustment(Loc) ->
 -spec score_gateways(Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
 score_gateways(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case blockchain_ledger_v1:mode(Ledger) of
-        delayed ->
-            %% Use the cache in delayed ledger mode
-            e2qc:cache(gw_cache, {Height},
-                       fun() ->
-                               score_tagged_gateways(Height, Ledger)
-                       end);
-        active ->
-            %% recalculate in active ledger mode
-            score_tagged_gateways(Height, Ledger)
-    end.
+    score_tagged_gateways(Height, Ledger).
 
 -spec score_tagged_gateways(Height :: pos_integer(),
                             Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
@@ -812,12 +802,13 @@ get_vars(VarList, Ledger) ->
                VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, HasAux, VarsNonce, Ledger) ->
-    e2qc:cache(
-        ?VAR_CACHE,
-        {HasAux, VarsNonce, VarName},
-        fun() ->
-            get_var_(VarName, Ledger)
-        end
+    Cache = persistent_term:get(?var_cache),
+    cream:cache(
+      Cache,
+      {HasAux, VarsNonce, VarName},
+      fun() ->
+              get_var_(VarName, Ledger)
+      end
     ).
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
@@ -830,17 +821,14 @@ get_var_(VarName, Ledger) ->
 
 -spec var_cache_stats() -> list().
 var_cache_stats() ->
-    %%e2qc:stats(?VAR_CACHE).
+    %%cream:count(?var_cache).
     [].
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
-    e2qc:teardown(?VAR_CACHE),
+    Cache = persistent_term:get(?var_cache),
+    cream:drain(Cache),
     ok.
-
-init_var_cache() ->
-    %% TODO could pull cache settings from app env here
-    e2qc:setup(?VAR_CACHE, []).
 
 -spec target_v_to_mod({error, not_found} | {ok, integer()}) -> atom().
 %% note: target_v_to_mod used by validator challenges related

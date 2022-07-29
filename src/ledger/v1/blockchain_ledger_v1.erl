@@ -961,10 +961,11 @@ fingerprint(Ledger) ->
 
 fingerprint(Ledger, Extended) ->
     {ok, Height} = current_height(Ledger),
-    e2qc:cache(fp_cache, {Height, Extended},
-               fun() ->
-                       raw_fingerprint(Ledger, Extended)
-               end).
+    Cache = persistent_term:get(?fp_cache),
+    cream:cache(Cache, {Height, Extended},
+                fun() ->
+                        raw_fingerprint(Ledger, Extended)
+                end).
 
 raw_fingerprint(Ledger, Extended) ->
     try
