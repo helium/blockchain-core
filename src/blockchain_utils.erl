@@ -813,7 +813,11 @@ get_var_(VarName, HasAux, VarsNonce, Ledger) ->
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    VarsNonce =
+        case blockchain_ledger_v1:vars_nonce(Ledger) of
+            {ok, VN} -> VN;
+            _ -> 0 % genesis case
+        end,
     IsAux = blockchain_ledger_v1:is_aux(Ledger),
     get_var_(VarName, IsAux, VarsNonce, Ledger).
 
