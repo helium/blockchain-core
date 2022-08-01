@@ -32,7 +32,7 @@
 -spec get_all_regions(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, regions()} | {error, any()}.
 get_all_regions(Ledger) ->
-    case blockchain:config(?regulatory_regions, Ledger) of
+    case ?get_var(?regulatory_regions, Ledger) of
         {ok, Bin} ->
             {ok, lists:map(fun(R) -> list_to_atom(binary_to_list(R)) end, binary:split(Bin, <<",">>, [global, trim]))};
         _ ->
@@ -46,7 +46,7 @@ get_all_region_bins(Ledger) ->
         {ok, Regions} ->
             Map = lists:foldl(
                     fun(Reg, Acc) ->
-                            case blockchain:config(Reg, Ledger) of
+                            case ?get_var(Reg, Ledger) of
                                 {ok, Bin} ->
                                     [{Reg, Bin}|Acc];
                                 _ ->
@@ -167,7 +167,7 @@ h3_in_region_(H3, RegionBin) ->
     end.
 
 polyfill_resolution(Ledger) ->
-    case blockchain_ledger_v1:config(?polyfill_resolution, Ledger) of
+    case ?get_var(?polyfill_resolution, Ledger) of
         {ok, Res} -> Res;
         _ -> ?POLYFILL_RESOLUTION
     end.

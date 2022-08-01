@@ -148,7 +148,7 @@ is_valid(Txn, Chain) ->
                     {ok, BaseHeight} ->
                         throw({error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}})
                 end,
-                {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+                {ok, ElectionInterval} = ?get_var(?election_interval, Ledger),
                 %% The next election should be at least ElectionInterval blocks past the last election
                 %% This check prevents elections ahead of schedule
                 case TxnHeight >= LastElectionHeight + ElectionInterval of
@@ -156,9 +156,9 @@ is_valid(Txn, Chain) ->
                         Proof = binary_to_term(Proof0),
                         EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                        {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
+                        {ok, RestartInterval} = ?get_var(?election_restart_interval, Ledger),
                         IntervalRange =
-                            case blockchain:config(?election_restart_interval_range, Ledger) of
+                            case ?get_var(?election_restart_interval_range, Ledger) of
                                 {ok, IR} -> IR;
                                 _ -> 1
                             end,
@@ -171,13 +171,13 @@ is_valid(Txn, Chain) ->
                             _ ->
                                 ok
                         end,
-                        {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+                        {ok, N} = ?get_var(?num_consensus_members, Ledger),
                         case length(Members) == N of
                             true -> ok;
                             _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
                         end,
                         %% if we're on validators make sure that everyone is staked
-                        case blockchain_ledger_v1:config(?election_version, Ledger) of
+                        case ?get_var(?election_version, Ledger) of
                             {ok, N} when N >= 5 ->
                                 case lists:all(fun(M) ->
                                                        {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
@@ -224,10 +224,10 @@ absorb(Txn, Chain) ->
         end,
     case Check of
         ok ->
-            case blockchain_ledger_v1:config(?election_version, Ledger) of
+            case ?get_var(?election_version, Ledger) of
                 {ok, N} when N >= 5 andalso Gen == false ->
-                    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
-                    {ok, TenurePenalty} = blockchain_ledger_v1:config(?tenure_penalty, Ledger),
+                    {ok, PenaltyLimit} = ?get_var(?penalty_history_limit, Ledger),
+                    {ok, TenurePenalty} = ?get_var(?tenure_penalty, Ledger),
                     {ok, OldMembers0} = blockchain_ledger_v1:consensus_members(Ledger),
                     {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
 

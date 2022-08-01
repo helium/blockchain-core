@@ -161,7 +161,7 @@ precalc(Testing, Ledger) ->
     {ok, VarMap} = var_map(Ledger),
     Start = erlang:monotonic_time(millisecond),
     InteractiveBlocks =
-        case blockchain_ledger_v1:config(?hip17_interactivity_blocks, Ledger) of
+        case ?get_var(?hip17_interactivity_blocks, Ledger) of
             {ok, V} -> V;
             {error, not_found} -> 0 % XXX what should this value be?
         end,
@@ -287,7 +287,7 @@ occupied_count(DensityTarget, ThisResHex, ClipETS) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> {error, any()} | {ok, [pos_integer()]}.
 get_density_var(Var, Ledger) ->
-    case blockchain:config(Var, Ledger) of
+    case ?get_var(Var, Ledger) of
         {error, _} = E ->
             E;
         {ok, Bin} ->
@@ -300,7 +300,7 @@ get_density_var(Var, Ledger) ->
 
 -spec get_target_res(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, non_neg_integer()}.
 get_target_res(Ledger) ->
-    case blockchain:config(?density_tgt_res, Ledger) of
+    case ?get_var(?density_tgt_res, Ledger) of
         {error, _}=E -> E;
         {ok, V} -> {ok, V}
     end.

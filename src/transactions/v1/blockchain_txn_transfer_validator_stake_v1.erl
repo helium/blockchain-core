@@ -184,7 +184,7 @@ is_valid(Txn, Chain) ->
             {error, bad_old_owner_signature};
         true ->
             try
-                case blockchain:config(?validator_version, Ledger) of
+                case ?get_var(?validator_version, Ledger) of
                     {ok, Vers} when Vers >= 3 ->
                         ok;
                     _ -> throw(unsupported_txn)
@@ -206,7 +206,7 @@ is_valid(Txn, Chain) ->
                         ok
                 end,
                 %% check that the network is correct for the new validator pubkey_bin
-                case blockchain:config(?validator_key_check, Ledger) of
+                case ?get_var(?validator_key_check, Ledger) of
                     %% assert that validator is on the right network by decoding its key
                     {ok, true} ->
                         try

@@ -85,7 +85,7 @@
 -spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledger(),
                           PayloadSize :: non_neg_integer()) -> pos_integer() | {error, any()}.
 calculate_dc_amount(Ledger, PayloadSize) ->
-    case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+    case ?get_var(?dc_payload_size, Ledger) of
         {ok, DCPayloadSize} ->
             do_calculate_dc_amount(PayloadSize, DCPayloadSize);
         _ ->
@@ -163,7 +163,7 @@ normalize_float(Float) ->
 %%--------------------------------------------------------------------
 -spec challenge_interval(blockchain_ledger_v1:ledger()) -> non_neg_integer().
 challenge_interval(Ledger) ->
-    {ok, Interval} = blockchain:config(?poc_challenge_interval, Ledger),
+    {ok, Interval} = ?get_var(?poc_challenge_interval, Ledger),
     Interval.
 
 -spec serialize_hash(binary()) -> string().
@@ -557,7 +557,7 @@ nearest_byte(X) ->
 
 -spec approx_blocks_in_week(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
 approx_blocks_in_week(Ledger) ->
-    case blockchain:config(?block_time, Ledger) of
+    case ?get_var(?block_time, Ledger) of
         {ok, BT} ->
             %% BT is in ms
             %% ms in a week = 7 * 24 * 60 * 60 * 1000
@@ -679,7 +679,7 @@ find_key(Proof, Artifact, [Key|Keys]) ->
 
 -spec poc_per_hop_max_witnesses(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
 poc_per_hop_max_witnesses(Ledger) ->
-    case blockchain:config(?poc_per_hop_max_witnesses, Ledger) of
+    case ?get_var(?poc_per_hop_max_witnesses, Ledger) of
         {ok, N} -> N;
         _ ->
             %% Defaulted to 5 to preserve backward compatability
@@ -788,7 +788,7 @@ get_vars(VarList, Ledger) ->
     lists:foldl(
       fun(VarName, Acc) ->
               %% NOTE: This isn't ideal but in order for get_var/2 to
-              %% correspond with blockchain:config/2, it returns {ok, ..} | {error, ..}
+              %% correspond with ?get_var/2, it returns {ok, ..} | {error, ..}
               %% So we just put undefined for any error lookups here.
               %% The callee must handle those situations.
               case get_var_(VarName, IsAux, VarsNonce, Ledger) of
@@ -813,7 +813,9 @@ get_var_(VarName, HasAux, VarsNonce, Ledger) ->
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
-    get_var_(VarName, Ledger).
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    IsAux = blockchain_ledger_v1:is_aux(Ledger),
+    get_var_(VarName, IsAux, VarsNonce, Ledger).
 
 -spec get_var_(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, Ledger) ->

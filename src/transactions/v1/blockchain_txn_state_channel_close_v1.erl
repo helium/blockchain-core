@@ -139,19 +139,19 @@ is_valid(Txn, Chain) ->
     EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     SC = ?MODULE:state_channel(Txn),
     ExpiresAt = blockchain_state_channel_v1:expire_at_block(SC),
-    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+    SCGrace = case ?get_var(?sc_grace_blocks, Ledger) of
                   {ok, R2} ->
                       R2;
                   _ ->
                       0
               end,
-    SCVersion = case blockchain:config(?sc_version, Ledger) of
+    SCVersion = case ?get_var(?sc_version, Ledger) of
                     {ok, V} ->
                         V;
                     _ ->
                         0
                 end,
-    SCDisputeStrategy = case blockchain:config(?sc_dispute_strategy_version, Ledger) of
+    SCDisputeStrategy = case ?get_var(?sc_dispute_strategy_version, Ledger) of
                               {ok, V2} -> V2;
                               _ -> 0
                           end,
@@ -322,7 +322,7 @@ check_close_updates(LedgerSC, Txn, Ledger) ->
 is_causally_correct(OlderSC, CurrentSC, Ledger) ->
     case blockchain_state_channel_v1:compare_causality(OlderSC, CurrentSC) of
         effect_of ->
-            case blockchain:config(?sc_causality_fix, Ledger) of
+            case ?get_var(?sc_causality_fix, Ledger) of
                 {ok, N} when N > 0 ->
                     %% ok
                     true;

@@ -453,7 +453,7 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event},
 handle_info({blockchain_event, {add_block, _BlockHash, Sync, Ledger} = Event}, State) ->
     lager:debug("received add block event, sync is ~p",[Sync]),
     %% update submit_f and reject_f per block, allow for num_consensus_members chain var updates
-    {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+    {ok, N} = ?get_var(?num_consensus_members, Ledger),
     handle_add_block_event(Event, State#state{submit_f = submit_f(N), reject_f = reject_f(N)});
 
 handle_info(_Msg, State) ->
@@ -483,7 +483,7 @@ initialize_with_chain(State, Chain)->
         end,
     lists:foreach(F, cached_txns()),
     %% initialise submit_f and reject_f with current ledger value
-    {ok, N} = blockchain:config(?num_consensus_members, Ledger),
+    {ok, N} = ?get_var(?num_consensus_members, Ledger),
     %% cache current height
     ets:insert(?CACHE, {?CUR_HEIGHT, Height}),
     State#state{chain=Chain, cur_block_height = Height, submit_f = submit_f(N), reject_f = reject_f(N)}.

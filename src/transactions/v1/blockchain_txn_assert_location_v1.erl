@@ -351,7 +351,7 @@ is_valid(Txn, Chain) ->
                                         false ->
                                             {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                         true ->
-                                            {ok, MinAssertH3Res} = blockchain:config(?min_assert_h3_res, Ledger),
+                                            {ok, MinAssertH3Res} = ?get_var(?min_assert_h3_res, Ledger),
                                             Location = ?MODULE:location(Txn),
                                             case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
                                                 false ->
@@ -394,7 +394,7 @@ absorb(Txn, Chain) ->
         ok ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger),
             Res =
-              case blockchain:config(?poc_target_hex_parent_res, Ledger) of
+              case ?get_var(?poc_target_hex_parent_res, Ledger) of
                 {ok, ResV} -> ResV;
                 _ -> 5
               end,
@@ -430,7 +430,7 @@ absorb(Txn, Chain) ->
                   blockchain_ledger_v1:add_to_hex(New, Gateway, Res, Ledger)
             end,
 
-            case blockchain:config(?poc_version, Ledger) of
+            case ?get_var(?poc_version, Ledger) of
                 {ok, V} when V > 3 ->
                     %% don't update neighbours anymore
                     ok;

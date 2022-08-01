@@ -61,7 +61,7 @@ init(server, _Conn, [_Path, Blockchain]) ->
     HandlerMod = application:get_env(blockchain, sc_packet_handler, undefined),
     OfferLimit = application:get_env(blockchain, sc_pending_offer_limit, 5),
     HandlerState = blockchain_state_channel_common:new_handler_state(#{}, [], HandlerMod, OfferLimit, true),
-    case blockchain_ledger_v1:config(?sc_version, Ledger) of
+    case ?get_var(?sc_version, Ledger) of
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->

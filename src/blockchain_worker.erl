@@ -447,7 +447,7 @@ handle_call(Msg, _From, #state{blockchain=undefined}=State) ->
     lager:debug("Called when blockchain=undefined. Returning undefined. Msg: ~p", [Msg]),
     {reply, undefined, State};
 handle_call(num_consensus_members, _From, #state{blockchain = Chain} = State) ->
-    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
+    {ok, N} = ?get_var(?num_consensus_members, blockchain:ledger(Chain)),
     {reply, N, State};
 handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};

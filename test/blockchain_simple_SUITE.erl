@@ -1382,7 +1382,7 @@ routing_netid_to_oui_test(Config) ->
     %% Diverging from routing_test()...
 
     RoamingRouters =
-        case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+        case ?get_var(?routers_by_netid_to_oui, Ledger) of
             {ok, Bin} -> binary_to_term(Bin);
             _ -> []
         end,
@@ -2032,8 +2032,8 @@ election_v3_test(Config) ->
     {SixScore, _, _} = lists:nth(6, Adjusted),
     {SevenScore, _, _} = lists:nth(7, Adjusted),
 
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, BBAPenalty} = ?get_var(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = ?get_var(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
     FiveTarget = normalize_float(ControlScore - normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))),
@@ -2166,8 +2166,8 @@ election_v4_test(Config) ->
     {SixScore, _, _} = lists:nth(6, Adjusted),
     {SevenScore, _, _} = lists:nth(7, Adjusted),
 
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, BBAPenalty} = ?get_var(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = ?get_var(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
     FiveTarget = normalize_float(element(1, lists:nth(5, ScoredOldGroup)) -
@@ -2488,8 +2488,8 @@ election_v5_test(Config) ->
     {_, SixScore} = lists:nth(6, Adjusted),
     {_, SevenScore} = lists:nth(7, Adjusted),
 
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, BBAPenalty} = ?get_var(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = ?get_var(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
     FiveTarget = normalize_float(element(2, lists:nth(5, OldGroupVals)) +
@@ -2601,8 +2601,8 @@ election_v6_test(Config) ->
     {_, SixScore} = lists:nth(6, Adjusted),
     {_, SevenScore} = lists:nth(7, Adjusted),
 
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, BBAPenalty} = ?get_var(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = ?get_var(?election_seen_penalty, Ledger),
 
     %% five should have taken both hits
     FiveTarget = normalize_float(element(2, lists:nth(5, OldGroupVals)) +
@@ -2640,7 +2640,7 @@ chain_vars_test(Config) ->
     {ok, InitBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(InitBlock, Chain, self(), blockchain_swarm:tid()),
 
-    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    {ok, Delay} = ?get_var(?vars_commit_delay, Ledger),
     ct:pal("commit delay ~p", [Delay]),
     %% Add some blocks,
     lists:foreach(
@@ -2648,7 +2648,7 @@ chain_vars_test(Config) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(garbage_value, Ledger) of % ignore "?"
+                case ?get_var(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, 2} when Height >= (Delay + 1) ->
@@ -2680,7 +2680,7 @@ chain_vars_set_unset_test(Config) ->
     {ok, InitBlock} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(InitBlock, Chain, self(), blockchain_swarm:tid()),
 
-    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    {ok, Delay} = ?get_var(?vars_commit_delay, Ledger),
     ct:pal("commit delay ~p", [Delay]),
     %% Add some blocks,
     lists:foreach(
@@ -2688,7 +2688,7 @@ chain_vars_set_unset_test(Config) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(garbage_value, Ledger) of % ignore "?"
+                case ?get_var(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, 2} when Height >= (Delay + 1) ->
@@ -2716,7 +2716,7 @@ chain_vars_set_unset_test(Config) ->
                 _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:tid()),
                 {ok, Height1} = blockchain:height(Chain),
                 ct:pal("Height1 ~p", [Height1]),
-                case blockchain:config(garbage_value, Ledger) of % ignore "?"
+                case ?get_var(garbage_value, Ledger) of % ignore "?"
                     {ok, 2} when Height1 < (Height + Delay + 1) ->
                         ok;
                     {error, not_found} when Height1 >= (Height + Delay) ->
@@ -2792,7 +2792,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
     _ = blockchain_gossip_handler:add_block(VarBlock, Chain, self(), blockchain_swarm:tid()),
 
     %% wait for the chain var to take effect
-    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    {ok, Delay} = ?get_var(?vars_commit_delay, Ledger),
     {ok, Height} = blockchain:height(Chain),
     CommitHeight = Height + Delay,
 
@@ -2803,7 +2803,7 @@ poc_v2_set_challenger_type_chain_var_test(Config) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                 {ok, CurHeight} = blockchain:height(Chain),
-                case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
+                case ?get_var(poc_challenger_type, Ledger) of % ignore "?"
                     {error, not_found} when CurHeight < CommitHeight ->
                         ok;
                     {ok, validator} ->
@@ -2867,7 +2867,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
 
     %% wait for the chain var to take effect
     {ok, Height} = blockchain:height(Chain),
-    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    {ok, Delay} = ?get_var(?vars_commit_delay, Ledger),
     CommitHeight = Height + Delay,
 
     ct:pal("commit height ~p", [CommitHeight]),
@@ -2877,7 +2877,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                 {ok, CurHeight} = blockchain:height(Chain),
-                case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
+                case ?get_var(poc_challenger_type, Ledger) of % ignore "?"
                     {error, not_found} when CurHeight < CommitHeight ->
                         ok;
                     {ok, validator} ->
@@ -2919,7 +2919,7 @@ poc_v2_unset_challenger_type_chain_var_test(Config) ->
                 _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:tid()),
                 {ok, CurHeight1} = blockchain:height(Chain),
                 ct:pal("Height1 ~p", [CurHeight1]),
-                case blockchain:config(poc_challenger_type, Ledger) of % ignore "?"
+                case ?get_var(poc_challenger_type, Ledger) of % ignore "?"
                     {ok, _} when CurHeight1 < UnsetCommitHeight  ->
                         ok;
                     {error, not_found}  ->
@@ -3253,9 +3253,9 @@ poc_sync_interval_test(Config) ->
 
     %% Chain vars should have kicked in by now
     ?assertEqual({ok, POCVersion},
-                 blockchain_ledger_v1:config(?poc_version, Ledger)),
+                 ?get_var(?poc_version, Ledger)),
     ?assertEqual({ok, POCChallengeSyncInterval},
-                 blockchain_ledger_v1:config(?poc_challenge_sync_interval, Ledger)),
+                 ?get_var(?poc_challenge_sync_interval, Ledger)),
 
     %% Chain should have moved further up
     ?assertEqual({ok, 44}, blockchain:height(Chain)),
@@ -3738,7 +3738,7 @@ genesis_no_var_validation_stay_invalid_test(Config) ->
     ct:pal("Chain ht: ~p", [blockchain:height(Chain)]),
 
     Ledger = blockchain:ledger(Chain),
-    {ok, EV} = blockchain:config(election_version, Ledger),
+    {ok, EV} = ?get_var(election_version, Ledger),
     ct:pal("election_version: ~p", [EV]),
     ?assertEqual(10000, EV),
     ct:pal("Ledger ht: ~p", [blockchain_ledger_v1:current_height(Ledger)]),
@@ -3762,7 +3762,7 @@ genesis_no_var_validation_make_valid_test(Config) ->
     ct:pal("Chain ht: ~p", [blockchain:height(Chain)]),
     ct:pal("Ledger ht: ~p", [blockchain_ledger_v1:current_height(Ledger)]),
 
-    {ok, 10000} = blockchain:config(election_version, Ledger),
+    {ok, 10000} = ?get_var(election_version, Ledger),
 
     %% Supply a valid election version
     Vars = #{election_version => 5},
@@ -3778,7 +3778,7 @@ genesis_no_var_validation_make_valid_test(Config) ->
 
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
 
-    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+    {ok, Delay} = ?get_var(?vars_commit_delay, Ledger),
     ct:pal("commit delay ~p", [Delay]),
 
     %% Add some blocks, and check that election_version is set to 5 after delay is reached
@@ -3787,7 +3787,7 @@ genesis_no_var_validation_make_valid_test(Config) ->
                    {ok, Block} = test_utils:create_block(ConsensusMembers, []),
                    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
                    {ok, Height} = blockchain:height(Chain),
-                   case blockchain:config(election_version, Ledger) of
+                   case ?get_var(election_version, Ledger) of
                        {ok, 10000} when Height < (Delay + 1) ->
                            ok;
                        {ok, 5} when Height >= (Delay + 1) ->
@@ -3799,7 +3799,7 @@ genesis_no_var_validation_make_valid_test(Config) ->
            lists:seq(1, 5)
           ),
     ?assertEqual({ok, 7}, blockchain:height(Chain)),
-    ?assertEqual({ok, 5}, blockchain:config(election_version, Ledger)),
+    ?assertEqual({ok, 5}, ?get_var(election_version, Ledger)),
 
     ok.
 

@@ -121,7 +121,7 @@ is_valid(Txn, Chain) ->
     } = blockchain_election:election_info(CurrHeight, Ledger),
 
     try
-        case blockchain_ledger_v1:config(?election_version, Ledger) of
+        case ?get_var(?election_version, Ledger) of
             {ok, N} when N >= 5 -> ok;
             _ -> throw(no_validators)
         end,
@@ -165,8 +165,8 @@ is_valid(Txn, Chain) ->
                   end
           end, FailedMembers),
 
-        {ok, ElectionInterval} = blockchain:config(?election_interval, OldLedger),
-        {ok, ElectionRestartInterval} = blockchain:config(?election_restart_interval, OldLedger),
+        {ok, ElectionInterval} = ?get_var(?election_interval, OldLedger),
+        {ok, ElectionRestartInterval} = ?get_var(?election_restart_interval, OldLedger),
         %% clean up ledger context
         blockchain_ledger_v1:delete_context(OldLedger),
         case Delay rem ElectionRestartInterval of
@@ -199,7 +199,7 @@ is_valid(Txn, Chain) ->
 
 verify_proof(Txn, Hash, OldLedger) ->
     %% verify that the list is the proper list
-    {ok, L} = blockchain:config(?num_consensus_members, OldLedger),
+    {ok, L} = ?get_var(?num_consensus_members, OldLedger),
     Members = blockchain_election:new_group(OldLedger, Hash, L, delay(Txn)),
     F = floor((length(Members) - 1) / 3),
     Artifact = blockchain_txn_consensus_group_failure_v1_pb:encode_msg(
@@ -240,8 +240,8 @@ absorb(Txn, Chain) ->
     FailedMembers = ?MODULE:failed_members(Txn),
     Delay = ?MODULE:delay(Txn),
     Height = ?MODULE:height(Txn),
-    {ok, Limit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
-    {ok, Penalty} = blockchain_ledger_v1:config(?dkg_penalty, Ledger),
+    {ok, Limit} = ?get_var(?penalty_history_limit, Ledger),
+    {ok, Penalty} = ?get_var(?dkg_penalty, Ledger),
 
     try
         lists:foreach(

@@ -155,7 +155,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v2_pb:encode_msg(BaseTxn),
-    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    {ok, POCVersion} = ?get_var(?poc_version, Ledger),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
@@ -223,7 +223,7 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             N = erlang:length(Path),
                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
                             OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                            {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
+                            {_Onion, Layers} = case ?get_var(?poc_typo_fixes, Ledger) of
                                                    {ok, true} ->
                                                        blockchain_poc_packet_v2:build(Keys, IV, OnionList);
                                                    _ ->
@@ -253,7 +253,7 @@ get_path(_POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Led
     POCPrivKeyHash = crypto:hash(sha256, PrivKeyBin),
     ZoneRandState = blockchain_utils:rand_state(Entropy),
     InitTargetRandState = blockchain_utils:rand_state(POCPrivKeyHash),
-    {ok, TargetV} = TargetResp = blockchain:config(?poc_targeting_version, Ledger),
+    {ok, TargetV} = TargetResp = ?get_var(?poc_targeting_version, Ledger),
     TargetMod = blockchain_utils:target_v_to_mod(TargetResp),
     %% if v6 targeting or newer in use then use the correct ledger for pathing
     %% this addresses an issue whereby the current ledger was in use when
@@ -336,7 +336,7 @@ poc_particpants(Txn, Chain) ->
                                     _ ->
                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                 end,
-                            Witnesses = case blockchain:config(?poc_receipt_witness_validation, Ledger) of
+                            Witnesses = case ?get_var(?poc_receipt_witness_validation, Ledger) of
                                             {ok, false} ->
                                                 UnvalidatedWitnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
                                                 [W#blockchain_poc_witness_v1_pb.gateway || W <- UnvalidatedWitnesses];
@@ -443,7 +443,7 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
  -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    {ok, POCVersion} = blockchain:config(?poc_version, Ledger),
+    {ok, POCVersion} = ?get_var(?poc_version, Ledger),
     absorb(POCVersion, Txn, Chain).
 
  -spec absorb(pos_integer(), txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
@@ -469,7 +469,7 @@ absorb(_POCVersion, Txn, Chain) ->
             true ->
                 %% maybe update the last activity field for all challengees and GWs
                 %% participating in the POC
-                case blockchain:config(?poc_activity_filter_enabled, Ledger) of
+                case ?get_var(?poc_activity_filter_enabled, Ledger) of
                     {ok, true} ->
                         Participants = poc_particpants(Txn, Chain),
                         lager:debug("receipt txn poc participants: ~p", [Participants]),
@@ -626,7 +626,7 @@ validate(_POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                                 end,
                                                %% check the receipt
                                                RejectTxnEmptyReceipt =
-                                                    case blockchain_ledger_v1:config(?poc_reject_empty_receipts, OldLedger) of
+                                                    case ?get_var(?poc_reject_empty_receipts, OldLedger) of
                                                         {ok, V} -> V;
                                                         _ -> false
                                                     end,
@@ -790,8 +790,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
             SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger),
             {ok, DestinationLoc} = blockchain_ledger_v1:find_gateway_location(DstPubkeyBin, Ledger),
-            {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
-            {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+            {ok, ExclusionCells} = ?get_var(?poc_v4_exclusion_cells, Ledger),
+            {ok, ParentRes} = ?get_var(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
 
@@ -804,7 +804,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                  SourceRegion, DestinationRegion]),
                     undefined;
                 true ->
-                    Limit = blockchain:config(?poc_distance_limit, Ledger),
+                    Limit = ?get_var(?poc_distance_limit, Ledger),
                     case is_too_far(Limit, SourceLoc, DestinationLoc) of
                         {true, Distance} ->
                             lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
@@ -831,7 +831,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                         true ->
                                             case check_valid_frequency(SourceRegion, Freq, Ledger, Version) of
                                                 true ->
-                                                    case blockchain:config(?data_aggregation_version, Ledger) of
+                                                    case ?get_var(?data_aggregation_version, Ledger) of
                                                         {ok, DataAggVsn} when DataAggVsn > 1 ->
                                                             case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
                                                                 true ->
@@ -946,17 +946,17 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
             {error, _Reason} -> no_prefetch
         end,
     SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger, RegionVars),
-    {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+    {ok, ParentRes} = ?get_var(?poc_v4_parent_res, Ledger),
     SourceParentIndex = h3:parent(SourceLoc, ParentRes),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
-    DiscardZeroFreq = blockchain_ledger_v1:config(?discard_zero_freq_witness, Ledger),
-    {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
+    DiscardZeroFreq = ?get_var(?discard_zero_freq_witness, Ledger),
+    {ok, ExclusionCells} = ?get_var(?poc_v4_exclusion_cells, Ledger),
     %% intentionally do not require
-    DAV = blockchain:config(?data_aggregation_version, Ledger),
-    Limit = blockchain:config(?poc_distance_limit, Ledger),
+    DAV = ?get_var(?data_aggregation_version, Ledger),
+    Limit = ?get_var(?poc_distance_limit, Ledger),
     Version = poc_version(Ledger),
 
     TaggedWitnesses = lists:foldl(fun(Witness, Acc) ->
@@ -1142,7 +1142,7 @@ min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion0, DstPubkeyBin, Destinati
     {ok, SourceRegion} = SourceRegion0,
     {ok, TxPower} = estimated_tx_power(SourceRegion, Freq, Ledger),
     FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-    case blockchain:config(?fspl_loss, Ledger) of
+    case ?get_var(?fspl_loss, Ledger) of
         {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
         _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
     end;
@@ -1156,7 +1156,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion0, DstPubkeyBin, Destination
                         DstPubkeyBin, DestinationLoc, Freq, POCVersion);
         TxPower ->
             FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-            case blockchain:config(?fspl_loss, Ledger) of
+            case ?get_var(?fspl_loss, Ledger) of
                 {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
                 _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
             end
@@ -1193,7 +1193,7 @@ eirp_from_closest_freq(Freq, [ {NFreq, NEirp} | Rest ], {BestFreq, BestEIRP}) ->
 
 -spec poc_version(blockchain_ledger_v1:ledger()) -> non_neg_integer().
 poc_version(Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {error, not_found} -> 0;
         {ok, V} -> V
     end.

@@ -46,7 +46,7 @@ val_hb(#val_v1{heartbeat = HB}) ->
 -endif.
 
 new_group(Ledger, Hash, Size, Delay) ->
-    case blockchain_ledger_v1:config(?election_version, Ledger) of
+    case ?get_var(?election_version, Ledger) of
         {ok, N} when N >= 6 ->
             new_group_v6(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 5 ->
@@ -66,7 +66,7 @@ new_group_v1(Ledger, Hash, Size, Delay) ->
 
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
-    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
+    {ok, SelectPct} = ?get_var(?election_selection_pct, Ledger),
 
     OldLen = length(OldGroup0),
     {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
@@ -90,9 +90,9 @@ new_group_v1(Ledger, Hash, Size, Delay) ->
 new_group_v2(Ledger, Hash, Size, Delay) ->
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
-    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
-    {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
-    {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+    {ok, SelectPct} = ?get_var(?election_selection_pct, Ledger),
+    {ok, RemovePct} = ?get_var(?election_removal_pct, Ledger),
+    {ok, ClusterRes} = ?get_var(?election_cluster_res, Ledger),
     Gateways0 = gateways_filter(ClusterRes, Ledger),
 
     OldLen = length(OldGroup0),
@@ -121,9 +121,9 @@ new_group_v2(Ledger, Hash, Size, Delay) ->
 new_group_v3(Ledger, Hash, Size, Delay) ->
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
-    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
-    {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
-    {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+    {ok, SelectPct} = ?get_var(?election_selection_pct, Ledger),
+    {ok, RemovePct} = ?get_var(?election_removal_pct, Ledger),
+    {ok, ClusterRes} = ?get_var(?election_cluster_res, Ledger),
     Gateways0 = gateways_filter(ClusterRes, Ledger),
 
     OldLen = length(OldGroup0),
@@ -154,9 +154,9 @@ new_group_v3(Ledger, Hash, Size, Delay) ->
 new_group_v4(Ledger, Hash, Size, Delay) ->
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
-    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
-    {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
-    {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+    {ok, SelectPct} = ?get_var(?election_selection_pct, Ledger),
+    {ok, RemovePct} = ?get_var(?election_removal_pct, Ledger),
+    {ok, ClusterRes} = ?get_var(?election_cluster_res, Ledger),
     %% a version of the filter that just gives everyone the same score
     Gateways0 = noscore_gateways_filter(ClusterRes, Ledger),
 
@@ -427,8 +427,8 @@ calc_age_weighted_penalty(Amt, Limit, Height, Instances) ->
     blockchain_utils:normalize_float(Tot).
 
 get_penalties(Tuples, Sz, Ledger) ->
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+    {ok, BBAPenalty} = ?get_var(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = ?get_var(?election_seen_penalty, Ledger),
 
     {BBAs0, Seens0} = lists:unzip(Tuples),
 
@@ -476,9 +476,9 @@ get_penalties(Tuples, Sz, Ledger) ->
       Seens).
 
 get_penalties_v2(Tuples, Sz, Ledger) ->
-    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
-    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
-    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    {ok, BBAPenalty} = ?get_var(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = ?get_var(?election_seen_penalty, Ledger),
+    {ok, PenaltyLimit} = ?get_var(?penalty_history_limit, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {PenaltyTuples, Heights} = lists:unzip(Tuples),
@@ -580,10 +580,10 @@ condense_votes(Sz, Seen0) ->
              Counts).
 
 determine_sizes(Size, OldLen, Delay, Ledger) ->
-    {ok, ReplacementFactor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
+    {ok, ReplacementFactor} = ?get_var(?election_replacement_factor, Ledger),
     %% increase this to make removal more gradual, decrease to make it less so
-    {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
-    {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
+    {ok, ReplacementSlope} = ?get_var(?election_replacement_slope, Ledger),
+    {ok, Interval} = ?get_var(?election_restart_interval, Ledger),
     case Size == OldLen of
         true ->
             MinSize = ((OldLen - 1) div 3) + 1, % smallest remainder we will allow
@@ -608,10 +608,10 @@ determine_sizes(Size, OldLen, Delay, Ledger) ->
     {Remove, Replace}.
 
 determine_sizes_v2(Size, OldLen, Delay, Ledger) ->
-    {ok, ReplacementFactor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
+    {ok, ReplacementFactor} = ?get_var(?election_replacement_factor, Ledger),
     %% increase this to make removal more gradual, decrease to make it less so
-    {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
-    {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
+    {ok, ReplacementSlope} = ?get_var(?election_replacement_slope, Ledger),
+    {ok, Interval} = ?get_var(?election_restart_interval, Ledger),
     determine_sizes_v2_math(Size, OldLen, Delay,
                             ReplacementFactor, ReplacementSlope, Interval).
 
@@ -887,7 +887,7 @@ get_election_txn(Block) ->
     end.
 
 validators_filter(Ledger) ->
-    {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+    {ok, MinStake} = ?get_var(?validator_minimum_stake, Ledger),
     blockchain_ledger_v1:cf_fold(
       validators,
       fun({Addr, BinVal}, Acc) ->
@@ -909,7 +909,7 @@ validators_filter(Ledger) ->
 
 %% maps don't have a stable sort order between 23 and 24, use lists
 validators_filter_v2(Ledger) ->
-    {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+    {ok, MinStake} = ?get_var(?validator_minimum_stake, Ledger),
     blockchain_ledger_v1:cf_fold(
       validators,
       fun({Addr, BinVal}, Acc) ->
@@ -931,9 +931,9 @@ validators_filter_v2(Ledger) ->
 
 val_dedup(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
-    {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
-    {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
-    {ok, PenaltyFilter} = blockchain:config(?validator_penalty_filter, Ledger),
+    {ok, HBInterval} = ?get_var(?validator_liveness_interval, Ledger),
+    {ok, HBGrace} = ?get_var(?validator_liveness_grace_period, Ledger),
+    {ok, PenaltyFilter} = ?get_var(?validator_penalty_filter, Ledger),
 
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -994,9 +994,9 @@ val_dedup(OldGroup0, Validators0, Ledger) ->
 %% no logic changes here, this version uses lists
 val_dedup_v2(OldGroup0, Validators0, Ledger) ->
     %% filter liveness here
-    {ok, HBInterval} = blockchain:config(?validator_liveness_interval, Ledger),
-    {ok, HBGrace} = blockchain:config(?validator_liveness_grace_period, Ledger),
-    {ok, PenaltyFilter} = blockchain:config(?validator_penalty_filter, Ledger),
+    {ok, HBInterval} = ?get_var(?validator_liveness_interval, Ledger),
+    {ok, HBGrace} = ?get_var(?validator_liveness_grace_period, Ledger),
+    {ok, PenaltyFilter} = ?get_var(?validator_penalty_filter, Ledger),
 
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 

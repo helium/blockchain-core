@@ -115,7 +115,7 @@ maybe_initialize_state(undefined) ->
     Blockchain = blockchain_worker:cached_blockchain(),
     Ledger = blockchain:ledger(Blockchain),
     Self = self(),
-    case blockchain_ledger_v1:config(?sc_version, Ledger) of
+    case ?get_var(?sc_version, Ledger) of
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->

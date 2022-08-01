@@ -165,7 +165,7 @@ sign(Receipt, SigFun) ->
 is_valid(undefined, _Ledger) ->
     false;
 is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature, addr_hash=AH}, Ledger) ->
-    ValidHash = case blockchain_ledger_v1:config(?poc_addr_hash_byte_count, Ledger) of
+    ValidHash = case ?get_var(?poc_addr_hash_byte_count, Ledger) of
                     {ok, Bytes} when is_integer(Bytes), Bytes > 0 ->
                         AH == undefined orelse AH == <<>> orelse
                         (is_binary(AH) andalso byte_size(AH) == Bytes);

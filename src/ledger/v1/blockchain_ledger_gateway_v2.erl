@@ -222,9 +222,9 @@ score(Address,
       Ledger) ->
     blockchain_score_cache:fetch({Address, Alpha, Beta, Delta, Height},
                                  fun() ->
-                                         {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
-                                         {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
-                                         {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
+                                         {ok, AlphaDecay} = ?get_var(?alpha_decay, Ledger),
+                                         {ok, BetaDecay} = ?get_var(?beta_decay, Ledger),
+                                         {ok, MaxStaleness} = ?get_var(?max_staleness, Ledger),
                                          NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
                                          NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
                                          RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
@@ -721,17 +721,17 @@ convert(#gateway_v1{
 
 -spec mask_for_mode(Mode :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
 mask_for_mode(dataonly, Ledger)->
-    case blockchain:config(?dataonly_gateway_capabilities_mask, Ledger) of
+    case ?get_var(?dataonly_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_DATAONLY_GATEWAY_V1;
         {ok, V} -> V
     end;
 mask_for_mode(light, Ledger)->
-    case blockchain:config(?light_gateway_capabilities_mask, Ledger) of
+    case ?get_var(?light_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_LIGHT_GATEWAY_V1;
         {ok, V} -> V
     end;
 mask_for_mode(full, Ledger)->
-    case blockchain:config(?full_gateway_capabilities_mask, Ledger) of
+    case ?get_var(?full_gateway_capabilities_mask, Ledger) of
         {error, not_found} -> ?GW_CAPABILITIES_FULL_GATEWAY_V1;
         {ok, V} -> V
     end.

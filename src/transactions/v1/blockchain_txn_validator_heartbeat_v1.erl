@@ -126,7 +126,7 @@ is_valid(Txn, Chain) ->
             {error, bad_signature};
         _ ->
             try
-                case blockchain:config(?validator_version, Ledger) of
+                case ?get_var(?validator_version, Ledger) of
                     {ok, Vers} when Vers >= 1 ->
                         ok;
                     _ -> throw(unsupported_txn)
@@ -134,7 +134,7 @@ is_valid(Txn, Chain) ->
                 %% make sure that this validator exists and is staked
                 case blockchain_ledger_v1:get_validator(Validator, Ledger) of
                     {ok, V} ->
-                        {ok, Interval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
+                        {ok, Interval} = ?get_var(?validator_liveness_interval, Ledger),
                         Status = blockchain_ledger_validator_v1:status(V),
                         HB = blockchain_ledger_validator_v1:last_heartbeat(V),
                         case Status == staked
@@ -151,9 +151,9 @@ is_valid(Txn, Chain) ->
                     false -> throw({bad_version, Version})
                 end,
                 {TargetLen, ReactivationLimit} =
-                    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+                    case ?get_var(?poc_challenger_type, Ledger) of
                         {ok, validator} ->
-                            {ok, RL} = blockchain_ledger_v1:config(?validator_hb_reactivation_limit, Ledger),
+                            {ok, RL} = ?get_var(?validator_hb_reactivation_limit, Ledger),
                             PL = proposal_length(Ledger),
                             {PL, RL};
                         _ ->
@@ -201,14 +201,14 @@ absorb(Txn, Chain) ->
                 true ->
                     %% gateway reactivation must be processed regardless of consensus status
                     %% see GH#1357
-                    case blockchain_ledger_v1:config(?poc_always_process_reactivations, Ledger) of
+                    case ?get_var(?poc_always_process_reactivations, Ledger) of
                         {ok, true} ->
                             maybe_reactivate_gateways(Txn, Ledger),
                             ok;
                         _ -> ok
                     end;
                 false ->
-                    case blockchain:config(poc_challenger_type, Ledger) of
+                    case ?get_var(poc_challenger_type, Ledger) of
                         {ok, validator} ->
                             POCKeyProposals = poc_key_proposals(Txn),
                             blockchain_ledger_v1:save_poc_proposals(POCKeyProposals, Validator, LedgerHash, LedgerHt, Ledger);
@@ -260,7 +260,7 @@ maybe_reactivate_gateways(Txn, Ledger) ->
     %% reselected for POC
 
     TxnHeight = height(Txn),
-    case blockchain:config(poc_activity_filter_enabled, Ledger) of
+    case ?get_var(poc_activity_filter_enabled, Ledger) of
         {ok, true} ->
             ReactivatedGWs = reactivated_gws(Txn),
             reactivate_gws(ReactivatedGWs, TxnHeight, Ledger);
@@ -288,9 +288,9 @@ proposal_length(Ledger) ->
     %% this we reduce the number of val count by 20% so that we have surplus keys being submitted
     case blockchain_ledger_v1:validator_count(Ledger) of
         {ok, NumVals} when NumVals > 0 ->
-            {ok, ChallengeRate} = blockchain_ledger_v1:config(?poc_challenge_rate, Ledger),
-            {ok, ValCtScale} = blockchain_ledger_v1:config(?poc_validator_ct_scale, Ledger),
-            {ok, HBInterval} = blockchain_ledger_v1:config(?validator_liveness_interval, Ledger),
+            {ok, ChallengeRate} = ?get_var(?poc_challenge_rate, Ledger),
+            {ok, ValCtScale} = ?get_var(?poc_validator_ct_scale, Ledger),
+            {ok, HBInterval} = ?get_var(?validator_liveness_interval, Ledger),
             round((ChallengeRate / (NumVals * ValCtScale)) * HBInterval);
         _ ->
             0

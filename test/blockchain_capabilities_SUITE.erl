@@ -924,7 +924,7 @@ no_staking_mapping_test(Config) ->
     %%
     %% NOTE: Check that staking_keys_to_mode_mappings is not_found on ledger
     %%
-    {error, not_found} = blockchain:config(staking_keys_to_mode_mappings, Ledger),
+    {error, not_found} = ?get_var(staking_keys_to_mode_mappings, Ledger),
     not_found = blockchain_ledger_v1:staking_keys_to_mode_mappings(Ledger),
 
     ConsensusMembers = ?config(consensus_members, Config),

@@ -262,7 +262,7 @@ hip17_vars() ->
 active_gateways_with_locs(Ledger) ->
     AG = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, H} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, InteractiveBlocks} = blockchain:config(?hip17_interactivity_blocks, Ledger),
+    {ok, InteractiveBlocks} = ?get_var(?hip17_interactivity_blocks, Ledger),
 
     maps:fold(
         fun(Addr, GW, Acc) ->

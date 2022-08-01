@@ -288,7 +288,7 @@ upgrade_gateways_lg(Ledger) ->
       Ledger).
 
 upgrade_gateways_score(Ledger) ->
-    case blockchain:config(?election_version, Ledger) of
+    case ?get_var(?election_version, Ledger) of
         %% election v4 removed score from consideration
         {ok, EV} when EV >= 4 ->
             blockchain_ledger_v1:cf_fold(
@@ -1113,7 +1113,7 @@ can_add_block(Block, Blockchain) ->
     end.
 
 get_key_or_keys(Ledger) ->
-    case blockchain:config(?use_multi_keys, Ledger) of
+    case ?get_var(?use_multi_keys, Ledger) of
         {ok, true} ->
             case blockchain_ledger_v1:multi_keys(Ledger) of
                 {ok, _} = Result -> Result;
@@ -2845,7 +2845,7 @@ is_block_plausible(Block, Chain) ->
                     Signees = blockchain_block:verified_signees(Block),
 
                     SigThreshold =
-                    case blockchain:config(?election_version, blockchain:ledger(Chain)) of
+                    case ?get_var(?election_version, blockchain:ledger(Chain)) of
                         {ok, 5} -> (2 * F) + 1;         %% much higher v5 onwards
                         _ -> F + 1                      %% maintain old behavior
                     end,

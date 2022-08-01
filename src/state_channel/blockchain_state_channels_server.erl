@@ -280,7 +280,7 @@ handle_info(post_init, #state{chain=undefined}=State0) ->
             {ok, Height} = blockchain:height(Chain),
             Ledger = blockchain:ledger(Chain),
             SCVer =
-                case blockchain_ledger_v1:config(?sc_version, Ledger) of
+                case ?get_var(?sc_version, Ledger) of
                     {ok, SCV} ->
                         SCV;
                     _ ->

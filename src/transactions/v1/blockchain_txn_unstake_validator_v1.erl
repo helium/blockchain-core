@@ -130,7 +130,7 @@ is_valid(Txn, Chain) ->
             {error, bad_owner_signature};
         _ ->
             try
-                case blockchain:config(?validator_version, Ledger) of
+                case ?get_var(?validator_version, Ledger) of
                     {ok, Vers} when Vers >= 2 ->
                         ok;
                     _ -> throw(unsupported_txn)
@@ -165,8 +165,8 @@ is_valid(Txn, Chain) ->
                             Owner -> ok;
                             Other -> throw({not_owner, Other})
                         end,
-                        {ok, Cooldown} = blockchain:config(?stake_withdrawal_cooldown, Ledger),
-                        {ok, CooldownMax} = blockchain:config(?stake_withdrawal_max, Ledger),
+                        {ok, Cooldown} = ?get_var(?stake_withdrawal_cooldown, Ledger),
+                        {ok, CooldownMax} = ?get_var(?stake_withdrawal_max, Ledger),
                         {ok, CurrentHeight} = blockchain_ledger_v1:current_height(Ledger),
                         %% for more understandable semantics, we need to validate not against the
                         %% height of the given ledger, but the height of the block that will include

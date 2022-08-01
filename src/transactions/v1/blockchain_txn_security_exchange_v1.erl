@@ -191,7 +191,7 @@ is_valid(Txn, Chain) ->
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_security_exchange_v1_pb:encode_msg(BaseTxn),
 
-    case blockchain:config(?deprecate_security_exchange_v1, Ledger) of
+    case ?get_var(?deprecate_security_exchange_v1, Ledger) of
         {ok, true} ->
             {error, security_exchange_v1_deprecated};
         _ ->

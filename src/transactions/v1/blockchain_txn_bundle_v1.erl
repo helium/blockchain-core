@@ -117,7 +117,7 @@ to_json(Txn, Opts) ->
 -spec max_bundle_size(blockchain:blockchain()) -> pos_integer().
 max_bundle_size(Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?max_bundle_size, Ledger) of
+    case ?get_var(?max_bundle_size, Ledger) of
         {error, _} ->
             %% If max bundle size is not set, default to 5
             ?MAX_BUNDLE_SIZE;

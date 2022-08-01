@@ -163,7 +163,7 @@ is_valid(Txn, Chain) ->
                 throw({invalid_reward_range, Start, End, LastRewardedBlock})
         end,
 
-        case blockchain_ledger_v1:config(?subnetwork_reward_per_block_limit, Ledger) of
+        case ?get_var(?subnetwork_reward_per_block_limit, Ledger) of
             {ok, BlockRewardLimit} ->
                 RewardLimit = BlockRewardLimit * (End - Start),
                 case TotalRewards =< RewardLimit of

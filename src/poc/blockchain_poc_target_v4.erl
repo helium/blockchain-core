@@ -91,7 +91,7 @@ prob_randomness_wt(Vars) ->
 
 -spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
 hex_list(Ledger, RandState) ->
-    {ok, Count} = blockchain:config(?poc_target_pool_size, Ledger),
+    {ok, Count} = ?get_var(?poc_target_pool_size, Ledger),
     hex_list(Ledger, RandState, Count, []).
 
 hex_list(_Ledger, RandState, 0, Acc) ->

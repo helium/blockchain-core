@@ -255,7 +255,7 @@ is_valid(Txn, Chain) ->
         end,
     Vars = decode_vars(vars(Txn)),
     Version =
-        case blockchain:config(?chain_vars_version, Ledger) of
+        case ?get_var(?chain_vars_version, Ledger) of
             {ok, 2} ->
                 2;
             {error, not_found} when Gen == true ->
@@ -292,7 +292,7 @@ is_valid(Txn, Chain) ->
                 end,
                 lists:foreach(
                   fun(VarName) ->
-                          case blockchain:config(VarName, Ledger) of % ignore this one using "?"
+                          case ?get_var(VarName, Ledger) of % ignore this one using "?"
                               {ok, _} -> ok;
                               {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
                           end
@@ -307,7 +307,7 @@ is_valid(Txn, Chain) ->
                         %% validated the proof if it has made it here.
                         ok;
                     _ ->
-                        case blockchain:config(?use_multi_keys, Ledger) of
+                        case ?get_var(?use_multi_keys, Ledger) of
                             {ok, true} ->
                                 %% handle the case where this gets set before
                                 %% the keys are set
@@ -417,7 +417,7 @@ legacy_is_valid(Txn, Chain) ->
         end,
         lists:foreach(
           fun(VarName) ->
-                  case blockchain:config(VarName, Ledger) of % ignore this one using "?"
+                  case ?get_var(VarName, Ledger) of % ignore this one using "?"
                       {ok, _} -> ok;
                       {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
                   end
@@ -438,7 +438,7 @@ legacy_is_valid(Txn, Chain) ->
     end.
 
 validate_master_keys(Txn, Gen, Artifact, Ledger) ->
-    case blockchain:config(?use_multi_keys, Ledger) of
+    case ?get_var(?use_multi_keys, Ledger) of
         {ok, true} ->
             case multi_keys(Txn) of
                 [] when Gen == true ->
@@ -540,7 +540,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
             true;
         _ ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
+            {ok, Delay} = ?get_var(?vars_commit_delay, Ledger),
             Effective = Delay + Height,
             case version_predicate(Txn) of
                 0 ->
@@ -551,7 +551,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
                     %% TODO: combine these checks for efficiency?
                     case check_members(Members, V, Ledger) of
                         true ->
-                            {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
+                            {ok, Threshold} = ?get_var(?predicate_threshold, Ledger),
                             Versions = blockchain_ledger_v1:cg_versions(Ledger),
                             case sum_higher(V, Versions) of
                                 Pct when Pct >= Threshold andalso Delay =:= 0 ->
@@ -570,7 +570,7 @@ maybe_absorb(Txn, Ledger, _Chain) ->
     end.
 
 check_members(Members, Target, Ledger) ->
-    case blockchain_ledger_v1:config(?election_version, Ledger) of
+    case ?get_var(?election_version, Ledger) of
         {ok, N} when N >= 5 ->
             lists:all(
               fun(M) ->
@@ -600,7 +600,7 @@ delayed_absorb(Txn, Ledger) ->
     Unsets = decode_unsets(unsets(Txn)),
     ok = blockchain_ledger_v1:vars(Vars, Unsets, Ledger),
     ok = process_hooks(Vars, Unsets, Ledger),
-    case blockchain:config(?use_multi_keys, Ledger) of
+    case blockchain_ledger_v1:config(?use_multi_keys, Ledger) of
         {ok, true} ->
             case multi_keys(Txn) of
                 [] ->
@@ -616,6 +616,7 @@ delayed_absorb(Txn, Ledger) ->
                     ok = blockchain_ledger_v1:master_key(Key, Ledger)
             end
     end,
+    blockchain_utils:teardown_var_cache(),
     case blockchain_ledger_v1:mode(Ledger) of
         active ->
             %% we've invalidated the region cache, so prewarm it.
@@ -702,7 +703,7 @@ var_hook(?poc_targeting_version, 6, Ledger) ->
     %% purge any active POCs
     purge_pocs(Ledger),
     %% build the h3dex lookup
-    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
+    {ok, Res} = ?get_var(?poc_target_hex_parent_res, Ledger),
     blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
     ok;
 var_hook(?poc_targeting_version, 5, Ledger) ->
@@ -713,7 +714,7 @@ var_hook(?poc_targeting_version, 5, Ledger) ->
     ok;
 var_hook(?poc_targeting_version, 4, Ledger) ->
     %% v4 targeting enabled, build the h3dex lookup
-    {ok, Res} = blockchain_ledger_v1:config(?poc_target_hex_parent_res, Ledger),
+    {ok, Res} = ?get_var(?poc_target_hex_parent_res, Ledger),
     blockchain_ledger_v1:build_random_hex_targeting_lookup(Res, Ledger),
     ok;
 var_hook(?poc_targeting_version, 3, Ledger) ->
