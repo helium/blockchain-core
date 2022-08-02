@@ -314,7 +314,8 @@ absorb(Txn, Chain) ->
                         case Amount > 0 of
                             true ->
                                 {ok, NewOwnerEntry} = blockchain_ledger_v1:find_entry(NewOwner, Ledger),
-                                NewOwnerNonce = blockchain_ledger_entry_v1:nonce(NewOwnerEntry),
+                                {EntryMod, _EntryCF} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+                                NewOwnerNonce = EntryMod:nonce(NewOwnerEntry),
                                 case blockchain_ledger_v1:debit_account(NewOwner, Amount, NewOwnerNonce + 1, Ledger) of
                                     {error, _Reason} = Err ->
                                         Err;

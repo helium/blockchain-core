@@ -292,7 +292,8 @@ buyer_nonce_correct(#blockchain_txn_transfer_hotspot_v1_pb{buyer_nonce=Nonce,
     case blockchain_ledger_v1:find_entry(Buyer, Ledger) of
         {error, _} -> false;
         {ok, Entry} ->
-            Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1
+            {EntryMod, _EntryCF} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+            Nonce =:= EntryMod:nonce(Entry) + 1
     end.
 
 get_config_or_default(?transfer_hotspot_stale_poc_blocks=Config, Ledger) ->
