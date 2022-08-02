@@ -5090,8 +5090,13 @@ count_gateways_in_hex(Hex, Ledger) ->
                                         {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
                                        ]
                               ),
-            %% memoize the value
-            cache_put(Ledger, H3CF, CountKey, <<Count:32/integer-unsigned-little>>),
+            case get_context(Ledger) of
+                undefined ->
+                    ok;
+                _ ->
+                    %% memoize the value
+                    cache_put(Ledger, H3CF, CountKey, <<Count:32/integer-unsigned-little>>)
+            end,
             Count
     end.
 
