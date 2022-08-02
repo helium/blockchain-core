@@ -242,7 +242,8 @@ owner_can_pay_fee(
                     false;
                 {ok, BalanceEntry} ->
                     {ok, FeeInHNT} = blockchain_ledger_v1:dc_to_hnt(Fee, Ledger0),
-                    EntryBalance = blockchain_ledger_entry_v1:balance(BalanceEntry),
+                    {EntryMod, _EntryCF} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger0),
+                    EntryBalance = EntryMod:balance(BalanceEntry),
                     (EntryBalance - FeeInHNT) >= 0
             end
     end,

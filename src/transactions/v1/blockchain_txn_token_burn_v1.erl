@@ -163,7 +163,9 @@ is_valid(Txn, Chain) ->
                                     Error0;
                                 {ok, Entry} ->
                                     TxnNonce = ?MODULE:nonce(Txn),
-                                    LedgerNonce = blockchain_ledger_entry_v1:nonce(Entry),
+                                    {EntryMod, _EntryCF} =
+                                    blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+                                    LedgerNonce = EntryMod:nonce(Entry),
                                     case TxnNonce =:= LedgerNonce + 1 of
                                         false ->
                                             {error, {bad_nonce, {token_burn, TxnNonce, LedgerNonce}}};

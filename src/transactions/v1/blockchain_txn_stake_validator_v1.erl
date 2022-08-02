@@ -174,7 +174,8 @@ is_valid(Txn, Chain) ->
                         %% make sure that the owner has enough HNT to stake
                         case blockchain_ledger_v1:find_entry(Owner, Ledger) of
                             {ok, Entry} ->
-                                Balance = blockchain_ledger_entry_v1:balance(Entry),
+                                {EntryMod, _EntryCF} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+                                Balance = EntryMod:balance(Entry),
                                 case Balance >= Stake of
                                     true -> ok;
                                     false -> throw({balance_too_low, {bal, Balance, stk, Stake}})
@@ -202,7 +203,9 @@ absorb(Txn, Chain) ->
     Fee = fee(Txn),
     Hash = ?MODULE:hash(Txn),
     {ok, Entry} = blockchain_ledger_v1:find_entry(Owner, Ledger),
-    Nonce = blockchain_ledger_entry_v1:nonce(Entry),
+
+    {EntryMod, _EntryCF} = blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger),
+    Nonce = EntryMod:nonce(Entry),
 
     case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, true, Hash, Chain) of
         {error, _Reason} = Err -> Err;
