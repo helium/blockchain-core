@@ -5023,6 +5023,8 @@ get_h3dex(Ledger) ->
                                    Acc;
                         ({<<"population">>, _}, Acc) ->
                                    Acc;
+                        ({<<"count-", _/binary>>, _}, Acc) ->
+                                   Acc;
                         ({Key, GWs}, Acc) ->
                              maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
                      end, #{}, [
@@ -5134,6 +5136,8 @@ build_random_hex_targeting_lookup(Resolution, Ledger) ->
                            fun({<<"random-", _/binary>>, _}, Acc) ->
                                    Acc;
                               ({<<"population">>, _}, Acc) ->
+                                   Acc;
+                              ({<<"count-", _/binary>>, _}, Acc) ->
                                    Acc;
                               ({Key, _GWs}, {PrevHex, Count}=Acc) ->
                                    H3 = key_to_h3(Key),
