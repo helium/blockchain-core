@@ -75,7 +75,7 @@
     add_htlc_receipt/3,
     get_htlc_receipt/2,
 
-    mark_upgrades/2, unmark_upgrades/2, get_upgrades/1, bootstrap_h3dex/1,
+    mark_upgrades/2, unmark_upgrades/2, get_upgrades/1, process_upgrades/1, bootstrap_h3dex/1,
     snapshot_height/1,
 
     db_handle/1,
@@ -137,7 +137,8 @@
                           fun upgrade_gateways_score/1,
                           fun upgrade_gateways_score/1,
                           fun upgrade_nonce_rescue/1,
-                          fun blockchain_ledger_v1:upgrade_pocs/1]).
+                          fun blockchain_ledger_v1:upgrade_pocs/1,
+                          fun blockchain_ledger_v1:precalc_h3_caches/1]).
 
 -define(BLOCK_READ_SIZE, 4096*8). % 32K
 
@@ -228,12 +229,12 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
             ok;
         false ->
             lager:info("running ledger upgrade ~p", [Key]),
-            Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+            Ledger1 = blockchain_ledger_v1:new_public_context(Ledger),
             Fun(Ledger1),
             blockchain_ledger_v1:mark_key(Key, Ledger1),
             blockchain_ledger_v1:commit_context(Ledger1),
             Ledger2_0 = blockchain_ledger_v1:mode(delayed, Ledger),
-            Ledger2 = blockchain_ledger_v1:new_context(Ledger2_0),
+            Ledger2 = blockchain_ledger_v1:new_public_context(Ledger2_0),
             Fun(Ledger2),
             blockchain_ledger_v1:commit_context(Ledger2)
     end,

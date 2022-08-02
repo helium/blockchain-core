@@ -23,7 +23,7 @@
 
     check_key/2, mark_key/2, unmark_key/2,
 
-    new_context/1, give_context/2, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
+    new_context/1, new_public_context/1, give_context/2, new_direct_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
     get_block/2, get_raw_block/2, get_block_info/2,
@@ -181,6 +181,7 @@
     lookup_gateways_from_hex/2,
     add_gw_to_h3dex/4,
     remove_gw_from_h3dex/4,
+    precalc_h3_caches/1,
     count_gateways_in_hex/2,
     count_gateways_in_hexes/2,
     random_targeting_hex/2,
@@ -515,6 +516,13 @@ new_context(Ledger) ->
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(Cache, GwCache, Ledger).
 
+%% useful for pmap stuff
+-spec new_public_context(ledger()) -> ledger().
+new_public_context(Ledger) ->
+    %% accumulate ledger changes in a read-through ETS cache
+    Cache = ets:new(txn_cache, [set, public, {keypos, 1}]),
+    GwCache = ets:new(gw_cache, [set, public, {keypos, 1}]),
+    context_cache(Cache, GwCache, Ledger).
 
 give_context(Ledger, Pid) ->
     case ?MODULE:context_cache(Ledger) of
@@ -5023,6 +5031,10 @@ get_h3dex(Ledger) ->
                                    Acc;
                         ({<<"population">>, _}, Acc) ->
                                    Acc;
+                        ({<<"count-", _/binary>>, _}, Acc) ->
+                                   Acc;
+                        ({<<"gws-", _/binary>>, _}, Acc) ->
+                                   Acc;
                         ({Key, GWs}, Acc) ->
                              maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
                      end, #{}, [
@@ -5052,14 +5064,59 @@ lookup_gateways_from_hex(Hexes, Ledger) when is_list(Hexes) ->
                 end, #{}, Hexes);
 lookup_gateways_from_hex(Hex, Ledger) when is_integer(Hex) ->
     H3CF = h3dex_cf(Ledger),
-    cache_fold(Ledger, H3CF,
-               fun({Key, GWs}, Acc) ->
-                       maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
-               end, #{}, [
-                          {start, {seek, find_lower_bound_hex(Hex)}},
-                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
-                         ]
-              ).
+    Crosscheck = application:get_env(blockchain, crosscheck_h3dex_cache, false),
+    case {Crosscheck, cache_get(Ledger, H3CF, <<"gws-", (h3_to_key(Hex))/binary>>, [])} of
+        {false, {ok, Bin}} ->
+            maps:from_list(binary_to_term(Bin));
+        {_, Result} ->
+            GWs = cache_fold(Ledger, H3CF,
+                             fun({Key, GWs}, Acc) ->
+                                     maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
+                             end, #{}, [
+                                        {start, {seek, find_lower_bound_hex(Hex)}},
+                                        {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
+                                       ]
+                            ),
+            case Result of
+                {ok, OtherBin} ->
+                    OtherGWs = maps:from_list(binary_to_term(OtherBin)),
+                    case GWs == OtherGWs of
+                        true ->
+                            ok;
+                        false ->
+                            lager:warning("MISMATCH ~p ~p", [Hex, map_diff(GWs, OtherGWs)])
+                    end;
+                not_found ->
+                    ok
+            end,
+
+            case get_context(Ledger) of
+                undefined ->
+                    ok;
+                _ ->
+                    %% BEWARE MAPS ORDERING BEFORE MERGE
+                    cache_put(Ledger, H3CF, <<"gws-", (h3_to_key(Hex))/binary>>, term_to_binary(lists:sort(maps:to_list(GWs)))),
+                    Count = length(lists:flatten(maps:values(GWs))),
+                    cache_put(Ledger, H3CF, <<"count-", (h3_to_key(Hex))/binary>>, <<Count:32/integer-unsigned-little>>)
+            end,
+            GWs
+    end.
+
+
+map_diff(A, B) ->
+    Added = maps:keys(maps:without(maps:keys(B), A)),
+    Removed = maps:keys(maps:without(maps:keys(A), B)),
+    Different = maps:filtermap(fun(Key, Value) ->
+                                 OtherValues = maps:get(Key, B),
+                                 case Value == OtherValues of
+                                     true ->
+                                         false;
+                                     _ ->
+                                         {true, [Value, OtherValues]}
+                                 end
+                         end,
+                         maps:with(maps:keys(B), A)),
+    #{added => Added, removed => maps:with(Removed, B), different => Different}.
 
 is_hex_populated(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
@@ -5075,14 +5132,37 @@ is_hex_populated(Hex, Ledger) ->
 -spec count_gateways_in_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> non_neg_integer().
 count_gateways_in_hex(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
-    cache_fold(Ledger, H3CF,
-               fun({_Key, GWs}, Acc) ->
-                      Acc + length(binary_to_term(GWs))
-               end, 0, [
-                          {start, {seek, find_lower_bound_hex(Hex)}},
-                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
-                         ]
-              ).
+    CountKey = <<"count-", (h3_to_key(Hex))/binary>>,
+    Crosscheck = application:get_env(blockchain, crosscheck_h3dex_cache, false),
+    case {Crosscheck, cache_get(Ledger, H3CF, CountKey, [])} of
+        {false, {ok, <<Count0:32/integer-unsigned-little>>}} ->
+            Count0;
+        {_, Result} ->
+            Count = cache_fold(Ledger, H3CF,
+                               fun({_Key, GWs}, Acc) ->
+                                       Acc + length(binary_to_term(GWs))
+                               end, 0, [
+                                        {start, {seek, find_lower_bound_hex(Hex)}},
+                                        {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
+                                       ]
+                              ),
+            case Result of
+                {ok, <<Count:32/integer-unsigned-little>>} ->
+                    ok;
+                {ok, <<OtherCount:32/integer-unsigned-little>>} ->
+                    lager:warning("MISMATCH ~p ~p ~p", [Hex, Count, OtherCount]);
+                not_found ->
+                    ok
+            end,
+            case get_context(Ledger) of
+                undefined ->
+                    ok;
+                _ ->
+                    %% memoize the value
+                    cache_put(Ledger, H3CF, CountKey, <<Count:32/integer-unsigned-little>>)
+            end,
+            Count
+    end.
 
 %%% TODO: rewrite for post-hex targeting
 -spec count_gateways_in_hexes(Resolution :: h3:resolution(), Ledger :: ledger()) -> #{h3:h3_index() => non_neg_integer()}.
@@ -5125,6 +5205,10 @@ build_random_hex_targeting_lookup(Resolution, Ledger) ->
                            fun({<<"random-", _/binary>>, _}, Acc) ->
                                    Acc;
                               ({<<"population">>, _}, Acc) ->
+                                   Acc;
+                              ({<<"count-", _/binary>>, _}, Acc) ->
+                                   Acc;
+                              ({<<"gws-", _/binary>>, _}, Acc) ->
                                    Acc;
                               ({Key, _GWs}, {PrevHex, Count}=Acc) ->
                                    H3 = key_to_h3(Key),
@@ -5195,6 +5279,48 @@ key_to_h3(Key) ->
     <<H3:64/integer-unsigned-big>> = <<0:1, 1:4/integer-unsigned-big, 0:3, (15 - InverseResolution):4/integer-unsigned-big, BaseCell:7/integer-unsigned-big, Digits:45/integer-unsigned-big>>,
     H3.
 
+precalc_h3_caches(Ledger) ->
+    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+    H3CF = h3dex_cf(Ledger),
+    PMap = blockchain_utils:streaming_pmap_new(fun(Hex) -> 
+                                                       GWs = lookup_gateways_from_hex(Hex, Ledger),
+                                                       Count = length(lists:usort(lists:flatten(maps:values(GWs)))),
+                                                       cache_put(Ledger, H3CF, <<"count-", (h3_to_key(Hex))/binary>>, <<Count:32/integer-unsigned-little>>),
+                                                       %% TODO map ordering!
+                                                       cache_put(Ledger, H3CF, <<"gws-", (h3_to_key(Hex))/binary>>, term_to_binary(lists:sort(maps:to_list(GWs))))
+                                               end),
+    cache_fold(
+      Ledger, H3CF,
+      fun({<<"random-", _/binary>>, _}, Acc) ->
+              Acc;
+         ({<<"population">>, _}, Acc) ->
+              Acc;
+         ({<<"count-", _/binary>>, _}, Acc) ->
+              Acc;
+         ({<<"gws-", _/binary>>, _}, Acc) ->
+              Acc;
+         ({Key, _GWs}, PrevHex=Acc) ->
+              H3 = key_to_h3(Key),
+              Hex = h3:parent(H3, Res),
+              case PrevHex == Hex of
+                  true ->
+                      %% same parent hex, noop
+                      Acc;
+                  false ->
+                      %% new hex, memoize the values
+                      blockchain_utils:streaming_pmap_submit(PMap, Hex),
+                      Hex
+              end
+      end, 0,
+      [
+       %% key_to_h3 returns 7 byte binaries
+       {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
+       {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
+      ]
+     ),
+    blockchain_utils:streaming_pmap_done(PMap),
+    ok.
+
 -spec add_gw_to_h3dex(Hex :: non_neg_integer(),
                     GWAddr :: libp2p_crypto:pubkey_bin(),
                     Res :: h3:index(),
@@ -5230,10 +5356,21 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
                             ok
                     end,
                     cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]))
-            end;
+            end,
+            increment_h3dex_counts(Hex, Ledger),
+            add_h3dex_gws(Hex, Ledger, GWAddr),
+            ok;
         {ok, BinGws} ->
             GWs = binary_to_term(BinGws),
-            cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:usort([GWAddr | GWs]), [compressed]));
+            case lists:member(GWAddr, GWs) of
+                true ->
+                    ok;
+                false ->
+                    cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:usort([GWAddr | GWs]), [compressed])),
+                    increment_h3dex_counts(Hex, Ledger),
+                    add_h3dex_gws(Hex, Ledger, GWAddr)
+            end,
+            ok;
         Error -> Error
     end.
 
@@ -5250,8 +5387,8 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found -> ok;
         {ok, BinGws} ->
-            case lists:delete(GWAddr, binary_to_term(BinGws)) of
-                [] ->
+            case binary_to_term(BinGws) of
+                [GWAddr] ->
                     ParentRes = h3:parent(Hex, Res),
                     %% need to remove the hex and maybe recalc targeting lookup if no gateways remain in parent hex
                     %% includes chain var protected bug fix
@@ -5270,12 +5407,99 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
                                 _ -> ok
                             end,
                             cache_delete(Ledger, H3CF, BinHex)
-                    end;
-                NewGWs ->
-                    cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort(NewGWs), [compressed]))
+                    end,
+                    decrement_h3dex_counts(Hex, Ledger),
+                    delete_h3dex_gws(Hex, Ledger, GWAddr),
+                    ok;
+                GWs ->
+                    case lists:member(GWAddr, GWs) of
+                        true ->
+                            cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:usort(lists:delete(GWAddr, GWs)), [compressed])),
+                            decrement_h3dex_counts(Hex, Ledger),
+                            delete_h3dex_gws(Hex, Ledger, GWAddr),
+                            ok;
+                        false ->
+                            ok
+                    end
             end;
         Error -> Error
     end.
+
+decrement_h3dex_counts(Hex, Ledger) ->
+    adjust_h3dex_counts(Hex, Ledger, fun(<<Count:32/integer-unsigned-little>>) -> <<(Count - 1):32/integer-unsigned-little>> end).
+
+increment_h3dex_counts(Hex, Ledger) ->
+    adjust_h3dex_counts(Hex, Ledger, fun(<<Count:32/integer-unsigned-little>>) -> <<(Count + 1):32/integer-unsigned-little>> end).
+
+adjust_h3dex_counts(Hex, Ledger, Fun) ->
+    %% simply remove all counts for this hex tower, they can be recalculated/memoized on demand
+    H3CF = h3dex_cf(Ledger),
+    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+    ExpectedHex = h3:parent(Hex, Res),
+    SeenExpected = cache_fold(Ledger, H3CF,
+               fun({<<"count-", H3Key/binary>> = Key, Val}, Acc) ->
+                       %% check this is a parent
+                       ThisHex = key_to_h3(H3Key),
+                       case h3:parent(Hex, h3:get_resolution(ThisHex)) == ThisHex of
+                           true ->
+                               cache_put(Ledger, H3CF, Key, Fun(Val)),
+                               Acc orelse ThisHex == ExpectedHex;
+                           false ->
+                               Acc
+                       end
+               end, false, [
+                        {start, {seek, <<"count-", (find_lower_bound_hex(Hex))/binary>>}},
+                        {iterate_upper_bound, <<"count-", (increment_bin(h3_to_key(h3:parent(Hex, 0))))/binary>>}
+                        ]),
+    case SeenExpected of
+        true ->
+            ok;
+        false ->
+            GWs = lookup_gateways_from_hex(ExpectedHex, Ledger),
+            Count = length(lists:usort(lists:flatten(maps:values(GWs)))),
+            cache_put(Ledger, H3CF, <<"gws-", (h3_to_key(ExpectedHex))/binary>>, term_to_binary(lists:sort(maps:to_list(GWs)))),
+            cache_put(Ledger, H3CF, <<"count-", (h3_to_key(ExpectedHex))/binary>>, <<Count:32/integer-unsigned-little>>),
+            ok
+    end.
+
+delete_h3dex_gws(Hex, Ledger, GWAddr) ->
+    %% TODO update_with/3 should be fine here, why isn't it?
+    adjust_h3dex_gws(Hex, Ledger, fun(Bin) -> term_to_binary(lists:sort(maps:to_list(maps:filter(fun(_K, V) -> V /= [] end, maps:update_with(Hex, fun(V) -> lists:delete(GWAddr, V) end, [], maps:from_list(binary_to_term(Bin))))))) end).
+
+add_h3dex_gws(Hex, Ledger, GWAddr) ->
+    adjust_h3dex_gws(Hex, Ledger, fun(Bin) -> term_to_binary(lists:sort(maps:to_list(maps:update_with(Hex, fun(V) -> lists:usort([GWAddr | V]) end, [GWAddr], maps:from_list(binary_to_term(Bin)))))) end).
+
+adjust_h3dex_gws(Hex, Ledger, Fun) ->
+    %% simply remove all gws for this hex tower, they can be recalculated/memoized on demand
+    H3CF = h3dex_cf(Ledger),
+    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+    ExpectedHex = h3:parent(Hex, Res),
+    SeenExpected = cache_fold(Ledger, H3CF,
+               fun({<<"gws-", H3Key/binary>> = Key, Val}, Acc) ->
+                       %% check this is a parent
+                       ThisHex = key_to_h3(H3Key),
+                       case h3:parent(Hex, h3:get_resolution(ThisHex)) == ThisHex of
+                           true ->
+                               cache_put(Ledger, H3CF, Key, Fun(Val)),
+                               Acc orelse ThisHex == ExpectedHex;
+                           false ->
+                               Acc
+                       end
+               end, false, [
+                        {start, {seek, <<"gws-", (find_lower_bound_hex(Hex))/binary>>}},
+                        {iterate_upper_bound, <<"gws-", (increment_bin(h3_to_key(h3:parent(Hex, 0))))/binary>>}
+                        ]),
+    case SeenExpected of
+        true ->
+            ok;
+        false ->
+            GWs = lookup_gateways_from_hex(ExpectedHex, Ledger),
+            Count = length(lists:usort(lists:flatten(maps:values(GWs)))),
+            cache_put(Ledger, H3CF, <<"gws-", (h3_to_key(ExpectedHex))/binary>>, term_to_binary(lists:sort(maps:to_list(GWs)))),
+            cache_put(Ledger, H3CF, <<"count-", (h3_to_key(ExpectedHex))/binary>>, <<Count:32/integer-unsigned-little>>),
+            ok
+    end.
+
 
 maybe_gc_h3dex(Ledger) ->
     %% pick a random h3dex index and remove any inactive hotspots from it
