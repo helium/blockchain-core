@@ -48,7 +48,8 @@
     <<"clear_scores">>,
     <<"clear_scores2">>,
     <<"nonce_rescue">>,
-    <<"poc_upgrade">>
+    <<"poc_upgrade">>,
+    <<"h3dex_memoize">>
 ]).
 
 -define(bones(HNT), HNT * 100000000).

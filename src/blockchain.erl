@@ -137,7 +137,8 @@
                           fun upgrade_gateways_score/1,
                           fun upgrade_gateways_score/1,
                           fun upgrade_nonce_rescue/1,
-                          fun blockchain_ledger_v1:upgrade_pocs/1]).
+                          fun blockchain_ledger_v1:upgrade_pocs/1,
+                          fun blockchain_ledger_v1:precalc_h3_caches/1]).
 
 -define(BLOCK_READ_SIZE, 4096*8). % 32K
 
