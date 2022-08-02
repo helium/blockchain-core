@@ -443,7 +443,12 @@ absorb(Txn, Chain) ->
                     Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
                     ok = blockchain_ledger_v1:update_gateway(Gw, Gw1, Gateway, Ledger)
 
-            end
+            end,
+            case blockchain_ledger_v1:mode(Ledger) of
+                active -> blockchain_witness_cache:clear_address(Gateway);
+                _ -> ok
+            end,
+            ok
     end.
 
 %%--------------------------------------------------------------------

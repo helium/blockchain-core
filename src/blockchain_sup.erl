@@ -127,6 +127,7 @@ init(Args) ->
     ChildSpecs =
         [
          ?WORKER(blockchain_lock, []),
+         ?WORKER(blockchain_witness_cache, []),
          ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
          ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
          ?WORKER(?POC_EVT_MGR, blockchain_poc_event, [BEventOpts])]

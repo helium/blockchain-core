@@ -54,13 +54,20 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(TestCase, Config) ->
+%% todo: make it easier to call from the shell, don't
+%% reload the ledger if it's already in place
+init_per_testcase(_TestCase, Config) ->
+
     TgtHeight = 1154958,
     LoadHeight = TgtHeight + 50,
     HtStr = integer_to_list(TgtHeight),
 
     {ok, _} = application:ensure_all_started(lager),
     {ok, _} = application:ensure_all_started(telemetry),
+    RTC = ets:new(bc_rtc, [public, named_table, {read_concurrency, true}]),
+    RocksCtr = ets:new(rocks_ctr, [public,
+                                   named_table,
+                                   {write_concurrency, true}]),
 
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
@@ -83,6 +90,7 @@ init_per_testcase(TestCase, Config) ->
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
     {ok, _Pid} = blockchain_score_cache:start_link(),
+    {ok, _Pid2} = blockchain_witness_cache:start_link(),
 
     {ok, BinGen} =
         case TestCase of
@@ -91,6 +99,7 @@ init_per_testcase(TestCase, Config) ->
             _ ->
                 file:read_file("../../../../test/genesis")
         end,
+
     GenesisBlock = blockchain_block:deserialize(BinGen),
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
@@ -126,7 +135,9 @@ init_per_testcase(TestCase, Config) ->
     ?assertEqual(LoadHeight, Height),
     Chain1 = blockchain:ledger(Ledger0, Chain),
 
-    [{chain, Chain1}
+    [{chain, Chain1},
+     {rtc, RTC},
+     {ctr, RocksCtr}
     | Config].
 
 end_per_testcase(_TestCase, Config) ->
