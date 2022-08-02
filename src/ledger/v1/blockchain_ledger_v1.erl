@@ -5075,14 +5075,23 @@ is_hex_populated(Hex, Ledger) ->
 -spec count_gateways_in_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> non_neg_integer().
 count_gateways_in_hex(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
-    cache_fold(Ledger, H3CF,
-               fun({_Key, GWs}, Acc) ->
-                      Acc + length(binary_to_term(GWs))
-               end, 0, [
-                          {start, {seek, find_lower_bound_hex(Hex)}},
-                          {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
-                         ]
-              ).
+    CountKey = <<"count-", (h3_to_key(Hex))/binary>>,
+    case cache_get(Ledger, H3CF, CountKey, []) of
+        {ok, <<Count0:32/integer-unsigned-little>>} ->
+            Count0;
+        not_found ->
+            Count = cache_fold(Ledger, H3CF,
+                               fun({_Key, GWs}, Acc) ->
+                                       Acc + length(binary_to_term(GWs))
+                               end, 0, [
+                                        {start, {seek, find_lower_bound_hex(Hex)}},
+                                        {iterate_upper_bound, increment_bin(h3_to_key(Hex))}
+                                       ]
+                              ),
+            %% memoize the value
+            cache_put(Ledger, H3CF, CountKey, <<Count:32/integer-unsigned-little>>),
+            Count
+    end.
 
 %%% TODO: rewrite for post-hex targeting
 -spec count_gateways_in_hexes(Resolution :: h3:resolution(), Ledger :: ledger()) -> #{h3:h3_index() => non_neg_integer()}.
@@ -5208,6 +5217,7 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
             %% need to add the hex and maybe update targeting lookup if no other gateways in parent hex
             %% includes chain var protected bug fix
             ParentRes = h3:parent(Hex, Res),
+            clear_h3dex_counts(Hex, Ledger),
             case config(?h3dex_targeting_lookup_fix, Ledger) of
                 %% if fix enabled, add the hex and maybe update lookup
                 {ok, true} ->
@@ -5232,6 +5242,7 @@ add_gw_to_h3dex(Hex, GWAddr, Res, Ledger) ->
                     cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]))
             end;
         {ok, BinGws} ->
+            clear_h3dex_counts(Hex, Ledger),
             GWs = binary_to_term(BinGws),
             cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:usort([GWAddr | GWs]), [compressed]));
         Error -> Error
@@ -5252,6 +5263,7 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
         {ok, BinGws} ->
             case lists:delete(GWAddr, binary_to_term(BinGws)) of
                 [] ->
+                    clear_h3dex_counts(Hex, Ledger),
                     ParentRes = h3:parent(Hex, Res),
                     %% need to remove the hex and maybe recalc targeting lookup if no gateways remain in parent hex
                     %% includes chain var protected bug fix
@@ -5272,10 +5284,25 @@ remove_gw_from_h3dex(Hex, GWAddr, Res, Ledger) ->
                             cache_delete(Ledger, H3CF, BinHex)
                     end;
                 NewGWs ->
+                    clear_h3dex_counts(Hex, Ledger),
                     cache_put(Ledger, H3CF, BinHex, term_to_binary(lists:sort(NewGWs), [compressed]))
             end;
         Error -> Error
     end.
+
+clear_h3dex_counts(Hex, Ledger) ->
+    %% simply remove all counts for this hex tower, they can be recalculated/memoized on demand
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({<<"count-", _/binary>> = Key, _Val}, Acc) ->
+                    cache_delete(Ledger, H3CF, Key),
+                    Acc
+               end, ok, [
+
+                        {start, {seek, <<"count-", (find_lower_bound_hex(Hex))/binary>>}},
+                        {iterate_upper_bound, <<"count-", (increment_bin(h3_to_key(Hex)))/binary>>}
+                        ]).
+
 
 maybe_gc_h3dex(Ledger) ->
     %% pick a random h3dex index and remove any inactive hotspots from it
