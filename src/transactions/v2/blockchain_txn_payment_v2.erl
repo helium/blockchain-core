@@ -211,10 +211,7 @@ absorb_v2_(Txn, Ledger, Chain) ->
 
 -spec absorb_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_(Txn, Ledger, Chain) ->
-    {_, SpecifiedAmounts} = split_payment_amounts(Txn, Ledger),
-    TotalAmount = lists:foldl(fun({_, TAmt}, Acc) -> TAmt + Acc end, 0, ?MODULE:amounts(Txn, Ledger)),
-    SpecifiedSubTotal = lists:foldl(fun({_, SAmt}, Acc) -> SAmt + Acc end, 0, SpecifiedAmounts),
-    MaxPayment = TotalAmount - SpecifiedSubTotal,
+    {TotalAmount, MaxPayment} = calc_max_payment(Txn, Ledger),
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
@@ -281,12 +278,12 @@ json_type() ->
     <<"payment_v2">>.
 
 -spec to_json(txn_payment_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, _Opts) ->
+to_json(Txn, Opts) ->
     #{
         type => ?MODULE:json_type(),
         hash => ?BIN_TO_B64(hash(Txn)),
         payer => ?BIN_TO_B58(payer(Txn)),
-        payments => [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)],
+        payments => payment_json(Txn, Opts),
         fee => fee(Txn),
         nonce => nonce(Txn)
     }.
@@ -682,6 +679,42 @@ has_default_tokens(Payments) ->
         end,
         Payments
     ).
+
+-spec calc_max_payment(Txn :: txn_payment_v2(), Ledger :: blockchain:ledger()) -> {pos_integer(), pos_integer()}.
+calc_max_payment(Txn, Ledger) ->
+    {_, SpecifiedAmounts} = split_payment_amounts(Txn, Ledger),
+    TotalAmount = lists:foldl(fun({_, TAmt}, Acc) -> TAmt + Acc end, 0, ?MODULE:amounts(Txn, Ledger)),
+    SpecifiedSubTotal = lists:foldl(fun({_, SAmt}, Acc) -> SAmt + Acc end, 0, SpecifiedAmounts),
+    {TotalAmount, TotalAmount - SpecifiedSubTotal}.
+
+-spec payment_json(txn_payment_v2(), blockchain_json:opts()) -> [blockchain_json:json_object()].
+payment_json(Txn, Opts) ->
+    Ledger = proplists:get_value(ledger, Opts),
+    case blockchain:config(?token_version, Ledger) of
+        {ok, 2} ->
+            {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
+            MaxPaymentsMap = maps:from_list(MaxAmounts),
+            lists:map(
+              fun(Payment) ->
+                      TT = blockchain_payment_v2:token_type(Payment),
+                      PayeeAmount = case blockchain_payment_v2:amount(Payment) of
+                                        0 -> maps:get(TT, MaxPaymentsMap, 0);
+                                        Amount when Amount > 0 -> Amount
+                                    end,
+                      blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
+              end, payments(Txn));
+        _ ->
+            {_, MaxPayment} = calc_max_payment(Txn, Ledger),
+            lists:map(
+              fun(Payment) ->
+                      PayeeAmount = case blockchain_payment_v2:amount(Payment) of
+                                        0 -> MaxPayment;
+                                        Amount when Amount > 0 -> Amount
+                                    end,
+                      blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
+              end, payments(Txn))
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
