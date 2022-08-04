@@ -859,6 +859,11 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
+    BaseDir = test_utils:tmp_dir("to_json_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger1),
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
     Payments = [
         blockchain_payment_v2:new(<<"x">>, 10),
         blockchain_payment_v2:new(<<"y">>, 20),
@@ -871,12 +876,64 @@ to_json_test() ->
         nonce = 1,
         signature = <<>>
     },
-    Json = to_json(Tx, []),
+    Json = to_json(Tx, [{ledger, Ledger}]),
     ?assert(
         lists:all(
             fun(K) -> maps:is_key(K, Json) end,
             [type, payer, payments, fee, nonce]
         )
-    ).
+    ),
+    test_utils:cleanup_tmp_dir(BaseDir),
+    ok.
+
+to_json_with_max_test() ->
+    BaseDir = test_utils:tmp_dir("to_json_with_max_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger1),
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+    Payments = [
+        blockchain_payment_v2:new(<<"x">>, 10),
+        blockchain_payment_v2:new(<<"y">>, 20),
+        blockchain_payment_v2:new(<<"z">>, max)
+    ],
+    Tx = new(<<"payer">>, Payments, 1),
+    Json = to_json(Tx, [{ledger, Ledger}]),
+    ?assertEqual(70,
+                 maps:get(amount,
+                          hd(lists:filter(
+                               fun(Map) ->
+                                       maps:get(max, Map) == true
+                               end, maps:get(payments, Json))))),
+    test_utils:cleanup_tmp_dir(BaseDir),
+    ok.
+
+to_json_token_version_2_test() ->
+    BaseDir = test_utils:tmp_dir("to_json_token_version_2_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:vars(#{token_version => 2}, [], Ledger1),
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+    %% NOTE: Doing this after setting the var ensures that credit_account
+    %% operates with ledger_entry_version=2
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger2),
+    ok = blockchain_ledger_v1:commit_context(Ledger2),
+    Payments = [
+        blockchain_payment_v2:new(<<"x">>, 10, hnt),
+        blockchain_payment_v2:new(<<"y">>, 20, hnt),
+        blockchain_payment_v2:new(<<"z">>, max, hnt)
+    ],
+    Tx = new(<<"payer">>, Payments, 1),
+    Json = to_json(Tx, [{ledger, Ledger}]),
+    io:format("~p~n", [Json]),
+    ?assertEqual(70,
+                 maps:get(amount,
+                          hd(lists:filter(
+                               fun(Map) ->
+                                       maps:get(max, Map) == true
+                               end, maps:get(payments, Json))))),
+    test_utils:cleanup_tmp_dir(BaseDir),
+    ok.
 
 -endif.
