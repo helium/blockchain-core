@@ -151,21 +151,22 @@ init(Args) ->
 
 
 cream_caches_init() ->
-    MaxCapacity = 10000,
+    MaxItemCapacity = 10000,
+    MB = 1024 * 1024,
     {ok, VarCache}
-        = cream:new(MaxCapacity,
+        = cream:new(MaxItemCapacity,
                     [{initial_capacity, 1000},
                      {seconds_to_idle, 60 * 60}]),
     persistent_term:put(?var_cache, VarCache),
 
+    RegionMem = application:get_env(blockchain, region_cache_limit_mb, 100) * MB,
     {ok, RegionCache}
-        = cream:new(1000000,
-                    [{initial_capacity, 100000},
-                     {seconds_to_idle, 24 * 60 * 60}]),
+        = cream:new(RegionMem,
+                    [{bounding, memory}]),
     persistent_term:put(?region_cache, RegionCache),
 
     {ok, ScoreCache}
-        = cream:new(MaxCapacity,
+        = cream:new(MaxItemCapacity,
                     [{initial_capacity, 1000},
                      {seconds_to_idle, 12 * 60 * 60}]),
     persistent_term:put(?score_cache, ScoreCache),
