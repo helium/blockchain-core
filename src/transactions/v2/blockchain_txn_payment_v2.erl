@@ -689,30 +689,35 @@ calc_max_payment(Txn, Ledger) ->
 
 -spec payment_json(txn_payment_v2(), blockchain_json:opts()) -> [blockchain_json:json_object()].
 payment_json(Txn, Opts) ->
-    Ledger = proplists:get_value(ledger, Opts),
-    case blockchain:config(?token_version, Ledger) of
-        {ok, 2} ->
-            {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
-            MaxPaymentsMap = maps:from_list(MaxAmounts),
-            lists:map(
-              fun(Payment) ->
-                      TT = blockchain_payment_v2:token_type(Payment),
-                      PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                        0 -> maps:get(TT, MaxPaymentsMap, 0);
-                                        Amount when Amount > 0 -> Amount
-                                    end,
-                      blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
-              end, payments(Txn));
-        _ ->
-            {_, MaxPayment} = calc_max_payment(Txn, Ledger),
-            lists:map(
-              fun(Payment) ->
-                      PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                        0 -> MaxPayment;
-                                        Amount when Amount > 0 -> Amount
-                                    end,
-                      blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
-              end, payments(Txn))
+    case proplists:get_value(ledger, Opts) of
+        undefined ->
+            %% Do the existing thing
+            [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)];
+        Ledger ->
+            case blockchain:config(?token_version, Ledger) of
+                {ok, 2} ->
+                    {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
+                    MaxPaymentsMap = maps:from_list(MaxAmounts),
+                    lists:map(
+                      fun(Payment) ->
+                              TT = blockchain_payment_v2:token_type(Payment),
+                              PayeeAmount = case blockchain_payment_v2:amount(Payment) of
+                                                0 -> maps:get(TT, MaxPaymentsMap, 0);
+                                                Amount when Amount > 0 -> Amount
+                                            end,
+                              blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
+                      end, payments(Txn));
+                _ ->
+                    {_, MaxPayment} = calc_max_payment(Txn, Ledger),
+                    lists:map(
+                      fun(Payment) ->
+                              PayeeAmount = case blockchain_payment_v2:amount(Payment) of
+                                                0 -> MaxPayment;
+                                                Amount when Amount > 0 -> Amount
+                                            end,
+                              blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
+                      end, payments(Txn))
+            end
     end.
 
 
@@ -859,7 +864,28 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    BaseDir = test_utils:tmp_dir("to_json_test"),
+    Payments = [
+        blockchain_payment_v2:new(<<"x">>, 10),
+        blockchain_payment_v2:new(<<"y">>, 20),
+        blockchain_payment_v2:new(<<"z">>, 30)
+    ],
+    Tx = #blockchain_txn_payment_v2_pb{
+        payer = <<"payer">>,
+        payments = Payments,
+        fee = ?LEGACY_TXN_FEE,
+        nonce = 1,
+        signature = <<>>
+    },
+    Json = to_json(Tx, []),
+    ?assert(
+        lists:all(
+            fun(K) -> maps:is_key(K, Json) end,
+            [type, payer, payments, fee, nonce]
+        )
+    ).
+
+to_json_with_ledger_test() ->
+    BaseDir = test_utils:tmp_dir("to_json_with_ledger_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger1),

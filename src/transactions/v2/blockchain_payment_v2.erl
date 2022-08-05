@@ -168,7 +168,10 @@ json_type() ->
 
 -spec to_json(payment(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Payment, Opts) ->
-    Amount = proplists:get_value(amount, Opts),
+    Amount = case proplists:get_value(amount, Opts, undefined) of
+                 undefined -> amount(Payment);
+                 Amt -> Amt
+             end,
     #{
       payee => ?BIN_TO_B58(payee(Payment)),
       amount => Amount,
