@@ -449,20 +449,27 @@ absorb_and_commit(Block, Chain0, BeforeCommit) ->
                                {ok, tuple()} | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+    Ledger1 = blockchain_ledger_v1:new_public_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     Height = blockchain_block:height(Block),
 
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
     Start = erlang:monotonic_time(millisecond),
-    case ?MODULE:validate(Transactions, Chain1, Rescue) of
+    Ref = make_ref(),
+    Parent = self(),
+    {AbsorbPid, AbsorbRef} = spawn_monitor(fun() ->
+                          Res = ?MODULE:absorb_block(Block, Rescue, Chain1),
+                          Parent ! {Ref, Res}
+                  end),
+    case ?MODULE:validate(Transactions, Chain0, Rescue) of
         {_ValidTxns, []} ->
-            End = erlang:monotonic_time(millisecond),
-            telemetry:execute([blockchain, block, absorb], #{duration => End - Start}, #{stage => validation}),
-            AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
-            case ?MODULE:absorb_block(Block, Rescue, Chain1) of
-                {ok, Chain2, KeysPayload} ->
+            receive
+                {Ref, {ok, Chain2, KeysPayload}} ->
+                    erlang:demonitor(AbsorbRef, [flush]),
+                    End = erlang:monotonic_time(millisecond),
+                    telemetry:execute([blockchain, block, absorb], #{duration => End - Start}, #{stage => validation}),
+                    AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
                     Ledger2 = blockchain:ledger(Chain2),
                     Hash = blockchain_block:hash_block(Block),
                     case BeforeCommit(Chain2, Hash) of
@@ -486,11 +493,18 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                         Any ->
                             Any
                     end;
-                Error ->
+                {Ref, Error} ->
+                    erlang:demonitor(AbsorbRef, [flush]),
                     blockchain_ledger_v1:delete_context(Ledger1),
-                    Error
+                    Error;
+                {'DOWN', AbsorbRef, process, AbsorbPid, Reason} ->
+                    blockchain_ledger_v1:delete_context(Ledger1),
+                    {error, Reason}
             end;
         {_ValidTxns, InvalidTxns} ->
+            erlang:demonitor(AbsorbRef, [flush]),
+            exit(AbsorbPid, kill),
+            %% unmonitor and kill absorb
             blockchain_ledger_v1:delete_context(Ledger1),
             lager:error("found invalid transactions: ~p", [InvalidTxns]),
             {error, invalid_txns}
