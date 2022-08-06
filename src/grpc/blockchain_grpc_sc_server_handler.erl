@@ -120,8 +120,9 @@ maybe_initialize_state(undefined) ->
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
             ActiveSCs =
+                Cache = persistent_term:get(?sc_server_cache),
                 cream:cache(
-                  ?sc_server_cache,
+                  Cache,
                   active_list,
                   fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
                  ),
