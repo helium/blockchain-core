@@ -3133,6 +3133,7 @@ info_cf(Chain) -> Chain#blockchain.info.
 -ifdef(TEST).
 
 new_test() ->
+    blockchain_sup:cream_caches_init(),
     BaseDir = test_utils:tmp_dir("new_test"),
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
@@ -3143,6 +3144,7 @@ new_test() ->
     ?assertEqual({ok, Block}, head_block(Chain)),
     ?assertEqual({ok, Block}, get_block(Hash, Chain)),
     ?assertEqual({ok, Block}, get_block(1, Chain)),
+    blockchain_sup:cream_caches_clear(),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 % ledger_test() ->
@@ -3157,7 +3159,6 @@ blocks_test_() ->
              meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
                                                                           {ok, []}
                                                                   end),
-             meck:new(blockchain_block, [passthrough]),
              meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
                                                                       {true, undefined}
                                                               end),
@@ -3179,6 +3180,8 @@ blocks_test_() ->
 
              meck:new(blockchain_gossip_handler),
              meck:expect(blockchain_gossip_handler, regossip_block, fun(_Block, _Height, _Hash, _SwarmTID) -> ok end),
+
+             blockchain_sup:cream_caches_init(),
 
              {ok, Pid} = blockchain_lock:start_link(),
 
@@ -3227,7 +3230,8 @@ blocks_test_() ->
              ?assert(meck:validate(blockchain_swarm)),
              meck:unload(blockchain_swarm),
              meck:unload(blockchain_gossip_handler),
-             test_utils:cleanup_tmp_dir(TmpDir)
+             test_utils:cleanup_tmp_dir(TmpDir),
+             blockchain_sup:cream_caches_clear()
      end}.
 
 get_block_test_() ->

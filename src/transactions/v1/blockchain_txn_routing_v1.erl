@@ -652,9 +652,9 @@ calculate_fee_test_() ->
                 {ok, Routing}
             end),
 
-            meck:new(blockchain, [passthrough]),
+            meck:new(blockchain_utils, [passthrough]),
             %% Set txn_routing_update_xor_fees_version to 0
-            meck:expect(blockchain, config, fun(_, _) ->
+            meck:expect(blockchain_utils, get_var, fun(txn_routing_update_xor_fees_version, _) ->
                 {ok, 0}
             end),
 
@@ -670,7 +670,7 @@ calculate_fee_test_() ->
             ?assertEqual(313, calculate_fee(Txn, ledger, 1, 1, true)),
 
             %% Set txn_routing_update_xor_fees_version to 1
-            meck:expect(blockchain, config, fun(_, _) ->
+            meck:expect(blockchain_utils, get_var, fun(txn_routing_update_xor_fees_version, _) ->
                 {ok, 1}
             end),
 
@@ -689,7 +689,7 @@ calculate_fee_test_() ->
             %% Testing with small update to show price diff with previous version
             %% 112 compare to > 300
             ?assertEqual(112, calculate_fee(Txn2, ledger, 1, 1, true)),
-            
+
             Xor3 = crypto:strong_rand_bytes(102),
             Txn3 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor3, Nonce),
 
@@ -697,7 +697,7 @@ calculate_fee_test_() ->
             ?assertEqual(112, calculate_fee(Txn3, ledger, 1, 1, true)),
 
             meck:unload(blockchain_ledger_v1),
-            meck:unload(blockchain),
+            meck:unload(blockchain_utils),
             ok
          end
     }.

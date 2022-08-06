@@ -332,17 +332,23 @@ location_test() ->
     ?assertEqual(13, location(location(13, Gw))).
 
 score_test() ->
+    blockchain_sup:cream_caches_init(),
     Gw = new(<<"owner_address">>, 12),
     fake_config(),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+    blockchain_sup:cream_caches_clear(),
+    meck:unload().
 
 score_decay_test() ->
+    blockchain_sup:cream_caches_init(),
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
     fake_config(),
     {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
     ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+    blockchain_sup:cream_caches_clear(),
+    meck:unload().
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
@@ -351,7 +357,8 @@ score_decay2_test() ->
     {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
-    ?assert(Score < 0.25).
+    ?assert(Score < 0.25),
+    meck:unload().
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -369,8 +376,8 @@ nonce_test() ->
     ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
-    meck:expect(blockchain,
-                config,
+    meck:expect(blockchain_utils,
+                get_var,
                 fun(alpha_decay, _) ->
                         {ok, 0.007};
                    (beta_decay, _) ->

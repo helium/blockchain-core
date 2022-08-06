@@ -10,7 +10,8 @@
 %% API
 -export([
          start_link/1,
-         cream_caches_init/0 % maybe test-only?
+         cream_caches_init/0, % maybe test-only?
+         cream_caches_clear/0 % maybe test-only?
         ]).
 
 %% Supervisor callbacks
@@ -149,7 +150,6 @@ init(Args) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-
 cream_caches_init() ->
     MaxItemCapacity = 10000,
     MB = 1024 * 1024,
@@ -188,3 +188,11 @@ cream_caches_init() ->
                     [{initial_capacity, 50},
                      {seconds_to_idle, 6 * 60 * 60}]),
     persistent_term:put(?routing_cache, RoutingCache).
+
+cream_caches_clear() ->
+    cream:drain(persistent_term:get(?var_cache)),
+    cream:drain(persistent_term:get(?region_cache)),
+    cream:drain(persistent_term:get(?score_cache)),
+    cream:drain(persistent_term:get(?fp_cache)),
+    cream:drain(persistent_term:get(?sc_server_cache)),
+    cream:drain(persistent_term:get(?routing_cache)).

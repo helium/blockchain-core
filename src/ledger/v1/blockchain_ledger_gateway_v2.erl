@@ -813,11 +813,13 @@ score_test_() ->
         timeout,
         10,
         fun() ->
+            blockchain_sup:cream_caches_init(),
             Gw = new(<<"owner_address">>, 12, full),
             fake_config(),
             ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
             fake_config_cleanup(),
-            blockchain_score_cache:stop()
+            blockchain_score_cache:stop(),
+            blockchain_sup:cream_caches_clear()
         end
     }.
 
@@ -878,8 +880,8 @@ fake_config() ->
                 blockchain,
                 fun() -> undefined end),
     {ok, Pid} = blockchain_score_cache:start_link(),
-    meck:expect(blockchain,
-                config,
+    meck:expect(blockchain_utils,
+                get_var,
                 fun(alpha_decay, _) ->
                         {ok, 0.007};
                    (beta_decay, _) ->
@@ -894,6 +896,6 @@ fake_config() ->
 fake_config_cleanup() ->
     meck:unload(blockchain_event),
     meck:unload(blockchain_worker),
-    meck:unload(blockchain).
+    meck:unload(blockchain_utils).
 
 -endif.
