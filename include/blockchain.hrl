@@ -33,6 +33,7 @@
 -define(score_cache, score_cache).
 -define(var_cache, var_cache).
 -define(region_cache, region_cache).
+-define(gw_cache, gw_cache).
 -define(fp_cache, fp_cache).
 -define(routing_cache, routing_cache).
 -define(sc_server_cache, routing_cache).

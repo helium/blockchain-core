@@ -119,8 +119,8 @@ maybe_initialize_state(undefined) ->
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
+            Cache = persistent_term:get(?sc_server_cache),
             ActiveSCs =
-                Cache = persistent_term:get(?sc_server_cache),
                 cream:cache(
                   Cache,
                   active_list,

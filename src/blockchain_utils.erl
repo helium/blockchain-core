@@ -432,7 +432,18 @@ hex_adjustment(Loc) ->
 -spec score_gateways(Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
 score_gateways(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    score_tagged_gateways(Height, Ledger).
+    case blockchain_ledger_v1:mode(Ledger) of
+        delayed ->
+            %% Use the cache in delayed ledger mode
+            Cache = persistent_term:get(?gw_cache),
+            cream:cache(Cache, {Height},
+                        fun() ->
+                                score_tagged_gateways(Height, Ledger)
+                        end);
+        active ->
+            %% recalculate in active ledger mode
+            score_tagged_gateways(Height, Ledger)
+    end.
 
 -spec score_tagged_gateways(Height :: pos_integer(),
                             Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().

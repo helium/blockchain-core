@@ -165,6 +165,12 @@ cream_caches_init() ->
                     [{bounding, memory}]),
     persistent_term:put(?region_cache, RegionCache),
 
+    GwMem = application:get_env(blockchain, gateway_cache_limit_mb, 100) * MB,
+    {ok, GwCache}
+        = cream:new(GwMem,
+                    [{bounding, memory}]),
+    persistent_term:put(?gw_cache, GwCache),
+
     {ok, ScoreCache}
         = cream:new(MaxItemCapacity,
                     [{initial_capacity, 1000},
