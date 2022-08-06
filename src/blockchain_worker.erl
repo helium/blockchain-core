@@ -492,7 +492,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
             %% TODO proper error checking and recovery/retry
             NewLedger = blockchain_ledger_snapshot_v1:import(Chain, Height, Hash, Snapshot, BinSnap),
             Chain1 = blockchain:ledger(NewLedger, Chain),
-            ok = blockchain:process_upgrades(Chain1),
+            ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
             try
                 %% There is a hole in the snapshot history where this will be
                 %% true, but later it will have come from the snap.
