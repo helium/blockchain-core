@@ -492,7 +492,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
             %% TODO proper error checking and recovery/retry
             NewLedger = blockchain_ledger_snapshot_v1:import(Chain, Height, Hash, Snapshot, BinSnap),
             Chain1 = blockchain:ledger(NewLedger, Chain),
-            ok = blockchain:mark_upgrades(?BC_UPGRADE_NAMES, NewLedger),
+            Chain2 = blockchain:process_upgrades(Chain1),
             try
                 %% There is a hole in the snapshot history where this will be
                 %% true, but later it will have come from the snap.
@@ -513,7 +513,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
                     blockchain_ledger_v1:commit_context(NewLedger1)
             end,
             remove_handlers(SwarmTID),
-            NewChain = blockchain:delete_temp_blocks(Chain1),
+            NewChain = blockchain:delete_temp_blocks(Chain2),
             notify({new_chain, NewChain}),
             {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
             {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),

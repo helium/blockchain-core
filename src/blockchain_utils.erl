@@ -20,6 +20,9 @@
     poc_id/1,
     pfind/2, pfind/3,
     pmap/2,
+    streaming_pmap_new/1,
+    streaming_pmap_submit/2,
+    streaming_pmap_done/1,
     addr2name/1,
     addr2uri/1,
     distance/2,
@@ -315,6 +318,68 @@ addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
     N.
+
+streaming_pmap_new(F) ->
+    Width = validation_width(),
+    streaming_pmap_new(F, Width).
+
+streaming_pmap_new(F, Width) ->
+    [ spawn(streaming_pmap_loop_fun(F)) || _ <-  lists:seq(1, Width) ].
+
+streaming_pmap_loop_fun(F) ->
+    Parent = self(),
+    fun() ->
+    L = fun Loop(Acc) ->
+            receive
+                {input, V} ->
+                    Loop([F(V) | Acc]);
+                done ->
+                    Parent ! {done, self(), Acc}
+            end
+    end,
+    L([])
+    end.
+
+streaming_pmap_submit(Workers, Input) ->
+    Index = (erlang:phash2(Input) rem length(Workers))+ 1,
+    Worker = lists:nth(Index, Workers),
+    Worker ! {input, Input},
+    ok.
+
+streaming_pmap_done(Workers) ->
+    [ begin Pid ! done, erlang:monitor(process, Pid) end || Pid <- Workers ],
+    fun() ->
+    L = fun Loop(Acc, []) ->
+                %% done
+                Acc;
+            Loop(Acc, RemainingWorkers) ->
+            receive
+                {'DOWN', _Ref, process, Worker, Info} = Msg ->
+                    case lists:member(Worker, RemainingWorkers) of
+                        true ->
+                            case Info of
+                                normal ->
+                                    Loop(Acc, RemainingWorkers -- [Worker]);
+                                Other ->
+                                    error({pmap_worker_crashed, {Worker, Other}})
+                            end;
+                        false ->
+                            self() ! Msg,
+                            Loop(Acc, RemainingWorkers)
+                    end;
+                {done, Worker, Result} = Msg ->
+                    case lists:member(Worker, RemainingWorkers) of
+                        true ->
+                            Loop(Acc ++ Result, RemainingWorkers);
+                        false ->
+                            self() ! Msg,
+                            Loop(Acc, RemainingWorkers)
+                    end
+            end
+        end,
+    L([], Workers)
+    end().
+
 
 -spec addr2uri(libp2p_crypto:pubkey_bin() | undefined) -> binary() | undefined.
 addr2uri(undefined) -> undefined;
@@ -872,6 +937,14 @@ pmap_test() ->
     ?assertEqual(6, maps:size(Map)),
     ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
     ?assertEqual(Input, Results).
+
+streaming_pmap_test() ->
+    Input = lists:seq(1, 21),
+    Workers = streaming_pmap_new(fun(E) -> E end),
+    [ streaming_pmap_submit(Workers, E) || E <- Input ],
+    Results = streaming_pmap_done(Workers),
+    ?assertEqual(Input, lists:sort(Results)).
+
 
 get_pubkeybin_sigfun_test() ->
     {timeout, 30000,
