@@ -174,10 +174,10 @@ absorb(Txn, Chain) ->
 -spec actual_amount(OriginalAmount :: pos_integer(),
                     Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
 actual_amount(OriginalAmount, Ledger) ->
-    case blockchain_ledger_v1:config(?sc_overcommit, Ledger) of
+    case ?get_var(?sc_overcommit, Ledger) of
         {ok, Overcommit} -> OriginalAmount * Overcommit;
         _ ->
-            case blockchain_ledger_v1:config(?sc_version, Ledger) of
+            case ?get_var(?sc_version, Ledger) of
                 {ok, SCVer} when SCVer > 1 -> OriginalAmount;
                 _ ->
                     0
@@ -214,9 +214,9 @@ do_is_valid_checks(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     OUI = ?MODULE:oui(Txn),
 
-    case blockchain:config(?min_expire_within, Ledger) of
+    case ?get_var(?min_expire_within, Ledger) of
         {ok, MinExpireWithin} ->
-            case blockchain:config(?max_open_sc, Ledger) of
+            case ?get_var(?max_open_sc, Ledger) of
                 {ok, MaxOpenSC} ->
                     case ExpireWithin > MinExpireWithin andalso ExpireWithin < blockchain_utils:approx_blocks_in_week(Ledger) of
                         false ->
@@ -235,7 +235,7 @@ do_is_valid_checks(Txn, Chain) ->
                                         true ->
                                             case blockchain_ledger_v1:find_sc_ids_by_owner(Owner, Ledger) of
                                                 {ok, BinIds} when length(BinIds) >= MaxOpenSC ->
-                                                    case blockchain:config(?sc_only_count_open_active, Ledger) of
+                                                    case ?get_var(?sc_only_count_open_active, Ledger) of
                                                         {ok, true} ->
                                                             %% Even if BinIds have exceeded MaxOpenSC, we want to further
                                                             %% check the sc count for this owner in Ledger
@@ -300,7 +300,7 @@ check_remaining(Txn, Ledger, Chain) ->
                         false ->
                             {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                         true ->
-                            case blockchain:config(?sc_open_validation_bugfix, Ledger) of
+                            case ?get_var(?sc_open_validation_bugfix, Ledger) of
                                 {ok, 1} ->
                                     %% Check whether the actual amount (overcommit *
                                     %% original amount) + txn_fee is payable by this

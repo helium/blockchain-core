@@ -11,6 +11,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include("blockchain_vars.hrl").
 -include("blockchain_region_test.hrl").
 -include("blockchain_ct_utils.hrl").
 
@@ -254,7 +255,7 @@ australia_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Melbourne, Australia
     H3 = h3:from_geo({-37.821009972614775, 144.9686332019166}, 12),
-    case blockchain:config(region_au915, Ledger) of
+    case ?get_var(region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(H3, Bin),
             {ok, region_au915} = blockchain_region_v1:h3_to_region(H3, Ledger),
@@ -268,7 +269,7 @@ au915_test(Config) ->
     Ledger = ?config(ledger, Config),
     %% Brasilia, Brazil
     H3 = h3:from_geo({-15.79816586730825, -47.86162940214371}, 12),
-    case blockchain:config(region_au915, Ledger) of
+    case ?get_var(region_au915, Ledger) of
         {ok, Bin} ->
             {true, _Parent} = h3:contains(H3, Bin),
             {ok, region_au915} = blockchain_region_v1:h3_to_region(H3, Ledger),
@@ -426,7 +427,7 @@ region_not_found_test(Config) ->
 
 us915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_us915_params, Ledger) of
+    case ?get_var(region_us915_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -438,7 +439,7 @@ us915_region_param_test(Config) ->
 
 eu868_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_eu868_params, Ledger) of
+    case ?get_var(region_eu868_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -450,7 +451,7 @@ eu868_region_param_test(Config) ->
 
 au915_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_au915_params, Ledger) of
+    case ?get_var(region_au915_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -462,7 +463,7 @@ au915_region_param_test(Config) ->
 
 as923_1_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_as923_1_params, Ledger) of
+    case ?get_var(region_as923_1_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -474,7 +475,7 @@ as923_1_region_param_test(Config) ->
 
 as923_1b_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_as923_1b_params, Ledger) of
+    case ?get_var(region_as923_1b_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -486,7 +487,7 @@ as923_1b_region_param_test(Config) ->
 
 as923_2_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_as923_2_params, Ledger) of
+    case ?get_var(region_as923_2_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -498,7 +499,7 @@ as923_2_region_param_test(Config) ->
 
 as923_3_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_as923_3_params, Ledger) of
+    case ?get_var(region_as923_3_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -510,7 +511,7 @@ as923_3_region_param_test(Config) ->
 
 as923_4_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_as923_4_params, Ledger) of
+    case ?get_var(region_as923_4_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -522,7 +523,7 @@ as923_4_region_param_test(Config) ->
 
 ru864_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_ru864_params, Ledger) of
+    case ?get_var(region_ru864_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             7 = length(ParamsFromBin),
@@ -534,7 +535,7 @@ ru864_region_param_test(Config) ->
 
 cn470_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_cn470_params, Ledger) of
+    case ?get_var(region_cn470_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             8 = length(ParamsFromBin),
@@ -546,7 +547,7 @@ cn470_region_param_test(Config) ->
 
 in865_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_in865_params, Ledger) of
+    case ?get_var(region_in865_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             3 = length(ParamsFromBin),
@@ -558,7 +559,7 @@ in865_region_param_test(Config) ->
 
 kr920_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_kr920_params, Ledger) of
+    case ?get_var(region_kr920_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             7 = length(ParamsFromBin),
@@ -570,7 +571,7 @@ kr920_region_param_test(Config) ->
 
 eu433_region_param_test(Config) ->
     Ledger = ?config(ledger, Config),
-    case blockchain:config(region_eu433_params, Ledger) of
+    case ?get_var(region_eu433_params, Ledger) of
         {ok, Bin} ->
             ParamsFromBin = blockchain_region_params_v1:region_params(blockchain_region_params_v1:deserialize(Bin)),
             3 = length(ParamsFromBin),
@@ -582,7 +583,7 @@ eu433_region_param_test(Config) ->
 
 get_spreading_test(Config) ->
     Ledger = ?config(ledger, Config),
-    {ok, Bin} = blockchain:config(region_eu433_params, Ledger),
+    {ok, Bin} = ?get_var(region_eu433_params, Ledger),
     Params = blockchain_region_params_v1:deserialize(Bin),
     R1 = blockchain_region_params_v1:get_spreading(Params, 30),
     R2 = blockchain_region_params_v1:get_spreading(Params, 68),

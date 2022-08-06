@@ -156,7 +156,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+    FieldValidation = case ?get_var(?txn_field_validation_version, Ledger) of
                           {ok, 1} ->
                               [{{payee, ?MODULE:payee(Txn)}, {address, libp2p}},
                                {{hashlock, ?MODULE:hashlock(Txn)}, {binary, 32}},
@@ -189,7 +189,7 @@ is_valid(Txn, Chain) ->
                                         true ->
                                             Amount = ?MODULE:amount(Txn),
                                             TxnFee = ?MODULE:fee(Txn),
-                                            AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                            AmountCheck = case ?get_var(?allow_zero_amount, Ledger) of
                                                               {ok, false} ->
                                                                   %% check that amount is greater than 0
                                                                   Amount > 0;

@@ -107,12 +107,12 @@ init(Args) ->
     Chain = maps:get(chain, Args),
     Ledger = blockchain:ledger(Chain),
     DCPayloadSize =
-        case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+        case ?get_var(?dc_payload_size, Ledger) of
             {ok, DCP} -> DCP;
             _ -> 0
         end,
     SCVer =
-        case blockchain_ledger_v1:config(?sc_version, Ledger) of
+        case ?get_var(?sc_version, Ledger) of
             {ok, SCV} -> SCV;
             _ -> 0
         end,

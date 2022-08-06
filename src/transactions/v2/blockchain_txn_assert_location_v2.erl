@@ -289,11 +289,11 @@ is_valid(Txn, Chain) ->
     Elevation = ?MODULE:elevation(Txn),
     Ledger = blockchain:ledger(Chain),
 
-    case blockchain:config(?assert_loc_txn_version, Ledger) of
+    case ?get_var(?assert_loc_txn_version, Ledger) of
         {ok, V} when V >= 2 ->
-            case blockchain:config(?min_antenna_gain, Ledger) of
+            case ?get_var(?min_antenna_gain, Ledger) of
                 {ok, MinGain} ->
-                    case blockchain:config(?max_antenna_gain, Ledger) of
+                    case ?get_var(?max_antenna_gain, Ledger) of
                         {ok, MaxGain} ->
                             case is_valid_gain(Txn, MinGain, MaxGain) of
                                 false ->
@@ -394,7 +394,7 @@ do_remaining_checks(Txn, TotalFee, Ledger) ->
                         false ->
                             {error, {bad_owner, {assert_location_v2, Owner, GwOwner}}};
                         true ->
-                            {ok, MinAssertH3Res} = blockchain:config(?min_assert_h3_res, Ledger),
+                            {ok, MinAssertH3Res} = ?get_var(?min_assert_h3_res, Ledger),
                             Location = ?MODULE:location(Txn),
                             case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
                                 false ->
@@ -447,7 +447,7 @@ absorb(Txn, Chain) ->
 -spec maybe_update_neighbors(Gateway :: libp2p_crypto:pubkey_bin(),
                              Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_update_neighbors(Gateway, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {ok, V} when V > 3 ->
             %% don't update neighbours anymore
             ok;
@@ -467,7 +467,7 @@ maybe_update_neighbors(Gateway, Ledger) ->
                       Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_alter_hex(OldGw, Gateway, Location, Ledger) ->
     Res =
-      case blockchain:config(?poc_target_hex_parent_res, Ledger) of
+      case ?get_var(?poc_target_hex_parent_res, Ledger) of
         {ok, V} -> V;
         _ -> 5
       end,

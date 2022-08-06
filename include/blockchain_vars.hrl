@@ -2,9 +2,10 @@
 %%%% without using the macros defined here.  running:
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
-
-%% key: {is_aux, vars_nonce, var_name}
--define(VAR_CACHE, var_cache).
+%% for easy switching for var caching
+-define(get_var(Name, Ledger),
+        blockchain_utils:get_var(Name, Ledger)).
+        %% blockchain_ledger_v1:config(Name, Ledger)).
 
 %%%
 %%% election vars

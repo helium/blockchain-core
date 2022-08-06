@@ -170,7 +170,7 @@ calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
 calculate_fee(Txn0, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     FeeVersion =
-        case blockchain:config(?txn_routing_update_xor_fees_version, Ledger) of
+        case ?get_var(?txn_routing_update_xor_fees_version, Ledger) of
             {ok, V} -> V;
             _ -> 0
     end,
@@ -268,15 +268,15 @@ is_valid(Txn, Chain) ->
                             BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
                             EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
 
-                            case blockchain:config(?max_xor_filter_size, Ledger) of
+                            case ?get_var(?max_xor_filter_size, Ledger) of
                                 {ok, XORFilterSize} ->
-                                    case blockchain:config(?max_xor_filter_num, Ledger) of
+                                    case ?get_var(?max_xor_filter_num, Ledger) of
                                         {ok, XORFilterNum} ->
-                                            case blockchain:config(?max_subnet_size, Ledger) of
+                                            case ?get_var(?max_subnet_size, Ledger) of
                                                 {ok, MaxSubnetSize} ->
-                                                    case blockchain:config(?min_subnet_size, Ledger) of
+                                                    case ?get_var(?min_subnet_size, Ledger) of
                                                         {ok, MinSubnetSize} ->
-                                                            case blockchain:config(?max_subnet_num, Ledger) of
+                                                            case ?get_var(?max_subnet_num, Ledger) of
                                                                 {ok, MaxSubnetNum} ->
                                                                     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                                                                         false ->
@@ -320,7 +320,7 @@ absorb(Txn, Chain) ->
     Action = case ?MODULE:action(Txn) of
         {request_subnet, SubnetSize} ->
             {ok, Routing} = blockchain_ledger_v1:find_routing(OUI, Ledger),
-            {ok, MaxSubnetNum} = blockchain:config(?max_subnet_num, Ledger),
+            {ok, MaxSubnetNum} = ?get_var(?max_subnet_num, Ledger),
             case subnets_left(Routing, MaxSubnetNum) of
                 false ->
                     {error, max_subnets_reached};
@@ -330,7 +330,7 @@ absorb(Txn, Chain) ->
             end;
         {new_xor, _}=Action0 ->
             {ok, Routing} = blockchain_ledger_v1:find_routing(OUI, Ledger),
-            {ok, XorFilterNum} = blockchain:config(?max_xor_filter_num, Ledger),
+            {ok, XorFilterNum} = ?get_var(?max_xor_filter_num, Ledger),
             case length(blockchain_ledger_routing_v1:filters(Routing)) < XorFilterNum of
                 true ->
                     Action0;
@@ -652,9 +652,9 @@ calculate_fee_test_() ->
                 {ok, Routing}
             end),
 
-            meck:new(blockchain, [passthrough]),
+            meck:new(blockchain_utils, [passthrough]),
             %% Set txn_routing_update_xor_fees_version to 0
-            meck:expect(blockchain, config, fun(_, _) ->
+            meck:expect(blockchain_utils, get_var, fun(txn_routing_update_xor_fees_version, _) ->
                 {ok, 0}
             end),
 
@@ -670,7 +670,7 @@ calculate_fee_test_() ->
             ?assertEqual(313, calculate_fee(Txn, ledger, 1, 1, true)),
 
             %% Set txn_routing_update_xor_fees_version to 1
-            meck:expect(blockchain, config, fun(_, _) ->
+            meck:expect(blockchain_utils, get_var, fun(txn_routing_update_xor_fees_version, _) ->
                 {ok, 1}
             end),
 
@@ -689,7 +689,7 @@ calculate_fee_test_() ->
             %% Testing with small update to show price diff with previous version
             %% 112 compare to > 300
             ?assertEqual(112, calculate_fee(Txn2, ledger, 1, 1, true)),
-            
+
             Xor3 = crypto:strong_rand_bytes(102),
             Txn3 = blockchain_txn_routing_v1:update_xor(OUI, Owner, Index, Xor3, Nonce),
 
@@ -697,7 +697,7 @@ calculate_fee_test_() ->
             ?assertEqual(112, calculate_fee(Txn3, ledger, 1, 1, true)),
 
             meck:unload(blockchain_ledger_v1),
-            meck:unload(blockchain),
+            meck:unload(blockchain_utils),
             ok
          end
     }.

@@ -131,14 +131,14 @@ is_valid(Txn, Chain) ->
         true ->
             try
                 %% explicit activation gate on the stake threshold
-                case blockchain:config(?validator_version, Ledger) of
+                case ?get_var(?validator_version, Ledger) of
                     {ok, Vers} when Vers >= 1 ->
                         ok;
                     _ -> throw(unsupported_txn)
                 end,
-                {ok, MinStake} = blockchain:config(?validator_minimum_stake, Ledger),
+                {ok, MinStake} = ?get_var(?validator_minimum_stake, Ledger),
                 %% check that the network is correct
-                case blockchain:config(?validator_key_check, Ledger) of
+                case ?get_var(?validator_key_check, Ledger) of
                     %% assert that validator is on the right network by decoding its key
                     {ok, true} ->
                         try

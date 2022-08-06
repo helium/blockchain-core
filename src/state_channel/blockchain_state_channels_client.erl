@@ -250,7 +250,7 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
 handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
     erlang:monitor(process, Stream),
     State1 = add_stream(OUIOrAddress, Stream, State0),
-    case blockchain:config(?sc_version, blockchain:ledger(State1#state.chain)) of
+    case ?get_var(?sc_version, blockchain:ledger(State1#state.chain)) of
         {ok, N} when N >= 2 ->
             {noreply, State1};
         _ ->
@@ -260,7 +260,7 @@ handle_info({blockchain_event, {add_block, _BlockHash, true, Ledger}}, State)
   when Ledger =/= undefined ->
     SCs = state_channels(State),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+    SCGrace = case ?get_var(?sc_grace_blocks, Ledger) of
                   {ok, G} -> G;
                   _ -> 0
               end,
@@ -295,7 +295,9 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
                                 blockchain_block:transactions(Block)),
             case erlang:length(Txns) > 0 of
                 false -> ok;
-                true -> e2qc:teardown(?ROUTING_CACHE)
+                true ->
+                    Cache = persistent_term:get(?routing_cache),
+                    cream:drain(Cache)
             end
     end,
     ClosingChannels =
@@ -328,7 +330,7 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
                     blockchain_block:transactions(Block))
         end,
     %% check if any other channels are expiring
-    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+    SCGrace = case ?get_var(?sc_grace_blocks, Ledger) of
                   {ok, G} -> G;
                   _ -> 0
               end,
@@ -621,10 +623,10 @@ find_routing(Packet, Chain) ->
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
             RoutingInfo = blockchain_helium_packet_v1:routing_info(Packet),
-            e2qc:cache(
-                ?ROUTING_CACHE,
+            Cache = persistent_term:get(?routing_cache),
+            cream:cache(
+                Cache,
                 RoutingInfo,
-                ?ROUTING_CACHE_TIMEOUT,
                 fun() ->
                         Ledger = blockchain:ledger(Chain),
                         case blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger) of
@@ -759,7 +761,7 @@ is_hotspot_in_router_oui(PubkeyBin, OUI, Chain) ->
                            State :: #state{}) -> #state{}.
 send_packet_or_offer(Stream, OUI, Packet, Region, ReceivedTime,
                      #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
-    SCVer = case blockchain:config(?sc_version, blockchain:ledger(Chain)) of
+    SCVer = case ?get_var(?sc_version, blockchain:ledger(Chain)) of
                 {ok, N} -> N;
                 _ -> 1
             end,
@@ -779,7 +781,7 @@ send_packet_or_offer(Stream, OUI, Packet, Region, ReceivedTime,
                           State :: #state{}) -> #state{}.
 send_packet_when_v1(Stream, Packet, Region, ReceivedTime,
                     #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
-    case blockchain:config(?sc_version, blockchain:ledger(Chain)) of
+    case ?get_var(?sc_version, blockchain:ledger(Chain)) of
         {ok, N} when N > 1 ->
             lager:debug("got stream sending offer"),
             ok = send_offer(PubkeyBin, SigFun, Stream, Packet, Region),
@@ -805,7 +807,7 @@ maybe_send_packets(AddressOrOUI, HandlerPid, #state{pubkey_bin=PubkeyBin, sig_fu
                       ),
             verify_stream(HandlerPid, remove_packet_from_waiting(OUI, State1));
         Address when is_list(Address) ->
-            State1 = case blockchain:config(?sc_version, blockchain:ledger(State#state.chain)) of
+            State1 = case ?get_var(?sc_version, blockchain:ledger(State#state.chain)) of
                          {ok, N} when N >= 2 ->
                              lager:debug("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
                              lists:foldl(
@@ -1114,7 +1116,7 @@ chain_var_routers_by_netid_to_oui(Chain, State) ->
        ) -> State1 :: state().
 chain_var_ledger_routers_by_netid_to_oui(Ledger, State) ->
     Routers =
-        case blockchain_ledger_v1:config(?routers_by_netid_to_oui, Ledger) of
+        case ?get_var(?routers_by_netid_to_oui, Ledger) of
             {ok, Bin} -> binary_to_term(Bin);
             _ -> []
         end,

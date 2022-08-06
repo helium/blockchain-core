@@ -5,6 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_region_v1).
 
+-include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -31,7 +32,7 @@
 -spec get_all_regions(Ledger :: blockchain_ledger_v1:ledger()) ->
     {ok, regions()} | {error, any()}.
 get_all_regions(Ledger) ->
-    case blockchain:config(?regulatory_regions, Ledger) of
+    case ?get_var(?regulatory_regions, Ledger) of
         {ok, Bin} ->
             {ok, lists:map(fun(R) -> list_to_atom(binary_to_list(R)) end, binary:split(Bin, <<",">>, [global, trim]))};
         _ ->
@@ -45,7 +46,7 @@ get_all_region_bins(Ledger) ->
         {ok, Regions} ->
             Map = lists:foldl(
                     fun(Reg, Acc) ->
-                            case blockchain:config(Reg, Ledger) of
+                            case ?get_var(Reg, Ledger) of
                                 {ok, Bin} ->
                                     [{Reg, Bin}|Acc];
                                 _ ->
@@ -72,8 +73,9 @@ h3_to_region(H3, Ledger, RegionBins) ->
     Res = polyfill_resolution(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     Parent = h3:parent(H3, Res),
-    e2qc:cache(
-        ?H3_TO_REGION_CACHE,
+    Cache = persistent_term:get(?region_cache),
+    cream:cache(
+        Cache,
         {HasAux, VarsNonce, Parent},
         fun() ->
                 MaybeBins =
@@ -165,7 +167,7 @@ h3_in_region_(H3, RegionBin) ->
     end.
 
 polyfill_resolution(Ledger) ->
-    case blockchain_ledger_v1:config(?polyfill_resolution, Ledger) of
+    case ?get_var(?polyfill_resolution, Ledger) of
         {ok, Res} -> Res;
         _ -> ?POLYFILL_RESOLUTION
     end.
@@ -193,6 +195,7 @@ prewarm_cache(Ledger) ->
     end.
 
 clear_cache() ->
-    e2qc:teardown(h3_to_region),
-    lager:info("cleared cache: ~p", [h3_to_region]),
+    Cache = persistent_term:get(?region_cache),
+    cream:drain(Cache),
+    lager:info("cleared cache: ~p", [region_cache]),
     ok.

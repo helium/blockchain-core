@@ -147,7 +147,7 @@ target_(
 ) -> [libp2p_crypto:pubkey_bin()].
 filter(AddrList, Ledger, Height, Vars) ->
     ActivityFilterEnabled =
-        case blockchain:config(poc_activity_filter_enabled, Ledger) of
+        case ?get_var(poc_activity_filter_enabled, Ledger) of
             {ok, V} -> V;
             _ -> false
         end,

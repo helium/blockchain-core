@@ -275,7 +275,7 @@ cache_test(Config) ->
 
     %% XXX disabled for now because new e2qc has no stats
     %Hits0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
-    %{ok, EV} = blockchain:config(?election_version, Ledger),
+    %{ok, EV} = ?get_var(?election_version, Ledger),
     %Hits1 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
     %?assertEqual(1, Hits1 - Hits0),
 
@@ -294,10 +294,10 @@ cache_test(Config) ->
     %0 = proplists:get_value(hits, blockchain_utils:var_cache_stats()),
 
     %% Main ledger should have the same election_version
-    {ok, EV} = blockchain:config(?election_version, Ledger),
+    {ok, EV} = ?get_var(?election_version, Ledger),
 
     %% aux ledger should have election_version=100
-    {ok, AuxEV} = blockchain:config(?election_version, AuxLedger),
+    {ok, AuxEV} = ?get_var(?election_version, AuxLedger),
 
     #{election_version := EV} = blockchain_utils:get_vars([?election_version], Ledger),
     #{election_version := AuxEV} = blockchain_utils:get_vars([?election_version], AuxLedger),
@@ -406,7 +406,7 @@ var_unset_legacy(Keys, PrivKey, ConsensusMembers, Chain) ->
 %% TODO refactor as t_chain
 var_get(Key, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    blockchain:config(Key, Ledger).
+    ?get_var(Key, Ledger).
 
 vars(Map, Nonce, Priv) ->
     Txn0 = blockchain_txn_vars_v1:new(Map, Nonce),

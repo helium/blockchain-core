@@ -131,19 +131,20 @@ score(Address,
       #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
       Ledger) ->
-    e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
-               fun() ->
-                       {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
-                       {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
-                       {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
-                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
-                       NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
-                       RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
-                       RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
-                       IQR = normalize_float(RV2 - RV1),
-                       Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
-                       {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
-               end).
+    Cache = persistent_term:get(?score_cache),
+    cream:cache(Cache, {Address, Alpha, Beta, Delta, Height},
+                fun() ->
+                        {ok, AlphaDecay} = ?get_var(?alpha_decay, Ledger),
+                        {ok, BetaDecay} = ?get_var(?beta_decay, Ledger),
+                        {ok, MaxStaleness} = ?get_var(?max_staleness, Ledger),
+                        NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
+                        NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
+                        RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
+                        RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
+                        IQR = normalize_float(RV2 - RV1),
+                        Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
+                        {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
+                end).
 %%--------------------------------------------------------------------
 %% @doc
 %% K: constant decay factor, calculated empirically (for now)
@@ -331,17 +332,23 @@ location_test() ->
     ?assertEqual(13, location(location(13, Gw))).
 
 score_test() ->
+    blockchain_sup:cream_caches_init(),
     Gw = new(<<"owner_address">>, 12),
     fake_config(),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+    blockchain_sup:cream_caches_clear(),
+    meck:unload().
 
 score_decay_test() ->
+    blockchain_sup:cream_caches_init(),
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
     fake_config(),
     {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
     ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+    blockchain_sup:cream_caches_clear(),
+    meck:unload().
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
@@ -350,7 +357,8 @@ score_decay2_test() ->
     {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
-    ?assert(Score < 0.25).
+    ?assert(Score < 0.25),
+    meck:unload().
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -368,8 +376,8 @@ nonce_test() ->
     ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
-    meck:expect(blockchain,
-                config,
+    meck:expect(blockchain_utils,
+                get_var,
                 fun(alpha_decay, _) ->
                         {ok, 0.007};
                    (beta_decay, _) ->

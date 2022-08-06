@@ -10,6 +10,7 @@
 -export([register_cli/0]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 register_cli() ->
     register_all_usage(),
@@ -306,7 +307,7 @@ ledger_variables(Cmd, [], Flags) ->
         case Cmd of
             [_, _, Name] ->
                 NameAtom = list_to_atom(Name),
-                case blockchain_ledger_v1:config(NameAtom, Ledger) of
+                case ?get_var(NameAtom, Ledger) of
                     {ok, Var} ->
                         [clique_status:text(io_lib:format("~p", [Var]))];
                     {error, not_found} ->

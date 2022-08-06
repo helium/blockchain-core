@@ -168,7 +168,7 @@ penalties(Validator) ->
 
 -spec calculate_penalties(validator(), blockchain_ledger_v1:ledger()) -> #{penalty_type() => float()}.
 calculate_penalties(Val, Ledger) ->
-    {ok, PenaltyLimit} = blockchain_ledger_v1:config(?penalty_history_limit, Ledger),
+    {ok, PenaltyLimit} = ?get_var(?penalty_history_limit, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     %% the penalty at any given height is the sum of all the penalty amounts weighted linearly for
     %% their age.  eventually all penalties age out.

@@ -297,7 +297,7 @@ buyer_nonce_correct(#blockchain_txn_transfer_hotspot_v1_pb{buyer_nonce=Nonce,
     end.
 
 get_config_or_default(?transfer_hotspot_stale_poc_blocks=Config, Ledger) ->
-    case blockchain_ledger_v1:config(Config, Ledger) of
+    case ?get_var(Config, Ledger) of
         {error, not_found} -> ?STALE_POC_DEFAULT;
         {ok, Value} -> Value;
         Other -> Other

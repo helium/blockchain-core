@@ -123,7 +123,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Redeemer),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
-    FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+    FieldValidation = case ?get_var(?txn_field_validation_version, Ledger) of
                           {ok, 1} ->
                               [{{payee, Redeemer}, {address, libp2p}},
                                {{preimage, ?MODULE:preimage(Txn)}, {binary, 32}},

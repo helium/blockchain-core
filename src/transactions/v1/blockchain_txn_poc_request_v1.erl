@@ -61,8 +61,8 @@ new(Challenger, SecretHash, OnionKeyHash, BlockHash, Version) ->
 
 -spec get_version(blockchain:ledger()) -> integer().
 get_version(Ledger) ->
-    {ok, Mod} = blockchain:config(?predicate_callback_mod, Ledger),
-    {ok, Fun} = blockchain:config(?predicate_callback_fun, Ledger),
+    {ok, Mod} = ?get_var(?predicate_callback_mod, Ledger),
+    {ok, Fun} = ?get_var(?predicate_callback_fun, Ledger),
     Mod:Fun().
 
 %%--------------------------------------------------------------------

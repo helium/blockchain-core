@@ -163,8 +163,8 @@ is_valid(Txn, Chain) ->
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
-    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
-    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
+    {ok, RawOracleKeys} = ?get_var(?price_oracle_public_keys, Ledger),
+    {ok, MaxHeight} = ?get_var(?price_oracle_height_delta, Ledger),
     OracleKeys = blockchain_utils:bin_keys_to_list(RawOracleKeys),
 
     case blockchain_txn:validate_fields([{{oracle_public_key, RawTxnPK}, {member, OracleKeys}},

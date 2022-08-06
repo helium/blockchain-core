@@ -38,7 +38,7 @@
 ) ->
     {ok, [blockchain_region_param_v1:region_param_v1()]} | {error, any()}.
 for_region(RegionVar, Ledger) ->
-    case blockchain:config(region_param(RegionVar), Ledger) of
+    case ?get_var(region_param(RegionVar), Ledger) of
         {ok, Bin} ->
             Deser = deserialize(Bin),
             {ok, region_params(Deser)};

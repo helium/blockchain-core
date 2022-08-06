@@ -115,17 +115,17 @@ maybe_initialize_state(undefined) ->
     Blockchain = blockchain_worker:cached_blockchain(),
     Ledger = blockchain:ledger(Blockchain),
     Self = self(),
-    case blockchain_ledger_v1:config(?sc_version, Ledger) of
+    case ?get_var(?sc_version, Ledger) of
         %% In this case only sc_version=2 is handling banners
         %% version 1 never had them and banner will be removed form future versions
         {ok, 2} ->
+            Cache = persistent_term:get(?sc_server_cache),
             ActiveSCs =
-                e2qc:cache(
-                    ?MODULE,
-                    active_list,
-                   30,
-                    fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
-                ),
+                cream:cache(
+                  Cache,
+                  active_list,
+                  fun() -> maps:to_list(blockchain_state_channels_server:get_actives()) end
+                 ),
             case ActiveSCs of
                 [] ->
                     SCBanner = blockchain_state_channel_banner_v1:new(),

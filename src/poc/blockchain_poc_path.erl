@@ -73,9 +73,9 @@ build(Hash, Target, Gateways, Height, Ledger) ->
             lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
             {error, not_enough_gateways};
         true ->
-            PathLimit = case blockchain:config(?poc_version, Ledger) of
+            PathLimit = case ?get_var(?poc_version, Ledger) of
                             {ok, POCVersion0} when POCVersion0 >= 3 ->
-                                case blockchain:config(?poc_path_limit, Ledger) of
+                                case ?get_var(?poc_path_limit, Ledger) of
                                     {ok, Val0} when is_integer(Val0) ->
                                         %% we're only interested in half paths up to
                                         %% the half total path limit
@@ -112,11 +112,11 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                                 2 ->
                                     lists:reverse(Path3)
                             end,
-                    case blockchain:config(?poc_version, Ledger) of
+                    case ?get_var(?poc_version, Ledger) of
                         {error, not_found} ->
                             {ok, Path4};
                         {ok, POCVersion} when POCVersion >= 2 ->
-                            case blockchain:config(?poc_path_limit, Ledger) of
+                            case ?get_var(?poc_path_limit, Ledger) of
                                 {error, not_found} ->
                                     {ok, Path4};
                                 {ok, Val} ->
@@ -260,9 +260,9 @@ neighbors(PubkeyBin, Gateways, Ledger) when is_binary(PubkeyBin) ->
     end;
 neighbors(Gw, Gateways, Ledger) ->
     GwH3 = blockchain_ledger_gateway_v2:location(Gw),
-    {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
-    {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
-    {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
+    {ok, H3ExclusionRingDist} = ?get_var(?h3_exclusion_ring_dist, Ledger),
+    {ok, H3MaxGridDistance} = ?get_var(?h3_max_grid_distance, Ledger),
+    {ok, H3NeighborRes} = ?get_var(?h3_neighbor_res, Ledger),
     ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
     ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
 
@@ -298,7 +298,7 @@ neighbors(Gw, Gateways, Ledger) ->
 
 filter_neighbors(Addr, Score, Neighbors, Gateways, Height, Ledger) ->
     Gw = maps:get(Addr, Gateways),
-    {ok, MinScore} = blockchain:config(?min_score, Ledger),
+    {ok, MinScore} = ?get_var(?min_score, Ledger),
     lists:reverse(lists:foldl(
                     fun(A, Acc) ->
                             case maps:get(A, Gateways, undefined) of
@@ -390,7 +390,7 @@ entropy(Entropy) ->
 active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gateways = blockchain_utils:score_gateways(Ledger),
-    {ok, MinScore} = blockchain:config(?min_score, Ledger),
+    {ok, MinScore} = ?get_var(?min_score, Ledger),
     %% fold over all the gateways
     maps:fold(
       fun(PubkeyBin, {Gateway, Score}, Acc0) ->
@@ -488,12 +488,12 @@ prob_fun(Score) ->
 
 check_sync(Gateway, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {error, not_found} ->
             %% Follow old code path, allow to be challenged
             true;
         {ok, POCVersion} when POCVersion >= 2 ->
-            case blockchain:config(?poc_challenge_sync_interval, Ledger) of
+            case ?get_var(?poc_challenge_sync_interval, Ledger) of
                 {error, not_found} ->
                     %% poc_challenge_sync_interval is not set, allow
                     true;

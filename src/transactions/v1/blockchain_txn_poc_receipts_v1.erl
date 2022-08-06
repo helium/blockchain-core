@@ -263,7 +263,7 @@ check_is_valid_poc(Txn, Chain) ->
                                     lager:info("challenge too old ~p ~p", [Challenger, LastChallenge]),
                                     {error, challenge_too_old};
                                 true ->
-                                    Condition = case blockchain:config(?poc_version, Ledger) of
+                                    Condition = case ?get_var(?poc_version, Ledger) of
                                                     {ok, POCVersion} when POCVersion > 1 ->
                                                         fun() ->
                                                                 case maps:get(POCOnionKeyHash, BlockPoCs, undef) of
@@ -300,12 +300,12 @@ check_is_valid_poc(Txn, Chain) ->
                                             {ok, OldLedger} = blockchain:ledger_at(BlockHeight, Chain),
                                             StartFT = maybe_log_duration(ledger_at, StartLA),
                                             Vars = blockchain_utils:get_vars(?poc_vars, OldLedger),
-                                            Path = case blockchain:config(?poc_version, OldLedger) of
+                                            Path = case ?get_var(?poc_version, OldLedger) of
                                                        {ok, V} when V >= 8 ->
                                                             %% Targeting phase
                                                             %% Find the original target
                                                             {ok, {Target, TargetRandState}} =
-                                                                case blockchain:config(?poc_targeting_version, Ledger) of
+                                                                case ?get_var(?poc_targeting_version, Ledger) of
                                                                     {ok, 4} ->
                                                                         blockchain_poc_target_v4:target(Challenger, Entropy, OldLedger, Vars);
                                                                     _ ->
@@ -338,7 +338,7 @@ check_is_valid_poc(Txn, Chain) ->
                                                             {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
                                                             StartB = maybe_log_duration(filter_target, StartFT2),
 
-                                                            RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                                            RetB = case ?get_var(?poc_typo_fixes, Ledger) of
                                                                         {ok, true} ->
                                                                             blockchain_poc_path_v2:build(Target, GatewayScores, BlockTime, Entropy, Vars, Ledger);
                                                                         _ ->
@@ -355,7 +355,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             N = erlang:length(Path),
                                             [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                             OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                            {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                            {_Onion, Layers} = case ?get_var(?poc_typo_fixes, Ledger) of
                                                                     {ok, true} ->
                                                                         blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
                                                                     _ ->
@@ -366,7 +366,7 @@ check_is_valid_poc(Txn, Chain) ->
                                             StartV = maybe_log_duration(packet_construction, StartP),
 
                                             Result =
-                                                case blockchain:config(?poc_version, OldLedger) of
+                                                case ?get_var(?poc_version, OldLedger) of
                                                     {ok, POCVer} when POCVer >= 9 ->
                                                         %% errors get checked lower
                                                         Channels = get_channels_(OldLedger, Path, LayerData, POCVer, no_prefetch),
@@ -487,7 +487,7 @@ deltas(Txn) ->
              Chain :: blockchain:blockchain()) -> deltas().
 deltas(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {ok, V} when V >= 9 ->
             %% do the new thing
             calculate_delta(Txn, Chain, true);
@@ -683,13 +683,13 @@ set_deltas(Challengee, {A, B}, Deltas) ->
 good_quality_witnesses(Element, Ledger) ->
     Challengee = blockchain_poc_path_element_v1:challengee(Element),
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-    {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
-    {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
+    {ok, ParentRes} = ?get_var(?poc_v4_parent_res, Ledger),
+    {ok, ExclusionCells} = ?get_var(?poc_v4_exclusion_cells, Ledger),
 
     {ok, ChallengeeLoc} = blockchain_ledger_v1:find_gateway_location(Challengee, Ledger),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {ok, V} when V >= 9 ->
             Witnesses;
         _ ->
@@ -834,7 +834,7 @@ absorb(Txn, Chain) ->
                 lager:info("challenge too old ~p ~p", [Challenger, LastChallenge]),
                 {error, challenge_too_old};
             true ->
-                case blockchain:config(?poc_version, Ledger) of
+                case ?get_var(?poc_version, Ledger) of
                     {error, not_found} ->
                         %% Older poc version, don't add witnesses
                         ok;
@@ -866,11 +866,11 @@ absorb(Txn, Chain) ->
                         end
                 end,
 
-                case blockchain:config(?poc_version, Ledger) of
+                case ?get_var(?poc_version, Ledger) of
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
                         %% as new calculate_delta calls back into check_is_valid_poc
-                        case blockchain:config(?election_version, Ledger) of
+                        case ?get_var(?election_version, Ledger) of
                             %% election v4 removed score from consideration
                             {ok, EV} when EV >= 4 ->
                                 ok;
@@ -884,7 +884,7 @@ absorb(Txn, Chain) ->
                     _ ->
                         %% continue doing the old behavior
                         blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger),
-                        case blockchain:config(?poc_version, Ledger) of
+                        case ?get_var(?poc_version, Ledger) of
                             {ok, V} when V > 4 ->
                                 lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                                     blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
@@ -1092,7 +1092,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                            true ->
                                                                {error, too_many_witnesses};
                                                            false ->
-                                                               case blockchain_ledger_v1:config(?poc_version, OldLedger) of
+                                                               case ?get_var(?poc_version, OldLedger) of
                                                                    {ok, V} when V > 1 ->
                                                                        %% check there are no duplicates in witnesses list
                                                                        WitnessGateways = [blockchain_poc_witness_v1:gateway(W) || W <- Witnesses],
@@ -1168,7 +1168,7 @@ to_json(Txn, Opts) ->
     PathElems =
     case {lists:keyfind(ledger, 1, Opts), lists:keyfind(chain, 1, Opts)} of
         {{ledger, Ledger}, {chain, Chain}} ->
-            case blockchain:config(?poc_version, Ledger) of
+            case ?get_var(?poc_version, Ledger) of
                 {ok, POCVersion} when POCVersion >= 10 ->
                     FoldedPath =
                         tagged_path_elements_fold(fun(Elem, {TaggedWitnesses, ValidReceipt}, Acc) ->
@@ -1254,8 +1254,8 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     _ ->
                         {undefined, undefined}
                 end,
-            {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
-            {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+            {ok, ExclusionCells} = ?get_var(?poc_v4_exclusion_cells, Ledger),
+            {ok, ParentRes} = ?get_var(?poc_v4_parent_res, Ledger),
             SourceParentIndex = h3:parent(SourceLoc, ParentRes),
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
 
@@ -1268,7 +1268,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                  SourceRegion, DestinationRegion]),
                     undefined;
                 true ->
-                    Limit = blockchain:config(?poc_distance_limit, Ledger),
+                    Limit = ?get_var(?poc_distance_limit, Ledger),
                     case is_too_far(Limit, SourceLoc, DestinationLoc) of
                         {true, Distance} ->
                             lager:debug("Src too far from destination!~nSrcPubkeyBin: ~p, DstPubkeyBin: ~p, SourceLoc: ~p, DestinationLoc: ~p, Distance: ~p",
@@ -1296,7 +1296,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                         true ->
                                             case check_valid_frequency(SourceRegion, Freq, Ledger, Version) of
                                                 true ->
-                                                    case blockchain:config(?data_aggregation_version, Ledger) of
+                                                    case ?get_var(?data_aggregation_version, Ledger) of
                                                         {ok, DataAggVsn} when DataAggVsn > 1 ->
                                                             case check_rssi_snr(Ledger, RSSI, SNR) of
                                                                 true ->
@@ -1427,17 +1427,17 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
             {error, _Reason} -> no_prefetch
         end,
     SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger, RegionVars),
-    {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+    {ok, ParentRes} = ?get_var(?poc_v4_parent_res, Ledger),
     SourceParentIndex = h3:parent(SourceLoc, ParentRes),
 
     %% foldl will re-reverse
     Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
 
-    DiscardZeroFreq = blockchain_ledger_v1:config(?discard_zero_freq_witness, Ledger),
-    {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
+    DiscardZeroFreq = ?get_var(?discard_zero_freq_witness, Ledger),
+    {ok, ExclusionCells} = ?get_var(?poc_v4_exclusion_cells, Ledger),
     %% intentionally do not require
-    DAV = blockchain:config(?data_aggregation_version, Ledger),
-    Limit = blockchain:config(?poc_distance_limit, Ledger),
+    DAV = ?get_var(?data_aggregation_version, Ledger),
+    Limit = ?get_var(?poc_distance_limit, Ledger),
     Version = poc_version(Ledger),
 
     lists:foldl(fun(Witness, Acc) ->
@@ -1689,7 +1689,7 @@ min_rcv_sig(undefined, Ledger, SourceLoc, SourceRegion0, DstPubkeyBin, Destinati
             {ok, SourceRegion} = SourceRegion0,
             {ok, TxPower} = estimated_tx_power(SourceRegion, Freq, Ledger),
             FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-            case blockchain:config(?fspl_loss, Ledger) of
+            case ?get_var(?fspl_loss, Ledger) of
                 {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
                 _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
             end;
@@ -1711,7 +1711,7 @@ min_rcv_sig(Receipt, Ledger, SourceLoc, SourceRegion0, DstPubkeyBin, Destination
                                 DstPubkeyBin, DestinationLoc, Freq, Version);
                 TxPower ->
                     FSPL = calc_fspl(DstPubkeyBin, SourceLoc, DestinationLoc, Freq, Ledger),
-                    case blockchain:config(?fspl_loss, Ledger) of
+                    case ?get_var(?fspl_loss, Ledger) of
                         {ok, Loss} -> blockchain_utils:min_rcv_sig(FSPL, TxPower) * Loss;
                         _ -> blockchain_utils:min_rcv_sig(FSPL, TxPower)
                     end
@@ -1753,7 +1753,7 @@ eirp_from_closest_freq(Freq, [ {NFreq, NEirp} | Rest ], {BestFreq, BestEIRP}) ->
 
 -spec poc_version(blockchain_ledger_v1:ledger()) -> non_neg_integer().
 poc_version(Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {error, not_found} -> 0;
         {ok, V} -> V
     end.

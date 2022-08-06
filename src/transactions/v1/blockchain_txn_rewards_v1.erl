@@ -363,52 +363,52 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
 
 -spec get_reward_vars(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> map().
 get_reward_vars(Start, End, Ledger) ->
-    {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
-    {ok, SecuritiesPercent} = blockchain:config(?securities_percent, Ledger),
-    {ok, PocChallengeesPercent} = blockchain:config(?poc_challengees_percent, Ledger),
-    {ok, PocChallengersPercent} = blockchain:config(?poc_challengers_percent, Ledger),
-    {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
-    {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
+    {ok, MonthlyReward} = ?get_var(?monthly_reward, Ledger),
+    {ok, SecuritiesPercent} = ?get_var(?securities_percent, Ledger),
+    {ok, PocChallengeesPercent} = ?get_var(?poc_challengees_percent, Ledger),
+    {ok, PocChallengersPercent} = ?get_var(?poc_challengers_percent, Ledger),
+    {ok, PocWitnessesPercent} = ?get_var(?poc_witnesses_percent, Ledger),
+    {ok, ConsensusPercent} = ?get_var(?consensus_percent, Ledger),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
     {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
-    DCPercent = case blockchain:config(?dc_percent, Ledger) of
+    DCPercent = case ?get_var(?dc_percent, Ledger) of
                     {ok, R1} ->
                         R1;
                     _ ->
                         0
                 end,
-    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+    SCGrace = case ?get_var(?sc_grace_blocks, Ledger) of
                   {ok, R2} ->
                       R2;
                   _ ->
                       0
               end,
-    SCVersion = case blockchain:config(?sc_version, Ledger) of
+    SCVersion = case ?get_var(?sc_version, Ledger) of
                     {ok, R3} ->
                         R3;
                     _ ->
                         1
                 end,
-    POCVersion = case blockchain:config(?poc_version, Ledger) of
+    POCVersion = case ?get_var(?poc_version, Ledger) of
                      {ok, V} -> V;
                      _ -> 1
                  end,
-    RewardVersion = case blockchain:config(?reward_version, Ledger) of
+    RewardVersion = case ?get_var(?reward_version, Ledger) of
         {ok, R4} -> R4;
         _ -> 1
     end,
 
-    WitnessRedundancy = case blockchain:config(?witness_redundancy, Ledger) of
+    WitnessRedundancy = case ?get_var(?witness_redundancy, Ledger) of
                             {ok, WR} -> WR;
                             _ -> undefined
                         end,
 
-    DecayRate = case blockchain:config(?poc_reward_decay_rate, Ledger) of
+    DecayRate = case ?get_var(?poc_reward_decay_rate, Ledger) of
                     {ok, R} -> R;
                     _ -> undefined
                 end,
 
-    DensityTgtRes = case blockchain:config(?density_tgt_res, Ledger) of
+    DensityTgtRes = case ?get_var(?density_tgt_res, Ledger) of
                         {ok, D} -> D;
                         _ -> undefined
                     end,
@@ -436,7 +436,7 @@ get_reward_vars(Start, End, Ledger) ->
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
 calculate_epoch_reward(Start, End, Ledger) ->
-    Version = case blockchain:config(?reward_version, Ledger) of
+    Version = case ?get_var(?reward_version, Ledger) of
         {ok, V} -> V;
         _ -> 1
     end,
@@ -444,9 +444,9 @@ calculate_epoch_reward(Start, End, Ledger) ->
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
 calculate_epoch_reward(Version, Start, End, Ledger) ->
-    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
-    {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
-    {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
+    {ok, ElectionInterval} = ?get_var(?election_interval, Ledger),
+    {ok, BlockTime0} = ?get_var(?block_time, Ledger),
+    {ok, MonthlyReward} = ?get_var(?monthly_reward, Ledger),
     calculate_epoch_reward(Version, Start, End, BlockTime0, ElectionInterval, MonthlyReward).
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), pos_integer(),
@@ -476,7 +476,7 @@ calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, Mon
 consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
                                     consensus_percent := ConsensusPercent}) ->
     GwOrVal =
-        case blockchain:config(?election_version, Ledger) of
+        case ?get_var(?election_version, Ledger) of
             {ok, N} when N >= 5 ->
                 validator;
             _ ->

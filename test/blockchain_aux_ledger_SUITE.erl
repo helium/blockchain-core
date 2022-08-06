@@ -127,7 +127,7 @@ alter_var_test(Config) ->
     %% the vars should be equal
     true = lists:sort(Vars) == lists:sort(AuxVars),
 
-    {ok, MonthlyReward} = blockchain_ledger_v1:config(?monthly_reward, Ledger),
+    {ok, MonthlyReward} = ?get_var(?monthly_reward, Ledger),
 
     AlteredMonthlyReward = MonthlyReward * 100,
 
@@ -135,7 +135,7 @@ alter_var_test(Config) ->
 
     ok = blockchain_aux_ledger_v1:set_vars(AlterVars, AuxLedger),
 
-    {ok, AuxMonthlyReward} = blockchain_ledger_v1:config(?monthly_reward, AuxLedger),
+    {ok, AuxMonthlyReward} = ?get_var(?monthly_reward, AuxLedger),
 
     true = AuxMonthlyReward == AlteredMonthlyReward,
 

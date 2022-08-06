@@ -623,7 +623,7 @@ load_into_ledger(Snapshot, L0, Mode) ->
     case blockchain_ledger_v1:check_key(<<"poc_upgrade">>, L) of
         true -> ok;
         _ ->
-            case blockchain_ledger_v1:config(?poc_challenger_type, L) of
+            case ?get_var(?poc_challenger_type, L) of
                 {ok, validator} ->
                     ok;
                 {error, not_found} ->
@@ -775,7 +775,7 @@ stream_from_list([X | Xs]) ->
 get_infos(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, POCChallengeInterval} = blockchain:config(?poc_challenge_interval, Ledger),
+    {ok, POCChallengeInterval} = ?get_var(?poc_challenge_interval, Ledger),
 
     LoadInfoStart = Height - (POCChallengeInterval * 2) + 1,
 
@@ -795,7 +795,7 @@ get_blocks(Chain) ->
     %% see https://github.com/helium/blockchain-core/pull/627
     #{election_height := ElectionHeight} = blockchain_election:election_info(Ledger),
     GraceBlocks =
-        case blockchain:config(?sc_grace_blocks, Ledger) of
+        case ?get_var(?sc_grace_blocks, Ledger) of
             {ok, GBs} ->
                 GBs;
             %% hard matching on this config makes it impossible to snapshot before we hit state

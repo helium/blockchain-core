@@ -46,7 +46,7 @@ gateways_for_zone(
     HexList,
     Attempted
 ) ->
-    {ok, Count} = blockchain:config(?poc_target_pool_size, Ledger),
+    {ok, Count} = ?get_var(?poc_target_pool_size, Ledger),
     gateways_for_zone(ChallengerPubkeyBin,Ledger,Vars,HexList,Attempted, Count).
 
 -spec gateways_for_zone(
@@ -156,7 +156,7 @@ target_(
 find_active_addr(Vars, RandState, AddrList, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ActivityFilterEnabled =
-        case blockchain:config(poc_activity_filter_enabled, Ledger) of
+        case ?get_var(poc_activity_filter_enabled, Ledger) of
             {ok, V} -> V;
             _ -> false
         end,
@@ -195,7 +195,7 @@ find_active_addr_([Addr | Tail], FilterEnabled, Height, MaxActivityAge, Ledger) 
 
 -spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
 hex_list(Ledger, RandState) ->
-    {ok, Count} = blockchain:config(?poc_target_pool_size, Ledger),
+    {ok, Count} = ?get_var(?poc_target_pool_size, Ledger),
     hex_list(Ledger, RandState, Count, []).
 
 hex_list(_Ledger, RandState, 0, Acc) ->

@@ -173,8 +173,8 @@ diff_vars(Vars, Ledger) ->
     AL = blockchain_ledger_v1:mode(aux, Ledger),
     lists:foldl(
         fun(Var, Acc) ->
-            LedgerVarValue = blockchain_ledger_v1:config(Var, Ledger),
-            AuxLedgerVarValue = blockchain_ledger_v1:config(Var, AL),
+            LedgerVarValue = ?get_var(Var, Ledger),
+            AuxLedgerVarValue = ?get_var(Var, AL),
             %% NOTE: It may happen that we've set an aux var for testing
             %% but not an active ledger var, so just returning an ok | error tagged value
             maps:put(Var, {{active, LedgerVarValue}, {aux, AuxLedgerVarValue}}, Acc)
@@ -258,7 +258,7 @@ diff_rewards(Ledger) ->
         true ->
             OverallAuxRewards = get_rewards(Ledger),
             TallyFun =
-                case blockchain:config(?rewards_txn_version, Ledger) of
+                case ?get_var(?rewards_txn_version, Ledger) of
                     {ok, 2} ->
                         tally_fun_v2();
                     _ ->

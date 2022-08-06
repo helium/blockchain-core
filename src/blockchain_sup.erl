@@ -8,7 +8,11 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1]).
+-export([
+         start_link/1,
+         cream_caches_init/0, % maybe test-only?
+         cream_caches_clear/0 % maybe test-only?
+        ]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -79,11 +83,13 @@ init(Args) ->
         end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
 
-    blockchain_utils:init_var_cache(),
-
     %% allow the parent app to change this if it needs to.
     MetadataFun = application:get_env(blockchain, metadata_fun,
                                       fun blockchain_worker:signed_metadata_fun/0),
+
+    %% cream inits
+    cream_caches_init(),
+
     SwarmWorkerOpts =
         [
          {key, proplists:get_value(key, Args)},
@@ -143,3 +149,56 @@ init(Args) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+cream_caches_init() ->
+    MaxItemCapacity = 10000,
+    MB = 1024 * 1024,
+    {ok, VarCache}
+        = cream:new(MaxItemCapacity,
+                    [{initial_capacity, 1000},
+                     {seconds_to_idle, 60 * 60}]),
+    persistent_term:put(?var_cache, VarCache),
+
+    RegionMem = application:get_env(blockchain, region_cache_limit_mb, 100) * MB,
+    {ok, RegionCache}
+        = cream:new(RegionMem,
+                    [{bounding, memory}]),
+    persistent_term:put(?region_cache, RegionCache),
+
+    GwMem = application:get_env(blockchain, gateway_cache_limit_mb, 100) * MB,
+    {ok, GwCache}
+        = cream:new(GwMem,
+                    [{bounding, memory}]),
+    persistent_term:put(?gw_cache, GwCache),
+
+    {ok, ScoreCache}
+        = cream:new(MaxItemCapacity,
+                    [{initial_capacity, 1000},
+                     {seconds_to_idle, 12 * 60 * 60}]),
+    persistent_term:put(?score_cache, ScoreCache),
+
+    {ok, FPCache}
+        = cream:new(5,
+                    [{initial_capacity, 1},
+                     {seconds_to_idle, 12 * 60 * 60}]),
+    persistent_term:put(?fp_cache, FPCache),
+
+    {ok, SCCache}
+        = cream:new(1000,
+                    [{initial_capacity, 50},
+                     {seconds_to_idle, 60}]),
+    persistent_term:put(?sc_server_cache, SCCache),
+
+    {ok, RoutingCache}
+        = cream:new(1000,
+                    [{initial_capacity, 50},
+                     {seconds_to_idle, 6 * 60 * 60}]),
+    persistent_term:put(?routing_cache, RoutingCache).
+
+cream_caches_clear() ->
+    cream:drain(persistent_term:get(?var_cache)),
+    cream:drain(persistent_term:get(?region_cache)),
+    cream:drain(persistent_term:get(?score_cache)),
+    cream:drain(persistent_term:get(?fp_cache)),
+    cream:drain(persistent_term:get(?sc_server_cache)),
+    cream:drain(persistent_term:get(?routing_cache)).

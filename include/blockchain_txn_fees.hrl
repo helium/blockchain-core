@@ -12,7 +12,7 @@
 -define(calculate_fee_prep(Txn, Chain),
     Ledger = blockchain:ledger(Chain),
     DCPayloadSize =
-            case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+            case blockchain_utils:get_var(?dc_payload_size, Ledger) of
                 {ok, Val} ->
                     Val;
                 {error, not_found} ->

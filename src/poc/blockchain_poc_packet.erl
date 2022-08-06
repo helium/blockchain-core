@@ -205,7 +205,7 @@ compute_ivs(InitialIV, KeysAndData) ->
 
 
 block_key(SecretKey, BlockHash, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
+    case ?get_var(?poc_version, Ledger) of
         {ok, V} when V >= 2 ->
             crypto:hash(sha256, <<SecretKey/binary, BlockHash/binary>>);
         _ ->

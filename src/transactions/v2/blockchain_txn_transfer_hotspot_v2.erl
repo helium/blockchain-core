@@ -98,7 +98,7 @@ calculate_fee(Txn, Chain) ->
     Ledger :: blockchain_ledger_v1:ledger()
 ) -> libp2p_crypto:pubkey_bin() | undefined.
 fee_payer(Txn, Ledger) ->
-    case blockchain:config(?transaction_validity_version, Ledger) of
+    case ?get_var(?transaction_validity_version, Ledger) of
         {ok, 3} -> owner(Txn);
         {ok, 2} -> new_owner(Txn);
         _ -> undefined
@@ -149,7 +149,7 @@ is_valid_owner(
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     BaseChecks = base_validity_checks(Txn, Ledger, Chain),
-    case blockchain:config(?transaction_validity_version, Ledger) of
+    case ?get_var(?transaction_validity_version, Ledger) of
         {ok, 3} ->
             OwnerFeeCheck = {fun() -> owner_can_pay_fee(Txn, Ledger) end, {error, gateway_owner_cannot_pay_fee}},
             blockchain_utils:fold_condition_checks(BaseChecks ++ [OwnerFeeCheck]);

@@ -127,11 +127,11 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
-    case blockchain:config(?deprecate_payment_v1, Ledger) of
+    case ?get_var(?deprecate_payment_v1, Ledger) of
         {ok, true} ->
             {error, payment_v1_deprecated};
         _ ->
-            FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+            FieldValidation = case ?get_var(?txn_field_validation_version, Ledger) of
                                   {ok, 1} ->
                                       [{{payee, Payee}, {address, libp2p}}];
                                   _ ->
@@ -157,7 +157,7 @@ is_valid(Txn, Chain) ->
                                                 false ->
                                                     Amount = ?MODULE:amount(Txn),
                                                     TxnFee = ?MODULE:fee(Txn),
-                                                        AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                        AmountCheck = case ?get_var(?allow_zero_amount, Ledger) of
                                                                           {ok, false} ->
                                                                               %% check that amount is greater than 0
                                                                               Amount > 0;

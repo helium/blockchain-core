@@ -141,7 +141,7 @@ absorb(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
 
-    case blockchain:config(?token_version, Ledger) of
+    case ?get_var(?token_version, Ledger) of
         {ok, 2} ->
             TokenType = ?MODULE:token_type(Txn),
             blockchain_ledger_v1:credit_account(Payee, Amount, TokenType, Ledger);

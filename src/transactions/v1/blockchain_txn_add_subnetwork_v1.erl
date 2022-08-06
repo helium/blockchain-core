@@ -123,7 +123,7 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, {unsupported_token, TT}};
                 true ->
-                    case blockchain:config(?allowed_num_reward_server_keys, Ledger) of
+                    case ?get_var(?allowed_num_reward_server_keys, Ledger) of
                         {ok, 1} ->
                             Artifact = create_artifact(Txn),
                             SubnetworkKey = ?MODULE:subnetwork_key(Txn),

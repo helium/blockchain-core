@@ -969,10 +969,11 @@ fingerprint(Ledger) ->
 
 fingerprint(Ledger, Extended) ->
     {ok, Height} = current_height(Ledger),
-    e2qc:cache(fp_cache, {Height, Extended},
-               fun() ->
-                       raw_fingerprint(Ledger, Extended)
-               end).
+    Cache = persistent_term:get(?fp_cache),
+    cream:cache(Cache, {Height, Extended},
+                fun() ->
+                        raw_fingerprint(Ledger, Extended)
+                end).
 
 raw_fingerprint(Ledger, Extended) ->
     try
@@ -1683,7 +1684,7 @@ add_gateway(OwnerAddr,
             NewGw =
                 case ?MODULE:config(?poc_version, Ledger) of
                     {ok, V} when V > 6 ->
-                        {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+                        {ok, Res} = ?get_var(?poc_target_hex_parent_res, Ledger),
                         Hex = h3:parent(Location, Res),
                         add_to_hex(Hex, GatewayAddress, Res, Ledger),
                         NewGw0;
@@ -1741,7 +1742,7 @@ update_gateway(Old, Gw0, GwAddr, Ledger) ->
     %% we have to do this each time to make sure that we have ledger convergence for snapshots, but
     %% it feels relatively cheap in comparison to continuing to update scores.
     Gw =
-        case blockchain:config(?election_version, Ledger) of
+        case ?get_var(?election_version, Ledger) of
             %% election v4 removed score from consideration
             {ok, EV} when EV >= 4 ->
                 blockchain_ledger_gateway_v2:set_alpha_beta_delta(0.0, 0.0, 0, Gw0);
@@ -1946,7 +1947,7 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
                        Ledger :: ledger()) -> ok | {error, any()}.
 insert_witnesses(_PubkeyBin, _Witnesses, _Ledger) ->
     ok.
-    %% case blockchain:config(?poc_version, Ledger) of
+    %% case ?get_var(?poc_version, Ledger) of
     %%     %% only works with poc-v9 and above
     %%     {ok, V} when V >= 9 ->
     %%         case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
@@ -2135,7 +2136,7 @@ gateway_update_challenge(Ledger, Gw0, OnionKeyHash, Version, Challenger) ->
     case ?MODULE:config(?h3dex_gc_width, Ledger) of
         {ok, _Width} ->
             {ok, InactivityThreshold} = ?MODULE:config(?hip17_interactivity_blocks, Ledger),
-            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+            {ok, Res} = ?get_var(?poc_target_hex_parent_res, Ledger),
             case blockchain_ledger_gateway_v2:last_poc_challenge(Gw0) of
                 undefined ->
                     %% it might have been GC'd because of inactivity, so re-add it
@@ -2168,7 +2169,7 @@ reactivate_gateway(Height, Gw0, GWAddr, Ledger) ->
     case ?MODULE:config(?poc_hexing_type, Ledger) of
         X when X == {ok, hex_h3dex};
                X == {ok, h3dex} ->
-            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+            {ok, Res} = ?get_var(?poc_target_hex_parent_res, Ledger),
             Location = blockchain_ledger_gateway_v2:location(Gw0),
             add_gw_to_h3dex(Location, GWAddr, Res, Ledger);
         _ ->
@@ -2191,18 +2192,18 @@ process_poc_proposals(1, _BlockHash, _Ledger) ->
 process_poc_proposals(BlockHeight, BlockHash, Ledger) ->
     %% we need to update the ledger with public poc data
     %% based on the blocks poc ephemeral keys
-    case blockchain:config(?poc_challenger_type, Ledger) of
+    case ?get_var(?poc_challenger_type, Ledger) of
         {ok, validator} ->
             %% Do a deterministic subset based on the hash of the block
             %% Mark the selected POCs as active on ledger
-            case blockchain:config(?poc_challenge_rate, Ledger) of
+            case ?get_var(?poc_challenge_rate, Ledger) of
                 {ok, K} ->
                     ProposalGCWindowCheck =
-                        case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+                        case ?get_var(?poc_proposal_gc_window_check, Ledger) of
                             {ok, V} -> V;
                             _ -> false
                     end,
-                    {ok, POCValKeyProposalTimeout} = blockchain:config(?poc_validator_ephemeral_key_timeout, Ledger),
+                    {ok, POCValKeyProposalTimeout} = ?get_var(?poc_validator_ephemeral_key_timeout, Ledger),
                     RandState = blockchain_utils:rand_state(BlockHash),
                     {Name, DB, CF} = proposed_pocs_cf(Ledger),
                     {ok, Itr} = rocksdb:iterator(DB, CF, []),
@@ -2242,7 +2243,7 @@ promote_proposals(K, Hash, Height, POCValKeyProposalTimeout, ProposalGCWindowChe
     %% will default to that of K
     %% which will give us the original behaviour
     MaxIterationCount =
-        case blockchain:config(?poc_proposals_selector_retry_scale_factor, Ledger) of
+        case ?get_var(?poc_proposals_selector_retry_scale_factor, Ledger) of
             {ok, N} -> ceil(K * N);
             _ -> K
         end,
@@ -2445,7 +2446,7 @@ pocs_(CF, Ledger) ->
 %%--------------------------------------------------------------------
 -spec poc_gc_interval(ledger()) -> integer().
 poc_gc_interval(Ledger) ->
-    case blockchain:config(?poc_proposal_gc_window_check, Ledger) of
+    case ?get_var(?poc_proposal_gc_window_check, Ledger) of
         {ok, true} -> application:get_env(blockchain, poc_gc_interval_size, ?DEFAULT_POC_GC_INTERVAL);
         _ -> ?DEFAULT_POC_GC_INTERVAL
     end.
@@ -2469,7 +2470,7 @@ purge_pocs(Ledger) ->
     ok.
 
 maybe_gc_pocs(Chain, Ledger) ->
-    case blockchain:config(?poc_challenger_type, Ledger) of
+    case ?get_var(?poc_challenger_type, Ledger) of
         {ok, validator} ->
             maybe_gc_pocs(Chain, Ledger, validator);
         _ ->
@@ -2638,7 +2639,7 @@ maybe_gc_pocs(Chain, Ledger, _) ->
 upgrade_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     %% don't need to do this in the validator challenge world
-    case blockchain_ledger_v1:config(?poc_challenger_type, Ledger) of
+    case ?get_var(?poc_challenger_type, Ledger) of
         {ok, validator} ->
             ok;
         {error, not_found} ->
@@ -2806,7 +2807,7 @@ calc_remaining_dcs(SC) ->
 %%--------------------------------------------------------------------
 -spec staking_keys(Ledger :: ledger()) -> not_found | [libp2p_crypto:pubkey_bin()].
 staking_keys(Ledger)->
-    case blockchain:config(?staking_keys, Ledger) of
+    case ?get_var(?staking_keys, Ledger) of
         {error, not_found} -> not_found;
         {ok, V} -> blockchain_utils:bin_keys_to_list(V)
     end.
@@ -2817,7 +2818,7 @@ staking_keys(Ledger)->
 %%--------------------------------------------------------------------
 -spec txn_fees_active(Ledger :: ledger()) -> boolean().
 txn_fees_active(Ledger)->
-    case blockchain:config(?txn_fees, Ledger) of
+    case ?get_var(?txn_fees, Ledger) of
         {error, not_found} -> false;
         {ok, V} -> V
     end.
@@ -2829,7 +2830,7 @@ txn_fees_active(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_oui_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_oui_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_oui_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_oui_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2841,7 +2842,7 @@ staking_fee_txn_oui_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_oui_v1_per_address(Ledger :: ledger()) -> non_neg_integer().
 staking_fee_txn_oui_v1_per_address(Ledger)->
-    case blockchain:config(?staking_fee_txn_oui_v1_per_address, Ledger) of
+    case ?get_var(?staking_fee_txn_oui_v1_per_address, Ledger) of
         {error, not_found} -> 0;
         {ok, V} -> V
     end.
@@ -2853,7 +2854,7 @@ staking_fee_txn_oui_v1_per_address(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_add_gateway_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_add_gateway_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_add_gateway_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_add_gateway_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2865,7 +2866,7 @@ staking_fee_txn_add_gateway_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_add_dataonly_gateway_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_add_dataonly_gateway_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_add_dataonly_gateway_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_add_dataonly_gateway_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2876,7 +2877,7 @@ staking_fee_txn_add_dataonly_gateway_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_add_light_gateway_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_add_light_gateway_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_add_light_gateway_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_add_light_gateway_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2888,7 +2889,7 @@ staking_fee_txn_add_light_gateway_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec txn_fee_multiplier(Ledger :: ledger()) -> pos_integer().
 txn_fee_multiplier(Ledger)->
-    case blockchain:config(?txn_fee_multiplier, Ledger) of
+    case ?get_var(?txn_fee_multiplier, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2900,7 +2901,7 @@ txn_fee_multiplier(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_assert_location_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_assert_location_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_assert_location_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_assert_location_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2911,7 +2912,7 @@ staking_fee_txn_assert_location_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_assert_location_dataonly_gateway_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_assert_location_dataonly_gateway_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2922,7 +2923,7 @@ staking_fee_txn_assert_location_dataonly_gateway_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec staking_fee_txn_assert_location_light_gateway_v1(Ledger :: ledger()) -> pos_integer().
 staking_fee_txn_assert_location_light_gateway_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_assert_location_light_gateway_v1, Ledger) of
+    case ?get_var(?staking_fee_txn_assert_location_light_gateway_v1, Ledger) of
         {error, not_found} -> 1;
         {ok, V} -> V
     end.
@@ -2933,7 +2934,7 @@ staking_fee_txn_assert_location_light_gateway_v1(Ledger)->
 %% TODO: come up with a better name for this
 -spec staking_keys_to_mode_mappings(Ledger :: ledger()) -> not_found | [libp2p_crypto:pubkey_bin()].
 staking_keys_to_mode_mappings(Ledger)->
-    case blockchain:config(?staking_keys_to_mode_mappings, Ledger) of
+    case ?get_var(?staking_keys_to_mode_mappings, Ledger) of
         {error, not_found} -> not_found;
         {ok, V} -> blockchain_utils:bin_to_prop(V)
     end.
@@ -3108,7 +3109,7 @@ update_subnetwork(SN, Ledger) ->
 -spec maybe_recalc_price( Blockchain :: blockchain:blockchain(),
                           Ledger :: ledger() ) -> ok.
 maybe_recalc_price(Blockchain, Ledger) ->
-    case blockchain:config(?price_oracle_refresh_interval, Ledger) of
+    case ?get_var(?price_oracle_refresh_interval, Ledger) of
         {error, not_found} -> ok;
         {ok, I} -> do_maybe_recalc_price(I, Blockchain, Ledger)
     end.
@@ -3128,13 +3129,13 @@ do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     end.
 
 recalc_price(LastPrice, BlockT, _DefaultCF, Ledger) ->
-    {ok, DelaySecs} = blockchain:config(?price_oracle_price_scan_delay, Ledger),
-    {ok, MaxSecs} = blockchain:config(?price_oracle_price_scan_max, Ledger),
+    {ok, DelaySecs} = ?get_var(?price_oracle_price_scan_delay, Ledger),
+    {ok, MaxSecs} = ?get_var(?price_oracle_price_scan_max, Ledger),
     StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
     EndScan = BlockT - MaxSecs, % typically 1 day + 1 hour (in seconds)
     {ok, Prices} = current_oracle_price_list(Ledger),
     NewPriceList = trim_price_list(EndScan, Prices),
-    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
+    {ok, RawOracleKeys} = ?get_var(?price_oracle_public_keys, Ledger),
     Maximum = length(blockchain_utils:bin_keys_to_list(RawOracleKeys)),
     Minimum = (Maximum div 2) + 1,
 
@@ -3577,7 +3578,7 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
 
 -spec hnt_burned(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 hnt_burned(Ledger) ->
-    case blockchain:config(?net_emissions_enabled, Ledger) of
+    case ?get_var(?net_emissions_enabled, Ledger) of
         {ok, true} ->
             DefaultCF = default_cf(Ledger),
             case cache_get(Ledger, DefaultCF, ?HNT_BURNED, []) of
@@ -3593,7 +3594,7 @@ hnt_burned(Ledger) ->
 
 -spec add_hnt_burned(non_neg_integer(), ledger()) -> ok.
 add_hnt_burned(Burned, Ledger) ->
-    case blockchain:config(?net_emissions_enabled, Ledger) of
+    case ?get_var(?net_emissions_enabled, Ledger) of
         {ok, true} ->
             DefaultCF = default_cf(Ledger),
             Prev =
@@ -3613,7 +3614,7 @@ clear_hnt_burned(Ledger) ->
 
 -spec net_overage(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 net_overage(Ledger) ->
-    case blockchain:config(?net_emissions_enabled, Ledger) of
+    case ?get_var(?net_emissions_enabled, Ledger) of
         {ok, true} ->
             DefaultCF = default_cf(Ledger),
             case cache_get(Ledger, DefaultCF, ?NET_OVERAGE, []) of
@@ -3629,7 +3630,7 @@ net_overage(Ledger) ->
 
 -spec net_overage(non_neg_integer(), ledger()) -> ok.
 net_overage(Overage, Ledger) ->
-    case blockchain:config(?net_emissions_enabled, Ledger) of
+    case ?get_var(?net_emissions_enabled, Ledger) of
         {ok, true} ->
             DefaultCF = default_cf(Ledger),
             cache_put(Ledger, DefaultCF, ?NET_OVERAGE, <<Overage:64/integer-unsigned-native>>);
@@ -4059,7 +4060,7 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Original, Amount, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
     Key = state_channel_key(ID, Owner),
-    Bin = case blockchain:config(?sc_version, Ledger) of
+    Bin = case ?get_var(?sc_version, Ledger) of
         {ok, 2} ->
             Routing = blockchain_ledger_state_channel_v2:new(ID, Owner,
                                                              CurrHeight+ExpireWithin,
@@ -4104,7 +4105,7 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
             {ok, PrevSCE} = find_state_channel(SCID, Owner, Ledger),
             case blockchain_ledger_state_channel_v2:is_v2(PrevSCE) of
                 true ->
-                    ConsiderEffectOf = case blockchain:config(?sc_causality_fix, Ledger) of
+                    ConsiderEffectOf = case ?get_var(?sc_causality_fix, Ledger) of
                                            {ok, N} when N > 0 ->
                                                true;
                                            _ ->
@@ -4226,9 +4227,9 @@ current_oracle_price(Ledger) ->
 next_oracle_prices(Blockchain, Ledger) ->
     DefaultCF = default_cf(Ledger),
     {ok, CurrentHeight} = current_height(Ledger),
-    {ok, Interval} = blockchain:config(?price_oracle_refresh_interval, Ledger),
-    {ok, DelaySecs} = blockchain:config(?price_oracle_price_scan_delay, Ledger),
-    {ok, MaxSecs} = blockchain:config(?price_oracle_price_scan_max, Ledger),
+    {ok, Interval} = ?get_var(?price_oracle_refresh_interval, Ledger),
+    {ok, DelaySecs} = ?get_var(?price_oracle_price_scan_delay, Ledger),
+    {ok, MaxSecs} = ?get_var(?price_oracle_price_scan_max, Ledger),
 
     LastUpdate = CurrentHeight - (CurrentHeight rem Interval),
 
@@ -4910,7 +4911,7 @@ hex_name(Hex) ->
 
 add_to_hex(Loc, Gateway, Res, Ledger) ->
     Hex = h3:parent(Loc, 5), % ugh
-    case blockchain:config(?poc_hexing_type, Ledger) of
+    case ?get_var(?poc_hexing_type, Ledger) of
         {ok, hex_h3dex} ->
             add_gw_to_hex(Hex, Gateway, Ledger),
             add_gw_to_h3dex(Loc, Gateway, Res, Ledger);
@@ -4940,7 +4941,7 @@ add_gw_to_hex(Hex, Gateway, Ledger) ->
 
 remove_from_hex(Loc, Gateway, Res, Ledger) ->
     Hex = h3:parent(Loc, 5), % ugh
-    case blockchain:config(?poc_hexing_type, Ledger) of
+    case ?get_var(?poc_hexing_type, Ledger) of
         {ok, hex_h3dex} ->
             remove_gw_from_hex(Hex, Gateway, Ledger),
             remove_gw_from_h3dex(Loc, Gateway, Res, Ledger);
@@ -5563,8 +5564,8 @@ maybe_gc_h3dex(Ledger) ->
     end.
 
 gc_h3dex_hex(Location, Height, InactivityThreshold, Ledger) ->
-    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-    {ok, GCRes} = blockchain:config(?poc_target_hex_collection_res, Ledger),
+    {ok, Res} = ?get_var(?poc_target_hex_parent_res, Ledger),
+    {ok, GCRes} = ?get_var(?poc_target_hex_collection_res, Ledger),
     HexMap = lookup_gateways_from_hex(h3:parent(Location, GCRes), Ledger),
     %% no maps:foreach in otp 22
     maps:fold(fun(H3, Gateways, _Acc) ->
@@ -6075,7 +6076,7 @@ load_threshold_txns(Txns, Ledger) ->
 
 -spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
-    case blockchain:config(?poc_challenger_type, Ledger) of
+    case ?get_var(?poc_challenger_type, Ledger) of
         {ok, Type} ->
             snapshot_pocs(Type, Ledger);
         _ ->
@@ -6109,7 +6110,7 @@ snapshot_pocs(_, Ledger) ->
           []))).
 
 load_pocs(PoCs, Ledger) ->
-    case blockchain:config(?poc_challenger_type, Ledger) of
+    case ?get_var(?poc_challenger_type, Ledger) of
         {ok, Type} ->
             load_pocs(Type, PoCs, Ledger);
         _ ->
@@ -6478,10 +6479,11 @@ get_sc_mod(Channel, Ledger) ->
     end.
 
 get_config(Var, Ledger, Default) ->
-    case blockchain:config(Var, Ledger) of
+    case ?get_var(Var, Ledger) of
         {ok, V} -> {ok, V};
         _ -> {ok, Default}
     end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% This function allows us to get a lower sc_max_actors for testing

@@ -143,7 +143,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?max_payments, Ledger) of
+    case ?get_var(?max_payments, Ledger) of
         {ok, M} when is_integer(M) ->
             case
                 blockchain_txn:validate_fields([
@@ -152,7 +152,7 @@ is_valid(Txn, Chain) ->
                 ])
             of
                 ok ->
-                    case blockchain:config(?token_version, Ledger) of
+                    case ?get_var(?token_version, Ledger) of
                         {ok, 2} ->
                             do_is_valid_checks_v2(Txn, Chain, M);
                         _ ->
@@ -168,7 +168,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?token_version, Ledger) of
+    case ?get_var(?token_version, Ledger) of
         {ok, 2} ->
             absorb_v2_(Txn, Ledger, Chain);
         _ ->
@@ -454,7 +454,7 @@ fee_check(Txn, Chain, Ledger) ->
     ok | {error, any()}.
 memo_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
-    case blockchain:config(?allow_payment_v2_memos, Ledger) of
+    case ?get_var(?allow_payment_v2_memos, Ledger) of
         {ok, true} ->
             %% check that the memos are valid
             case has_valid_memos(Payments) of
@@ -502,13 +502,13 @@ amount_check_v2(Txn, Ledger) ->
 -spec amount_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, amount_check_failed}.
 amount_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
-    AmtCheck = case blockchain:config(?enable_balance_clearing, Ledger) of
+    AmtCheck = case ?get_var(?enable_balance_clearing, Ledger) of
                    {ok, true} ->
                        %% See above note in amount_check_v2
                        {MaxPayments, _OtherPayments} = split_payment_amounts(Txn, Ledger),
                        lists:all(fun({_, Amt}) -> Amt > 0 end, MaxPayments);
                    _ ->
-                       case blockchain:config(?allow_zero_amount, Ledger) of
+                       case ?get_var(?allow_zero_amount, Ledger) of
                            {ok, false} ->
                                %% check that none of the payments have a zero amount
                                has_non_zero_amounts(Payments);
@@ -530,7 +530,7 @@ split_payment_amounts(#blockchain_txn_payment_v2_pb{payer=Payer, fee=Fee}=Txn, L
         0 ->
             {MaxPayments, SpecifiedPayments1};
         _ ->
-            case blockchain:config(?token_version, Ledger) of
+            case ?get_var(?token_version, Ledger) of
                 {ok, 2} ->
                     {ok, PayerEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
                     MaxPayments1 = lists:map(fun(MaxPayment) ->
@@ -650,7 +650,7 @@ has_default_memos(Payments) ->
 -spec token_check(Txn :: txn_payment_v2(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 token_check(Txn, Ledger) ->
     Payments = ?MODULE:payments(Txn),
-    case blockchain:config(?token_version, Ledger) of
+    case ?get_var(?token_version, Ledger) of
         {ok, 2} ->
             %% check that the tokens are valid
             case has_valid_tokens(Payments) of
