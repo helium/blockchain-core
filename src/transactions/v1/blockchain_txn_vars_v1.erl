@@ -728,7 +728,8 @@ var_hook(?poc_target_hex_parent_res, Value, Ledger) ->
     ok;
 var_hook(?poc_hexing_type, h3dex, Ledger) ->
     %% the hexes keys should be safe to remove now
-    blockchain_ledger_v1:clean_all_hexes(Ledger),
+    %% TODO this commits the ledger and is really bad, so it has been removed
+    %% blockchain_ledger_v1:clean_all_hexes(Ledger),
     ok;
 var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
     %% rebuild hexes since we're back to updating them
