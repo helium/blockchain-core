@@ -315,10 +315,10 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
         height = Height,
         queue_pos = QueuePos,
         queue_len = QueueLen
-    }}}}, State)  when Status == <<"txn_accepted">> ->
+    }}}}, #state{cur_block_height = CurBlockHeight} = State)  when Status == <<"txn_accepted">> ->
     lager:debug("txn accepted. txn: ~s, member: ~p, dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
         [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
-    ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
+    ok = accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen, CurBlockHeight),
     {noreply, State};
 
 handle_info({blockchain_txn_response, {update, {Dialer, TxnKey, Txn, Member,
@@ -327,10 +327,10 @@ handle_info({blockchain_txn_response, {update, {Dialer, TxnKey, Txn, Member,
         height = Height,
         queue_pos = QueuePos,
         queue_len = QueueLen
-    }}}}, State)  when Status == <<"txn_updated">> ->
+    }}}}, #state{cur_block_height = CurBlockHeight} = State)  when Status == <<"txn_updated">> ->
     lager:debug("txn updated. txn: ~s, member: ~p, dialer: ~p at height: ~p and queuepos: ~p and queuelen: ~p",
         [blockchain_txn:print(Txn), Member, Dialer, Height, QueuePos, QueueLen]),
-    ok = updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen),
+    ok = updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen, CurBlockHeight),
     {noreply, State};
 %% sink any 'update' responses which do not have status value of <<"txn_updated">>
 %% they will likely be not_found errors as a result of a txn dropping out of the hbbft buffer
@@ -823,7 +823,7 @@ check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ 
             ElegibleMembers1 = (ElegibleMembers -- AcceptionsDialers) -- ExistingDialers,
             %% determine max number of new diallers we need to start and then use this to get our target list to dial
             MaxNewDiallersCount = SubmitF - length(AcceptionsDialers) - length(Dialers),
-            NewDialers = dial_members(lists:sublist(ElegibleMembers1, MaxNewDiallersCount), Chain, TxnKey, Txn),
+            NewDialers = dial_members(lists:sublist(ElegibleMembers1, MaxNewDiallersCount), TxnKey, Txn),
             lager:info("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p",
                 [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers1), length(NewDialers)]),
             cache_txn(TxnKey, Txn, TxnData#txn_data{dialers =  Dialers ++ NewDialers})
@@ -836,8 +836,8 @@ purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers) ->
     {Acceptions, Rejections}.
 
 -spec accepted(txn_key(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(),
-    pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer()) -> ok.
-accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
+    pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer(), non_neg_integer()) -> ok.
+accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen, CurBlockHeight) ->
     %% stop the dialer which accepted the txn, we dont have any further use for it
     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     case cached_txn(TxnKey) of
@@ -846,7 +846,7 @@ accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
             lager:debug("cannot find accepted txn ~p with dialer ~p", [Txn, Dialer]),
             ok;
         {ok, {TxnKey, Txn, #txn_data{acceptions = Acceptions, dialers = Dialers, recv_block_height = RecvBlockHeight} = TxnData}} ->
-            telemetry:execute([blockchain, txn_mgr, accept], #{block_span => CurBlockHeight - RecvBlockHeight}, #{type => blockchain_txn:type(Txn)}),
+            telemetry:execute([blockchain, txn_mgr, accept], #{block_span => CurBlockHeight - RecvBlockHeight, queue_len => QueueLen}, #{type => blockchain_txn:type(Txn)}),
             case lists:keymember(Dialer, 1, Dialers) of
                 false ->
                     %% some kind of orphaned dialer
@@ -861,8 +861,8 @@ accepted(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
     end.
 
 -spec updated(txn_key(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(),
-    pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer()) -> ok.
-updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
+    pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer(), non_neg_integer()) -> ok.
+updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen, CurBlockHeight) ->
     %% stop the dialer which updated the txn, we dont have any further use for it
     %% and replace the acceptor data with the updated data
     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
@@ -871,10 +871,11 @@ updated(TxnKey, Txn, Member, Dialer, Height, QueuePos, QueueLen) ->
             %% We no longer have this txn, do nothing
             lager:debug("cannot find updated txn ~p with dialer ~p", [Txn, Dialer]),
             ok;
-        {ok, {TxnKey, Txn, #txn_data{acceptions = Acceptions} = TxnData}} ->
+        {ok, {TxnKey, Txn, #txn_data{acceptions = Acceptions, recv_block_height = RecvBlockHeight} = TxnData}} ->
             %% replace the acceptor data
             lager:debug("updating acceptions ~p", [Acceptions]),
             lager:debug("update data ~p", [{Member, Height, QueuePos, QueueLen}]),
+            telemetry:execute([blockchain, txn_mgr, update], #{block_span => CurBlockHeight - RecvBlockHeight, queue_len => QueueLen}, #{type => blockchain_txn:type(Txn)}),
             cache_txn(TxnKey, Txn, TxnData#txn_data{
                 acceptions = lists:keyreplace(Member, 1, Acceptions, {Member, Height, QueuePos, QueueLen})})
     end.
@@ -927,7 +928,7 @@ reject_actions({TxnKey, Txn, TxnData},
 -spec submit_txn_to_cg(blockchain:blockchain(), txn_key(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> dialers().
 submit_txn_to_cg(Chain, TxnKey, Txn, SubmitCount, Acceptions, Rejections, Dialers)->
     {ok, Members} = ?MODULE:signatory_rand_members(Chain, SubmitCount, Acceptions, Rejections, Dialers),
-    dial_members(Members, Chain, TxnKey, Txn).
+    dial_members(Members, TxnKey, Txn).
 
 -spec dial_members([libp2p_crypto:pubkey_bin()], txn_key(), blockchain_txn:txn()) -> dialers().
 dial_members(Members, TxnKey, Txn) ->
