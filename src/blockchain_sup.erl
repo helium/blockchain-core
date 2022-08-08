@@ -196,7 +196,7 @@ cream_caches_init() ->
     persistent_term:put(?routing_cache, RoutingCache),
 
     {ok, WitnessCache}
-        = cream:new(20000,
+        = cream:new(50000,
                     [{initial_capacity, 10000},
                      {seconds_to_idle, 60 * 60}]),
     persistent_term:put(?witness_cache, WitnessCache).
