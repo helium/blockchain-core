@@ -937,7 +937,7 @@ dial_members(Members, TxnKey, Txn) ->
 -spec dial_members([libp2p_crypto:pubkey_bin()], txn_key(), blockchain_txn:txn(), dialers()) -> dialers().
 dial_members([], _TxnKey, _Txn, AccDialers) ->
     AccDialers;
-dial_members([Member | Rest], Chain, TxnKey, Txn, AccDialers)->
+dial_members([Member | Rest], TxnKey, Txn, AccDialers)->
     {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), submit, TxnKey, Txn, Member]),
     ok = blockchain_txn_dialer:dial(Dialer),
     dial_members(Rest, TxnKey, Txn, [{Dialer, Member} | AccDialers]).
@@ -967,13 +967,13 @@ cache_txn(Key, Txn, TxnDataRec) ->
     true = ets:insert(?TXN_CACHE, {Key, Txn, TxnDataRec}),
     ok.
 
--spec delete_cached_txn(txn_key()) -> ok.
+-spec delete_cached_txn(txn_key())-> ok.
 delete_cached_txn(Key) ->
     true = ets:delete(?TXN_CACHE, Key),
     ok.
 
 -spec cached_txn(txn_key())-> {ok, cached_txn_type()} | {error, txn_not_found}.
-cached_txn(Key) ->
+cached_txn(Key)->
     case ets:lookup(?TXN_CACHE, Key) of
         [Res] -> {ok, Res};
         _ -> {error, txn_not_found}
@@ -988,12 +988,12 @@ cache_size() ->
     ets:info(?TXN_CACHE, size).
 
 -spec sorted_cached_txns()-> [] | [cached_txn_type()].
-sorted_cached_txns() ->
+sorted_cached_txns()->
     TxnList = ets:tab2list(?TXN_CACHE),
     sort_txns(TxnList).
 
 -spec sort_txns([cached_txn_type()]) -> [cached_txn_type()].
-sort_txns(Txns) ->
+sort_txns(Txns)->
     lists:sort(fun({_, TxnA, _}, {_, TxnB, _}) -> blockchain_txn:sort(TxnA, TxnB) end, Txns).
 
 -spec normalise_block_height(integer(), undefined | integer()) -> integer().
@@ -1003,12 +1003,12 @@ normalise_block_height(_CurBlockHeight, RecvBlockHeight)->
     RecvBlockHeight.
 
 -spec submit_f(integer()) -> integer().
-submit_f(NumMembers) ->
+submit_f(NumMembers)->
     %% F/2+1
     trunc(((NumMembers - 1) div 3 ) / 2) + 1.
 
 -spec reject_f(integer()) -> integer().
-reject_f(NumMembers) ->
+reject_f(NumMembers)->
     %% 2F+1
     (trunc((NumMembers) div 3) * 2) + 1.
 
