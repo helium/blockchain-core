@@ -193,7 +193,14 @@ cream_caches_init() ->
         = cream:new(1000,
                     [{initial_capacity, 50},
                      {seconds_to_idle, 6 * 60 * 60}]),
-    persistent_term:put(?routing_cache, RoutingCache).
+    persistent_term:put(?routing_cache, RoutingCache),
+
+    {ok, WitnessCache}
+        = cream:new(50000,
+                    [{initial_capacity, 10000},
+                     {seconds_to_idle, 60 * 60}]),
+    persistent_term:put(?witness_cache, WitnessCache).
+
 
 cream_caches_clear() ->
     cream:drain(persistent_term:get(?var_cache)),
@@ -201,4 +208,5 @@ cream_caches_clear() ->
     cream:drain(persistent_term:get(?score_cache)),
     cream:drain(persistent_term:get(?fp_cache)),
     cream:drain(persistent_term:get(?sc_server_cache)),
-    cream:drain(persistent_term:get(?routing_cache)).
+    cream:drain(persistent_term:get(?routing_cache)),
+    cream:drain(persistent_term:get(?witness_cache)).
