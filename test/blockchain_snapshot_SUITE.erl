@@ -127,7 +127,7 @@ basic_test(DeserializeFrom, Cfg0) ->
     ?assertEqual([], DiffAB),
 
     HashC = blockchain_ledger_snapshot_v1:hash(SnapshotC),
-    {ok, Height2, HashC2} = blockchain:add_snapshot(SnapshotC, Chain),
+    {ok, {Height2, HashC2, _Size}} = blockchain:add_snapshot(SnapshotC, Chain),
     ?assertEqual(Height1, Height2),
     ?assertEqual(HashC, HashC2),
     {ok, SnapshotDBin} = blockchain:get_snapshot(HashC, Chain),

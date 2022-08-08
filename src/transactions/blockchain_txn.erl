@@ -529,6 +529,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
+            telemetry:execute([blockchain, block, unvalidated_absorb], #{duration => End - Start}, #{stage => validation}),
             AbsordDelayedRef = absorb_delayed_async(Block, Chain0),
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2, KeysPayload} ->
@@ -538,9 +539,12 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             End2 = erlang:monotonic_time(millisecond),
+                            telemetry:execute([blockchain, block, unvalidated_absorb], #{duration => End2 - End}, #{stage => absorb}),
                             ok = handle_absorb_delayed_result(AbsordDelayedRef),
                             absorb_aux(Block, Chain0),
                             End3 = erlang:monotonic_time(millisecond),
+                            telemetry:execute([blockchain, block, unvalidated_absorb], #{duration => End3 - End2}, #{stage => post}),
+                            telemetry:execute([blockchain, block, unvalidated_height], #{height => Height}, #{time => blockchain_block:time(Block)}),
                             lager:info("validation took ~p absorb took ~p post took ~p ms height ~p",
                                        [End - Start, End2 - End, End3 - End2, Height]),
                             {ok, KeysPayload};
@@ -601,6 +605,7 @@ absorb(Txn, Chain) ->
             Error;
         ok ->
             End = erlang:monotonic_time(millisecond),
+            telemetry:execute([blockchain, txn, absorb], #{duration => End - Start}, #{type => Type}),
             Slow = application:get_env(blockchain, slow_txn_log_threshold, 25), % in ms
             case (End - Start) >= Slow of
                 true ->
