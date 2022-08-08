@@ -36,6 +36,7 @@
 -define(gw_cache, gw_cache).
 -define(fp_cache, fp_cache).
 -define(routing_cache, routing_cache).
+-define(witness_cache, witness_cache).
 -define(sc_server_cache, routing_cache).
 
 -define(BC_UPGRADE_NAMES, [

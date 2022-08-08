@@ -19,6 +19,7 @@
 -include("blockchain_json.hrl").
 
 -include("blockchain_vars.hrl").
+-include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v2_pb.hrl").
 
 -export([
@@ -1239,14 +1240,11 @@ poc_witness_reward(Txn, AccIn,
                         WitnessChannel = lists:nth(ElemPos, Channels),
                         WitStart = erlang:monotonic_time(microsecond),
                         ElemHash = erlang:phash2(Elem),
-                        ValidWitnesses =
-                            case get({KeyHash, ElemHash}) of
-                                undefined ->
-                                    VW = TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
-                                    put({KeyHash, ElemHash}, VW),
-                                    VW;
-                                VW -> VW
-                            end,
+                        WitnessCache = persistent_term:get(?witness_cache),
+                        ValidWitnesses = cream:cache(WitnessCache, {KeyHash, ElemHash},
+                                                     fun() ->
+                                                             TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger)
+                                                     end),
                         case ValidWitnesses of
                             [] -> Acc1;
                             [_|_] ->
@@ -1583,14 +1581,11 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, RegionVars, Version) ->
                 WitnessChannel = lists:nth(ElemPos, Channels),
                 KeyHash = TxnType:onion_key_hash(Txn),
                 ElemHash = erlang:phash2(Elem),
-                ValidWitnesses =
-                    case get({KeyHash, ElemHash}) of
-                        undefined ->
-                            VW = TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger),
-                            put({KeyHash, ElemHash}, VW),
-                            VW;
-                        VW -> VW
-                    end,
+                WitnessCache = persistent_term:get(?witness_cache),
+                ValidWitnesses = cream:cache(WitnessCache, {KeyHash, ElemHash},
+                                             fun() ->
+                                                     TxnType:valid_witnesses(Elem, WitnessChannel, RegionVars, Ledger)
+                                             end),
                 ValidWitnesses
             catch
                 throw:{error, {unknown_region, Region}}:_ST ->
