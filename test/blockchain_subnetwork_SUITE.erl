@@ -7,7 +7,8 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-    add_subnetwork_test/1,
+    add_mobile_subnetwork_test/1,
+    add_iot_subnetwork_test/1,
     failing_subnetwork_test/1
 ]).
 
@@ -23,7 +24,8 @@
 %%--------------------------------------------------------------------
 all() ->
     [
-        add_subnetwork_test,
+        add_mobile_subnetwork_test,
+        add_iot_subnetwork_test,
         failing_subnetwork_test
     ].
 
@@ -120,51 +122,11 @@ end_per_testcase(_, Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-add_subnetwork_test(Config) ->
-    {NetworkPriv, _} = ?config(master_key, Config),
-    Chain = ?config(chain, Config),
-    Ledger = blockchain:ledger(Chain),
-    ConsensusMembers = ?config(consensus_members, Config),
+add_mobile_subnetwork_test(Config) ->
+    run_test(mobile, Config).
 
-    %% Generate a random subnetwork signer
-    [{SubnetworkPubkeyBin, {_SubnetworkPub, _SubnetworkPriv, SubnetworkSigFun}}] = test_utils:generate_keys(
-        1
-    ),
-
-    %% Generate a random reward server
-    [{RewardServerPubkeyBin, _}] = test_utils:generate_keys(1),
-
-    NetworkSigfun = libp2p_crypto:mk_sig_fun(NetworkPriv),
-
-    TT = mobile,
-    Premine = 5000,
-    T = blockchain_txn_add_subnetwork_v1:new(
-        TT, SubnetworkPubkeyBin, [RewardServerPubkeyBin], Premine
-    ),
-    ST0 = blockchain_txn_add_subnetwork_v1:sign_subnetwork(T, SubnetworkSigFun),
-    ST = blockchain_txn_add_subnetwork_v1:sign(ST0, NetworkSigfun),
-
-    IsValid = blockchain_txn:is_valid(ST, Chain),
-    ?assertEqual(ok, IsValid),
-
-    {ok, Block} = test_utils:create_block(ConsensusMembers, [ST]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
-
-    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
-    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 2}, blockchain:height(Chain)),
-
-    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
-
-    LedgerSubnetworks = blockchain_ledger_v1:subnetworks_v1(Ledger),
-    LedgerSubnetwork = maps:get(mobile, LedgerSubnetworks),
-    ?assertEqual(mobile, blockchain_ledger_subnetwork_v1:type(LedgerSubnetwork)),
-    ?assertEqual(Premine, blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnetwork)),
-    ?assertEqual([RewardServerPubkeyBin], blockchain_ledger_subnetwork_v1:reward_server_keys(LedgerSubnetwork)),
-    ?assertEqual(0, blockchain_ledger_subnetwork_v1:hnt_treasury(LedgerSubnetwork)),
-    ?assertEqual(0, blockchain_ledger_subnetwork_v1:nonce(LedgerSubnetwork)),
-
-    ok.
+add_iot_subnetwork_test(Config) ->
+    run_test(iot, Config).
 
 failing_subnetwork_test(Config) ->
     {NetworkPriv, _} = ?config(master_key, Config),
@@ -186,7 +148,10 @@ failing_subnetwork_test(Config) ->
     TT = hst,
     Premine = 5000,
     T = blockchain_txn_add_subnetwork_v1:new(
-        TT, SubnetworkPubkeyBin, [RewardServerPubkeyBin], Premine
+        TT,
+        SubnetworkPubkeyBin,
+        [RewardServerPubkeyBin],
+        Premine
     ),
     ST0 = blockchain_txn_add_subnetwork_v1:sign_subnetwork(T, SubnetworkSigFun),
     ST = blockchain_txn_add_subnetwork_v1:sign(ST0, NetworkSigfun),
@@ -196,7 +161,10 @@ failing_subnetwork_test(Config) ->
 
     TT2 = hnt,
     T2 = blockchain_txn_add_subnetwork_v1:new(
-        TT2, SubnetworkPubkeyBin, [RewardServerPubkeyBin], Premine
+        TT2,
+        SubnetworkPubkeyBin,
+        [RewardServerPubkeyBin],
+        Premine
     ),
     ST1 = blockchain_txn_add_subnetwork_v1:sign_subnetwork(T2, SubnetworkSigFun),
     ST2 = blockchain_txn_add_subnetwork_v1:sign(ST1, NetworkSigfun),
@@ -210,9 +178,62 @@ failing_subnetwork_test(Config) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
+run_test(TT, Config) ->
+    {NetworkPriv, _} = ?config(master_key, Config),
+    Chain = ?config(chain, Config),
+    Ledger = blockchain:ledger(Chain),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% Generate a random subnetwork signer
+    [{SubnetworkPubkeyBin, {_SubnetworkPub, _SubnetworkPriv, SubnetworkSigFun}}] = test_utils:generate_keys(
+        1
+    ),
+
+    %% Generate a random reward server
+    [{RewardServerPubkeyBin, _}] = test_utils:generate_keys(1),
+
+    NetworkSigfun = libp2p_crypto:mk_sig_fun(NetworkPriv),
+
+    Premine = 50 * 1000000000 * 100000000,
+    T = blockchain_txn_add_subnetwork_v1:new(
+        TT,
+        SubnetworkPubkeyBin,
+        [RewardServerPubkeyBin],
+        Premine
+    ),
+    ST0 = blockchain_txn_add_subnetwork_v1:sign_subnetwork(T, SubnetworkSigFun),
+    ST = blockchain_txn_add_subnetwork_v1:sign(ST0, NetworkSigfun),
+
+    IsValid = blockchain_txn:is_valid(ST, Chain),
+    ?assertEqual(ok, IsValid),
+
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [ST]),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:tid()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+
+    LedgerSubnetworks = blockchain_ledger_v1:subnetworks_v1(Ledger),
+    LedgerSubnetwork = maps:get(TT, LedgerSubnetworks),
+    ?assertEqual(TT, blockchain_ledger_subnetwork_v1:type(LedgerSubnetwork)),
+    ?assertEqual(Premine, blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnetwork)),
+    ?assertEqual(
+        [RewardServerPubkeyBin],
+        blockchain_ledger_subnetwork_v1:reward_server_keys(LedgerSubnetwork)
+    ),
+    ?assertEqual(0, blockchain_ledger_subnetwork_v1:hnt_treasury(LedgerSubnetwork)),
+    ?assertEqual(0, blockchain_ledger_subnetwork_v1:nonce(LedgerSubnetwork)),
+
+    ok.
+
 extra_vars(_) ->
-    #{?allowed_num_reward_server_keys => 1,
-      ?subnetwork_reward_per_block_limit => 100}.
+    #{
+        ?allowed_num_reward_server_keys => 1,
+        ?subnetwork_reward_per_block_limit => 100
+    }.
 
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),

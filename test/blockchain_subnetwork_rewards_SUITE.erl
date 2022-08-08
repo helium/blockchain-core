@@ -14,12 +14,14 @@
 ]).
 
 -export([
-    basic_test/1
+    mobile_test/1,
+    iot_test/1
 ]).
 
 all() ->
     [
-        basic_test
+        mobile_test,
+        iot_test
     ].
 
 %%--------------------------------------------------------------------
@@ -123,13 +125,24 @@ end_per_testcase(_TestCase, Config) ->
         false ->
             ok
     end,
+    test_utils:cleanup_tmp_dir(?config(base_dir, Config)),
     ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-basic_test(Config) ->
+mobile_test(Config) ->
+    run_test(mobile, Config).
+
+iot_test(Config) ->
+    run_test(iot, Config).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+run_test(TT, Config) ->
     {NetworkPriv, _} = ?config(master_key, Config),
     Chain = ?config(chain, Config),
     Ledger = blockchain:ledger(Chain),
@@ -145,7 +158,6 @@ basic_test(Config) ->
 
     NetworkSigfun = libp2p_crypto:mk_sig_fun(NetworkPriv),
 
-    TT = mobile,
     Premine = 5000,
     T = blockchain_txn_add_subnetwork_v1:new(
         TT,
@@ -169,8 +181,8 @@ basic_test(Config) ->
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
     LedgerSubnetworks = blockchain_ledger_v1:subnetworks_v1(Ledger),
-    LedgerSubnetwork = maps:get(mobile, LedgerSubnetworks),
-    ?assertEqual(mobile, blockchain_ledger_subnetwork_v1:type(LedgerSubnetwork)),
+    LedgerSubnetwork = maps:get(TT, LedgerSubnetworks),
+    ?assertEqual(TT, blockchain_ledger_subnetwork_v1:type(LedgerSubnetwork)),
     ?assertEqual(Premine, blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnetwork)),
     ?assertEqual(
         [RewardServerPubkeyBin],
@@ -189,13 +201,13 @@ basic_test(Config) ->
     End = Start + 30,
 
     %% Sign with the wrong signature
-    InvRewardsTxn1 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
+    InvRewardsTxn1 = blockchain_txn_subnetwork_rewards_v1:new(TT, Start, End, Rewards),
     InvRewardsTxn2 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn1, SubnetworkSigFun),
     {error, invalid_signature} = blockchain_txn:is_valid(InvRewardsTxn2, Chain),
 
     %% Incorrect start-end range
     InvRewardsTxn3 = blockchain_txn_subnetwork_rewards_v1:new(
-        mobile,
+        TT,
         Start,
         End - 30 - 11,
         Rewards
@@ -203,22 +215,11 @@ basic_test(Config) ->
     InvRewardsTxn4 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn3, RewardServerSigFun),
     {error, {invalid_reward_range, _, _, _}} = blockchain_txn:is_valid(InvRewardsTxn4, Chain),
 
-    %% Rewarding too much
-    ExcessRewards = [
-        blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee1, 1000),
-        blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee2, 4001)
-    ],
-    InvRewardsTxn5 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, ExcessRewards),
+    %% Rewarding too quick
+    InvRewardsTxn5 = blockchain_txn_subnetwork_rewards_v1:new(TT, Start, End, Rewards),
     InvRewardsTxn6 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn5, RewardServerSigFun),
-    {error, {insufficient_tokens_to_fulfil_rewards, _, _}} = blockchain_txn:is_valid(
-        InvRewardsTxn6,
-        Chain
-    ),
-
-    InvRewardsTxn9 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
-    InvRewardsTxn10 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn9, RewardServerSigFun),
     %% This one is invalid because we don't have enough blocks yet
-    {error, {invalid_end_block, End, 2}} = blockchain_txn:is_valid(InvRewardsTxn10, Chain),
+    {error, {invalid_end_block, End, 2}} = blockchain_txn:is_valid(InvRewardsTxn6, Chain),
 
     %% Add some blocks
     lists:foreach(
@@ -228,23 +229,38 @@ basic_test(Config) ->
         end,
         lists:seq(1, 38)
     ),
-
     ?assertEqual({ok, 40}, blockchain:height(Chain)),
+
+    %% Rewarding more than what is held in the token_treasury for this token
+    ExcessRewards = [
+        blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee1, 1000),
+        blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee2, 4001)
+    ],
+    InvRewardsTxn7 = blockchain_txn_subnetwork_rewards_v1:new(TT, Start, End, ExcessRewards),
+    InvRewardsTxn8 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn7, RewardServerSigFun),
+    {error, {insufficient_tokens_to_fulfil_rewards, _, _}} = blockchain_txn:is_valid(
+        InvRewardsTxn8,
+        Chain
+    ),
 
     %% Rewarding too much per block
     ExcessRewardsPerBlock = [
         blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee1, 200),
         blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee2, 400)
     ],
-    InvRewardsTxn7 = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End,
-                                                              ExcessRewardsPerBlock),
-    InvRewardsTxn8 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn7, RewardServerSigFun),
-    {error, {rewards_too_large,600,300}} = blockchain_txn:is_valid(
-        InvRewardsTxn8,
+    InvRewardsTxn9 = blockchain_txn_subnetwork_rewards_v1:new(
+        TT,
+        Start,
+        End,
+        ExcessRewardsPerBlock
+    ),
+    InvRewardsTxn10 = blockchain_txn_subnetwork_rewards_v1:sign(InvRewardsTxn9, RewardServerSigFun),
+    {error, {rewards_too_large, 600, 300}} = blockchain_txn:is_valid(
+        InvRewardsTxn10,
         Chain
     ),
 
-    RewardsTxn = blockchain_txn_subnetwork_rewards_v1:new(mobile, Start, End, Rewards),
+    RewardsTxn = blockchain_txn_subnetwork_rewards_v1:new(TT, Start, End, Rewards),
     SignedRewardsTxn = blockchain_txn_subnetwork_rewards_v1:sign(RewardsTxn, RewardServerSigFun),
     %% This one should be valid now
     ok = blockchain_txn:is_valid(SignedRewardsTxn, Chain),
@@ -259,27 +275,25 @@ basic_test(Config) ->
 
     {ok, E1} = blockchain_ledger_v1:find_entry(Rewardee1, Ledger),
     {ok, E2} = blockchain_ledger_v1:find_entry(Rewardee2, Ledger),
-    ?assertEqual(100, blockchain_ledger_entry_v2:balance(E1, mobile)),
-    ?assertEqual(200, blockchain_ledger_entry_v2:balance(E2, mobile)),
+    ?assertEqual(100, blockchain_ledger_entry_v2:balance(E1, TT)),
+    ?assertEqual(200, blockchain_ledger_entry_v2:balance(E2, TT)),
     ?assertEqual(0, blockchain_ledger_entry_v2:balance(E1, hnt)),
     ?assertEqual(0, blockchain_ledger_entry_v2:balance(E2, hnt)),
-    ?assertEqual(0, blockchain_ledger_entry_v2:balance(E1, iot)),
-    ?assertEqual(0, blockchain_ledger_entry_v2:balance(E2, iot)),
     ?assertEqual(0, blockchain_ledger_entry_v2:balance(E1, hst)),
     ?assertEqual(0, blockchain_ledger_entry_v2:balance(E2, hst)),
 
-    {ok, MobileLedgerSubnet} = blockchain_ledger_v1:find_subnetwork_v1(mobile, Ledger),
+    {ok, LedgerSubnet} = blockchain_ledger_v1:find_subnetwork_v1(TT, Ledger),
     %% 5000 - (100 + 200)
-    4700 = blockchain_ledger_subnetwork_v1:token_treasury(MobileLedgerSubnet),
+    4700 = blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnet),
 
     ok.
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
 extra_vars(_) ->
-    #{?allowed_num_reward_server_keys => 1, ?token_version => 2,
-      ?subnetwork_reward_per_block_limit => 10}.
+    #{
+        ?allowed_num_reward_server_keys => 1,
+        ?token_version => 2,
+        ?subnetwork_reward_per_block_limit => 10
+    }.
 
 token_allocations(_, Config) ->
     HNTBal = ?config(hnt_bal, Config),
