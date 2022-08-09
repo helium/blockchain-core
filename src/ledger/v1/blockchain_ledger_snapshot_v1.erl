@@ -181,7 +181,7 @@ snapshot(Ledger0, Blocks, Infos, Mode) ->
     {_Pid, MonitorRef} =
         spawn_opt(
             fun Retry() ->
-                Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
+                Ledger = blockchain_ledger_v1:mode(Mode, blockchain_ledger_v1:remove_context(Ledger0)),
                 {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
                 %% this should not leak a huge amount of atoms
                 Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
@@ -224,8 +224,10 @@ snapshot(Ledger0, Blocks, Infos, Mode) ->
         ),
     receive
         {Ref, Res} ->
+            erlang:demonitor(MonitorRef, [flush]),
             Res;
-        {'DOWN', MonitorRef, process, _, killed} ->
+        {'DOWN', MonitorRef, process, _, Other} ->
+            lager:info("failed to take snapshot ~p", [Other]),
             {error, killed}
     end.
 
@@ -262,7 +264,7 @@ generate_snapshot(Ledger, Blocks, Infos, Mode) ->
     {ok, snapshot_v5()} | {error, snapshot_error()}.
 generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
     try
-        Ledger = blockchain_ledger_v1:mode(Mode, Ledger0),
+        Ledger = blockchain_ledger_v1:mode(Mode, blockchain_ledger_v1:remove_context(Ledger0)),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
         {ok, ValidatorCount} = blockchain_ledger_v1:validator_count(Ledger),
         {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -305,7 +307,6 @@ generate_snapshot_v5(Ledger0, Blocks, Infos, Mode) ->
         {ok, HntBurned} = blockchain_ledger_v1:hnt_burned(Ledger),
 
         Subnetworks = blockchain_ledger_v1:snapshot_subnetworks(Ledger),
-
         %% use the active ledger here because that's where upgrades are marked
         Upgrades = blockchain:get_upgrades(blockchain_ledger_v1:mode(active, Ledger0)),
         Pairs =
@@ -804,7 +805,7 @@ get_blocks(Chain) ->
                 0
         end,
 
-    DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+    DLedger = blockchain_ledger_v1:mode(delayed, blockchain_ledger_v1:remove_context(Ledger)),
     {ok, DHeight0} = blockchain_ledger_v1:current_height(DLedger),
 
     {ok, #block_info_v2{election_info={_, DHeight}}} = blockchain:get_block_info(DHeight0, Chain),
