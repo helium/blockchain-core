@@ -36,7 +36,7 @@
     target_sync/3,
     sync/0,
     cancel_sync/0,
-    pause_sync/0,
+    pause_sync/0, pause_sync_cast/0,
     sync_paused/0,
 
     set_resyncing/3,
@@ -195,6 +195,9 @@ cancel_sync() ->
 
 pause_sync() ->
     gen_server:call(?SERVER, pause_sync, infinity).
+
+pause_sync_cast() ->
+    gen_server:cast(?SERVER, pause_sync).
 
 maybe_sync() ->
     gen_server:cast(?SERVER, maybe_sync).
@@ -514,6 +517,7 @@ handle_call({install_snapshot, Height, Hash, Snapshot, BinSnap}, _From,
                     blockchain_ledger_v1:commit_context(NewLedger1)
             end,
             remove_handlers(SwarmTID),
+            application:unset_env(blockchain, '$drop_cache_once'),
             NewChain = blockchain:delete_temp_blocks(Chain2),
             notify({new_chain, NewChain}),
             {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
@@ -641,6 +645,8 @@ handle_cast({set_resyncing, _Block, _Blockchain, _Syncing}, State) ->
 
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
+handle_cast(pause_sync, State) ->
+    {noreply, pause_sync(State)};
 handle_cast({target_sync, Target, Heights, GossipedHash}, State) ->
     {noreply, target_sync(Target, Heights, GossipedHash, State)};
 handle_cast({submit_txn, Txn}, State) ->
