@@ -483,7 +483,12 @@ is_aux(_) ->
 mode(aux, #ledger_v1{aux=undefined}) ->
     error(no_aux_ledger);
 mode(Mode, Ledger) ->
-    Ledger#ledger_v1{mode=Mode}.
+    case context_cache(Ledger) of
+        {undefined, undefined} ->
+            Ledger#ledger_v1{mode=Mode};
+        _ ->
+            error(cannot_change_mode_with_context)
+    end.
 
 -spec dir(ledger()) -> file:filename_all().
 dir(Ledger) ->
@@ -511,18 +516,28 @@ unmark_key(Key, Ledger) ->
 
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
-    %% accumulate ledger changes in a read-through ETS cache
-    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
-    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
-    context_cache(Cache, GwCache, Ledger).
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} ->
+            %% accumulate ledger changes in a read-through ETS cache
+            Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
+            GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
+            context_cache(Cache, GwCache, Ledger);
+        _ ->
+            error(already_have_context)
+    end.
 
 %% useful for pmap stuff
 -spec new_public_context(ledger()) -> ledger().
 new_public_context(Ledger) ->
-    %% accumulate ledger changes in a read-through ETS cache
-    Cache = ets:new(txn_cache, [set, public, {keypos, 1}]),
-    GwCache = ets:new(gw_cache, [set, public, {keypos, 1}]),
-    context_cache(Cache, GwCache, Ledger).
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} ->
+            %% accumulate ledger changes in a read-through ETS cache
+            Cache = ets:new(txn_cache, [set, public, {keypos, 1}]),
+            GwCache = ets:new(gw_cache, [set, public, {keypos, 1}]),
+            context_cache(Cache, GwCache, Ledger);
+        _ ->
+            error(already_have_context)
+    end.
 
 give_context(Ledger, Pid) ->
     case ?MODULE:context_cache(Ledger) of
@@ -7181,7 +7196,7 @@ commit_hooks_test() ->
     {_Ref, Ledger2} = add_commit_hook(entries,
                                         fun(Changes) -> Me ! {hook3, Changes} end,
                                         fun(_CF, ChangedKeys) -> Me ! {hook3, changes_complete, ChangedKeys} end,
-                                        fun(K, _) -> K == <<"my_address">> end, Ledger1),
+                                        fun(K, _) -> K == <<"my_address">> end, Ledger),
     Ledger3 = new_context(Ledger2),
     ok = add_gateway(<<"owner_address 2">>, <<"gw_address 2">>, Ledger3),
     ok = credit_account(<<"your_address">>, 4000, Ledger3),

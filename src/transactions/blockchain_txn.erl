@@ -526,7 +526,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                      Ty == blockchain_txn_vars_v1
            end, (Transactions0)),
     Start = erlang:monotonic_time(millisecond),
-    case ?MODULE:validate(Transactions, Chain1, Rescue) of
+    case ?MODULE:validate(Transactions, Chain0, Rescue) of
         {_ValidTxns, []} ->
             End = erlang:monotonic_time(millisecond),
             telemetry:execute([blockchain, block, unvalidated_absorb], #{duration => End - Start}, #{stage => validation}),
@@ -880,7 +880,7 @@ absorb_delayed_async(Block0, Chain0) ->
     Parent = self(),
     {Pid, MonitorRef} =
     spawn_monitor(fun() ->
-                          Ledger0 = blockchain:ledger(Chain0),
+                          Ledger0 = blockchain_ledger_v1:remove_context(blockchain:ledger(Chain0)),
                           DelayedLedger0 = blockchain_ledger_v1:mode(delayed, Ledger0),
                           DelayedLedger1 = blockchain_ledger_v1:new_context(DelayedLedger0),
                           Chain1 = blockchain:ledger(DelayedLedger1, Chain0),

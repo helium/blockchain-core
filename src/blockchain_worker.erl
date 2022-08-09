@@ -835,8 +835,9 @@ integrate_genesis_block_(
             {{error, block_not_genesis}, S0};
         true ->
             ok = blockchain:integrate_genesis(GenesisBlock, Chain),
-            Ledger = blockchain:ledger(Chain),
+            Ledger = blockchain_ledger_v1:new_context(blockchain:ledger(Chain)),
             blockchain:mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
+            blockchain_ledger_v1:commit_context(Ledger),
             [ConsensusAddrs] =
                 [
                     blockchain_txn_consensus_group_v1:members(T)

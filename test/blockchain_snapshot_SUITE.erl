@@ -19,9 +19,11 @@
 init_per_suite(Cfg) ->
     {ok, _} = application:ensure_all_started(lager),
     {ok, _} = application:ensure_all_started(telemetry),
+    blockchain_sup:cream_caches_init(),
     Cfg.
 
 end_per_suite(_) ->
+    blockchain_sup:cream_caches_clear(),
     ok.
 
 all() ->

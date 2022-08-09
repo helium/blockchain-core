@@ -102,6 +102,7 @@ new(Path, Ledger) ->
         GwDenormCF,
         ValidatorsCF,
         EntriesV2CF,
+        SubnetworksV1CF,
         AuxHeightsCF,
         AuxHeightsMDCF,
         AuxHeightsDiffCF,
@@ -130,7 +131,8 @@ new(Path, Ledger) ->
                 state_channels = SCsCF,
                 h3dex = H3DexCF,
                 validators = ValidatorsCF,
-                entries_v2 = EntriesV2CF
+                entries_v2 = EntriesV2CF,
+                subnetworks_v1=SubnetworksV1CF
             }
         }
     }.
