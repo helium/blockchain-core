@@ -1181,6 +1181,8 @@ add_block_(Block, Blockchain, Syncing) ->
                             end,
                             Error;
                         {ok, KeysPayload} ->
+                            %% we managed to sync a block, so clear the drop cache limiter if set
+                            application:unset_env(blockchain, '$drop_cache_once'),
                             run_absorb_block_hooks(Syncing, Hash, Blockchain, KeysPayload)
                     end;
                 plausible ->
@@ -1287,6 +1289,7 @@ replay_blocks(Chain, Syncing, LedgerHeight, ChainHeight) ->
                                       fun(FChain, _FHash) -> ok = run_gc_hooks(FChain, B) end,
                                       blockchain_block:is_rescue_block(B)) of
                   {ok, KeysPayload} ->
+                      application:unset_env(blockchain, '$drop_cache_once'),
                       run_absorb_block_hooks(Syncing, Hash, Chain, KeysPayload);
                   {error, Reason} ->
                       lager:error("Error absorbing transaction, "
