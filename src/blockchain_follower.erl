@@ -101,22 +101,36 @@ handle_info({blockchain_event, {add_block, Hash, Sync, Ledger}},
                    BlockHeights = lists:seq(Height + 1, BlockHeight - 1),
                    RequiresLedger = FollowerMod:requires_ledger(),
                    lager:info("trying to absorb missing blocks [~p..~p]", [hd(BlockHeights), lists:last(BlockHeights)]),
-                   lists:foldl(fun(MissingHeight, {ok, FS}) ->
-                                       {ok, MissingBlock} = blockchain:get_block(MissingHeight, Chain),
-                                       MissingHash = blockchain_block:hash_block(MissingBlock),
-                                       {ok, MissingLedger} = case RequiresLedger of
-                                                                 true ->
-                                                                     blockchain:ledger_at(MissingHeight, Chain);
-                                                                 false ->
-                                                                     {ok, undefined}
-                                                             end,
-                                       FollowerMod:load_block(MissingHash, MissingBlock, true, MissingLedger, FS)
-                               end, {ok, State#state.follower_state}, BlockHeights)
+                   try
+                       lists:foldl(fun(MissingHeight, {ok, FS}) ->
+                                           case blockchain:get_block(MissingHeight, Chain) of
+                                               {error, _Reason} ->
+                                                   %% if a block cant be found on the chain then bail
+                                                   throw(block_not_found);
+                                               {ok, MissingBlock} ->
+                                                   MissingHash = blockchain_block:hash_block(MissingBlock),
+                                                   {ok, MissingLedger} = case RequiresLedger of
+                                                                             true ->
+                                                                                 blockchain:ledger_at(MissingHeight, Chain);
+                                                                             false ->
+                                                                                 {ok, undefined}
+                                                                         end,
+                                                   FollowerMod:load_block(MissingHash, MissingBlock, true, MissingLedger, FS)
+                                           end
+                                   end, {ok, State#state.follower_state}, BlockHeights)
+                    catch throw:Error ->
+                        {error, Error}
+                    end
            end
         end,
 
     case MaybePlaybackBlocks() of
         {error, already_loaded} ->
+            {noreply, State};
+        {error, block_not_found} ->
+            %% one or more blocks are missing from chain
+            %% do nothing, and await the next pass
+            %% hopefully the missing chain gaps will be plugged
             {noreply, State};
         {ok, FollowerState} ->
             {ok, NewFollowerState} = FollowerMod:load_block(Hash, Block, Sync, Ledger, FollowerState),
