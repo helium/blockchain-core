@@ -725,9 +725,8 @@ var_hook(?poc_target_hex_parent_res, Value, Ledger) ->
     blockchain_ledger_v1:clean_random_hex_targeting_lookup(Ledger),
     blockchain_ledger_v1:build_random_hex_targeting_lookup(Value, Ledger),
     ok;
-var_hook(?poc_hexing_type, h3dex, Ledger) ->
-    %% the hexes keys should be safe to remove now
-    blockchain_ledger_v1:clean_all_hexes(Ledger),
+var_hook(?poc_hexing_type, h3dex, _Ledger) ->
+    %% Removed because the function called was unsafe in this context
     ok;
 var_hook(?poc_hexing_type, hex_h3dex, Ledger) ->
     %% rebuild hexes since we're back to updating them
