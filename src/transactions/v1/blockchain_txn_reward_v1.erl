@@ -115,6 +115,10 @@ is_valid(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
 %%--------------------------------------------------------------------
 -spec print(reward()) -> iodata().
 print(undefined) -> <<"type=reward undefined">>;
+print(#blockchain_txn_reward_v1_pb{account=Account, gateway=undefined,
+                                   amount=Amount, type=Type}) ->
+    io_lib:format("type=reward account=~p, amount=~p, type=~p",
+                  [?TO_B58(Account), Amount, Type]);
 print(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
                                    amount=Amount, type=Type}) ->
     io_lib:format("type=reward account=~p, gateway=~p, amount=~p, type=~p",

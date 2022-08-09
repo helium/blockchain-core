@@ -198,8 +198,9 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
             lager:warning("failed to load genesis block ~p, integrating new one", [Reason]),
             try ?MODULE:integrate_genesis(GenBlock, Blockchain) of
                 ok ->
-                    Ledger = blockchain:ledger(Blockchain),
+                    Ledger = blockchain_ledger_v1:new_context(blockchain:ledger(Blockchain)),
                     mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
+                    blockchain_ledger_v1:commit_context(Ledger),
                     {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)}
             catch What:Why ->
                     lager:warning("failed to integrate genesis block ~p, wiping chain", [{What, Why}]),
@@ -241,19 +242,15 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
     process_upgrades(Tail, Ledger).
 
 mark_upgrades(Upgrades, Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     lists:foreach(fun(Key) ->
-                          blockchain_ledger_v1:mark_key(Key, Ledger1)
+                          blockchain_ledger_v1:mark_key(Key, Ledger)
                   end, Upgrades),
-    blockchain_ledger_v1:commit_context(Ledger1),
     ok.
 
 unmark_upgrades(Upgrades, Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     lists:foreach(fun(Key) ->
-                          blockchain_ledger_v1:unmark_key(Key, Ledger1)
+                          blockchain_ledger_v1:unmark_key(Key, Ledger)
                   end, Upgrades),
-    blockchain_ledger_v1:commit_context(Ledger1),
     ok.
 
 upgrade_gateways_v2(Ledger) ->
@@ -579,7 +576,7 @@ ledger_at(Height, Chain0) ->
 
 -spec ledger_at(pos_integer(), blockchain(), boolean()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 ledger_at(Height, Chain0, ForceRecalc) ->
-    Ledger0 = ?MODULE:ledger(Chain0),
+    Ledger0 = blockchain_ledger_v1:remove_context(?MODULE:ledger(Chain0)),
     Ledger = case blockchain_ledger_v1:mode(Ledger0) of
         delayed ->
             blockchain_ledger_v1:mode(active, Ledger0);
