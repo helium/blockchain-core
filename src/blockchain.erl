@@ -1167,8 +1167,15 @@ add_block_(Block, Blockchain, Syncing) ->
                             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                             case application:get_env(blockchain, drop_snapshot_cache_on_absorb_failure, true) of
                                 true ->
-                                    lager:info("dropping all snapshots from cache"),
-                                    blockchain_ledger_v1:drop_snapshots(Ledger);
+                                    case application:get_env(blockchain, '$drop_cache_once', false) of
+                                        false ->
+                                            lager:info("dropping all snapshots from cache"),
+                                            blockchain_ledger_v1:drop_snapshots(Ledger),
+                                            application:set_env(blockchain, '$drop_cache_once', true);
+                                        true ->
+                                            lager:info("previous drop cache ineffective, pausing sync"),
+                                            blockchain_worker:pause_sync_cast()
+                                    end;
                                 false ->
                                     ok
                             end,
