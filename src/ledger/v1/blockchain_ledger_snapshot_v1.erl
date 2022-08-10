@@ -187,7 +187,7 @@ snapshot(Ledger0, Blocks, Infos, Mode) ->
                 Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
                 try register(Regname, self()) of
                     true ->
-                        Res = generate_snapshot(Ledger0, Blocks, Infos, Mode),
+                        Res = generate_snapshot(blockchain_ledger_v1:remove_context(Ledger0), Blocks, Infos, Mode),
                         %% deliver to the caller
                         Parent ! {Ref, Res},
                         %% deliver to anyone else blocking
