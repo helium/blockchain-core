@@ -378,6 +378,7 @@ handle_info({blockchain_txn_response, {submit, {Dialer, TxnKey, Txn, Member,
             _ ->
                 Height
         end,
+
     MaxRejectionAge =
         application:get_env(blockchain, txn_mgr_rejection_max_age, 15),
     Deferred1 =
@@ -491,6 +492,8 @@ initialize_with_chain(State, Chain)->
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
                                 blockchain_ledger_v1:ledger()}, #state{}) -> {noreply, #state{}}.
 handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain = Chain,
+                                                                           reject_f = RejectF,
+                                                                           rejections_deferred = DeferredTxns,
                                                                            cur_block_height = CurBlockHeight})->
     #state{submit_f = SubmitF, chain = Chain} = State,
     case blockchain:get_block(BlockHash, Chain) of
@@ -513,47 +516,47 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             ok = process_cached_txns(Chain, BlockHeight, SubmitF, HasBeenSynced == false, IsNewElection, NewCGMembers),
             End2 = erlang:monotonic_time(millisecond),
             telemetry:execute([blockchain, txn_mgr, process], #{duration => End2 - End1}, #{stage => process_cached}),
+            %% process deferred txns
+            NewDeferredTxns = process_deferred_rejections(BlockHeight, DeferredTxns, RejectF),
             %% only update the current block height if its not a sync block
+            %% TODO updating state height is inconsistent.  Revisit
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
             %% cache the current height
             ets:insert(?CACHE, {?CUR_HEIGHT, NewCurBlockHeight}),
-            State1 = State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced},
-            State2 = process_deferred_rejections(State1),
+            State1 = State#state{
+                cur_block_height = NewCurBlockHeight,
+                has_been_synced=HasBeenSynced,
+                rejections_deferred = NewDeferredTxns},
             End3 = erlang:monotonic_time(millisecond),
             telemetry:execute([blockchain, txn_mgr, process], #{duration => End3 - End2}, #{stage => deferred_rejects}),
             telemetry:execute([blockchain, txn_mgr, add_block], #{cache => CacheSize, block_time => BlockTime, block_age => BlockAge}, #{height => NewCurBlockHeight}),
-            {noreply, State2};
+            {noreply, State1};
         _ ->
             lager:error("failed to find block with hash: ~p", [BlockHash]),
             {noreply, State}
     end.
 
-process_deferred_rejections(
-    #state{
-        rejections_deferred = Deferred0,
-        reject_f            = RejectF,
-        cur_block_height    = CurBlockHeight
-    } = State
-) ->
+process_deferred_rejections(CurBlockHeight, Deferred, RejectF) ->
     %% note: these funs are iterating over a list of types `deferred_rejections`
     IsPast    = fun({_Dialer, _TxnKey, _Txn, _Member,
         #blockchain_txn_info_v1_pb{height = H}}) -> H < CurBlockHeight end,
     IsCurrent = fun({_Dialer, _TxnKey, _Txn, _Member,
         #blockchain_txn_info_v1_pb{height = H}}) -> H =:= CurBlockHeight end,
-    {Current, Deferred1} = lists:partition(IsCurrent, Deferred0),
-    {[]     , Deferred1} = lists:partition(IsPast   , Deferred1), % Sanity check
+    {Current, Deferred1} = lists:partition(IsCurrent, Deferred),
+    {Past   , Deferred2} = lists:partition(IsPast   , Deferred1),
     lager:debug(
         "Processing deferred rejections. "
         "Count now current: ~b, count still deferred: ~b",
-        [length(Current), length(Deferred1)]
+        [length(Current), length(Deferred2)]
     ),
     Reject =
         fun ({Dialer, TxnKey, Txn, Member, #blockchain_txn_info_v1_pb{height = RejectorHeight, details = RejectReason }}) ->
             ok = rejected(TxnKey, Txn, Member, Dialer, CurBlockHeight, RejectF, RejectorHeight, RejectReason)
         end,
     lists:foreach(Reject, Current),
-    State#state{rejections_deferred=Deferred1}.
+    lists:foreach(Reject, Past),
+    Deferred2.
 
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
