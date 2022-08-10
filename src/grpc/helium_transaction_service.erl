@@ -15,10 +15,10 @@
 %% ------------------------------------------------------------------
 -spec submit(ctx:ctx(), transaction_pb:txn_submit_req_v1_pb()) ->
     {ok, transaction_pb:txn_submit_resp_v1_pb()} | grpcbox_stream:grpc_error_response().
-submit(Ctx, #txn_submit_req_v1_pb{txn = WrappedTxn}) ->
+submit(Ctx, #txn_submit_req_v1_pb{txn = WrappedTxn, key = Key}) ->
     Txn = blockchain_txn:unwrap_txn(WrappedTxn),
-    {ok, TxnKey, CurHeight} = blockchain_txn_mgr:grpc_submit(Txn),
-    Resp = #txn_submit_resp_v1_pb{key = TxnKey,
+    {ok, Key, CurHeight} = blockchain_txn_mgr:grpc_submit(Txn, Key),
+    Resp = #txn_submit_resp_v1_pb{key = Key,
                                   validator = routing_info(),
                                   recv_height = CurHeight,
                                   signature = <<>>},
