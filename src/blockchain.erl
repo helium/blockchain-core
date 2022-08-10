@@ -1977,7 +1977,7 @@ add_snapshot(Snapshot, Hash, #blockchain{db=DB, snapshots=SnapshotsCF}=Chain) ->
         ok = rocksdb:write_batch(DB, Batch0, []),
         BinSnap = blockchain_ledger_snapshot_v1:serialize(Snapshot),
         case add_bin_snapshot(BinSnap, Height, Hash, Chain) of
-            ok -> {ok, {Height, Hash, byte_size(BinSnap)}};
+            ok -> {ok, {Height, Hash, iolist_size(BinSnap)}};
             Other -> Other
         end
     catch What:Why:Stack ->
