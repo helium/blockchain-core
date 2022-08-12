@@ -6559,9 +6559,10 @@ mode_test() ->
     ok = consensus_members([1, 2, 3], Ledger1),
     ok = commit_context(Ledger1),
     ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)),
-    Ledger2 = mode(delayed, Ledger1),
-    Ledger3 = new_context(Ledger2),
-    ?assertEqual({error, not_found}, consensus_members(Ledger3)),
+    Ledger2 = remove_context(Ledger1),
+    Ledger3 = mode(delayed, Ledger2),
+    Ledger4 = new_context(Ledger3),
+    ?assertEqual({error, not_found}, consensus_members(Ledger4)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 consensus_members_1_test() ->
