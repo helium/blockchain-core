@@ -1271,7 +1271,7 @@ validate_var(?balance_erase_bugfix, Value) ->
 
 validate_var(?security_reward_bugfix, Value) ->
     case Value of
-        Val when is_boolean(Val) andalso Val == true -> ok;
+        true -> ok;
         _ -> throw({error, {invalid_security_reward_bugfix, Value}})
     end;
 
