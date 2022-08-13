@@ -1269,6 +1269,12 @@ validate_var(?balance_erase_bugfix, Value) ->
         _ -> throw({error, {invalid_balance_erase_bugfix, Value}})
     end;
 
+validate_var(?security_reward_bugfix, Value) ->
+    case Value of
+        true -> ok;
+        _ -> throw({error, {invalid_security_reward_bugfix, Value}})
+    end;
+
 %% general txn vars
 
 validate_var(?txn_field_validation_version, Value) ->

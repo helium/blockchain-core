@@ -941,25 +941,45 @@ consensus_members_rewards(Ledger, #{consensus_epoch_reward := EpochReward,
                          reward_vars()) -> rewards_map().
 securities_rewards(Ledger, #{epoch_reward := EpochReward,
                              securities_percent := SecuritiesPercent}) ->
-    Securities = blockchain_ledger_v1:securities(Ledger),
-    TotalSecurities = maps:fold(
-        fun(_, Entry, Acc) ->
-            Acc + blockchain_ledger_security_entry_v1:balance(Entry)
-        end,
-        0,
-        Securities
-    ),
-    SecuritiesReward = EpochReward * SecuritiesPercent,
-    maps:fold(
-        fun(Key, Entry, Acc) ->
-            Balance = blockchain_ledger_security_entry_v1:balance(Entry),
-            PercentofReward = (Balance*100/TotalSecurities)/100,
-            Amount = erlang:round(PercentofReward*SecuritiesReward),
-            maps:put({owner, securities, Key}, Amount, Acc)
-        end,
-        #{},
-        Securities
-    ).
+    case {?get_var(?security_reward_bugfix, Ledger), blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger)} of
+        {{ok, true}, {blockchain_ledger_entry_v2, _}} ->
+            Entries = blockchain_ledger_v1:entries(Ledger),
+            TotalSecurities = maps:fold(
+                                fun(_, Entry, Acc) ->
+                                        Acc +  blockchain_ledger_entry_v2:balance(Entry, hst)
+                                end, 0, Entries),
+            SecuritiesReward = EpochReward * SecuritiesPercent,
+            maps:fold(
+              fun(Key, Entry, Acc) ->
+                      Balance = blockchain_ledger_entry_v2:balance(Entry, hst),
+                      PercentofReward = (Balance*100/TotalSecurities)/100,
+                      Amount = erlang:round(PercentofReward*SecuritiesReward),
+                      maps:put({owner, securities, Key}, Amount, Acc)
+              end,
+              #{},
+              Entries
+             );
+         _ ->
+            Securities = blockchain_ledger_v1:securities(Ledger),
+            TotalSecurities = maps:fold(
+                                fun(_, Entry, Acc) ->
+                                        Acc + blockchain_ledger_security_entry_v1:balance(Entry)
+                                end,
+                                0,
+                                Securities
+                               ),
+            SecuritiesReward = EpochReward * SecuritiesPercent,
+            maps:fold(
+              fun(Key, Entry, Acc) ->
+                      Balance = blockchain_ledger_security_entry_v1:balance(Entry),
+                      PercentofReward = (Balance*100/TotalSecurities)/100,
+                      Amount = erlang:round(PercentofReward*SecuritiesReward),
+                      maps:put({owner, securities, Key}, Amount, Acc)
+              end,
+              #{},
+              Securities
+             )
+    end.
 
 -spec poc_challenger_reward( Txn :: blockchain_txn:txn(),
                              Acc :: rewards_share_map(),

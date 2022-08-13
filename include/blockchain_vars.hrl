@@ -643,3 +643,5 @@
 
 %% bugfix sync limiter for balance break bug
 -define(balance_erase_bugfix, balance_erase_bugfix).
+%% bugfix security reward var
+-define(security_reward_bugfix, security_reward_bugfix).
