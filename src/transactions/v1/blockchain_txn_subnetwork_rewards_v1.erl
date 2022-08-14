@@ -263,7 +263,7 @@ to_json(Txn, _Opts) ->
         rewards => Rewards
     }.
 
--spec base(Txn :: txn_subnetwork_rewards_v1()) -> txn_subnetwork_rewards_v1().
+-spec base(Txn) -> Txn when Txn :: txn_subnetwork_rewards_v1().
 base(Txn) ->
     Txn#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_signature = <<>>}.
 
