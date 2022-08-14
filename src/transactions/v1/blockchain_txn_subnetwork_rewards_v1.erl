@@ -65,7 +65,7 @@ new(Type, Start, End, Rewards) ->
 
 -spec hash(txn_subnetwork_rewards_v1()) -> blockchain_txn:hash().
 hash(Txn) ->
-    EncodedTxn = blockchain_txn_subnetwork_rewards_v1_pb:encode_msg(Txn),
+    EncodedTxn = blockchain_txn_subnetwork_rewards_v1_pb:encode_msg(base(Txn)),
     crypto:hash(sha256, EncodedTxn).
 
 -spec token_type(txn_subnetwork_rewards_v1()) -> blockchain_token_v1:type().
@@ -104,8 +104,7 @@ reward_server_signature(#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_s
 
 -spec sign(txn_subnetwork_rewards_v1(), libp2p_crypto:sig_fun()) -> txn_subnetwork_rewards_v1().
 sign(Txn, SigFun) ->
-    BaseTxn = Txn#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_signature = <<>>},
-    EncodedTxn = blockchain_txn_subnetwork_rewards_v1_pb:encode_msg(BaseTxn),
+    EncodedTxn = blockchain_txn_subnetwork_rewards_v1_pb:encode_msg(base(Txn)),
     Txn#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_signature = SigFun(EncodedTxn)}.
 
 -spec fee(txn_subnetwork_rewards_v1()) -> 0.
@@ -263,6 +262,10 @@ to_json(Txn, _Opts) ->
         end_epoch => end_epoch(Txn),
         rewards => Rewards
     }.
+
+-spec base(Txn) -> Txn when Txn :: txn_subnetwork_rewards_v1().
+base(Txn) ->
+    Txn#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
