@@ -7,6 +7,7 @@
          icdf_select/3,
          adjust_old_group/2,
          adjust_old_group_v2/2,
+         adjust_old_group_v3/2,
          validator_penalties/2
         ]).
 
@@ -47,6 +48,8 @@ val_hb(#val_v1{heartbeat = HB}) ->
 
 new_group(Ledger, Hash, Size, Delay) ->
     case ?get_var(?election_version, Ledger) of
+        {ok, N} when N >= 7 ->
+            new_group_v7(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 6 ->
             new_group_v6(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 5 ->
@@ -271,6 +274,15 @@ new_group_v6(Ledger, Hash, Size, Delay) ->
     %% shuffle the order to diffuse any ordering effects over time
     blockchain_utils:shuffle((OldGroup0 -- ToRem) ++ New).
 
+-spec new_group_v7(Ledger :: blockchain_ledger_v1:ledger(),
+                   Hash :: binary(),
+                   Size :: non_neg_integer(),
+                   Delay :: non_neg_integer()) ->
+          [libp2p_crypto:pubkey_bin()].
+new_group_v7(Ledger, Hash, Size, Delay) ->
+    %% no change here since new_group_v6, so just call that
+    new_group_v6(Ledger, Hash, Size, Delay).
+
 %% mostly this is out for separate testing
 select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger) ->
     RepLen =
@@ -293,8 +305,17 @@ select_removals(NewLen, OldLen, Size, Offline, OldGroupDeduped0, Ledger) ->
                 %% groups as-is
                 {Offline, OldGroupDeduped0, RepLen - Len}
         end,
-    %% adjust for bbas and seen votes
-    OldGroupAdjusted = ?MODULE:adjust_old_group_v2(OldGroupDeduped, Ledger),
+
+    %% adjust for bbas and seen votes, from election_version v7, the logic for calculating
+    %% score for deselection has been updated
+    {ok, ElectionVersion} = ?get_var(?election_version, Ledger),
+    OldGroupAdjusted = case ElectionVersion of
+        V when V >=7 ->
+            ?MODULE:adjust_old_group_v3(OldGroupDeduped, Ledger);
+        _ ->
+            ?MODULE:adjust_old_group_v2(OldGroupDeduped, Ledger)
+    end,
+
     lager:debug("old group ~p", [an2(OldGroupAdjusted)]),
     OfflineAddrs = [A || #val_v1{addr = A} <- Offline1],
     OfflineAddrs ++ icdf_select(lists:keysort(1, OldGroupAdjusted), ReplaceFinal, []).
@@ -380,6 +401,27 @@ adjust_old_group_v2(Group, Ledger) ->
       fun(#val_v1{prob = Prob, addr = Addr}) ->
               Penalty = maps:get(Addr, Penalties, 0.0),
               {Addr, normalize_float(Prob + Penalty)}
+      end,
+      Group).
+
+adjust_old_group_v3(Group, Ledger) ->
+    %% annotate the ledger group (which is ordered properly), with each one's index.
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    Penalties = validator_penalties(OldGroup, Ledger),
+    lager:debug("penalties ~p", [Penalties]),
+
+    TenurePenalty = ?get_var(tenure_penalty,Ledger),
+    PenaltyHistoryPercent = case ?get_var(election_penalty_history_percentage,Ledger) of
+        {ok, Value} -> Value;
+        _ -> 1.0
+    end,
+
+    %% calculate the score of each group member as the penalty history times a factor
+    %% plus the penalties and tenure from the current group/epoch
+    lists:map(
+      fun(#val_v1{prob = Prob, addr = Addr}) ->
+              PerfPenalty = maps:get(Addr, Penalties, 0.0),
+              {Addr, normalize_float((PenaltyHistoryPercent * Prob) + PerfPenalty + TenurePenalty)}
       end,
       Group).
 

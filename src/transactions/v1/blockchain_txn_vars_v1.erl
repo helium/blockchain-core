@@ -895,6 +895,7 @@ validate_var(?election_version, Value) ->
         4 -> ok;
         5 -> ok;  % validator move trigger
         6 -> ok;  % move to maps
+        7 -> ok;  % group deselection score changes
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
@@ -918,6 +919,8 @@ validate_var(?election_bba_penalty, Value) ->
     validate_float(Value, "election_bba_penalty", 0.001, 0.5);
 validate_var(?election_seen_penalty, Value) ->
     validate_float(Value, "election_seen_penalty", 0.001, 0.5);
+validate_var(?election_penalty_history_percentage, Value) ->
+    validate_float(Value, "election_penalty_history_percentage", 0, 1.0);
 
 %% ledger vars
 validate_var(?var_gw_inactivity_threshold, Value) ->

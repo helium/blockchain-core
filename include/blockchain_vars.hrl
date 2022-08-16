@@ -51,6 +51,10 @@
 %% a round
 -define(election_seen_penalty, election_seen_penalty).
 
+%% percentage of previous penalties for the current group that are used
+%% when calculating score for deselecting members from current group
+-define(election_penalty_history_percentage, election_penalty_history_percentage).
+
 %%%
 %%% ledger vars
 %%%
