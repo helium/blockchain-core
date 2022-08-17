@@ -402,12 +402,27 @@ peer_sync(["peer", "sync", Addr], [], []) ->
     Chain = blockchain_worker:blockchain(),
     SwarmTID = blockchain_swarm:tid(),
     TrimmedAddr = string:trim(Addr),
-    case libp2p_swarm:connect(SwarmTID, TrimmedAddr) of
-        {ok, _} ->
-            {ok, Pid} = blockchain_sync_handler:dial(SwarmTID, Chain, TrimmedAddr),
+    case blockchain_sync_handler:dial(SwarmTID, Chain, TrimmedAddr) of
+        {ok, Stream} ->
             {ok, HeadHash} = blockchain:sync_hash(Chain),
-            Pid ! {hash, HeadHash},
-            [clique_status:text("ok")];
+            Stream ! {hash, HeadHash},
+            Ref = erlang:monitor(process, Stream),
+            %% sleep for a moment because there can be a race in monitor
+            timer:sleep(100),
+            receive
+                cancel ->
+                    libp2p_framed_stream:close(Stream),
+                    [clique_status:text("sync cancelled")];
+                {'DOWN', Ref, process, Stream, normal} ->
+                    %% we're done, nothing to do here.
+                    [clique_status:text("ok")];
+                {'DOWN', Ref, process, Stream, Reason} ->
+                    Text = io_lib:format("sync failed with error ~p", [Reason]),
+                    [clique_status:text(Text)]
+            after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 5)) ->
+                    libp2p_framed_stream:close(Stream),
+                    [clique_status:text("sync timeout")]
+            end;
         {error, Reason} ->
             Text = io_lib:format("Failed to connect to ~p: ~p", [TrimmedAddr, Reason]),
             [clique_status:alert([clique_status:text(Text)])]
