@@ -1522,6 +1522,11 @@ validate_var(?validator_key_check, Value) ->
         Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalidate_validator_key_check, Value}})
     end;
+validate_var(?validator_stale_heartbeat_check, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_validator_stale_heartbeat_check, Value}})
+    end;
 %% TODO fix this var
 validate_var(?stake_withdrawal_cooldown, Value) ->
     %% maybe set this in the test
