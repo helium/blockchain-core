@@ -167,14 +167,10 @@ json_type() ->
     undefined.
 
 -spec to_json(payment(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Payment, Opts) ->
-    Amount = case proplists:get_value(amount, Opts, undefined) of
-                 undefined -> amount(Payment);
-                 Amt -> Amt
-             end,
+to_json(Payment, _Opts) ->
     #{
       payee => ?BIN_TO_B58(payee(Payment)),
-      amount => Amount,
+      amount => amount(Payment),
       memo => ?MAYBE_FN(fun (V) -> base64:encode(<<(V):64/unsigned-little-integer>>) end, memo(Payment)),
       max => ?MODULE:max(Payment),
       token_type => ?MAYBE_ATOM_TO_BINARY(token_type(Payment))
