@@ -702,7 +702,7 @@ payment_json(Txn, Opts) ->
                       fun(Payment) ->
                               TT = blockchain_payment_v2:token_type(Payment),
                               PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                                0 -> abs(maps:get(TT, MaxPaymentsMap, 0));
+                                                0 -> maps:get(TT, MaxPaymentsMap, 0);
                                                 Amount when Amount > 0 -> Amount
                                             end,
                               blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
@@ -712,7 +712,7 @@ payment_json(Txn, Opts) ->
                     lists:map(
                       fun(Payment) ->
                               PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                                0 -> abs(MaxPayment);
+                                                0 -> MaxPayment;
                                                 Amount when Amount > 0 -> Amount
                                             end,
                               blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
