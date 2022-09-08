@@ -169,13 +169,7 @@ is_valid(Txn, Chain) ->
                         true ->
                             {error, empty_path};
                         false ->
-                            case check_is_valid_poc(POCVersion, Txn, Chain) of
-                                {ok, Channels} ->
-                                    lager:debug("POCID: ~p, validated ok with reported channels: ~p",
-                                                [poc_id(Txn), Channels]),
-                                    ok;
-                                Error -> Error
-                            end
+                            check_is_valid_poc(POCVersion, Txn, Chain)
                     end
             end
     end.
@@ -232,15 +226,10 @@ check_is_valid_poc(POCVersion, Txn, Chain) ->
                             %% no witness will exist with the first layer hash
                             [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                             StartV = maybe_log_duration(packet_construction, StartP),
-                            Channels = ?MODULE:get_channels(POCVersion, OldLedger, Path, LayerData, no_prefetch),
                             %% %% run validations
                             Ret = validate(POCVersion, Txn, Path, LayerData, LayerHashes, OldLedger),
                             maybe_log_duration(receipt_validation, StartV),
-                            case Ret of
-                                ok ->
-                                    {ok, Channels};
-                                {error, _}=E -> E
-                            end
+                            Ret
                     end
             end
     end.
