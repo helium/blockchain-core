@@ -211,7 +211,10 @@ absorb_v2_(Txn, Ledger, Chain) ->
 
 -spec absorb_(txn_payment_v2(), blockchain_ledger_v1:ledger(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_(Txn, Ledger, Chain) ->
-    {TotalAmount, MaxPayment} = calc_max_payment(Txn, Ledger),
+    {_, SpecifiedAmounts} = split_payment_amounts(Txn, Ledger),
+    TotalAmount = lists:foldl(fun({_, TAmt}, Acc) -> TAmt + Acc end, 0, ?MODULE:amounts(Txn, Ledger)),
+    SpecifiedSubTotal = lists:foldl(fun({_, SAmt}, Acc) -> SAmt + Acc end, 0, SpecifiedAmounts),
+    MaxPayment = TotalAmount - SpecifiedSubTotal,
     Fee = ?MODULE:fee(Txn),
     Hash = ?MODULE:hash(Txn),
     Payer = ?MODULE:payer(Txn),
@@ -278,12 +281,12 @@ json_type() ->
     <<"payment_v2">>.
 
 -spec to_json(txn_payment_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, Opts) ->
+to_json(Txn, _Opts) ->
     #{
         type => ?MODULE:json_type(),
         hash => ?BIN_TO_B64(hash(Txn)),
         payer => ?BIN_TO_B58(payer(Txn)),
-        payments => payment_json(Txn, Opts),
+        payments => [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)],
         fee => fee(Txn),
         nonce => nonce(Txn)
     }.
@@ -680,47 +683,6 @@ has_default_tokens(Payments) ->
         Payments
     ).
 
--spec calc_max_payment(Txn :: txn_payment_v2(), Ledger :: blockchain:ledger()) -> {pos_integer(), pos_integer()}.
-calc_max_payment(Txn, Ledger) ->
-    {_, SpecifiedAmounts} = split_payment_amounts(Txn, Ledger),
-    TotalAmount = lists:foldl(fun({_, TAmt}, Acc) -> TAmt + Acc end, 0, ?MODULE:amounts(Txn, Ledger)),
-    SpecifiedSubTotal = lists:foldl(fun({_, SAmt}, Acc) -> SAmt + Acc end, 0, SpecifiedAmounts),
-    {TotalAmount, TotalAmount - SpecifiedSubTotal}.
-
--spec payment_json(txn_payment_v2(), blockchain_json:opts()) -> [blockchain_json:json_object()].
-payment_json(Txn, Opts) ->
-    case proplists:get_value(ledger, Opts) of
-        undefined ->
-            %% Do the existing thing
-            [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)];
-        Ledger ->
-            case blockchain:config(?token_version, Ledger) of
-                {ok, 2} ->
-                    {MaxAmounts, _} = split_payment_amounts(Txn, Ledger),
-                    MaxPaymentsMap = maps:from_list(MaxAmounts),
-                    lists:map(
-                      fun(Payment) ->
-                              TT = blockchain_payment_v2:token_type(Payment),
-                              PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                                0 -> abs(maps:get(TT, MaxPaymentsMap, 0));
-                                                Amount when Amount > 0 -> Amount
-                                            end,
-                              blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
-                      end, payments(Txn));
-                _ ->
-                    {_, MaxPayment} = calc_max_payment(Txn, Ledger),
-                    lists:map(
-                      fun(Payment) ->
-                              PayeeAmount = case blockchain_payment_v2:amount(Payment) of
-                                                0 -> abs(MaxPayment);
-                                                Amount when Amount > 0 -> Amount
-                                            end,
-                              blockchain_payment_v2:to_json(Payment, [{amount, PayeeAmount}])
-                      end, payments(Txn))
-            end
-    end.
-
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -883,83 +845,5 @@ to_json_test() ->
             [type, payer, payments, fee, nonce]
         )
     ).
-
-to_json_with_ledger_test() ->
-    BaseDir = test_utils:tmp_dir("to_json_with_ledger_test"),
-    Ledger = blockchain_ledger_v1:new(BaseDir),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger1),
-    ok = blockchain_ledger_v1:commit_context(Ledger1),
-    Payments = [
-        blockchain_payment_v2:new(<<"x">>, 10),
-        blockchain_payment_v2:new(<<"y">>, 20),
-        blockchain_payment_v2:new(<<"z">>, 30)
-    ],
-    Tx = #blockchain_txn_payment_v2_pb{
-        payer = <<"payer">>,
-        payments = Payments,
-        fee = ?LEGACY_TXN_FEE,
-        nonce = 1,
-        signature = <<>>
-    },
-    Json = to_json(Tx, [{ledger, Ledger}]),
-    ?assert(
-        lists:all(
-            fun(K) -> maps:is_key(K, Json) end,
-            [type, payer, payments, fee, nonce]
-        )
-    ),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
-
-to_json_with_max_test() ->
-    BaseDir = test_utils:tmp_dir("to_json_with_max_test"),
-    Ledger = blockchain_ledger_v1:new(BaseDir),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger1),
-    ok = blockchain_ledger_v1:commit_context(Ledger1),
-    Payments = [
-        blockchain_payment_v2:new(<<"x">>, 10),
-        blockchain_payment_v2:new(<<"y">>, 20),
-        blockchain_payment_v2:new(<<"z">>, max)
-    ],
-    Tx = new(<<"payer">>, Payments, 1),
-    Json = to_json(Tx, [{ledger, Ledger}]),
-    ?assertEqual(70,
-                 maps:get(amount,
-                          hd(lists:filter(
-                               fun(Map) ->
-                                       maps:get(max, Map) == true
-                               end, maps:get(payments, Json))))),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
-
-to_json_token_version_2_test() ->
-    BaseDir = test_utils:tmp_dir("to_json_token_version_2_test"),
-    Ledger = blockchain_ledger_v1:new(BaseDir),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:vars(#{token_version => 2}, [], Ledger1),
-    ok = blockchain_ledger_v1:commit_context(Ledger1),
-    %% NOTE: Doing this after setting the var ensures that credit_account
-    %% operates with ledger_entry_version=2
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:credit_account(<<"payer">>, 100, Ledger2),
-    ok = blockchain_ledger_v1:commit_context(Ledger2),
-    Payments = [
-        blockchain_payment_v2:new(<<"x">>, 10, hnt),
-        blockchain_payment_v2:new(<<"y">>, 20, hnt),
-        blockchain_payment_v2:new(<<"z">>, max, hnt)
-    ],
-    Tx = new(<<"payer">>, Payments, 1),
-    Json = to_json(Tx, [{ledger, Ledger}]),
-    io:format("~p~n", [Json]),
-    ?assertEqual(70,
-                 maps:get(amount,
-                          hd(lists:filter(
-                               fun(Map) ->
-                                       maps:get(max, Map) == true
-                               end, maps:get(payments, Json))))),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
 
 -endif.
