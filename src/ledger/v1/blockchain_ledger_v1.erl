@@ -5296,46 +5296,53 @@ key_to_h3(Key) ->
     H3.
 
 precalc_h3_caches(Ledger) ->
-    {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-    H3CF = h3dex_cf(Ledger),
-    PMap = blockchain_utils:streaming_pmap_new(fun(Hex) -> 
-                                                       GWs = lookup_gateways_from_hex(Hex, Ledger),
-                                                       Count = length(lists:usort(lists:flatten(maps:values(GWs)))),
-                                                       cache_put(Ledger, H3CF, <<"count-", (h3_to_key(Hex))/binary>>, <<Count:32/integer-unsigned-little>>),
-                                                       %% TODO map ordering!
-                                                       cache_put(Ledger, H3CF, <<"gws-", (h3_to_key(Hex))/binary>>, term_to_binary(lists:sort(maps:to_list(GWs))))
-                                               end),
-    cache_fold(
-      Ledger, H3CF,
-      fun({<<"random-", _/binary>>, _}, Acc) ->
-              Acc;
-         ({<<"population">>, _}, Acc) ->
-              Acc;
-         ({<<"count-", _/binary>>, _}, Acc) ->
-              Acc;
-         ({<<"gws-", _/binary>>, _}, Acc) ->
-              Acc;
-         ({Key, _GWs}, PrevHex=Acc) ->
-              H3 = key_to_h3(Key),
-              Hex = h3:parent(H3, Res),
-              case PrevHex == Hex of
-                  true ->
-                      %% same parent hex, noop
+    case blockchain:config(?poc_target_hex_parent_res, Ledger) of
+        {error, not_found} ->
+            ok;
+        {ok, Res} ->
+            H3CF = h3dex_cf(Ledger),
+            PMap = blockchain_utils:streaming_pmap_new(
+                     fun(Hex) ->
+                             GWs = lookup_gateways_from_hex(Hex, Ledger),
+                             Count = length(lists:usort(lists:flatten(maps:values(GWs)))),
+                             cache_put(Ledger, H3CF, <<"count-", (h3_to_key(Hex))/binary>>,
+                                       <<Count:32/integer-unsigned-little>>),
+                             %% TODO map ordering!
+                             cache_put(Ledger, H3CF, <<"gws-", (h3_to_key(Hex))/binary>>,
+                                       term_to_binary(lists:sort(maps:to_list(GWs))))
+                     end),
+            cache_fold(
+              Ledger, H3CF,
+              fun({<<"random-", _/binary>>, _}, Acc) ->
                       Acc;
-                  false ->
-                      %% new hex, memoize the values
-                      blockchain_utils:streaming_pmap_submit(PMap, Hex),
-                      Hex
-              end
-      end, 0,
-      [
-       %% key_to_h3 returns 7 byte binaries
-       {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
-       {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
-      ]
-     ),
-    blockchain_utils:streaming_pmap_done(PMap),
-    ok.
+                 ({<<"population">>, _}, Acc) ->
+                      Acc;
+                 ({<<"count-", _/binary>>, _}, Acc) ->
+                      Acc;
+                 ({<<"gws-", _/binary>>, _}, Acc) ->
+                      Acc;
+                 ({Key, _GWs}, PrevHex=Acc) ->
+                      H3 = key_to_h3(Key),
+                      Hex = h3:parent(H3, Res),
+                      case PrevHex == Hex of
+                          true ->
+                              %% same parent hex, noop
+                              Acc;
+                          false ->
+                              %% new hex, memoize the values
+                              blockchain_utils:streaming_pmap_submit(PMap, Hex),
+                              Hex
+                      end
+              end, 0,
+              [
+               %% key_to_h3 returns 7 byte binaries
+               {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
+               {iterate_upper_bound, <<255, 255, 255, 255, 255, 255, 255>>}
+              ]
+             ),
+            blockchain_utils:streaming_pmap_done(PMap),
+            ok
+    end.
 
 -spec add_gw_to_h3dex(Hex :: non_neg_integer(),
                     GWAddr :: libp2p_crypto:pubkey_bin(),
