@@ -133,14 +133,40 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec is_valid(Txn :: txn_state_channel_open(),
                Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
-    Owner = ?MODULE:owner(Txn),
+    Ledger = blockchain:ledger(Chain),
+    %% NOTE: this will block anyone else except oracle to publish state channels
+    case blockchain_ledger_v1:sc_oracle(Ledger) of
+        not_found ->
+            Owner = ?MODULE:owner(Txn),
+            Signature = ?MODULE:signature(Txn),
+            PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+            BaseTxn = Txn#blockchain_txn_state_channel_open_v1_pb{signature = <<>>},
+            EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(BaseTxn),
+            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                false ->
+                    {error, bad_signature};
+                true ->
+                    do_is_valid_checks(Txn, Chain)
+            end;
+        BinKeys ->
+            validate_sc_oracle_keys(BinKeys, Txn, Chain)
+    end.
+
+-spec validate_sc_oracle_keys(
+    BinKeys :: [binary()],
+    Txn :: txn_state_channel_open(),
+    Chain :: blockchain:blockchain()
+) -> ok | {error, atom()} | {error, {atom(), any()}}.
+validate_sc_oracle_keys([], _Txn, _Chain)  ->
+    {error, bad_signature};
+validate_sc_oracle_keys([BinKey|BinKeys], Txn, Chain) ->
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+    PubKey = libp2p_crypto:bin_to_pubkey(BinKey),
     BaseTxn = Txn#blockchain_txn_state_channel_open_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(BaseTxn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
-            {error, bad_signature};
+            validate_sc_oracle_keys(BinKeys, Txn, Chain);
         true ->
             do_is_valid_checks(Txn, Chain)
     end.

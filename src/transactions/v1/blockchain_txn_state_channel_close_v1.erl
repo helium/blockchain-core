@@ -133,10 +133,6 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     Closer = ?MODULE:closer(Txn),
-    Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Closer),
-    BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     SC = ?MODULE:state_channel(Txn),
     ExpiresAt = blockchain_state_channel_v1:expire_at_block(SC),
     SCGrace = case ?get_var(?sc_grace_blocks, Ledger) of
@@ -167,8 +163,7 @@ is_valid(Txn, Chain) ->
                 true ->
                     {error, max_clients_exceeded};
                 false ->
-                    case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
-                          blockchain_state_channel_v1:validate(SC)} of
+                    case {validate_signature(Txn, Chain), blockchain_state_channel_v1:validate(SC)} of
                         {false, _} ->
                             {error, bad_closer_signature};
                         {true, {error, _}} ->
@@ -238,6 +233,43 @@ is_valid(Txn, Chain) ->
                             end
                     end
             end
+    end.
+
+-spec validate_signature(
+    Txn :: txn_state_channel_close(),
+    Chain :: blockchain:blockchain()) -> boolean().
+validate_signature(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    %% NOTE: this will block anyone else except oracle to publish state channels
+    case blockchain_ledger_v1:sc_oracle(Ledger) of
+        not_found ->
+            Closer = ?MODULE:closer(Txn),
+            Signature = ?MODULE:signature(Txn),
+            PubKey = libp2p_crypto:bin_to_pubkey(Closer),
+            BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
+            EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
+            libp2p_crypto:verify(EncodedTxn, Signature, PubKey);
+        BinKeys ->
+            validate_sc_oracle_keys(BinKeys, Txn, Chain)
+    end.
+
+-spec validate_sc_oracle_keys(
+    BinKeys :: [binary()],
+    Txn :: txn_state_channel_close(),
+    Chain :: blockchain:blockchain()
+) -> boolean().
+validate_sc_oracle_keys([], _Txn, _Chain)  ->
+    {error, bad_signature};
+validate_sc_oracle_keys([BinKey|BinKeys], Txn, Chain) ->
+    Signature = ?MODULE:signature(Txn),
+    PubKey = libp2p_crypto:bin_to_pubkey(BinKey),
+    BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            validate_sc_oracle_keys(BinKeys, Txn, Chain);
+        true ->
+            true
     end.
 
 check_close_updates(LedgerSC, Txn, Ledger) ->

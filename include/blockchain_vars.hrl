@@ -423,6 +423,8 @@
 %%  - 0 :: reconcile as much as possible
 %%  - 1 :: accept first dispute, drop all DC from opener, no rewards
 -define(sc_dispute_strategy_version, sc_dispute_strategy_version).
+%% SC Oracle is a list of public keys authorized to publish on behalf of other OUIs
+-define(sc_oracle, sc_oracle).
 
 %% Txn Routing Xor Filter Fee calculation var HIP-XXX
 -define(txn_routing_update_xor_fees_version, txn_routing_update_xor_fees_version).

@@ -272,6 +272,7 @@
     staking_fee_txn_assert_location_light_gateway_v1/1,
     staking_keys/1,
     staking_keys_to_mode_mappings/1,
+    sc_oracle/1,
     txn_fee_multiplier/1,
 
     dc_to_hnt/2,
@@ -2954,6 +2955,12 @@ staking_keys_to_mode_mappings(Ledger)->
         {ok, V} -> blockchain_utils:bin_to_prop(V)
     end.
 
+-spec sc_oracle(Ledger :: ledger()) -> not_found | [libp2p_crypto:pubkey_bin()].
+sc_oracle(Ledger)->
+    case ?get_var(?sc_oracle, Ledger) of
+        {error, not_found} -> not_found;
+        {ok, V} -> blockchain_utils:bin_keys_to_list(V)
+    end.
 %%--------------------------------------------------------------------
 %% @doc
 %% converts DC to HNT bones

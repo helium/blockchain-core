@@ -884,6 +884,20 @@ validate_staking_key_mode_mapping_value(GWMode) ->
     throw({error, {invalid_staking_to_mode_mapping_value, GWMode}}).
 
 
+validate_sc_oracle_keys_format(Bin) when is_binary(Bin) ->
+    PubKeys = blockchain_utils:bin_keys_to_list(Bin),
+    validate_sc_oracle_keys(PubKeys).
+
+validate_sc_oracle_keys([]) -> ok;
+validate_sc_oracle_keys([H|T]) ->
+    try
+        _ = libp2p_crypto:bin_to_pubkey(H),
+        validate_sc_oracle_keys(T)
+    catch
+        _C:_E:_St ->
+            throw({error, {invalid_sc_oracle_pubkey, H}})
+    end.
+
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
 %% election vars
@@ -1321,6 +1335,8 @@ validate_var(?sc_only_count_open_active, Value) ->
     end;
 validate_var(?sc_dispute_strategy_version, Value) ->
     validate_int(Value, "sc_dispute_strategy_version", 0, 1, false);
+validate_var(?sc_oracle, Value) ->
+    validate_sc_oracle_keys_format(Value);
 
 %% Txn Routing Xor Filter Fee calculation var HIP-XXX
 validate_var(?txn_routing_update_xor_fees_version, Value) ->
