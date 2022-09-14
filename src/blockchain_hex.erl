@@ -6,7 +6,8 @@
          destroy_memoization/0,
 
          %% exported for dialyzer reasons
-         precalc/2
+         precalc/2,
+         export/2
         ]).
 
 -include("blockchain_vars.hrl").
@@ -85,6 +86,21 @@ scale(Location, _VarMap, TargetRes, Ledger) ->
                             Unclipped -> Acc * (lookup(ClipETS, Parent) / Unclipped)
                         end
                 end, 1.0, lists:seq(R, TargetRes, -1)).
+
+
+export(Ledger, File) ->
+    {ok, DensityTgt} = ?get_var(?density_tgt_res, Ledger),
+    {ok, FH} = file:open(File, [write, raw]),
+    blockchain_ledger_v1:fold_h3dex(Ledger, fun(Hex, Gws, _Acc) ->
+                                                    Region = case blockchain_region_v1:h3_to_region(Hex, Ledger) of
+                                                                 {ok, R} -> R;
+                                                                 _ -> unknown
+                                                             end,
+                                                    [ file:write(FH, io_lib:format("~s,~f,~b,~s~n", [libp2p_crypto:bin_to_b58(GW), scale(Hex, #{}, DensityTgt, Ledger), Hex, Region])) || GW <- Gws ],
+                                                    ok
+                                            end, ok),
+    file:close(FH),
+    ok.
 
 
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, var_map()}.
