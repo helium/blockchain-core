@@ -5201,9 +5201,13 @@ fold_h3dex(Ledger, Fun, InitialAcc) ->
     H3CF = h3dex_cf(Ledger),
     cache_fold(Ledger, H3CF,
                fun({Key, BinGWs}, Acc) ->
+                   try
                        GWs = binary_to_term(BinGWs),
                        H3 = key_to_h3(Key),
                        Fun(H3, GWs, Acc)
+                   catch _:_ ->
+                             Acc
+                   end
                end, InitialAcc, [
                           %% key_to_h3 returns 7 byte binaries
                           {start, {seek, <<0, 0, 0, 0, 0, 0, 0>>}},
