@@ -5200,8 +5200,8 @@ count_gateways_in_hexes(Resolution, Ledger) ->
 fold_h3dex(Ledger, Fun, InitialAcc) ->
     H3CF = h3dex_cf(Ledger),
     cache_fold(Ledger, H3CF,
-               fun({Key, GWs}, Acc) ->
-                       GWs = binary_to_term(GWs),
+               fun({Key, BinGWs}, Acc) ->
+                       GWs = binary_to_term(BinGWs),
                        H3 = key_to_h3(Key),
                        Fun(H3, GWs, Acc)
                end, InitialAcc, [
