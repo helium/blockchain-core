@@ -781,6 +781,7 @@ get_reward_vars(Start, End, Ledger) ->
     PocChallengerType =
         case ?get_var(?poc_challenger_type, Ledger) of
             {ok, validator} -> validator;
+            {ok, oracle} -> oracle;
             _ -> gateway
         end,
 
@@ -1005,7 +1006,7 @@ normalize_challenger_rewards(ChallengerRewards,
     TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
     ShareOfDCRemainder =
         case PocChallengerType of
-            validator ->
+            Type when Type == validator; Type == oracle ->
                 0;
             _ ->
                 share_of_dc_rewards(poc_challengers_percent, Vars)
@@ -1050,6 +1051,26 @@ normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
                                 Acc0 :: rewards_share_map() ) -> rewards_share_map().
 poc_challengees_rewards_(_Vars, [], _StaticPath, _Txn, _Chain, _Ledger, _, _, Acc) ->
     Acc;
+poc_challengees_rewards_(#{poc_version := Version, poc_challenger_type := oracle},
+                         Path,
+                         _StaticPath,
+                         _Txn,
+                         _Chain,
+                         _Ledger,
+                         _IsFirst,
+                         _VarMap,
+                         Acc0) when Version >= 2 ->
+    %% simply tally up the provided shares from the oracle
+    lists:foldl(fun(Elem, Acc) ->
+                        Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+
+                        case blockchain_poc_path_element_v1:receipt(Elem) of
+                            undefined -> Acc;
+                            Receipt ->
+                                Shares = blockchain_poc_receipt_v1:reward_shares(Receipt),
+                                maps:update_with(Challengee, fun(V) -> V + Shares end, Shares, Acc)
+                        end
+                end, Acc0, Path);
 poc_challengees_rewards_(#{poc_version := Version}=Vars,
                          [Elem|Path],
                          StaticPath,
@@ -1236,6 +1257,22 @@ normalize_reward_unit(Unit) -> Unit.
                           Chain :: blockchain:blockchain(),
                           Ledger :: blockchain_ledger_v1:ledger(),
                           Vars :: reward_vars() ) -> rewards_share_map().
+poc_witness_reward(Txn, AccIn,
+                   _Chain, _Ledger,
+                   #{ poc_version := POCVersion,
+                      poc_challenger_type := oracle}) when is_integer(POCVersion)
+                                                       andalso POCVersion >= 9 ->
+    TxnType = blockchain_txn:type(Txn),
+    Path = TxnType:path(Txn),
+    %% simply tally up the provided shares from the oracle
+    lists:foldl(fun(Elem, Acc) ->
+                        Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
+                        lists:foldl(fun(Witness, Acc2) ->
+                                            Shares = blockchain_poc_witness_v1:reward_shares(Witness),
+                                            WitnessKey = blockchain_poc_witness_v1:gateway(Witness),
+                                            maps:update_with(WitnessKey, fun(V) -> V + Shares end, Shares, Acc2)
+                                    end, Acc, Witnesses)
+                end, AccIn, Path);
 poc_witness_reward(Txn, AccIn,
                    Chain, Ledger,
                    #{ poc_version := POCVersion,
@@ -1639,7 +1676,7 @@ maybe_calc_tx_scale(_Challengee,
 share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
     0;
 share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder,
-                                poc_challenger_type := validator}) ->
+                                poc_challenger_type := Type}) when Type == validator; Type == challenger ->
     erlang:round(DCRemainder
                  * ((maps:get(Key, Vars) /
                      (maps:get(poc_challengees_percent, Vars)

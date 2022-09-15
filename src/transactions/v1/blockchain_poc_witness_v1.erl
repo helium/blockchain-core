@@ -20,6 +20,7 @@
     frequency/1,
     channel/1,
     datarate/1,
+    reward_shares/1,
     signature/1,
     sign/2,
     is_valid/2,
@@ -119,6 +120,10 @@ channel(Witness) ->
 -spec datarate(Witness :: poc_witness()) -> list().
 datarate(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.datarate.
+
+-spec reward_shares(Witness :: poc_witness()) -> float().
+reward_shares(Witness) ->
+    Witness#blockchain_poc_witness_v1_pb.reward_shares / 100.
 
 -spec signature(Witness :: poc_witness()) -> binary().
 signature(Witness) ->

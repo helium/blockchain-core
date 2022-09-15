@@ -79,6 +79,8 @@
     update_gateway_oui/4,
     gateway_count/1,
     gateway_update_challenge/5,
+    find_gateway_last_beacon/2,
+    update_gateway_last_beacon/3,
     reactivate_gateway/4,
 
     find_pocs/2,
@@ -1595,6 +1597,31 @@ find_gateway_last_challenge(Address, Ledger) ->
                     Error
             end
     end.
+
+find_gateway_last_beacon(Address, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    GwDenormCF = gw_denorm_cf(Ledger),
+    case cache_get(Ledger, GwDenormCF, <<Address/binary, "-last-beacon">>, []) of
+        {ok, <<TS:64/integer-unsigned-little>>} ->
+            {ok, TS};
+        not_found ->
+            case cache_get(Ledger, AGwsCF, Address, []) of
+                {ok, _BinGw} ->
+                    %% gateway exists but has never beaconed
+                    {ok, 0};
+                not_found ->
+                    {error, not_found};
+                Error2 ->
+                    Error2
+            end;
+        Error ->
+            Error
+    end.
+
+update_gateway_last_beacon(Address, TS, Ledger) ->
+    GwDenormCF = gw_denorm_cf(Ledger),
+    cache_put(Ledger, GwDenormCF, <<Address/binary, "-last-beacon">>, <<TS:64/integer-unsigned-little>>).
+
 
 find_gateway_mode(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),

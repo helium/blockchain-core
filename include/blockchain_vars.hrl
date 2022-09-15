@@ -139,7 +139,7 @@
 %% Number of challenges per block: integer
 -define(poc_challenge_rate, poc_challenge_rate).
 
-%% Actor type of the challenger: not set or 'validator'
+%% Actor type of the challenger: not set or 'validator' or 'oracle' for off-chain poc
 -define(poc_challenger_type, poc_challenger_type).
 
 %% scale the number of validators in the heartbeat proposals to ensure there are enough keys waiting
@@ -237,6 +237,9 @@
 
 %% whether or not to process validation of poc receipt witnesses
 -define(poc_receipt_witness_validation, poc_receipt_witness_validation).
+
+%% for off-chain poc, who should be signing receipts
+-define(poc_oracle_key, poc_oracle_key).
 
 %%%
 %%% score vars
