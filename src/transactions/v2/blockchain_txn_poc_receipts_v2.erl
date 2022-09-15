@@ -156,20 +156,46 @@ is_valid(Txn, Chain) ->
     BaseTxn = Txn#blockchain_txn_poc_receipts_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v2_pb:encode_msg(BaseTxn),
     {ok, POCVersion} = ?get_var(?poc_version, Ledger),
-    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-        false ->
-            {error, bad_signature};
+    case ?MODULE:path(Txn) =:= [] of
         true ->
-            %% check the challenger is actually a validator and it exists
-            case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
-                {error, _Reason}=Error ->
-                    Error;
-                {ok, _ChallengerInfo} ->
-                    case ?MODULE:path(Txn) =:= [] of
-                        true ->
-                            {error, empty_path};
-                        false ->
-                            check_is_valid_poc(POCVersion, Txn, Chain)
+            {error, empty_path};
+        false ->
+            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                false ->
+                    {error, bad_signature};
+                true ->
+                    case {?get_var(?poc_challenger_type, Ledger), ?get_var(?poc_oracle_key, Ledger)} of
+                        {{ok, oracle}, {ok, OracleKey}} ->
+                            case OracleKey == Challenger of
+                                true ->
+                                    [FirstElem|_] = ?MODULE:path(Txn),
+                                    Challengee = blockchain_poc_path_element_v1:challengee(FirstElem),
+                                    case blockchain_ledger_v1:find_gateway_last_beacon(Challengee, Ledger) of
+                                        {ok, LastBeaconTime} ->
+                                            case LastBeaconTime < Txn#blockchain_txn_poc_receipts_v2_pb.timestamp of
+                                                true ->
+                                                    %% bypass all verification and trust in the oracle
+                                                    ok;
+                                                false ->
+                                                    {error, poc_receipt_replay}
+                                            end;
+                                        {error, not_found} ->
+                                            {error, poc_receipt_hotspot_not_found};
+                                        Error ->
+                                            Error
+                                    end;
+                                false ->
+                                    ct:pal("~p ~p", [OracleKey, PubKey]),
+                                    {error, challenger_not_poc_oracle}
+                            end;
+                        _ ->
+                            %% check the challenger is actually a validator and it exists
+                            case blockchain_ledger_v1:get_validator(Challenger, Ledger) of
+                                {error, _Reason}=Error ->
+                                    Error;
+                                {ok, _ChallengerInfo} ->
+                                    check_is_valid_poc(POCVersion, Txn, Chain)
+                            end
                     end
             end
     end.
@@ -432,8 +458,22 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
  -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    {ok, POCVersion} = ?get_var(?poc_version, Ledger),
-    absorb(POCVersion, Txn, Chain).
+    case {?get_var(?poc_challenger_type, Ledger), ?get_var(?poc_oracle_key, Ledger)} of
+        {{ok, oracle}, {ok, _Key}} ->
+            Element = hd(path(Txn)),
+            Challengee = blockchain_poc_path_element_v1:challengee(Element),
+            case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
+                {ok, _Gw0} ->
+                    %% update the last time this gateway was challenged, to prevent replay attacks
+                    %% TODO: store reward shares in the ledger to avoid doing block traversals later
+                    blockchain_ledger_v1:update_gateway_last_beacon(Challengee, Txn#blockchain_txn_poc_receipts_v2_pb.timestamp, Ledger);
+                _ ->
+                    {error, unknown_challengee}
+            end;
+        _ ->
+            {ok, POCVersion} = ?get_var(?poc_version, Ledger),
+            absorb(POCVersion, Txn, Chain)
+    end.
 
  -spec absorb(pos_integer(), txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(_POCVersion, Txn, Chain) ->

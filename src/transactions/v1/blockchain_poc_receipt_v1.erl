@@ -23,6 +23,7 @@
     frequency/1,
     channel/1,
     datarate/1,
+    reward_shares/1,
     addr_hash/1, addr_hash/2,
     tx_power/1, tx_power/2,
     sign/2,
@@ -134,6 +135,10 @@ frequency(Receipt) ->
 -spec datarate(Receipt :: poc_receipt()) -> list().
 datarate(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.datarate.
+
+-spec reward_shares(Receipt :: poc_receipt()) -> float().
+reward_shares(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.reward_shares / 100.
 
 -spec addr_hash(Receipt :: poc_receipt()) -> 'undefined' | binary().
 addr_hash(Receipt) ->
