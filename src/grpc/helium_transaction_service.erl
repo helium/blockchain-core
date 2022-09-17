@@ -5,7 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(helium_transaction_service).
 
--behaviour(helium_transaction_bhvr).
+-behaviour(helium_transaction_transaction_bhvr).
 -include("autogen/server/transaction_pb.hrl").
 
 -export([submit/2, query/2]).
