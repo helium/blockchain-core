@@ -38,7 +38,8 @@
     election_epoch/1, election_epoch/2,
     process_delayed_actions/3,
 
-    active_gateways/1, snapshot_gateways/1, load_gateways/2,
+    active_gateways/1, active_gateways_stream/1,
+    snapshot_gateways/1, load_gateways/2,
     versioned_entry_mod_and_entries_cf/1,
     entries/1,
     htlcs/1,
@@ -303,6 +304,7 @@
 -type entries_v2() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v2:entry()}.
 -type subnetworks_v1() :: #{blockchain_token_v1:type() => blockchain_ledger_subnetwork_v1:subnetwork_v1()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
+-type active_gateway() :: {libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
@@ -1269,6 +1271,34 @@ active_gateways(Ledger) ->
       end,
       #{}
      ).
+
+-spec active_gateways_stream(ledger()) -> blockchain_term:stream(active_gateway()).
+active_gateways_stream(Ledger) ->
+    fun () ->
+        Db = db(Ledger),
+        case rocksdb:iterator(Db, active_gateways_cf, []) of
+            {error, Reason} ->
+                error({active_gw_rocks_iter_make, Reason});
+            {ok, Iter} ->
+                Move =
+                    fun Move_ (Target) ->
+                        fun () ->
+                            case rocksdb:iterator_move(Iter, Target) of
+                                {ok, K, V} ->
+                                    {some, {{K, V}, Move_(next)}};
+                                {error, invalid_iterator} ->
+                                    ok = rocksdb:iterator_close(Iter),
+                                    none;
+                                Error ->
+                                    error({active_gw_rocks_iter_move, Target, Error})
+                            end
+                        end
+                    end,
+%% rocks_stream:from_fun(Move(first))
+%% Move(first) = fun(() -> none | {some, {A, next(A)}}).
+                Move(first)
+        end
+    end.
 
 -spec gateway_count(ledger()) -> non_neg_integer().
 gateway_count(Ledger) ->
