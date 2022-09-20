@@ -1274,31 +1274,30 @@ active_gateways(Ledger) ->
 
 -spec active_gateways_stream(ledger()) -> blockchain_term:stream(active_gateway()).
 active_gateways_stream(Ledger) ->
-    fun () ->
-        Db = db(Ledger),
-        case rocksdb:iterator(Db, active_gateways_cf, []) of
-            {error, Reason} ->
-                error({active_gw_rocks_iter_make, Reason});
-            {ok, Iter} ->
-                Move =
-                    fun Move_ (Target) ->
-                        fun () ->
-                            case rocksdb:iterator_move(Iter, Target) of
-                                {ok, K, V} ->
-                                    {some, {{K, V}, Move_(next)}};
-                                {error, invalid_iterator} ->
-                                    ok = rocksdb:iterator_close(Iter),
-                                    none;
-                                Error ->
-                                    error({active_gw_rocks_iter_move, Target, Error})
-                            end
+    {active_gateways, Db, Cf} = active_gateways_cf(Ledger),
+    case rocksdb:iterator(Db, Cf, []) of
+        {error, Reason} ->
+            error({active_gw_rocks_iter_make, Reason});
+        {ok, Iter} ->
+            Move =
+                fun Move_ (Target) ->
+                    fun () ->
+                        case rocksdb:iterator_move(Iter, Target) of
+                            {ok, K, V} ->
+                                io:format(user, "some ~p", [Iter]),
+                                {some, {{K, V}, Move_(next)}};
+                            {error, invalid_iterator} ->
+                                io:format(user, "none ~p", [Iter]),
+                                ok = rocksdb:iterator_close(Iter),
+                                none;
+                            Error ->
+                                error({active_gw_rocks_iter_move, Target, Error})
                         end
-                    end,
-%% rocks_stream:from_fun(Move(first))
-%% Move(first) = fun(() -> none | {some, {A, next(A)}}).
-                Move(first)
-        end
+                    end
+                end,
+            Move(first)
     end.
+
 
 -spec gateway_count(ledger()) -> non_neg_integer().
 gateway_count(Ledger) ->
@@ -6615,6 +6614,39 @@ active_gateways_test() ->
     Ledger = new(BaseDir),
     ?assertEqual(#{}, active_gateways(Ledger)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+active_gateways_stream_test() ->
+%% MARKER
+    NumRecords = 5,
+    TempDir = test_utils:tmp_dir("active_gateways_stream_test"),
+    Ledger = new(TempDir),
+    {active_gateways, DB, CF} = active_gateways_cf(Ledger),
+    lists:foreach(
+        fun ({K, V}) -> ok = rocksdb:put(DB, CF, K, V, []) end,
+        lists:map(fun (I) ->
+                      K = <<"k", (integer_to_binary(I))/binary>>,
+                      V = <<"v", (integer_to_binary(I))/binary>>,
+                      {K, V}
+                  end, lists:seq(1, NumRecords))
+    ),
+
+    GatewayStream = active_gateways_stream(Ledger),
+    AGFold = fun Fold(StreamFun, Acc) ->
+                 case StreamFun() of
+                     none ->
+                         io:format(user, "RECEIVED NONE", []),
+                         Acc div 2;
+                     {some, {{K, V}, Next}} when is_function(Next) ->
+                         <<"k", KB/binary>> = K,
+                         <<"v", VB/binary>> = V,
+                         io:format(user, "~p", [Acc]),
+                         Fold(Next, Acc + (binary_to_integer(KB) + binary_to_integer(VB)))
+                 end
+             end,
+    ?assertEqual(
+        lists:foldl(fun (X, Sum) -> X + Sum end, 0, lists:seq(1, NumRecords)),
+        AGFold(GatewayStream, 0)
+    ).
 
 add_gateway_test() ->
     {timeout, 30000,

@@ -878,14 +878,18 @@ get_vars(VarList, Ledger) ->
                VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, HasAux, VarsNonce, Ledger) ->
-    Cache = persistent_term:get(?var_cache),
-    cream:cache(
-      Cache,
-      {HasAux, VarsNonce, VarName},
-      fun() ->
-              get_var_(VarName, Ledger)
-      end
-    ).
+    try persistent_term:get(?var_cache) of
+        Cache ->
+            cream:cache(
+                Cache,
+                {HasAux, VarsNonce, VarName},
+                fun() ->
+                    get_var_(VarName, Ledger)
+                end
+            )
+    catch
+        _:badarg -> {error, no_var_cache}
+    end.
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->
@@ -908,9 +912,13 @@ var_cache_stats() ->
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
-    Cache = persistent_term:get(?var_cache),
-    cream:drain(Cache),
-    ok.
+    try persistent_term:get(?var_cache) of
+        Cache ->
+            cream:drain(Cache),
+            ok
+    catch
+        _:badarg -> ok
+    end.
 
 -spec target_v_to_mod({error, not_found} | {ok, integer()}) -> atom().
 %% note: target_v_to_mod used by validator challenges related
