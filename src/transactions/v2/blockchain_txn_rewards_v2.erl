@@ -47,6 +47,7 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("helium_proto/include/blockchain_txn_poc_receipts_v2_pb.hrl").
 -export([v1_to_v2/1]).
 -endif.
 
@@ -1270,7 +1271,7 @@ poc_witness_reward(Txn, AccIn,
                         lists:foldl(fun(Witness, Acc2) ->
                                             Shares = blockchain_poc_witness_v1:reward_shares(Witness),
                                             WitnessKey = blockchain_poc_witness_v1:gateway(Witness),
-                                            maps:update_with(WitnessKey, fun(V) -> V + Shares end, Shares, Acc2)
+                                            maps:update_with(WitnessKey, fun({C, V}) -> {C+1, V + Shares} end, {1, Shares}, Acc2)
                                     end, Acc, Witnesses)
                 end, AccIn, Path);
 poc_witness_reward(Txn, AccIn,
@@ -1914,6 +1915,77 @@ poc_witnesses_rewards_test() ->
                                 #{}, Txns),
     ?assertEqual(Rewards, normalize_witness_rewards(WitnessShares, EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+offchain_poc_witnesses_rewards_test() ->
+    BaseDir = test_utils:tmp_dir("offchain_poc_witnesses_rewards_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    EpochVars = #{
+      epoch_reward => 1000,
+      poc_witnesses_percent => 0.05,
+      poc_challengees_percent => 0.05,
+      poc_challengers_percent => 0.0,
+      dc_remainder => 0,
+      poc_version => 9,
+      poc_challenger_type => oracle
+     },
+
+    LedgerVars = maps:merge(common_poc_vars(), EpochVars),
+
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    One = 631179381270930431,
+    Two = 631196173757531135,
+    Three = 631196173214364159,
+    Four = 631179381325720575,
+    Five = 631179377081096191,
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"a">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"b">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"c">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"d">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"d">>, Four, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"e">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"e">>, Five, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    Witness1 = (blockchain_poc_witness_v1:new(<<"a">>, 1, -80, <<>>))#blockchain_poc_witness_v1_pb{reward_shares=100},
+    Witness2 = (blockchain_poc_witness_v1:new(<<"b">>, 1, -80, <<>>))#blockchain_poc_witness_v1_pb{reward_shares=100},
+
+    ReceiptForA = (blockchain_poc_receipt_v1:new(<<"c">>, 1, -120, <<"data">>, radio))#blockchain_poc_receipt_v1_pb{reward_shares=100},
+    Elem = blockchain_poc_path_element_v1:new(<<"c">>, ReceiptForA, [Witness1, Witness2]),
+    Txns = [
+        blockchain_txn_poc_receipts_v2:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem], <<"BlockHash">>),
+        blockchain_txn_poc_receipts_v2:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem], <<"BlockHash">>)
+    ],
+
+    Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
+                {gateway,poc_witnesses,<<"b">>} => 25},
+
+    WitnessShares = lists:foldl(fun(T, Acc) -> poc_witness_reward(T, Acc, Chain, Ledger, EpochVars) end,
+                                #{}, Txns),
+    ?assertEqual(Rewards, normalize_witness_rewards(WitnessShares, EpochVars)),
+
+    ChallengeeShares = lists:foldl(fun(T, Acc) ->
+                                           Path = blockchain_txn_poc_receipts_v2:path(T),
+                                           poc_challengees_rewards_(EpochVars, Path, Path, T, Chain, Ledger, true, #{}, Acc)
+                                   end,
+                                   #{},
+                                   Txns),
+    ?assertEqual(#{{gateway,poc_challengees,<<"c">>} => 50}, normalize_challengee_rewards(ChallengeeShares, EpochVars)),
+
+    test_utils:cleanup_tmp_dir(BaseDir).
+
 
 dc_rewards_sc_dispute_strategy_test() ->
     BaseDir = test_utils:tmp_dir("dc_rewards_dispute_sc_test"),
