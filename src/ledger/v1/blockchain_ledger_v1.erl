@@ -1279,13 +1279,13 @@ active_gateways_stream(Ledger) ->
         {error, Reason} ->
             error({active_gw_rocks_iter_make, Reason});
         {ok, Iter} ->
-            Move =
-                fun Move_ (Target) ->
+            IterStart =
+                fun IterAdvance (Target) ->
                     fun () ->
                         case rocksdb:iterator_move(Iter, Target) of
                             {ok, K, V} ->
                                 io:format(user, "some ~p", [Iter]),
-                                {some, {{K, V}, Move_(next)}};
+                                {some, {{K, V}, IterAdvance(next)}};
                             {error, invalid_iterator} ->
                                 io:format(user, "none ~p", [Iter]),
                                 ok = rocksdb:iterator_close(Iter),
@@ -1295,7 +1295,7 @@ active_gateways_stream(Ledger) ->
                         end
                     end
                 end,
-            Move(first)
+            IterStart(first)
     end.
 
 
