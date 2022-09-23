@@ -459,12 +459,13 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case {?get_var(?poc_challenger_type, Ledger), ?get_var(?poc_oracle_key, Ledger)} of
         {{ok, oracle}, {ok, _Key}} ->
-            Challenger = ?MODULE:challenger(Txn),
-            case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+            Element = hd(path(Txn)),
+            Challengee = blockchain_poc_path_element_v1:challengee(Element),
+            case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
                 {ok, _Gw0} ->
-                    %% update the last time this gateway challlenged, to prevent replay attacks
+                    %% update the last time this gateway was challenged, to prevent replay attacks
                     %% TODO: store reward shares in the ledger to avoid doing block traversals later
-                    blockchain_ledger_v1:update_gateway_last_beacon(Challenger, Txn#blockchain_txn_poc_receipts_v2_pb.timestamp, Ledger);
+                    blockchain_ledger_v1:update_gateway_last_beacon(Challengee, Txn#blockchain_txn_poc_receipts_v2_pb.timestamp, Ledger);
                 _ ->
                     {error, unknown_challenger}
             end;
