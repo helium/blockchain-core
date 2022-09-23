@@ -952,9 +952,16 @@ securities_rewards(Ledger, #{epoch_reward := EpochReward,
             maps:fold(
               fun(Key, Entry, Acc) ->
                       Balance = blockchain_ledger_entry_v2:balance(Entry, hst),
-                      PercentofReward = (Balance*100/TotalSecurities)/100,
-                      Amount = erlang:round(PercentofReward*SecuritiesReward),
-                      maps:put({owner, securities, Key}, Amount, Acc)
+                      case Balance =< 0 andalso ?get_var(?security_zero_reward_bugfix, Ledger) == {ok, true} of
+                          true ->
+                              %% no security tokens AND the zero reward bugfix var is active
+                              Acc;
+                          false ->
+                              %% either a security reward, or the zero reward bugfix is not active
+                              PercentofReward = (Balance*100/TotalSecurities)/100,
+                              Amount = erlang:round(PercentofReward*SecuritiesReward),
+                              maps:put({owner, securities, Key}, Amount, Acc)
+                      end
               end,
               #{},
               Entries

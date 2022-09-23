@@ -1275,6 +1275,13 @@ validate_var(?security_reward_bugfix, Value) ->
         _ -> throw({error, {invalid_security_reward_bugfix, Value}})
     end;
 
+validate_var(?security_zero_reward_bugfix, Value) ->
+    case Value of
+        true -> ok;
+        _ -> throw({error, {invalid_security_zero_reward_bugfix, Value}})
+    end;
+
+
 %% general txn vars
 
 validate_var(?txn_field_validation_version, Value) ->
