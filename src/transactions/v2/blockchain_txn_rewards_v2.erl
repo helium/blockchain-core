@@ -943,7 +943,12 @@ securities_rewards(Ledger, #{epoch_reward := EpochReward,
                              securities_percent := SecuritiesPercent}) ->
     case {?get_var(?security_reward_bugfix, Ledger), blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger)} of
         {{ok, true}, {blockchain_ledger_entry_v2, _}} ->
-            Entries = blockchain_ledger_v1:entries(Ledger),
+            Entries = case ?get_var(?security_zero_reward_bugfix, Ledger) of
+                          {ok, true} ->
+                              blockchain_ledger_v1:entries_with(Ledger, hst);
+                          _ ->
+                              blockchain_ledger_v1:entries(Ledger)
+                      end,
             TotalSecurities = maps:fold(
                                 fun(_, Entry, Acc) ->
                                         Acc +  blockchain_ledger_entry_v2:balance(Entry, hst)
@@ -952,16 +957,9 @@ securities_rewards(Ledger, #{epoch_reward := EpochReward,
             maps:fold(
               fun(Key, Entry, Acc) ->
                       Balance = blockchain_ledger_entry_v2:balance(Entry, hst),
-                      case Balance =< 0 andalso ?get_var(?security_zero_reward_bugfix, Ledger) == {ok, true} of
-                          true ->
-                              %% no security tokens AND the zero reward bugfix var is active
-                              Acc;
-                          false ->
-                              %% either a security reward, or the zero reward bugfix is not active
-                              PercentofReward = (Balance*100/TotalSecurities)/100,
-                              Amount = erlang:round(PercentofReward*SecuritiesReward),
-                              maps:put({owner, securities, Key}, Amount, Acc)
-                      end
+                      PercentofReward = (Balance*100/TotalSecurities)/100,
+                      Amount = erlang:round(PercentofReward*SecuritiesReward),
+                      maps:put({owner, securities, Key}, Amount, Acc)
               end,
               #{},
               Entries
