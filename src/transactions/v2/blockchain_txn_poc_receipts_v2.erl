@@ -166,7 +166,7 @@ is_valid(Txn, Chain) ->
                 true ->
                     case {?get_var(?poc_challenger_type, Ledger), ?get_var(?poc_oracle_key, Ledger)} of
                         {{ok, oracle}, {ok, OracleKey}} ->
-                            case OracleKey == PubKey of
+                            case OracleKey == Challenger of
                                 true ->
                                     [FirstElem|_] = ?MODULE:path(Txn),
                                     Challengee = blockchain_poc_path_element_v1:challengee(FirstElem),
@@ -185,6 +185,7 @@ is_valid(Txn, Chain) ->
                                             Error
                                     end;
                                 false ->
+                                    ct:pal("~p ~p", [OracleKey, PubKey]),
                                     {error, challenger_not_poc_oracle}
                             end;
                         _ ->
@@ -467,7 +468,7 @@ absorb(Txn, Chain) ->
                     %% TODO: store reward shares in the ledger to avoid doing block traversals later
                     blockchain_ledger_v1:update_gateway_last_beacon(Challengee, Txn#blockchain_txn_poc_receipts_v2_pb.timestamp, Ledger);
                 _ ->
-                    {error, unknown_challenger}
+                    {error, unknown_challengee}
             end;
         _ ->
             {ok, POCVersion} = ?get_var(?poc_version, Ledger),

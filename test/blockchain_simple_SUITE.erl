@@ -7,6 +7,7 @@
 -include("blockchain_ct_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_poc_receipts_v2_pb.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -4028,8 +4029,6 @@ offchain_receipts_test(Config) ->
                                                               SignedAssertLocationTx2,
                                                               SignedGatewayAddGateway3Tx,
                                                               SignedAssertLocationTx3]),
-    _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:tid()),
-    {ok, _GWInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
 
 
     %%
@@ -4080,7 +4079,18 @@ offchain_receipts_test(Config) ->
         [Path],
         <<"BlockHash">>
     ),
-    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn, SigFun),
+    BeaconTime = 12345,
+    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn#blockchain_txn_poc_receipts_v2_pb{timestamp=BeaconTime}, SigFun),
+
+    %% should not be valid yet as challengee is not asserted
+    ?assertEqual({error, poc_receipt_hotspot_not_found}, blockchain_txn_poc_receipts_v2:is_valid(SignedPoCReceiptsTxn, Chain)),
+
+    %% add the block that defines all the gateways
+    _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:tid()),
+    {ok, _GWInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+
+
+    ?assertEqual(ok, blockchain_txn_poc_receipts_v2:is_valid(SignedPoCReceiptsTxn, Chain)),
 
     %% meck out all the things
     %% remove any checks we dont care about
@@ -4102,7 +4112,16 @@ offchain_receipts_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 3} =:= blockchain:height(Chain) end),
 
-    %% TODO check the last challenge time gets put in the ledger
+    %% check the last challenge time gets put in the ledger
+    ?assertEqual({ok, BeaconTime}, blockchain_ledger_v1:find_gateway_last_beacon(Gateway, Ledger)),
+
+    %% check a replay attack doesn't work
+    ?assertEqual({error, poc_receipt_replay}, blockchain_txn_poc_receipts_v2:is_valid(SignedPoCReceiptsTxn, Chain)),
+    %% check the challenger must be the poc oracle
+    #{public := NewPubKey, secret := NewPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    ?assertEqual({error, bad_signature}, blockchain_txn_poc_receipts_v2:is_valid(SignedPoCReceiptsTxn#blockchain_txn_poc_receipts_v2_pb{challenger=libp2p_crypto:pubkey_to_bin(NewPubKey)}, Chain)),
+    %% check that it must be signed by the oracle key
+    ?assertEqual({error, challenger_not_poc_oracle}, blockchain_txn_poc_receipts_v2:is_valid(blockchain_txn_poc_receipts_v2:sign(PoCReceiptsTxn#blockchain_txn_poc_receipts_v2_pb{challenger=libp2p_crypto:pubkey_to_bin(NewPubKey)}, libp2p_crypto:mk_sig_fun(NewPrivKey)), Chain)),
 
     meck:unload(blockchain_txn_poc_receipts_v2),
     meck:unload(blockchain_region_v1),
