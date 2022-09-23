@@ -133,6 +133,7 @@ multi_token_coinbase_test(Config) ->
     MobileBal = ?config(mobile_bal, Config),
     IOTBal = ?config(iot_bal, Config),
     EntryMod = ?config(entry_mod, Config),
+    N = length(?config(genesis_members, Config)),
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain:ledger(Chain),
@@ -152,6 +153,18 @@ multi_token_coinbase_test(Config) ->
         end,
         maps:values(Entries)
     ),
+
+    %% test entries_with
+    NewLedger = blockchain_ledger_v1:new_context(Ledger),
+
+    %% issue some more hst tokens
+    blockchain_ledger_v1:credit_account(<<"my_address">>, 10, hst, NewLedger),
+
+    %% should be N+1 accounts with hst
+    ?assertEqual(N+1, maps:size(blockchain_ledger_v1:entries_with(NewLedger, hst))),
+    %% should be N with HNT
+    ?assertEqual(N, maps:size(blockchain_ledger_v1:entries_with(NewLedger, hnt))),
+
     ok.
 
 multi_token_payment_test(Config) ->
