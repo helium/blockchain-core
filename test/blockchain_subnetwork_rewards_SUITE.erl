@@ -4,6 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -include("blockchain_vars.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -export([
     all/0,
@@ -23,6 +24,8 @@ all() ->
         mobile_test,
         iot_test
     ].
+
+
 
 %%--------------------------------------------------------------------
 %% TEST SUITE SETUP
@@ -192,7 +195,7 @@ run_test(TT, Config) ->
     ?assertEqual(0, blockchain_ledger_subnetwork_v1:nonce(LedgerSubnetwork)),
 
     %% Generate some random addresses to reward to
-    [{Rewardee1, _}, {Rewardee2, _}] = test_utils:generate_keys(2),
+    [{Rewardee1, {_, _, Rewardee1SigFun}}, {Rewardee2, {_, _, Rewardee2SigFun}}] = test_utils:generate_keys(2),
     Rewards = [
         blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee1, 100),
         blockchain_txn_subnetwork_rewards_v1:new_reward(Rewardee2, 200)
@@ -286,13 +289,55 @@ run_test(TT, Config) ->
     %% 5000 - (100 + 200)
     4700 = blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnet),
 
+    {FeePayer, {_, _, FeePayerSigFun}} = hd(ConsensusMembers),
+    PayTxn = blockchain_txn_payment_v2:fee(blockchain_txn_payment_v2:new(FeePayer, [blockchain_payment_v2:new(Rewardee1, 1000)], 1), 7),
+    SignedPayTxn = blockchain_txn_payment_v2:sign(PayTxn, FeePayerSigFun),
+    ?assertEqual(ok, blockchain_txn:is_valid(SignedPayTxn, Chain)),
+    %% refund 50 tokens back into the treasury
+    FundTxn = blockchain_txn_subnetwork_fund_v1:fee(blockchain_txn_subnetwork_fund_v1:new(TT, 50, Rewardee1, 1), 5),
+    SignedFundTxn = blockchain_txn_subnetwork_fund_v1:sign(FundTxn, Rewardee1SigFun),
+
+    {ok, Block42} = test_utils:create_block(ConsensusMembers, [SignedPayTxn]),
+    _ = blockchain_gossip_handler:add_block(Block42, Chain, self(), blockchain_swarm:tid()),
+    ?assertEqual({ok, 42}, blockchain:height(Chain)),
+
+    meck:expect(
+          blockchain_ledger_v1,
+          current_oracle_price,
+          fun(_) ->
+                  {ok, 15 * ?BONES_PER_HNT}
+          end
+      ),
+
+    ?assertEqual(ok, blockchain_txn:is_valid(SignedFundTxn, Chain)),
+    {ok, Block43} = test_utils:create_block(ConsensusMembers, [SignedFundTxn]),
+    _ = blockchain_gossip_handler:add_block(Block43, Chain, self(), blockchain_swarm:tid()),
+    ?assertEqual({ok, 43}, blockchain:height(Chain)),
+
+
+    {ok, LedgerSubnet2} = blockchain_ledger_v1:find_subnetwork_v1(TT, Ledger),
+    4750 = blockchain_ledger_subnetwork_v1:token_treasury(LedgerSubnet2),
+    %% check no replays
+    ?assertEqual({error,{bad_nonce,{subnetwork_fund_v1,1,1}}}, blockchain_txn:is_valid(SignedFundTxn, Chain)),
+    ?assertMatch({error, {insufficient_balance, _, _}}, blockchain_txn:is_valid(blockchain_txn_subnetwork_fund_v1:sign(new_fund(TT, 500, Rewardee1, 2), Rewardee1SigFun), Chain)),
+    ?assertEqual({error, bad_signature}, blockchain_txn:is_valid(blockchain_txn_subnetwork_fund_v1:sign(new_fund(TT, 100, Rewardee1, 2), Rewardee2SigFun), Chain)),
+    ?assertEqual({error, zero_amount}, blockchain_txn:is_valid(blockchain_txn_subnetwork_fund_v1:sign(new_fund(TT, 0, Rewardee1, 2), Rewardee1SigFun), Chain)),
+    [InvalidTT] = [iot, mobile] -- [TT],
+    ?assertEqual({error, {unknown_token_type, InvalidTT}}, blockchain_txn:is_valid(blockchain_txn_subnetwork_fund_v1:sign(new_fund(InvalidTT, 500, Rewardee1, 2), Rewardee1SigFun), Chain)),
+    [{Account1, {_, _, Account1SigFun}}] = test_utils:generate_keys(1),
+    ?assertMatch({error, _}, blockchain_txn:is_valid(blockchain_txn_subnetwork_fund_v1:sign(new_fund(TT, 500, Account1, 2), Account1SigFun), Chain)),
     ok.
+
+new_fund(TT, Amount, Rewardee, Nonce) ->
+    blockchain_txn_subnetwork_fund_v1:fee(blockchain_txn_subnetwork_fund_v1:new(TT, Amount, Rewardee, Nonce), 7).
 
 extra_vars(_) ->
     #{
         ?allowed_num_reward_server_keys => 1,
         ?token_version => 2,
-        ?subnetwork_reward_per_block_limit => 10
+        ?subnetwork_reward_per_block_limit => 10,
+        ?max_payments => 10,
+        ?txn_fees => true
     }.
 
 token_allocations(_, Config) ->
