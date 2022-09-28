@@ -943,7 +943,12 @@ securities_rewards(Ledger, #{epoch_reward := EpochReward,
                              securities_percent := SecuritiesPercent}) ->
     case {?get_var(?security_reward_bugfix, Ledger), blockchain_ledger_v1:versioned_entry_mod_and_entries_cf(Ledger)} of
         {{ok, true}, {blockchain_ledger_entry_v2, _}} ->
-            Entries = blockchain_ledger_v1:entries(Ledger),
+            Entries = case ?get_var(?security_zero_reward_bugfix, Ledger) of
+                          {ok, true} ->
+                              blockchain_ledger_v1:entries_with(Ledger, hst);
+                          _ ->
+                              blockchain_ledger_v1:entries(Ledger)
+                      end,
             TotalSecurities = maps:fold(
                                 fun(_, Entry, Acc) ->
                                         Acc +  blockchain_ledger_entry_v2:balance(Entry, hst)

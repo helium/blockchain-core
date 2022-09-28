@@ -41,6 +41,7 @@
     active_gateways/1, snapshot_gateways/1, load_gateways/2,
     versioned_entry_mod_and_entries_cf/1,
     entries/1,
+    entries_with/2,
     htlcs/1,
 
     master_key/1, master_key/2,
@@ -1406,18 +1407,31 @@ find_subnetwork_v1(TT, Ledger) ->
 -spec entries(ledger()) -> entries() | entries_v2().
 entries(Ledger) ->
     {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
-    entries_(EntryMod, EntriesCF, Ledger).
+    entries_(EntryMod, EntriesCF, Ledger, fun(_) -> true end).
+
+-spec entries_with(ledger(), blockchain_token_v1:type()) -> entries_v2().
+entries_with(Ledger, Type) ->
+    %% don't use this on entry v1 ledgers
+    {EntryMod = blockchain_ledger_entry_v2, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    entries_(EntryMod, EntriesCF, Ledger, fun(Entry) -> blockchain_ledger_entry_v2:balance(Entry, Type) > 0 end).
 
 -spec entries_(EntryMod :: blockchain_ledger_entry_v1 | blockchain_ledger_entry_v2,
                EntriesCF :: tagged_cf(),
-               Ledger :: ledger()) -> entries() | entries_v2().
-entries_(EntryMod, EntriesCF, Ledger) ->
+               Ledger :: ledger(),
+               Filter :: fun((blockchain_ledger_entry_v1:entry() | blockchain_ledger_entry_v2:entry()) -> boolean()))
+                             -> entries() | entries_v2().
+entries_(EntryMod, EntriesCF, Ledger, Filter) ->
     cache_fold(
         Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
             Entry = EntryMod:deserialize(Binary),
-            maps:put(Address, Entry, Acc)
+            case Filter(Entry) of
+                true ->
+                    maps:put(Address, Entry, Acc);
+                false ->
+                    Acc
+            end
         end,
         #{}
     ).

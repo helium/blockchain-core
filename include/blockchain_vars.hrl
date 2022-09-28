@@ -646,3 +646,5 @@
 -define(balance_erase_bugfix, balance_erase_bugfix).
 %% bugfix security reward var
 -define(security_reward_bugfix, security_reward_bugfix).
+%% bugfix security zero reward var
+-define(security_zero_reward_bugfix, security_zero_reward_bugfix).
