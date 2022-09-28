@@ -1029,6 +1029,10 @@ raw_fingerprint(Ledger, Extended) ->
                      {pocs_cf(Ledger), case config(?poc_challenger_type, Ledger) of
                                            {ok, validator} ->
                                                blockchain_ledger_poc_v3;
+                                           {ok, oracle} ->
+                                               %% treat oracle challenges same as validator
+                                               %% otherwise we will revert to v2 poc ledger
+                                               blockchain_ledger_poc_v3;
                                            _ ->
                                                blockchain_ledger_poc_v2
                                        end},
@@ -2513,6 +2517,8 @@ purge_pocs(Ledger) ->
 
 maybe_gc_pocs(Chain, Ledger) ->
     case ?get_var(?poc_challenger_type, Ledger) of
+        {ok, oracle} ->
+            ok;
         {ok, validator} ->
             maybe_gc_pocs(Chain, Ledger, validator);
         _ ->
@@ -2680,9 +2686,11 @@ maybe_gc_pocs(Chain, Ledger, _) ->
 
 upgrade_pocs(Ledger) ->
     PoCsCF = pocs_cf(Ledger),
-    %% don't need to do this in the validator challenge world
+    %% don't need to do this in the validator or oracle challenge world
     case ?get_var(?poc_challenger_type, Ledger) of
         {ok, validator} ->
+            ok;
+        {ok, oracle} ->
             ok;
         {error, not_found} ->
             ToStore = cache_fold(
@@ -6119,6 +6127,10 @@ load_threshold_txns(Txns, Ledger) ->
 -spec snapshot_pocs(ledger()) -> [{binary(), binary()}].
 snapshot_pocs(Ledger) ->
     case ?get_var(?poc_challenger_type, Ledger) of
+        %% if challenger type == oracle, we will continue to snapshot
+        %% pocs but that is prob ok as the POCs will be purged upon
+        %% the var value changing and so will be empty
+        %% NOTE: this function looks deprecated anyway and superseded by snapshot_raw_pocs/2
         {ok, Type} ->
             snapshot_pocs(Type, Ledger);
         _ ->
@@ -6153,6 +6165,9 @@ snapshot_pocs(_, Ledger) ->
 
 load_pocs(PoCs, Ledger) ->
     case ?get_var(?poc_challenger_type, Ledger) of
+        %% if challenger type == oracle, we will continue to load snapshotted
+        %% pocs but that should be ok, and the data will be empty anyway
+        %% NOTE: this function looks deprecated anyway and superseded by load_raw_pocs/2
         {ok, Type} ->
             load_pocs(Type, PoCs, Ledger);
         _ ->

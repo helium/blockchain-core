@@ -627,6 +627,8 @@ load_into_ledger(Snapshot, L0, Mode) ->
             case ?get_var(?poc_challenger_type, L) of
                 {ok, validator} ->
                     ok;
+                {ok, oracle} ->
+                    ok;
                 {error, not_found} ->
                     %% have to do this here, otherwise it'll break block loads
                     blockchain_ledger_v1:upgrade_pocs(L),
