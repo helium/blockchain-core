@@ -410,7 +410,7 @@ adjust_old_group_v3(Group, Ledger) ->
     Penalties = validator_penalties(OldGroup, Ledger),
     lager:debug("penalties ~p", [Penalties]),
 
-    TenurePenalty = ?get_var(tenure_penalty,Ledger),
+    {ok, TenurePenalty} = ?get_var(tenure_penalty,Ledger),
     PenaltyHistoryPercent = case ?get_var(election_penalty_history_percentage,Ledger) of
         {ok, Value} -> Value;
         _ -> 1.0
