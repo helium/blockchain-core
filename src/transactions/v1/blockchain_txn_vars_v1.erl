@@ -1022,6 +1022,8 @@ validate_var(?poc_challenger_type, Value) ->
     case Value of
         validator ->
             ok;
+        oracle ->
+            ok;
         _ ->
             throw({error, {poc_challenger_type, Value}})
     end;
@@ -1169,6 +1171,13 @@ validate_var(?poc_validator_ct_scale, Value) ->
     validate_float(Value, "poc_validator_ct_scale", 0.1, 1.0);
 validate_var(?poc_receipt_witness_validation, Value) when is_boolean(Value) -> ok;
 validate_var(?poc_receipt_witness_validation, Value) -> throw({error, poc_receipt_witness_validation, Value});
+validate_var(?poc_oracle_key, Value) ->
+    try libp2p_crypto:bin_to_pubkey(Value) of
+        _ -> true
+    catch
+        _:_ ->
+            throw({error, {invalid_poc_oracle_key, Value}})
+    end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
