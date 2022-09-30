@@ -240,7 +240,11 @@ absorb(Txn, Chain) ->
                             false -> #{}
                         end,
 
-                    %% apply tenure penalties to new members at the start of the round
+                    %% from election version 7, apply tenure penalty to the old group at the end of the epoch which
+                    %% is the same time that performance penalties are applied. otherwise maintain old logic of
+                    %% applying at start of round. this change allows tenure penalty to be used as part of the current
+                    %% group's penalty during election rather than being included in the penalty history on the ledger
+                    TenureMembers = case N of N0 when N0 >= 7 -> OldMembers; _ -> Members end,
                     lists:foreach(
                       fun(M) ->
                               {ok, V} = blockchain_ledger_v1:get_validator(M, Ledger),
@@ -250,7 +254,7 @@ absorb(Txn, Chain) ->
                                                                               PenaltyLimit),
                               blockchain_ledger_v1:update_validator(M, V1, Ledger)
                       end,
-                      Members),
+                      TenureMembers),
                     %% persist performance penalties for all validators in the last epoch
                     lists:foreach(
                       fun(M) ->
