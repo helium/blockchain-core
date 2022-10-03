@@ -26,7 +26,8 @@
     is_valid/2,
     print/1,
     json_type/0,
-    to_json/2
+    to_json/2,
+    maybe_upgrade/1
 ]).
 
 -ifdef(TEST).
@@ -194,6 +195,19 @@ to_json(Witness, Opts) ->
         {invalid_reason, InvalidReason} -> Base#{ invalid_reason => InvalidReason }
     end.
 
+
+maybe_upgrade(#blockchain_poc_witness_v1_pb{}=Witness) ->
+    Witness;
+maybe_upgrade({blockchain_poc_witness_v1_pb, Gateway, Timestamp, Signal, PacketHash, Signature, SNR, Frequency, Channel, Datarate}) ->
+    #blockchain_poc_witness_v1_pb{gateway=Gateway,
+                                  timestamp=Timestamp,
+                                  signal=Signal,
+                                  packet_hash=PacketHash,
+                                  signature=Signature,
+                                  snr=SNR,
+                                  frequency=Frequency,
+                                  channel=Channel,
+                                  datarate=Datarate}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

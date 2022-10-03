@@ -16,7 +16,8 @@
     witnesses/1,
     print/1,
     json_type/0,
-    to_json/2
+    to_json/2,
+    maybe_upgrade/1
 ]).
 
 -ifdef(TEST).
@@ -112,6 +113,10 @@ to_json(Elem, Opts) ->
       witnesses => [blockchain_poc_witness_v1:to_json(W, WOpts) || {W, WOpts} <- Witnesses]
      }.
 
+maybe_upgrade(#blockchain_poc_path_element_v1_pb{receipt=Receipt, witnesses=Witnesses} = Element) ->
+    Element#blockchain_poc_path_element_v1_pb{receipt=blockchain_poc_receipt_v1:maybe_upgrade(Receipt),
+                                              witnesses=[blockchain_poc_witness_v1:maybe_upgrade(W) || W <- Witnesses]
+                                             }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

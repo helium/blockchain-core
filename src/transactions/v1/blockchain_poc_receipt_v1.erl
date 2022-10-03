@@ -30,7 +30,8 @@
     is_valid/2,
     print/1,
     json_type/0,
-    to_json/2
+    to_json/2,
+    maybe_upgrade/1
 ]).
 
 -ifdef(TEST).
@@ -237,6 +238,23 @@ to_json(Receipt, _Opts) ->
       datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt))),
       tx_power => ?MAYBE_UNDEFINED(tx_power(Receipt))
      }.
+
+maybe_upgrade(#blockchain_poc_receipt_v1_pb{}=Receipt) ->
+    Receipt;
+maybe_upgrade({blockchain_poc_receipt_v1_pb, Gateway, Timestamp, Signal, Data, Origin, Signature, SNR, Frequency, Channel, Datarate, AddrHash, TxPower}) ->
+    #blockchain_poc_receipt_v1_pb{gateway=Gateway,
+                                  timestamp=Timestamp,
+                                  signal=Signal,
+                                  data=Data,
+                                  origin=Origin,
+                                  signature=Signature,
+                                  snr=SNR,
+                                  frequency=Frequency,
+                                  channel=Channel,
+                                  datarate=Datarate,
+                                  addr_hash=AddrHash,
+                                  tx_power=TxPower}.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
