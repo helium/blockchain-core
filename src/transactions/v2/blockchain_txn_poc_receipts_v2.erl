@@ -39,7 +39,8 @@
     valid_witnesses/3, valid_witnesses/4,
     tagged_witnesses/3,
     get_channels/2, get_channels/4, get_channels/5,
-    get_path/9
+    get_path/9,
+    maybe_upgrade/1
 ]).
 
 -ifdef(TEST).
@@ -285,6 +286,17 @@ get_path(_POCVersion, Challenger, BlockTime, Entropy, Keys, Vars, OldLedger, Led
     RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, BlockTime, Vars),
     EndT = maybe_log_duration(build, StartB),
     {RetB, EndT}.
+
+maybe_upgrade(#blockchain_txn_poc_receipts_v2_pb{}=Record) ->
+    Record;
+maybe_upgrade({blockchain_txn_poc_receipts_v2_pb, Challenger, Secret, OKH, Path, Fee, Signature, BlockHash}) ->
+    #blockchain_txn_poc_receipts_v2_pb{challenger=Challenger,
+                                       secret=Secret,
+                                       onion_key_hash=OKH,
+                                       path = [ blockchain_poc_path_element_v1:maybe_upgrade(E) || E <- Path ],
+                                       fee = Fee,
+                                       signature=Signature,
+                                       block_hash=BlockHash}.
 
 %% TODO: I'm not sure that this is actually faster than checking the time, but I suspect that it'll
 %% be more lock-friendly?
@@ -1360,6 +1372,35 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, secret, onion_key_hash, block_hash, path, fee, challenger])).
 
+upgrade_test() ->
+    OldRecord = {blockchain_txn_poc_receipts_v2_pb,<<"challenger">>,<<"secret">>,
+        <<"onion_key_hash">>,
+        [{blockchain_poc_path_element_v1_pb,<<"c1">>,
+             {blockchain_poc_receipt_v1_pb,<<"r">>,10,10,<<"data">>,p2p,<<>>,
+                 1.2,915.2,2,<<"dr">>,<<>>,0},
+             [{blockchain_poc_witness_v1_pb,<<"w1">>,10,10,<<"ph">>,<<>>,1.2,
+                  915.2,2,<<"dr">>},
+              {blockchain_poc_witness_v1_pb,<<"w2">>,10,10,<<"ph">>,<<>>,1.2,
+                  915.2,2,<<"dr">>}]},
+         {blockchain_poc_path_element_v1_pb,<<"c2">>,
+             {blockchain_poc_receipt_v1_pb,<<"r">>,10,10,<<"data">>,p2p,<<>>,
+                 1.2,915.2,2,<<"dr">>,<<>>,0},
+             [{blockchain_poc_witness_v1_pb,<<"w1">>,10,10,<<"ph">>,<<>>,1.2,
+                  915.2,2,<<"dr">>},
+              {blockchain_poc_witness_v1_pb,<<"w2">>,10,10,<<"ph">>,<<>>,1.2,
+                  915.2,2,<<"dr">>}]},
+         {blockchain_poc_path_element_v1_pb,<<"c3">>,
+             {blockchain_poc_receipt_v1_pb,<<"r">>,10,10,<<"data">>,p2p,<<>>,
+                 1.2,915.2,2,<<"dr">>,<<>>,0},
+             [{blockchain_poc_witness_v1_pb,<<"w1">>,10,10,<<"ph">>,<<>>,1.2,
+                  915.2,2,<<"dr">>},
+              {blockchain_poc_witness_v1_pb,<<"w2">>,10,10,<<"ph">>,<<>>,1.2,
+                  915.2,2,<<"dr">>}]}],
+        0,<<>>,<<"blockhash">>},
+    ?assertError({badrecord,blockchain_txn_poc_receipts_v2_pb}, OldRecord#blockchain_txn_poc_receipts_v2_pb.challenger),
+    NewRecord = maybe_upgrade(OldRecord),
+    ?assertEqual(<<"challenger">>, NewRecord#blockchain_txn_poc_receipts_v2_pb.challenger),
+    ok.
 
 eirp_from_closest_freq_test() ->
     FreqEirps = [{915.8, 10}, {915.3, 20}, {914.9, 30}, {915.2, 15}, {915.7, 12}, {916.9, 100}],
