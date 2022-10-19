@@ -5798,10 +5798,10 @@ get_cooldown_stake(Val, Ledger) ->
 
 -spec query_circulating_hnt(Ledger :: ledger()) -> non_neg_integer().
 query_circulating_hnt(Ledger) ->
-    {EntryMod, _EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
+    {EntryMod, EntriesCF} = versioned_entry_mod_and_entries_cf(Ledger),
     cache_fold(
       Ledger,
-      entries_cf(Ledger),
+      EntriesCF,
       fun({_Addr, BinEnt}, Acc) ->
               Ent = EntryMod:deserialize(BinEnt),
               Acc + EntryMod:balance(Ent)
