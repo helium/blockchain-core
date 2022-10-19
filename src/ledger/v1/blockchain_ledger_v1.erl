@@ -762,7 +762,7 @@ context_snapshot(#ledger_v1{db=DB, snapshots=Cache, mode=Mode} = Ledger) ->
                                             ok
                                     end,
                                     %% open the checkpoint read-write and commit the changes in the ETS table into it
-                                    Ledger2 = new(filename:dirname(TmpDir), false, []),
+                                    Ledger2 = new(filename:dirname(TmpDir), false, [{max_open_files, 16}]),
                                     Ledger3 = blockchain_ledger_v1:mode(Mode, Ledger2),
                                     #sub_ledger_v1{cache=ECache, gateway_cache=GwCache} = subledger(Ledger),
                                     lager:info("dumping ~p elements to checkpoint in ~p mode", [length(ets:tab2list(ECache)), Mode]),
@@ -842,7 +842,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache} = Ledger, Retries) ->
                             try
                                 lager:info("loading checkpoint from disk with ledger mode ~p", [Mode]),
                                 %% new/2 wants to add on the ledger.db part itself
-                                NewLedger = new(filename:dirname(CheckpointDir), true, []),
+                                NewLedger = new(filename:dirname(CheckpointDir), true, [{max_open_files, 16}]),
                                 %% share the snapshot cache with the new ledger
                                 NewLedger2 = blockchain_ledger_v1:mode(Mode,
                                                                        NewLedger#ledger_v1{
