@@ -1662,8 +1662,7 @@ reset_ledger(Height,
     end.
 
 reset_ledger_to_snap() ->
-    case {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
-          application:get_env(blockchain, blessed_snapshot_block_height, undefined)} of
+    case blockchain_worker:get_blessed_snapshot_height_and_hash() of
         {undefined, _} ->
             {error, no_snapshot_defined};
         {_, undefined} ->
