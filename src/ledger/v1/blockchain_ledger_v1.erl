@@ -6217,9 +6217,20 @@ load_pocs(_, PoCs, Ledger) ->
             CF :: rocksdb:cf_handle()
         }.
 snapshot_raw(CF, L) ->
+    snapshot_raw(CF, L, fun(_) -> true end).
+
+
+snapshot_raw(CF, L, Filter) ->
     %% XXX Preserve order to ensure that snapshots hash deterministically.
     %% Since rocks folds are lexicographic - we can just reverse:
-    lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) -> [KV | KVs] end, [])).
+    lists:reverse(cache_fold(L, CF, fun({_, _}=KV, KVs) ->
+                                            case Filter(KV) of
+                                                true ->
+                                                    [KV | KVs];
+                                                false ->
+                                                    KVs
+                                            end
+                                    end, [])).
 
 -spec load_raw([{binary(), binary()}] | function(), CFSpec, ledger()) -> ok when
         CFSpec ::
@@ -6473,7 +6484,13 @@ snapshot_h3dex(Ledger) ->
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
             H3CF = h3dex_cf(Ledger),
-            snapshot_raw(H3CF, Ledger);
+            %% exclude the count- and gw- keys as they're memoized values that
+            %% may not be consistently present on all nodes. The memoized values
+            %% are calculated during a snapshot load instead.
+            snapshot_raw(H3CF, Ledger, fun({<<"count-", _/binary>>, _}) -> false;
+                                           ({<<"gws-", _/binary>>, _}) -> false;
+                                           (_) -> true
+                                       end);
         _ ->
             lists:sort(
               maps:to_list(
@@ -6485,7 +6502,9 @@ load_h3dex(H3DexList, Ledger) ->
     case config(?poc_targeting_version, Ledger) of
         {ok, N} when N >= 6 ->
             H3CF = h3dex_cf(Ledger),
-            load_raw(H3DexList, H3CF, Ledger);
+            load_raw(H3DexList, H3CF, Ledger),
+            precalc_h3_caches(Ledger),
+            ok;
         _ ->
             {_Name, DB, H3CF} = h3dex_cf(Ledger),
             {ok, Batch0} = rocksdb:batch(),
