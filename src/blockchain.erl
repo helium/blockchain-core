@@ -583,6 +583,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
         _ ->
             Ledger0
     end,
+    Delay = blockchain_txn:block_delay(),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, CurrentHeight} when Height > CurrentHeight andalso not ForceRecalc ->
             {error, invalid_height};
@@ -592,10 +593,11 @@ ledger_at(Height, Chain0, ForceRecalc) ->
         {ok, CurrentHeight} ->
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             case blockchain_ledger_v1:current_height(DelayedLedger) of
-                {ok, Height} ->
+                {ok, Height} when Height >= CurrentHeight - Delay ->
                     %% Delayed height is the height we want, just return a new context
                     {ok, blockchain_ledger_v1:new_context(DelayedLedger)};
-                {ok, DelayedHeight} when Height > DelayedHeight andalso Height =< CurrentHeight ->
+                {ok, DelayedHeight} when Height > DelayedHeight andalso Height =< CurrentHeight
+                                         andalso Height >= CurrentHeight - Delay ->
                     case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
                         {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
@@ -614,7 +616,9 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                                     Error
                             end
                     end;
-                {ok, DelayedHeight} when Height < DelayedHeight ->
+                {ok, _DelayedHeight} when Height < CurrentHeight - Delay ->
+                    %% delayed ledger is lagging further than it should, but do not return a
+                    %% ledger this old, because some transactions use ledger_at as a validity check
                     {error, height_too_old};
                 {error, _}=Error ->
                     Error
