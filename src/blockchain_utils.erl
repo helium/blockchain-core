@@ -347,7 +347,7 @@ streaming_pmap_submit(Workers, Input) ->
     ok.
 
 streaming_pmap_done(Workers) ->
-    [ begin Pid ! done, erlang:monitor(process, Pid) end || Pid <- Workers ],
+    [ begin erlang:monitor(process, Pid), Pid ! done end || Pid <- Workers ],
     fun() ->
     L = fun Loop(Acc, []) ->
                 %% done
