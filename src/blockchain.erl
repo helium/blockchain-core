@@ -2055,7 +2055,9 @@ save_compressed_bin_snapshot(DestFilename, BinSnap) ->
    RetVal = blockchain_utils:streaming_transform_iolist(BinSnap, Fun),
    file:close(Out),
    zlib:close(Z),
-   {RetVal, CompressedFile}.
+   %% use basename here because we should only store the filename
+   %% not the directory
+   {RetVal, filename:basename(CompressedFile)}.
 
 do_compress(In, Out, Z) ->
    case file:read(In, ?BLOCK_READ_SIZE) of
@@ -2180,7 +2182,9 @@ get_snapshot(<<Hash/binary>>, #blockchain{db=DB, dir=Dir, snapshots=SnapshotsCF}
             {error, sentinel};
         {ok, <<"file:", SnapFile/binary>>} ->
             SnapDir = filename:join(Dir, "saved-snaps"),
-            Filename = filename:join(SnapDir, SnapFile),
+            %% use basename here because of a previous bug that would store
+            %% file paths in here
+            Filename = filename:join(SnapDir, filename:basename(SnapFile)),
             case filelib:is_file(Filename) of
                 true ->
                     {ok, {file, Filename}};
