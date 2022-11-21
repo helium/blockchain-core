@@ -63,6 +63,7 @@
     get_vars/2, get_var/2,
     var_cache_stats/0,
     teardown_var_cache/0,
+    teardown_region_cache/0,
     target_v_to_mod/1
 
 
@@ -909,6 +910,12 @@ var_cache_stats() ->
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
     Cache = persistent_term:get(?var_cache),
+    cream:drain(Cache),
+    ok.
+
+-spec teardown_region_cache() -> ok.
+teardown_region_cache() ->
+    Cache = persistent_term:get(?region_cache),
     cream:drain(Cache),
     ok.
 

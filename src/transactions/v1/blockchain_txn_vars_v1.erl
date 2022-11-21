@@ -617,6 +617,7 @@ delayed_absorb(Txn, Ledger) ->
             end
     end,
     blockchain_utils:teardown_var_cache(),
+    blockchain_utils:teardown_region_cache(),
     case blockchain_ledger_v1:mode(Ledger) of
         active ->
             %% we've invalidated the region cache, so prewarm it.
