@@ -15,6 +15,7 @@
     export_routes/1,
     export_validators/1,
 
+    export_json/1,
     minimum_json/1,
     consolidate_accounts/1,
     consolidate_hotspots/1,
@@ -23,12 +24,21 @@
 
 -define(ZERO, <<"0">>).
 
+export_json(JsonPath) ->
+    Ledger = blockchain:ledger(),
+    Json = minimum_json(Ledger),
+    EJson = jsx:encode(Json),
+    file:write_file(JsonPath, [EJson]),
+    ok.
+
+-spec minimum_json(blockchain:ledger()) -> map().
 minimum_json(Ledger) ->
     #{<<"accounts">> => consolidate_accounts(Ledger),
       <<"hotspots">> => consolidate_hotspots(Ledger),
       <<"routers">> => consolidate_routers(Ledger),
       <<"meta">> => construct_meta(Ledger)}.
 
+-spec construct_meta(blockchain:ledger()) -> map().
 construct_meta(Ledger) ->
     {ok, H} = blockchain_ledger_v1:current_height(Ledger),
     #{<<"ledger_height">> => H}.
@@ -129,6 +139,7 @@ export_routes(Ledger) ->
       [],
       Routes).
 
+-spec consolidate_accounts(blockchain:ledger()) -> map().
 consolidate_accounts(Ledger) ->
     Accounts = export_accounts(Ledger),
     DCs = export_dcs(Ledger),
@@ -224,6 +235,7 @@ consolidate_accounts(Ledger) ->
       TotalKeys),
     OverallAccounts.
 
+-spec consolidate_hotspots(blockchain:ledger()) -> map().
 consolidate_hotspots(Ledger) ->
     Hotspots = export_gateways(Ledger),
     HM = lists:foldl(
@@ -239,6 +251,7 @@ consolidate_hotspots(Ledger) ->
            end, #{}, Hotspots),
     HM.
 
+-spec consolidate_routers(blockchain:ledger()) -> map().
 consolidate_routers(Ledger) ->
     Routers = export_routes(Ledger),
     RM = lists:foldl(
