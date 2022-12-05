@@ -912,8 +912,9 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                       Channel :: non_neg_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
 valid_witnesses(Element, Channel, Ledger) ->
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    valid_witnesses(Element, Channel, RegionVars, Ledger).
+    valid_witnesses(Element, Channel, {Nonce, RegionVars}, Ledger).
 
 valid_witnesses(Element, Channel, RegionVars, Ledger) ->
     TaggedWitnesses = tagged_witnesses(Element, Channel, RegionVars, Ledger),
@@ -970,8 +971,9 @@ is_same_region(SourceRegion0, DstLoc, Ledger) ->
                        Channel :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    tagged_witnesses(Element, Channel, RegionVars, Ledger).
+    tagged_witnesses(Element, Channel, {Nonce, RegionVars}, Ledger).
 
 %%-spec tagged_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
 %%                       Channel :: non_neg_integer(),

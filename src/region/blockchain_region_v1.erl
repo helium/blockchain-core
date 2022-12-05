@@ -65,25 +65,28 @@ h3_to_region(H3, Ledger) ->
 
 -spec h3_to_region(H3 :: h3:h3_index(),
                    Ledger :: blockchain_ledger_v1:ledger(),
-                   RegionBins :: no_prefetch | [{atom(), binary() | {error, term()}}]) ->
+                   RegionBins :: no_prefetch | {VarNonce :: pos_integer(), [{atom(), binary()} | {error, term()}]} | {error, term()}) ->
     {ok, atom()} | {error, any()}.
 h3_to_region(H3, Ledger, RegionBins) ->
-    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     %% maybe allow this to be passed in?
     Res = polyfill_resolution(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     Parent = h3:parent(H3, Res),
     Cache = persistent_term:get(?region_cache),
+    {MaybeBins, VarsNonce} =
+    case RegionBins of
+        no_prefetch ->
+            {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+            {get_all_region_bins(Ledger), Nonce};
+        {error, _} = Err ->
+            {Err, 0};
+        {Nonce, B} when is_integer(Nonce), is_list(B) -> {{ok, B}, Nonce}
+    end,
+
     cream:cache(
         Cache,
         {HasAux, VarsNonce, Parent},
         fun() ->
-                MaybeBins =
-                    case RegionBins of
-                        no_prefetch -> get_all_region_bins(Ledger);
-                        {error, _} = Err -> Err;
-                        B -> {ok, B}
-                    end,
                 case MaybeBins of
                     {ok, Bins} ->
                         h3_to_region_(Parent, Bins);
@@ -109,7 +112,7 @@ h3_in_region(H3, RegionVar, Ledger) ->
     H3 :: h3:h3_index(),
     RegionVar :: atom(),
     Ledger :: blockchain_ledger_v1:ledger(),
-    RegionBins :: [{atom(), binary() | {error, any()}}]
+    RegionBins :: {pos_integer(), [{atom(), binary()} | {error, term()}]} | {error, any()}
 ) -> boolean() | {error, any()}.
 h3_in_region(H3, RegionVar, Ledger, RegionBins) ->
     Res = polyfill_resolution(Ledger),
@@ -138,7 +141,7 @@ region_([{ToCheck, Bin} | Remaining], H3) ->
     end.
 
 -spec h3_to_region_(H3 :: h3:h3_index(),
-                    RegionBins :: [{atom(), binary() | {error, any()}}]) ->
+                    RegionBins :: [{atom(), binary()} | {error, term()}] | {error, any()}) ->
     {ok, atom()} | {error, any()}.
 h3_to_region_(H3, RegionBins) ->
     region_(RegionBins, H3).
@@ -179,13 +182,14 @@ prewarm_cache(Ledger) ->
         {error, regulatory_regions_not_set} ->
             ok;
         {ok, RB} ->
+            {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
             blockchain_ledger_v1:cf_fold(
               active_gateways,
               fun({_, BG}, Acc) ->
                       G = blockchain_ledger_gateway_v2:deserialize(BG),
                       case blockchain_ledger_gateway_v2:location(G) of
                           undefined -> Acc;
-                          Loc -> _ = h3_to_region(Loc, Ledger, RB)
+                          Loc -> _ = h3_to_region(Loc, Ledger, {Nonce, RB})
                       end
               end,
               0, Ledger),

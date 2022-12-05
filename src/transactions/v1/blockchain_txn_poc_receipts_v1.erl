@@ -1414,8 +1414,9 @@ is_same_region(Version, SourceRegion0, DstRegion0) ->
                        Channel :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    tagged_witnesses(Element, Channel, RegionVars, Ledger).
+    tagged_witnesses(Element, Channel, {VarsNonce, RegionVars}, Ledger).
 
 tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     SrcPubkeyBin = blockchain_poc_path_element_v1:challengee(Element),
@@ -1586,8 +1587,9 @@ calculate_rssi_bounds_from_snr(SNR) ->
 get_channels(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Version = poc_version(Ledger),
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    get_channels(Txn, Version, RegionVars, Chain).
+    get_channels(Txn, Version, {VarsNonce, RegionVars}, Chain).
 
 get_channels(Txn, Version, RegionVars, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
