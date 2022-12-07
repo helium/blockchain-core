@@ -984,7 +984,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
     RegionVars =
         case RegionVars0 of
-            {N, RV} when is_list(RV), is_integer(N) -> RV;
+            {N, RV} when is_list(RV), is_integer(N) -> {N, RV};
             {error, _Reason} -> no_prefetch
         end,
     SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger, RegionVars),
