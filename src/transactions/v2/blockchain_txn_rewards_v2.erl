@@ -294,14 +294,15 @@ calculate_rewards_(Start, End, Ledger, Chain, ReturnMD) ->
 calculate_rewards_metadata(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     Vars0 = get_reward_vars(Start, End, Ledger),
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     VarMap = case blockchain_hex:var_map(Ledger) of
                  {error, _Reason} -> #{};
                  {ok, VM} -> VM
              end,
 
-    RegionVars = blockchain_region_v1:get_all_region_bins(Ledger),
+    {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
 
-    Vars = Vars0#{ var_map => VarMap, region_vars => RegionVars},
+    Vars = Vars0#{ var_map => VarMap, region_vars => {Nonce, RegionVars}},
 
     %% Previously, if a state_channel closed in the grace blocks before an
     %% epoch ended, then it wouldn't ever get rewarded.

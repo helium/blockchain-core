@@ -83,6 +83,9 @@ h3_to_region(H3, Ledger, RegionBins) ->
         {Nonce, B} when is_integer(Nonce), is_list(B) -> {{ok, B}, Nonce}
     end,
 
+
+    {ok,VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+
     cream:cache(
         Cache,
         {HasAux, VarsNonce, Parent},
