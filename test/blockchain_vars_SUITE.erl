@@ -15,7 +15,8 @@
     version_change_test/1,
     master_key_test/1,
     cache_test/1,
-    hook_test/1
+    hook_test/1,
+    halt_test/1
 ]).
 
 %% Setup ----------------------------------------------------------------------
@@ -361,6 +362,27 @@ hook_test(Cfg) ->
 
     meck:unload(blockchain_txn_vars_v1),
     ok.
+
+halt_test(Cfg) ->
+    {Priv, _Pub1} = ?config(master_key, Cfg),
+    ConsensusMembers = ?config(users_in_consensus, Cfg),
+    Chain = ?config(chain, Cfg),
+
+    ?assertMatch(
+        ok,
+        var_set(?halt_chain, true, Priv, ConsensusMembers, Chain)
+    ),
+
+    ?assertError({badmatch, {error,chain_permanantly_halted}}, t_chain:commit(Chain, ConsensusMembers, [])),
+
+
+    ?assertMatch(ok, t_chain:commit_rescue(Chain, Priv, [vars(#{?halt_chain => false}, nonce_next(Chain), Priv)])),
+
+
+    ?assertEqual(ok, t_chain:commit(Chain, ConsensusMembers, [])),
+
+    ok.
+
 
 
 %% Helpers --------------------------------------------------------------------

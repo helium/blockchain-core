@@ -11,6 +11,7 @@
     stop/0,
 
     commit/3,
+    commit_rescue/3,
     commit_n_empty_blocks/3,
     get_active_gateways/1,
     get_balance/2
@@ -218,6 +219,21 @@ commit(Chain, ConsensusMembers, Txns0) ->
             {error, {invalid_txns, Invalid}}
     end.
 
+commit_rescue(Chain, MasterKey, Txns0) ->
+    Txns = lists:sort(fun blockchain_txn:sort/2, Txns0),
+    case blockchain_txn:validate(Txns, Chain) of
+        {_, []} ->
+            Block = txns_to_rescue_block(Chain, MasterKey, Txns),
+            {ok, Height0} = blockchain:height(Chain),
+            ok = blockchain:add_block(Block, Chain),
+            {ok, Height1} = blockchain:height(Chain),
+            ?assertEqual(1 + Height0, Height1),
+            ok;
+        {_, [_|_]=Invalid} ->
+            ct:pal("Invalid transactions: ~p", [Invalid]),
+            {error, {invalid_txns, Invalid}}
+    end.
+
 get_active_gateways(Chain) ->
     Ledger = blockchain:ledger(Chain),
     blockchain_ledger_v1:active_gateways(Ledger).
@@ -282,6 +298,33 @@ txns_to_block(Chain, ConsensusMembers, Txns) ->
     BinBlock = blockchain_block:serialize(Block0),
     Signatures = sign(ConsensusMembers, BinBlock),
     Block1 = blockchain_block:set_signatures(Block0, Signatures),
+    ct:pal("made block: ~p", [Block1]),
+    Block1.
+
+txns_to_rescue_block(Chain, MasterKey, Txns) ->
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    {ok, PrevHash} = blockchain:head_hash(Chain),
+    Height = blockchain_block:height(HeadBlock) + 1,
+    Time = blockchain_block:time(HeadBlock) + 1,
+    ct:pal("making block with transactions: ~p", [Txns]),
+    BlockParams =
+        #{
+            prev_hash => PrevHash,
+            height => Height,
+            transactions => Txns,
+            signatures => [],
+            time => Time,
+            hbbft_round => 0,
+            election_epoch => 1,
+            epoch_start => 0,
+            seen_votes => [],
+            bba_completion => <<>>,
+            poc_keys => []
+        },
+    Block0 = blockchain_block_v1:new(BlockParams),
+    BinBlock = blockchain_block:serialize(Block0),
+    RescueSig = (libp2p_crypto:mk_sig_fun(MasterKey))(BinBlock),
+    Block1 = blockchain_block_v1:set_signatures(Block0, [], RescueSig),
     ct:pal("made block: ~p", [Block1]),
     Block1.
 
