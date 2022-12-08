@@ -1615,6 +1615,12 @@ validate_var(?ledger_entry_version, Value) ->
             throw({error, {invalid_ledger_entry_version, Value}})
     end;
 
+validate_var(?halt_chain, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_halt_chain, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
     case atom_to_list(Var) of

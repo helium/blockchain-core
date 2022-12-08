@@ -908,8 +908,12 @@ var_cache_stats() ->
 
 -spec teardown_var_cache() -> ok.
 teardown_var_cache() ->
-    Cache = persistent_term:get(?var_cache),
-    cream:drain(Cache),
+    try persistent_term:get(?var_cache) of
+        Cache ->
+            cream:drain(Cache)
+    catch _:_ ->
+              ok
+    end,
     ok.
 
 -spec target_v_to_mod({error, not_found} | {ok, integer()}) -> atom().
