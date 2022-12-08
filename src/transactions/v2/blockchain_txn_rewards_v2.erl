@@ -677,7 +677,10 @@ prepare_rewards_v2_txns(Results, Ledger) ->
                                                                  fun(Balance) -> Balance + Amt end,
                                                                  Amt,
                                                                  Acc)
-                                         end
+                                         end;
+                                    {oracle, _Type, _O} ->
+                                        %% no rewards for offchain poc oracles
+                                        Acc
                                 end % Entry case
                         end, % function
                         Rewards,
