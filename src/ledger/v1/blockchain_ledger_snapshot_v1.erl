@@ -171,8 +171,12 @@ snapshot(Ledger0, Blocks, Infos) ->
     %% too far behind. Nodes that are reliably syncing will have a rocksdb checkpoint/snapshot at this
     %% height which is safer to use.
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger0),
-    {ok, SnapLedger} = blockchain_ledger_v1:has_snapshot(Height - blockchain_txn:block_delay(), Ledger0),
-    snapshot(SnapLedger, Blocks, Infos, active).
+    case blockchain_ledger_v1:has_snapshot(Height - blockchain_txn:block_delay(), Ledger0) of
+        {ok, SnapLedger} ->
+            snapshot(SnapLedger, Blocks, Infos, active);
+        Error ->
+            Error
+    end.
 
 -spec snapshot(
     blockchain_ledger_v1:ledger(),
