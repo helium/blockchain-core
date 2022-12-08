@@ -57,14 +57,19 @@ export(Ledger) ->
 export_accounts(Ledger) ->
     lists:foldl(
         fun({Address, Entry}, Acc) ->
-            ToAdd0 = [{address, libp2p_crypto:bin_to_b58(Address)},
-                      {hnt, integer_to_list(blockchain_ledger_entry_v2:balance(Entry))},
-                      {hst, integer_to_list(blockchain_ledger_entry_v2:balance(Entry, hst))},
-                      {mobile, integer_to_list(blockchain_ledger_entry_v2:balance(Entry, mobile))},
-                      {iot, integer_to_list(blockchain_ledger_entry_v2:balance(Entry, iot))}
-                      ],
-            ToAdd = lists:filter(fun({_, V}) -> V > 0 end, ToAdd0),
-            [ToAdd | Acc]
+            case address_roundtrip_check(Address) of
+                false ->
+                    Acc;
+                true ->
+                    ToAdd0 = [{address, libp2p_crypto:bin_to_b58(Address)},
+                              {hnt, integer_to_list(blockchain_ledger_entry_v2:balance(Entry))},
+                              {hst, integer_to_list(blockchain_ledger_entry_v2:balance(Entry, hst))},
+                              {mobile, integer_to_list(blockchain_ledger_entry_v2:balance(Entry, mobile))},
+                              {iot, integer_to_list(blockchain_ledger_entry_v2:balance(Entry, iot))}
+                              ],
+                    ToAdd = lists:filter(fun({_, V}) -> V > 0 end, ToAdd0),
+                    [ToAdd | Acc]
+            end
         end,
         [],
         maps:to_list(blockchain_ledger_v1:entries(Ledger))
@@ -85,13 +90,18 @@ export_gateways(Ledger) ->
                 dataonly -> true;
                 _ -> false
             end,
+            OwnerAddress = blockchain_ledger_gateway_v2:owner_address(Gateway),
 
-            [[{gateway_address, libp2p_crypto:bin_to_b58(GatewayAddress)},
-              {owner_address, libp2p_crypto:bin_to_b58(blockchain_ledger_gateway_v2:owner_address(Gateway))},
-              {location, Loc},
-              {gain, blockchain_ledger_gateway_v2:gain(Gateway)},
-              {dataonly, IsDataonly},
-              {altitude, blockchain_ledger_gateway_v2:elevation(Gateway)}] | Acc]
+            case {address_roundtrip_check(GatewayAddress), address_roundtrip_check(OwnerAddress)} of
+                {true, true} ->
+                    [[{gateway_address, libp2p_crypto:bin_to_b58(GatewayAddress)},
+                      {owner_address, libp2p_crypto:bin_to_b58(OwnerAddress)},
+                      {location, Loc},
+                      {gain, blockchain_ledger_gateway_v2:gain(Gateway)},
+                      {dataonly, IsDataonly},
+                      {altitude, blockchain_ledger_gateway_v2:elevation(Gateway)}] | Acc];
+                _ -> Acc
+            end
         end,
         [],
         maps:to_list(blockchain_ledger_v1:active_gateways(Ledger))
@@ -101,8 +111,12 @@ export_gateways(Ledger) ->
 export_dcs(Ledger) ->
     lists:foldl(
         fun({Address, DCEntry}, Acc) ->
-            [[{address, libp2p_crypto:bin_to_b58(Address)},
-              {dc_balance, integer_to_list(blockchain_ledger_data_credits_entry_v1:balance(DCEntry))}] | Acc]
+            case address_roundtrip_check(Address) of
+                false -> Acc;
+                true ->
+                    [[{address, libp2p_crypto:bin_to_b58(Address)},
+                      {dc_balance, integer_to_list(blockchain_ledger_data_credits_entry_v1:balance(DCEntry))}] | Acc]
+            end
         end,
         [],
         maps:to_list(blockchain_ledger_v1:dc_entries(Ledger))
@@ -112,8 +126,13 @@ export_dcs(Ledger) ->
 export_validators(Ledger) ->
     blockchain_ledger_v1:fold_validators(
       fun(Val, Acc) ->
-        [[{owner, libp2p_crypto:bin_to_b58(blockchain_ledger_validator_v1:owner_address(Val))},
-          {stake, integer_to_list(blockchain_ledger_validator_v1:stake(Val))}] | Acc]
+        OwnerAddress = blockchain_ledger_validator_v1:owner_address(Val),
+        case address_roundtrip_check(OwnerAddress) of
+            false -> Acc;
+            true ->
+                [[{owner, libp2p_crypto:bin_to_b58(OwnerAddress)},
+                  {stake, integer_to_list(blockchain_ledger_validator_v1:stake(Val))}] | Acc]
+        end
       end,
       [],
       Ledger).
@@ -128,13 +147,26 @@ export_routes(Ledger) ->
 
     lists:foldl(
       fun(RoutingV1, Acc) ->
-        RouterAddresses = [libp2p_crypto:bin_to_b58(I) || I <- blockchain_ledger_routing_v1:addresses(RoutingV1)],
-        ToAdd = [
-                 {oui, blockchain_ledger_routing_v1:oui(RoutingV1)},
-                 {owner, libp2p_crypto:bin_to_b58(blockchain_ledger_routing_v1:owner(RoutingV1))},
-                 {router_addresses, RouterAddresses}
-                ],
-        [ToAdd | Acc]
+        RouterAddresses = lists:foldl(
+                            fun(Address, Acc2) ->
+                                case address_roundtrip_check(Address) of
+                                    false -> Acc2;
+                                    true -> [libp2p_crypto:bin_to_b58(Address) | Acc2]
+                                end
+                            end,
+                            [],
+                            blockchain_ledger_routing_v1:addresses(RoutingV1)),
+        OwnerAddress = blockchain_ledger_routing_v1:owner(RoutingV1),
+        case address_roundtrip_check(OwnerAddress) of
+            false -> Acc;
+            true ->
+                ToAdd = [
+                         {oui, blockchain_ledger_routing_v1:oui(RoutingV1)},
+                         {owner, libp2p_crypto:bin_to_b58(blockchain_ledger_routing_v1:owner(RoutingV1))},
+                         {router_addresses, RouterAddresses}
+                        ],
+                [ToAdd | Acc]
+        end
       end,
       [],
       Routes).
@@ -273,3 +305,13 @@ consolidate_routers(Ledger) ->
                 end, Acc,
                 RouterAddrs)
       end, #{}, maps:to_list(RM)).
+
+-spec address_roundtrip_check(libp2p_crypto:pubkey_bin()) -> boolean().
+address_roundtrip_check(Address) ->
+    try
+        Pubkey = libp2p_crypto:bin_to_pubkey(Address),
+        Bin = libp2p_crypto:pubkey_to_bin(Pubkey),
+        Bin == Address
+    catch _:_ ->
+        false
+    end.
