@@ -58,14 +58,27 @@ for_region(RegionVar, Ledger) ->
 %% required for the transition period. Maybe we can remove it once a majority
 %% of the fleet has transitioned after activation of region variables on chain.
 region_param('AS923_1') -> region_as923_1_params;
+region_param('AS923_1A') -> region_as923_1a_params;
 region_param('AS923_1B') -> region_as923_1b_params;
+region_param('AS923_1C') -> region_as923_1c_params;
+region_param('AS923_1D') -> region_as923_1d_params;
+region_param('AS923_1E') -> region_as923_1e_params;
+region_param('AS923_1F') -> region_as923_1f_params;
 region_param('AS923_2') -> region_as923_2_params;
 region_param('AS923_3') -> region_as923_3_params;
 region_param('AS923_4') -> region_as923_4_params;
 region_param('AU915') -> region_au915_params;
+region_param('AU915_SB1') -> region_au915_sb1_params;
+region_param('AU915_SB2') -> region_au915_sb2_params;
 region_param('CN470') -> region_cn470_params;
 region_param('EU433') -> region_eu433_params;
 region_param('EU868') -> region_eu868_params;
+region_param('EU868_A') -> region_eu868_a_params;
+region_param('EU868_B') -> region_eu868_b_params;
+region_param('EU868_C') -> region_eu868_c_params;
+region_param('EU868_D') -> region_eu868_d_params;
+region_param('EU868_E') -> region_eu868_e_params;
+region_param('EU868_F') -> region_eu868_f_params;
 region_param('IN865') -> region_in865_params;
 region_param('KR920') -> region_kr920_params;
 region_param('RU864') -> region_ru864_params;
