@@ -859,7 +859,13 @@ integrate_genesis_block_(
             ok = notify({integrate_genesis_block, GenesisHash}),
             {ok, GossipRef} = add_handlers(SwarmTid, Chain),
             ok = blockchain_txn_mgr:set_chain(Chain),
-            true = libp2p_swarm:network_id(SwarmTid, GenesisHash),
+            case application:get_env(blockchain, force_network_id, undefined) of
+                undefined ->
+                    true = libp2p_swarm:network_id(SwarmTid, GenesisHash);
+                _ ->
+                    ok
+            end,
+
             self() ! maybe_sync,
             S1 =
                 S0#state{
@@ -1502,7 +1508,12 @@ load_chain(SwarmTID, BaseDir, GenDir) ->
             self() ! maybe_sync,
             {ok, GenesisHash} = blockchain:genesis_hash(Chain),
             ok = blockchain_txn_mgr:set_chain(Chain),
-            true = libp2p_swarm:network_id(SwarmTID, GenesisHash),
+            case application:get_env(blockchain, force_network_id, undefined) of
+                undefined ->
+                    true = libp2p_swarm:network_id(SwarmTID, GenesisHash);
+                _ ->
+                    ok
+            end,
             {Chain, GossipRef}
     end.
 
