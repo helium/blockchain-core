@@ -65,25 +65,30 @@ dial(SwarmTID, Chain, Peer) ->
            GossipedHash::binary())->
         {ok, pid()} | {error, any()}.
 dial(SwarmTID, Chain, Peer, Heights, GossipedHash) ->
-    DialFun =
-        fun
-            Dial([])->
+    case blockchain_worker:sync_paused() of
+        true ->
+            {error, sync_paused};
+        false ->
+            DialFun =
+            fun
+                Dial([])->
                 lager:debug("dialing Sync stream failed, no compatible protocol versions",[]),
                 {error, no_supported_protocols};
             Dial([ProtocolVersion | Rest]) ->
                 case blockchain_sync_handler:dial(SwarmTID, Chain, Peer, ProtocolVersion, Heights, GossipedHash) of
-                        {ok, Stream} ->
-                            lager:debug("dialing Sync stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
-                            {ok, Stream};
-                        {error, protocol_unsupported} ->
-                            lager:debug("dialing Sync stream failed with protocol version: ~p, trying next supported protocol version",[ProtocolVersion]),
-                            Dial(Rest);
-                        {error, Reason} ->
-                            lager:debug("dialing Sync stream failed: ~p",[Reason]),
-                            {error, Reason}
+                    {ok, Stream} ->
+                        lager:debug("dialing Sync stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
+                        {ok, Stream};
+                    {error, protocol_unsupported} ->
+                        lager:debug("dialing Sync stream failed with protocol version: ~p, trying next supported protocol version",[ProtocolVersion]),
+                        Dial(Rest);
+                    {error, Reason} ->
+                        lager:debug("dialing Sync stream version ~p failed: ~p",[ProtocolVersion, Reason]),
+                        {error, Reason}
                 end
-        end,
-    DialFun(?SUPPORTED_SYNC_PROTOCOLS).
+            end,
+            DialFun(?SUPPORTED_SYNC_PROTOCOLS)
+    end.
 
 -spec dial(SwarmTID :: ets:tab(),
            Chain :: blockchain:blockchain(),
