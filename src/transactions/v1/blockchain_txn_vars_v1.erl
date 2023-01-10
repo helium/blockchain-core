@@ -1621,6 +1621,12 @@ validate_var(?halt_chain, Value) ->
         _ -> throw({error, {invalid_halt_chain, Value}})
     end;
 
+validate_var(?subnetwork_mint, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_subnetwork_mint, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
     case atom_to_list(Var) of

@@ -659,3 +659,6 @@
 
 %% var to halt the chain
 -define(halt_chain, halt_chain).
+
+%% var to enable subnetwork mint without debiting token_treasury
+-define(subnetwork_mint, subnetwork_mint).
