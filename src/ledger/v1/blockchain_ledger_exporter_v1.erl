@@ -19,7 +19,8 @@
     minimum_json/1,
     consolidate_accounts/1,
     consolidate_hotspots/1,
-    consolidate_routers/1
+    consolidate_routers/1,
+    construct_meta/1
 ]).
 
 -define(ZERO, <<"0">>).
@@ -50,7 +51,8 @@ export(Ledger) ->
         {gateways, export_gateways(Ledger)},
         {dcs, export_dcs(Ledger)},
         {routes, export_routes(Ledger)},
-        {validators, export_validators(Ledger)}
+        {validators, export_validators(Ledger)},
+        {vars, export_chain_vars(Ledger)}
     ].
 
 -spec export_accounts(blockchain_ledger_v1:ledger()) -> list().
@@ -98,6 +100,7 @@ export_gateways(Ledger) ->
                       {owner_address, libp2p_crypto:bin_to_b58(OwnerAddress)},
                       {location, Loc},
                       {gain, blockchain_ledger_gateway_v2:gain(Gateway)},
+                      {nonce, blockchain_ledger_gateway_v2:nonce(Gateway)},
                       {dataonly, IsDataonly},
                       {altitude, blockchain_ledger_gateway_v2:elevation(Gateway)}] | Acc];
                 _ -> Acc
@@ -276,7 +279,8 @@ consolidate_hotspots(Ledger) ->
                           <<"location">> => binary:list_to_bin(proplists:get_value(location, Item, "null")),
                           <<"gain">> => proplists:get_value(gain, Item, "null"),
                           <<"altitude">> => proplists:get_value(altitude, Item, "null"),
-                          <<"dataonly">> => proplists:get_value(dataonly, Item, false)
+                          <<"dataonly">> => proplists:get_value(dataonly, Item, false),
+                          <<"nonce">> => proplists:get_value(nonce, Item, 0)
                          },
                 Key = binary:list_to_bin(proplists:get_value(gateway_address, Item)),
                 maps:put(Key, Value, Acc)
