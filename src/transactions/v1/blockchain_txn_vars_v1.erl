@@ -1627,6 +1627,12 @@ validate_var(?subnetwork_mint, Value) ->
         _ -> throw({error, {invalid_subnetwork_mint, Value}})
     end;
 
+validate_var(?zero_reward_shares_fix, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_zero_reward_shares_fix, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
     case atom_to_list(Var) of
