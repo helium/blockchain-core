@@ -662,3 +662,6 @@
 
 %% var to enable subnetwork mint without debiting token_treasury
 -define(subnetwork_mint, subnetwork_mint).
+
+%% var to fix zero reward_shares accumulation
+-define(zero_reward_shares_fix, zero_reward_shares_fix).
