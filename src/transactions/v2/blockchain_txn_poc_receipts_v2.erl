@@ -186,7 +186,6 @@ is_valid(Txn, Chain) ->
                                             Error
                                     end;
                                 false ->
-                                    ct:pal("~p ~p", [OracleKey, PubKey]),
                                     {error, challenger_not_poc_oracle}
                             end;
                         _ ->

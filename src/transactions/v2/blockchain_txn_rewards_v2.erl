@@ -1076,8 +1076,11 @@ poc_challengees_rewards_(#{poc_version := Version, poc_challenger_type := oracle
                         case blockchain_poc_path_element_v1:receipt(Elem) of
                             undefined -> Acc;
                             Receipt ->
-                                Shares = blockchain_poc_receipt_v1:reward_shares(Receipt),
-                                maps:update_with(Challengee, fun(V) -> V + Shares end, Shares, Acc)
+                                case blockchain_poc_receipt_v1:reward_shares(Receipt) of
+                                    Shares when Shares > 0 ->
+                                        maps:update_with(Challengee, fun(V) -> V + Shares end, Shares, Acc);
+                                    _ -> Acc
+                                end
                         end
                 end, Acc0, Path);
 poc_challengees_rewards_(#{poc_version := Version}=Vars,
@@ -1277,9 +1280,13 @@ poc_witness_reward(Txn, AccIn,
     lists:foldl(fun(Elem, Acc) ->
                         Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
                         lists:foldl(fun(Witness, Acc2) ->
-                                            Shares = blockchain_poc_witness_v1:reward_shares(Witness),
-                                            WitnessKey = blockchain_poc_witness_v1:gateway(Witness),
-                                            maps:update_with(WitnessKey, fun({C, V}) -> {C+1, V + Shares} end, {1, Shares}, Acc2)
+                                            case blockchain_poc_witness_v1:reward_shares(Witness) of
+                                                Shares when Shares > 0 ->
+                                                    WitnessKey = blockchain_poc_witness_v1:gateway(Witness),
+                                                    maps:update_with(WitnessKey, fun({C, V}) -> {C+1, V + Shares} end,
+                                                                     {1, Shares}, Acc2);
+                                                _ -> Acc2
+                                            end
                                     end, Acc, Witnesses)
                 end, AccIn, Path);
 poc_witness_reward(Txn, AccIn,
