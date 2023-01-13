@@ -197,7 +197,7 @@ find_active_addr_([Addr | Tail], FilterEnabled, Height, MaxActivityAge, Ledger) 
 %% Helpers
 %%%-------------------------------------------------------------------
 
--spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
+-spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()} | {error, any()}.
 hex_list(Ledger, RandState) ->
     {ok, Count} = ?get_var(?poc_target_pool_size, Ledger),
     hex_list(Ledger, RandState, Count, []).
