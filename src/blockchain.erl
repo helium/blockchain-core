@@ -1175,7 +1175,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
                         {error, Reason}=Error ->
                             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
-                            case application:get_env(blockchain, drop_snapshot_cache_on_absorb_failure, true) of
+                            case application:get_env(blockchain, drop_snapshot_cache_on_absorb_failure, false) of
                                 true ->
                                     case application:get_env(blockchain, '$drop_cache_once', false) of
                                         false ->
