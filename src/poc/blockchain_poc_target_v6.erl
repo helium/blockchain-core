@@ -23,12 +23,16 @@
 ) -> {ok, {[h3:h3_index()], h3:h3_index(), rand:state()}} | {error, any()}.
 target_zone(RandState, Ledger) ->
     %% Get some random hexes
-    {HexList, NewRandState} = hex_list(Ledger, RandState),
-    %% Initialize seed with Hash once
-    %% Initial zone to begin targeting into
-    case choose_zone(NewRandState, HexList) of
-        {error, _} = ErrorResp -> ErrorResp;
-        {ok, {Hex, HexRandState}} -> {ok, {HexList, Hex, HexRandState}}
+    case hex_list(Ledger, RandState) of
+        {error, _} = Error ->
+            Error;
+        {HexList, NewRandState} ->
+            %% Initialize seed with Hash once
+            %% Initial zone to begin targeting into
+            case choose_zone(NewRandState, HexList) of
+                {error, _} = ErrorResp -> ErrorResp;
+                {ok, {Hex, HexRandState}} -> {ok, {HexList, Hex, HexRandState}}
+            end
     end.
 
 %% @doc Finds all valid gateways in specified zone
@@ -193,7 +197,7 @@ find_active_addr_([Addr | Tail], FilterEnabled, Height, MaxActivityAge, Ledger) 
 %% Helpers
 %%%-------------------------------------------------------------------
 
--spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()}.
+-spec hex_list(Ledger :: blockchain_ledger_v1:ledger(), RandState :: rand:state()) -> {[{h3:h3_index(), pos_integer()}], rand:state()} | {error, any()}.
 hex_list(Ledger, RandState) ->
     {ok, Count} = ?get_var(?poc_target_pool_size, Ledger),
     hex_list(Ledger, RandState, Count, []).
@@ -202,13 +206,17 @@ hex_list(_Ledger, RandState, 0, Acc) ->
     %% usort so if we selected duplicates they don't get overselected
     {lists:usort(Acc), RandState};
 hex_list(Ledger, RandState, HexCount, Acc) ->
-    {ok, Hex, NewRandState} = blockchain_ledger_v1:random_targeting_hex(RandState, Ledger),
-    case blockchain_ledger_v1:count_gateways_in_hex(Hex, Ledger) of
-        0 ->
-            %% this should not happen, but handle it anyway
-            hex_list(Ledger, NewRandState, HexCount -1, Acc);
-        GWCount ->
-            hex_list(Ledger, NewRandState, HexCount - 1, [{Hex, GWCount}|Acc])
+    case blockchain_ledger_v1:random_targeting_hex(RandState, Ledger) of
+        {ok, Hex, NewRandState} ->
+            case blockchain_ledger_v1:count_gateways_in_hex(Hex, Ledger) of
+                0 ->
+                    %% this should not happen, but handle it anyway
+                    hex_list(Ledger, NewRandState, HexCount -1, Acc);
+                GWCount ->
+                    hex_list(Ledger, NewRandState, HexCount - 1, [{Hex, GWCount}|Acc])
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 -spec choose_zone(
