@@ -616,18 +616,24 @@ delayed_absorb(Txn, Ledger) ->
                     ok = blockchain_ledger_v1:master_key(Key, Ledger)
             end
     end,
-    blockchain_utils:teardown_var_cache(),
-    case blockchain_ledger_v1:mode(Ledger) of
-        active ->
-            %% we've invalidated the region cache, so prewarm it.
-            spawn(fun() ->
-                          timer:sleep(30000),
-                          blockchain_region_v1:prewarm_cache(blockchain_ledger_v1:remove_context(Ledger))
-                  end);
+    case get('__speculative_absorb') of
+        true ->
+            ok;
         _ ->
+            %% arguably this is unnecessary because the var nonce is part of the cache key
+            blockchain_utils:teardown_var_cache(),
+            case blockchain_ledger_v1:mode(Ledger) of
+                active ->
+                    %% we've invalidated the region cache, so prewarm it.
+                    spawn(fun() ->
+                                  timer:sleep(30000),
+                                  blockchain_region_v1:prewarm_cache(blockchain_ledger_v1:remove_context(Ledger))
+                          end);
+                _ ->
+                    ok
+            end,
             ok
-    end,
-    ok.
+    end.
 
 sum_higher(Target, Proplist) ->
     sum_higher(Target, Proplist, 0).
