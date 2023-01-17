@@ -73,24 +73,31 @@ h3_to_region(H3, Ledger, RegionBins) ->
     Res = polyfill_resolution(Ledger),
     HasAux = blockchain_ledger_v1:has_aux(Ledger),
     Parent = h3:parent(H3, Res),
-    Cache = persistent_term:get(?region_cache),
-    cream:cache(
-        Cache,
-        {HasAux, VarsNonce, Parent},
-        fun() ->
-                MaybeBins =
-                    case RegionBins of
-                        no_prefetch -> get_all_region_bins(Ledger);
-                        {error, _} = Err -> Err;
-                        B -> {ok, B}
-                    end,
-                case MaybeBins of
-                    {ok, Bins} ->
-                        h3_to_region_(Parent, Bins);
-                    {error, _} = Error -> Error
-                end
-        end
-     ).
+    LookupFun = fun() ->
+                        MaybeBins =
+                        case RegionBins of
+                            no_prefetch -> get_all_region_bins(Ledger);
+                            {error, _} = Err -> Err;
+                            B -> {ok, B}
+                        end,
+                        case MaybeBins of
+                            {ok, Bins} ->
+                                h3_to_region_(Parent, Bins);
+                            {error, _} = Error -> Error
+                        end
+                end,
+    %% don't contaminate the cache when doing speculative absorbs
+    case get('__speculative_absorb') of
+        true ->
+            LookupFun();
+        _ ->
+            Cache = persistent_term:get(?region_cache),
+            cream:cache(
+              Cache,
+              {HasAux, VarsNonce, Parent},
+              LookupFun
+             )
+    end.
 
 -spec h3_in_region(
     H3 :: h3:h3_index(),
