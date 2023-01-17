@@ -100,7 +100,8 @@ handle_info({blockchain_event, {add_block, Hash, Sync, Ledger}},
                    %% missing some blocks, try to obtain them
                    BlockHeights = lists:seq(Height + 1, BlockHeight - 1),
                    RequiresLedger = FollowerMod:requires_ledger(),
-                   lager:info("trying to absorb missing blocks [~p..~p]", [hd(BlockHeights), lists:last(BlockHeights)]),
+                   lager:info("trying to absorb missing blocks [~p..~p], follower_mod: ~p",
+                              [hd(BlockHeights), lists:last(BlockHeights), FollowerMod]),
                    lists:foldl(fun(MissingHeight, {ok, FS}) ->
                                        {ok, MissingBlock} = blockchain:get_block(MissingHeight, Chain),
                                        MissingHash = blockchain_block:hash_block(MissingBlock),
