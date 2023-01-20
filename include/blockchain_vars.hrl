@@ -665,3 +665,5 @@
 
 %% var to fix zero reward_shares accumulation
 -define(zero_reward_shares_fix, zero_reward_shares_fix).
+
+-define(increment_var_nonce_in_rescue_block, increment_var_nonce_in_rescue_block).

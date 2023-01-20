@@ -530,6 +530,14 @@ absorb(Txn, Chain) ->
 %% in a rescue situation, we apply vars immediately.
 rescue_absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    case ?get_var(?increment_var_nonce_in_rescue_block, Ledger) of
+        {ok, true} ->
+            %% increment the nonce immediately
+            ok = blockchain_ledger_v1:vars_nonce(nonce(Txn), Ledger);
+        _ ->
+            %% legacy bug behaviour, don't do anything
+            ok
+    end,
     delayed_absorb(Txn, Ledger).
 
 maybe_absorb(Txn, Ledger, _Chain) ->
@@ -1631,6 +1639,12 @@ validate_var(?zero_reward_shares_fix, Value) ->
     case Value of
         Val when is_boolean(Val) -> ok;
         _ -> throw({error, {invalid_zero_reward_shares_fix, Value}})
+    end;
+
+validate_var(?increment_var_nonce_in_rescue_block, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_increment_var_nonce_in_rescue_block, Value}})
     end;
 
 validate_var(Var, Value) ->
