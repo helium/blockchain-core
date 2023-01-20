@@ -446,7 +446,10 @@ to_json(Txn, Opts) ->
                 [#{account => ?BIN_TO_B58(O),
                    gateway => undefined,
                    amount => Amount,
-                   type => Type} | Acc]
+                   type => Type} | Acc];
+            ({oracle, _Type, _O}, _Amount, _Ledger, Acc) ->
+                %% oracles don't get rewards
+                Acc
         end,
     Rewards = case lists:keyfind(chain, 1, Opts) of
         {chain, Chain} ->
