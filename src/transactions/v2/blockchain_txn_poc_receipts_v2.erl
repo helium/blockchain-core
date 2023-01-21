@@ -433,7 +433,30 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
 
                                 Fun(Element, {TaggedWitnesses, FilteredReceipt}, Acc)
                         end, Acc0, lists:zip(lists:seq(1, length(Path)), Path));
-        {error, request_block_hash_not_found} -> []
+        {error, request_block_hash_not_found} ->
+            case ?get_var(?poc_challenger_type, Ledger) of
+                {ok, oracle} ->
+                    Path = ?MODULE:path(Txn),
+                    lists:foldl(fun(Element, Acc) ->
+                                        Receipt = blockchain_poc_path_element_v1:receipt(Element),
+                                        Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
+                                        ReturnReceipt = case blockchain_poc_receipt_v1:reward_shares(Receipt) of
+                                                            0 -> undefined;
+                                                            _ -> Receipt
+                                                        end,
+                                        TaggedWitnesses = lists:map(fun(Witness) ->
+                                                                            case blockchain_poc_witness_v1:reward_shares(Witness) of
+                                                                                0 ->
+                                                                                    {false, <<"oracle gave 0 reward shares">>, Witness};
+                                                                                _ ->
+                                                                                    {true, <<"ok">>, Witness}
+                                                                            end
+                                                                    end, Witnesses),
+                                        Fun(Element, {TaggedWitnesses, ReturnReceipt}, Acc)
+                                end, Acc0, Path);
+                _ ->
+                    []
+            end
     catch
         throw:{error,{region_var_not_set,Region}} ->
             Path = ?MODULE:path(Txn),
