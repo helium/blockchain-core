@@ -1647,6 +1647,12 @@ validate_var(?increment_var_nonce_in_rescue_block, Value) ->
         _ -> throw({error, {invalid_increment_var_nonce_in_rescue_block, Value}})
     end;
 
+validate_var(?isolate_var_txns, Value) ->
+    case Value of
+        Val when is_boolean(Val) -> ok;
+        _ -> throw({error, {invalid_isolate_var_txns, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% check if these are dynamic region vars
     case atom_to_list(Var) of
