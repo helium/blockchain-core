@@ -973,7 +973,7 @@ absorb_aux(Block0, Chain0) ->
     end.
 
 plain_absorb_(Block, Chain0) ->
-    case ?MODULE:absorb_block(Block, Chain0) of
+    case ?MODULE:absorb_block(Block, blockchain_block:is_rescue_block(Block), Chain0) of
         {ok, _, KeysPayload} ->
             Ledger0 = blockchain:ledger(Chain0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
