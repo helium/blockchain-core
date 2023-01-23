@@ -1087,7 +1087,7 @@ poc_challengees_rewards_(#{poc_version := Version, poc_challenger_type := oracle
                             undefined -> Acc;
                             Receipt ->
                                 case {blockchain_poc_receipt_v1:reward_shares(Receipt), ZeroRewardSharesFix} of
-                                    {0, true} ->
+                                    {N, true} when N == 0 ->
                                         %% ZeroRewardSharesFix is true, but we have 0 shares, do nothing
                                         Acc;
                                     {Shares, _} ->
@@ -1296,7 +1296,7 @@ poc_witness_reward(Txn, AccIn,
                         lists:foldl(fun(Witness, Acc2) ->
                                             case {blockchain_poc_witness_v1:reward_shares(Witness), ZeroRewardSharesFix}
                                             of
-                                                {0, true} ->
+                                                {N, true} when N == 0 ->
                                                     %% ZeroRewardSharesFix is true, but we have no shares, do nothing
                                                     Acc2;
                                                 {Shares, _} ->
