@@ -667,3 +667,6 @@
 -define(zero_reward_shares_fix, zero_reward_shares_fix).
 
 -define(increment_var_nonce_in_rescue_block, increment_var_nonce_in_rescue_block).
+
+%% whether to isolate var txns into their own block to reduce var cache related issues
+-define(isolate_var_txns, isolate_var_txns).
