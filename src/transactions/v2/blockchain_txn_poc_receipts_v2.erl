@@ -441,12 +441,12 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                         Receipt = blockchain_poc_path_element_v1:receipt(Element),
                                         Witnesses = lists:reverse(blockchain_poc_path_element_v1:witnesses(Element)),
                                         ReturnReceipt = case blockchain_poc_receipt_v1:reward_shares(Receipt) of
-                                                            0 -> undefined;
+                                                            RRS when RRS == 0 -> undefined;
                                                             _ -> Receipt
                                                         end,
                                         TaggedWitnesses = lists:map(fun(Witness) ->
                                                                             case blockchain_poc_witness_v1:reward_shares(Witness) of
-                                                                                0 ->
+                                                                                WRS when WRS == 0 ->
                                                                                     {false, <<"oracle gave 0 reward shares">>, Witness};
                                                                                 _ ->
                                                                                     {true, <<"ok">>, Witness}
