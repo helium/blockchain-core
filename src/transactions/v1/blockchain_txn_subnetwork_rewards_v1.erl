@@ -134,9 +134,13 @@ is_valid(Txn, Chain) ->
     try
         %% this needs to somehow limit the mint here?  but if there is only premine I don't
         %% understand how we do that.
-        case TotalRewards =< blockchain_ledger_subnetwork_v1:token_treasury(Subnet) of
-            true -> ok;
-            false -> throw({insufficient_tokens_to_fulfil_rewards, Tokens, TotalRewards})
+        case ?get_var(?bypass_token_treasury, Ledger) of
+            {ok, true} -> ok;
+            _ ->
+                case TotalRewards =< blockchain_ledger_subnetwork_v1:token_treasury(Subnet) of
+                    true -> ok;
+                    false -> throw({insufficient_tokens_to_fulfil_rewards, Tokens, TotalRewards})
+                end
         end,
         BaseTxn = Txn#blockchain_txn_subnetwork_rewards_v1_pb{reward_server_signature = <<>>},
         Artifact = blockchain_txn_subnetwork_rewards_v1_pb:encode_msg(BaseTxn),
