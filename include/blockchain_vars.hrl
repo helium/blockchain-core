@@ -670,3 +670,6 @@
 
 %% whether to isolate var txns into their own block to reduce var cache related issues
 -define(isolate_var_txns, isolate_var_txns).
+
+%% whether to bypass token treasury amount when validating subnetwork_rewards_v1 txn
+-define(bypass_token_treasury, bypass_token_treasury).
