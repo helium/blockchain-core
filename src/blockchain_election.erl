@@ -436,14 +436,19 @@ validator_penalties(Group, Ledger) ->
 
     #{start_height := Start,
       curr_height := End} = election_info(Ledger),
-    PenaltyTuples =
-        [begin
-             {ok, #block_info_v2{height = Height,
-                                 penalties = PenaltyTuple}}
-                 = blockchain_ledger_v1:get_block_info(Ht, Ledger),
-             {PenaltyTuple, Height}
-         end
-         || Ht <- lists:seq(Start + 2, End)],
+    ActualStart = Start + 2,
+    PenaltyTuples = case ActualStart > End of
+                        true ->
+                            [];
+                        false ->
+                            [begin
+                                 {ok, #block_info_v2{height = Height,
+                                                     penalties = PenaltyTuple}}
+                                 = blockchain_ledger_v1:get_block_info(Ht, Ledger),
+                                 {PenaltyTuple, Height}
+                             end
+                             || Ht <- lists:seq(ActualStart, End)]
+                    end,
 
     IndexedPenalties = get_penalties_v2(PenaltyTuples, length(Group), Ledger),
     maps:fold(fun(I, Pen, Acc) ->
