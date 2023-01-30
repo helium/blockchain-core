@@ -42,7 +42,9 @@ minimum_json(Ledger) ->
 -spec construct_meta(blockchain:ledger()) -> map().
 construct_meta(Ledger) ->
     {ok, H} = blockchain_ledger_v1:current_height(Ledger),
-    #{<<"ledger_height">> => H}.
+    MobTreasuryAmt = blockchain_ledger_subnetwork_v1:token_treasury(
+                       maps:get(mobile, blockchain_ledger_v1:subnetworks_v1(blockchain:ledger()))),
+    #{<<"ledger_height">> => H, <<"mobile_treasury_amt">> => MobTreasuryAmt}.
 
 -spec export(blockchain_ledger_v1:ledger()) -> any().
 export(Ledger) ->
