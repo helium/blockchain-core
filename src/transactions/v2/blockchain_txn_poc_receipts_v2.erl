@@ -447,7 +447,13 @@ tagged_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
                                         TaggedWitnesses = lists:map(fun(Witness) ->
                                                                             case blockchain_poc_witness_v1:reward_shares(Witness) of
                                                                                 WRS when WRS == 0 ->
-                                                                                    {false, <<"oracle gave 0 reward shares">>, Witness};
+                                                                                    %% the injector is overriding the channel field in witness_v1 proto
+                                                                                    %% with the int value representing invalid_reason
+                                                                                    %% cast that int to a string reason
+                                                                                    InvalidReason = invalid_value_to_reason(
+                                                                                        blockchain_poc_witness_v1:channel(Witness)
+                                                                                    ),
+                                                                                    {false, InvalidReason, Witness};
                                                                                 _ ->
                                                                                     {true, <<"ok">>, Witness}
                                                                             end
@@ -1291,6 +1297,33 @@ verify_poc_details(Txn, PoC, Keys) ->
                     end
 
             end
+    end.
+
+-spec invalid_value_to_reason(non_neg_integer()) -> binary().
+invalid_value_to_reason(V) ->
+    case V of
+        %% the oracle assigned enum value of 0 means no invalid reason
+        0 -> <<"ok">>;
+        1 -> <<"invalid_signature">>;
+        2 -> <<"not_asserted">>;
+        3 -> <<"entropy_expired">>;
+        4 -> <<"bad_entropy">>;
+        5 -> <<"invalid_capability">>;
+        6 -> <<"invalid_pubkey">>;
+        7 -> <<"irregular_interval">>;
+        8 -> <<"gateway_not_found">>;
+        9 -> <<"denied">>;
+        10 -> <<"invalid_packet">>;
+        11 -> <<"witness_rssi_too_high">>;
+        12 -> <<"witness_not_same_region">>;
+        13 -> <<"witness_too_far">>;
+        14 -> <<"incorrect_frequency">>;
+        15 -> <<"self_witness">>;
+        16 -> <<"stale">>;
+        17 -> <<"scaling_factor_not_found">>;
+        18 -> <<"unknown_error">>;
+        19 -> <<"witness_too_close">>;
+        _ -> <<"oracle_gave_0_reward_shares">>
     end.
 
 %% ------------------------------------------------------------------
