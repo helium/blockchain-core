@@ -1769,6 +1769,8 @@ validate_region_params(Var, Value) when is_binary(Value) ->
     case Ser == Value of
         true ->
             %% TODO: Maybe add some checks around deserialized key-values
+            %% if we are updating region vars, invalidate the cache
+            blockchain_region_params_v1:clear_cached_region_params(),
             ok;
         _ -> throw({error, {invalid_region_param_roundtrip, Var, Value}})
     end;
