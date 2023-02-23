@@ -21,6 +21,8 @@
     channel/1,
     datarate/1,
     reward_shares/1,
+    hex_scale/1,
+    reward_unit/1,
     signature/1,
     sign/2,
     is_valid/2,
@@ -129,6 +131,14 @@ reward_shares(Witness) ->
 -spec signature(Witness :: poc_witness()) -> binary().
 signature(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.signature.
+
+-spec hex_scale(Witness :: poc_witness()) -> pos_integer().
+hex_scale(Witness) ->
+    Witness#blockchain_poc_witness_v1_pb.hex_scale.
+
+-spec reward_unit(Witness :: poc_witness()) -> pos_integer().
+reward_unit(Witness) ->
+    Witness#blockchain_poc_witness_v1_pb.reward_unit.
 
 -spec sign(Witness :: poc_witness(), SigFun :: libp2p_crypto:sig_fun()) -> poc_witness().
 sign(Witness, SigFun) ->

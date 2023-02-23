@@ -24,6 +24,8 @@
     channel/1,
     datarate/1,
     reward_shares/1,
+    hex_scale/1,
+    reward_unit/1,
     addr_hash/1, addr_hash/2,
     tx_power/1, tx_power/2,
     sign/2,
@@ -160,6 +162,14 @@ tx_power(Receipt, TxPower) ->
 -spec channel(Receipt :: poc_receipt()) -> non_neg_integer().
 channel(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.channel.
+
+-spec hex_scale(Receipt :: poc_receipt()) -> pos_integer().
+hex_scale(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.hex_scale.
+
+-spec reward_unit(Receipt :: poc_receipt()) -> pos_integer().
+reward_unit(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.reward_unit.
 
 -spec sign(Receipt :: poc_receipt(), SigFun :: libp2p_crypto:sig_fun()) -> poc_receipt().
 sign(Receipt, SigFun) ->
