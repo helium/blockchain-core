@@ -135,7 +135,11 @@ export_validators(Ledger) ->
         case address_roundtrip_check(OwnerAddress) of
             false -> Acc;
             true ->
-                [[{owner, libp2p_crypto:bin_to_b58(OwnerAddress)},
+                [[{address, libp2p_crypto:bin_to_b58(blockchain_ledger_validator_v1:address(Val))},
+                  {owner, libp2p_crypto:bin_to_b58(OwnerAddress)},
+                  {last_heartbeat, integer_to_list(blockchain_ledger_validator_v1:last_heartbeat(Val))},
+                  {release_height, integer_to_list(blockchain_ledger_validator_v1:release_height(Val))},
+                  {status, atom_to_list(blockchain_ledger_validator_v1:status(Val))},
                   {stake, integer_to_list(blockchain_ledger_validator_v1:stake(Val))}] | Acc]
         end
       end,
