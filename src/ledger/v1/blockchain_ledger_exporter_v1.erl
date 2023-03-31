@@ -37,6 +37,7 @@ minimum_json(Ledger) ->
     #{<<"accounts">> => consolidate_accounts(Ledger),
       <<"hotspots">> => consolidate_hotspots(Ledger),
       <<"routers">> => consolidate_routers(Ledger),
+      <<"validators">> => consolidate_validators(Ledger),
       <<"meta">> => construct_meta(Ledger)}.
 
 -spec construct_meta(blockchain:ledger()) -> map().
@@ -292,6 +293,22 @@ consolidate_hotspots(Ledger) ->
                 maps:put(Key, Value, Acc)
            end, #{}, Hotspots),
     HM.
+
+-spec consolidate_validators(blockchain:ledger()) -> map().
+consolidate_validators(Ledger) ->
+    Validators = export_validators(Ledger),
+    VM = lists:foldl(
+           fun(Item, Acc) ->
+                Value = #{<<"owner">> => binary:list_to_bin(proplists:get_value(owner, Item, "null")),
+                          <<"last_heartbeat">> => proplists:get_value(last_heartbeat, Item, "null"),
+                          <<"release_height">> => proplists:get_value(release_height, Item, "null"),
+                          <<"status">> => proplists:get_value(status, Item, "null"),
+                          <<"stake">> => proplists:get_value(stake, Item, 0)
+                         },
+                Key = binary:list_to_bin(proplists:get_value(address, Item)),
+                maps:put(Key, Value, Acc)
+           end, #{}, Validators),
+    VM.
 
 -spec consolidate_routers(blockchain:ledger()) -> map().
 consolidate_routers(Ledger) ->
