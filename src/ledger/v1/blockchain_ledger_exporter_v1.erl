@@ -20,6 +20,7 @@
     consolidate_accounts/1,
     consolidate_hotspots/1,
     consolidate_routers/1,
+    consolidate_validators/1,
     construct_meta/1
 ]).
 
@@ -300,10 +301,10 @@ consolidate_validators(Ledger) ->
     VM = lists:foldl(
            fun(Item, Acc) ->
                 Value = #{<<"owner">> => binary:list_to_bin(proplists:get_value(owner, Item, "null")),
-                          <<"last_heartbeat">> => proplists:get_value(last_heartbeat, Item, "null"),
-                          <<"release_height">> => proplists:get_value(release_height, Item, "null"),
-                          <<"status">> => proplists:get_value(status, Item, "null"),
-                          <<"stake">> => proplists:get_value(stake, Item, 0)
+                          <<"last_heartbeat">> => binary:list_to_bin(proplists:get_value(last_heartbeat, Item, "null")),
+                          <<"release_height">> => binary:list_to_bin(proplists:get_value(release_height, Item, "null")),
+                          <<"status">> => binary:list_to_bin(proplists:get_value(status, Item, "null")),
+                          <<"stake">> => binary:list_to_bin(proplists:get_value(stake, Item, 0))
                          },
                 Key = binary:list_to_bin(proplists:get_value(address, Item)),
                 maps:put(Key, Value, Acc)
