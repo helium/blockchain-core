@@ -208,8 +208,16 @@ consolidate_accounts(Ledger) ->
     VM = lists:foldl(
            fun(Item, Acc) ->
                 Key = binary:list_to_bin(proplists:get_value(owner, Item)),
-                Value = #{<<"staked_hnt">> => binary:list_to_bin(proplists:get_value(stake, Item, "0"))},
-                maps:put(Key, Value, Acc)
+                Value = list_to_integer(proplists:get_value(stake, Item, "0")),
+                maps:update_with(Key,
+                                 fun(V) ->
+                                         Existing = list_to_integer(binary:bin_to_list(maps:get(<<"staked_hnt">>, V, <<"0">>))),
+                                         New = Existing + Value,
+                                         NewVal = binary:list_to_bin(integer_to_list(New)),
+                                         maps:put(<<"staked_hnt">>, NewVal, V)
+                                 end,
+                                 #{<<"staked_hnt">> => binary:list_to_bin(integer_to_list(Value))},
+                                 Acc)
            end,
            #{},
            Vals),
