@@ -216,7 +216,7 @@ consolidate_accounts(Ledger) ->
                                          NewVal = binary:list_to_bin(integer_to_list(New)),
                                          maps:put(<<"staked_hnt">>, NewVal, V)
                                  end,
-                                 #{<<"staked_hnt">> => <<"0">>},
+                                 #{<<"staked_hnt">> => binary:list_to_bin(integer_to_list(Value))},
                                  Acc)
            end,
            #{},
