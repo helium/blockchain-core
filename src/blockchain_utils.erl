@@ -878,14 +878,20 @@ get_vars(VarList, Ledger) ->
                VarsNonce :: non_neg_integer(),
                Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var_(VarName, HasAux, VarsNonce, Ledger) ->
-    Cache = persistent_term:get(?var_cache),
-    cream:cache(
-      Cache,
-      {HasAux, VarsNonce, VarName},
-      fun() ->
-              get_var_(VarName, Ledger)
-      end
-    ).
+    case get('__speculative_absorb') of
+        true ->
+            %% do not update the cache
+            get_var_(VarName, Ledger);
+        _ ->
+            Cache = persistent_term:get(?var_cache),
+            cream:cache(
+              Cache,
+              {HasAux, VarsNonce, VarName},
+              fun() ->
+                      get_var_(VarName, Ledger)
+              end
+             )
+    end.
 
 -spec get_var(VarName :: atom(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, any()} | {error, any()}.
 get_var(VarName, Ledger) ->

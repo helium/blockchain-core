@@ -206,6 +206,8 @@ init(Args) ->
                                   Tabs
                           end,
     ok = blockchain_event:add_handler(self()),
+    %% indicate this process does speculative absorbs to determine txn validity
+    put('__speculative_absorb', true),
     {ok, #state{txn_cache = TxnCache, rejections_deferred = []}}.
 
 handle_cast({set_chain, Chain}, State=#state{chain = undefined}) ->
