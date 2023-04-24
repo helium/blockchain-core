@@ -1962,7 +1962,8 @@ offchain_poc_witnesses_rewards_test() ->
       poc_challengers_percent => 0.0,
       dc_remainder => 0,
       poc_version => 9,
-      poc_challenger_type => oracle
+      poc_challenger_type => oracle,
+      zero_reward_shares_fix => true
      },
 
     LedgerVars = maps:merge(common_poc_vars(), EpochVars),
